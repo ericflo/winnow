@@ -47,6 +47,7 @@ fun MenuSheet(
     state: InboxUiState,
     onDismiss: () -> Unit,
     onOpenFiltered: () -> Unit,
+    onOpenArchived: () -> Unit,
     onMarkAllRead: () -> Unit,
     onOpenSettings: () -> Unit,
     onMakeDefault: () -> Unit,
@@ -70,6 +71,8 @@ fun MenuSheet(
                 IdentityCard(state, onMakeDefault)
                 MenuGroup {
                     MenuItem(painterResource(R.drawable.ic_shield), "Filtered", trailing = state.filteredCount.takeIf { it > 0 }?.toString(), onClick = onOpenFiltered)
+                    MenuDivider()
+                    MenuItem(painterResource(R.drawable.ic_archive), "Archived", trailing = state.archivedCount.takeIf { it > 0 }?.toString(), onClick = onOpenArchived)
                     MenuDivider()
                     MenuItem(rememberVectorPainter(Icons.Outlined.CheckCircle), "Mark all as read", onClick = onMarkAllRead)
                 }

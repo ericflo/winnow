@@ -6,13 +6,22 @@ import com.ericflo.winnow.AppContainer
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.ContactLookup
+import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.data.StoredVerdict
+import com.ericflo.winnow.data.displayNameFor
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -20,46 +29,126 @@ import kotlinx.coroutines.launch
 data class ThreadUiState(
     val title: String,
     val subtitle: String?,
+    val recipients: List<String>,
     val messages: List<ChatMessage> = emptyList(),
     /** Verdict on the newest incoming message. */
     val verdict: StoredVerdict? = null,
-)
+    /** Display names of group senders. */
+    val senderNames: Map<String, String> = emptyMap(),
+    val muted: Boolean = false,
+    val archived: Boolean = false,
+) {
+    val isGroup: Boolean get() = recipients.size > 1
+}
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class ThreadViewModel(
     private val container: AppContainer,
     initialThreadId: Long,
-    private val address: String,
+    private val recipients: List<String>,
 ) : ViewModel() {
     private val repo = container.messages
+    private val states = container.conversationStates
     private val threadId = MutableStateFlow(initialThreadId)
-    private val title = repo.displayName(address)
-    private val subtitle = ContactLookup.formatAddress(address).takeIf { it != title }
+    private val title = displayNameFor(recipients, repo::displayName)
+    private val subtitle = when {
+        recipients.size > 1 -> "${recipients.size + 1} people"
+        else -> ContactLookup.formatAddress(recipients.single()).takeIf { it != title }
+    }
+
+    private val _draft = MutableStateFlow("")
+    val draft: StateFlow<String> = _draft.asStateFlow()
+
+    private val _attachments = MutableStateFlow<List<OutgoingAttachment>>(emptyList())
+    val attachments: StateFlow<List<OutgoingAttachment>> = _attachments.asStateFlow()
+
+    private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    /** One-off messages for a snackbar. */
+    val notices: SharedFlow<String> = _notices
 
     init {
         viewModelScope.launch {
-            if (threadId.value < 0) threadId.value = repo.threadIdFor(address)
-            repo.markRead(threadId.value)
-            container.notifier.cancel(threadId.value)
+            if (threadId.value < 0) threadId.value = repo.threadIdFor(recipients)
+            val id = threadId.value
+            repo.markRead(id)
+            container.notifier.cancel(id)
+            states.get(id).draft?.let { saved -> if (_draft.value.isEmpty()) _draft.value = saved }
+            _draft.drop(1).debounce(400).collect { states.saveDraft(id, it) }
         }
     }
 
     val state: StateFlow<ThreadUiState> = threadId
-        .flatMapLatest { id -> if (id < 0) flowOf(emptyList()) else repo.messages(id) }
-        .map { messages -> ThreadUiState(title, subtitle, messages, messages.lastOrNull { !it.outgoing }?.verdict) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThreadUiState(title, subtitle))
+        .filter { it >= 0 }
+        .flatMapLatest { id ->
+            combine(repo.messages(id), states.observe().map { it[id] }) { messages, s ->
+                ThreadUiState(
+                    title = title,
+                    subtitle = subtitle,
+                    recipients = recipients,
+                    messages = messages,
+                    verdict = messages.lastOrNull { !it.outgoing }?.verdict,
+                    senderNames = messages.mapNotNull { it.sender }.distinct().associateWith(repo::displayName),
+                    muted = s?.muted == true,
+                    archived = s?.archived == true,
+                )
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThreadUiState(title, subtitle, recipients))
 
-    fun send(body: String) {
-        val text = body.trim()
-        if (text.isEmpty()) return
-        viewModelScope.launch { repo.send(address, text) }
+    fun setDraft(value: String) {
+        _draft.value = value
     }
 
-    fun allow() = override(Action.ALLOW)
+    fun addAttachment(attachment: OutgoingAttachment) {
+        _attachments.value = _attachments.value + attachment
+    }
 
-    fun filter() = override(Action.FILTER)
+    fun removeAttachment(attachment: OutgoingAttachment) {
+        _attachments.value = _attachments.value - attachment
+    }
 
-    private fun override(action: Action) {
-        viewModelScope.launch { repo.overrideVerdict(threadId.value, address, action) }
+    fun send() {
+        val text = _draft.value.trim()
+        val files = _attachments.value
+        if (text.isEmpty() && files.isEmpty()) return
+        _draft.value = ""
+        _attachments.value = emptyList()
+        viewModelScope.launch {
+            states.saveDraft(threadId.value, "")
+            try {
+                repo.send(recipients, text, files)
+            } catch (e: UnsupportedOperationException) {
+                _draft.value = text
+                _attachments.value = files
+                _notices.emit("Group messages and attachments need MMS, which isn't ready yet")
+            }
+        }
+    }
+
+    fun retry(message: ChatMessage) = launch { repo.retry(message) }
+
+    fun delete(message: ChatMessage) = launch { repo.deleteMessage(message) }
+
+    fun allow() = launch { repo.overrideVerdict(threadId.value, overrideAddress(), Action.ALLOW) }
+
+    fun filter() = launch { repo.overrideVerdict(threadId.value, overrideAddress(), Action.FILTER) }
+
+    fun setMuted(muted: Boolean) = launch { states.setMuted(threadId.value, muted) }
+
+    fun setArchived(archived: Boolean) = launch { states.setArchived(setOf(threadId.value), archived) }
+
+    fun deleteConversation(onDone: () -> Unit) = launch {
+        val id = threadId.value
+        repo.deleteThreads(setOf(id))
+        states.forget(setOf(id))
+        onDone()
+    }
+
+    /** The sender a correction applies to: the newest incoming sender, or the first recipient. */
+    private fun overrideAddress(): String =
+        state.value.messages.lastOrNull { !it.outgoing }?.sender ?: recipients.first()
+
+    private fun launch(block: suspend () -> Unit) {
+        viewModelScope.launch { block() }
     }
 }

@@ -11,6 +11,7 @@ import com.ericflo.winnow.classify.ClassifierFactory
 import com.ericflo.winnow.classify.IncomingMessageHandler
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.ContactsSource
+import com.ericflo.winnow.data.ConversationStateStore
 import com.ericflo.winnow.data.DemoMessageRepository
 import com.ericflo.winnow.data.MessageRepository
 import com.ericflo.winnow.data.SecretBox
@@ -19,6 +20,7 @@ import com.ericflo.winnow.data.SwitchingMessageRepository
 import com.ericflo.winnow.data.TelephonyMessageRepository
 import com.ericflo.winnow.data.db.WinnowDatabase
 import com.ericflo.winnow.notify.Notifier
+import com.ericflo.winnow.sms.MmsSender
 import com.ericflo.winnow.sms.SmsSender
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +44,9 @@ class AppContainer(private val context: Context) {
     val contacts by lazy { ContactLookup(context) }
     val notifier by lazy { Notifier(context) }
     val smsSender by lazy { SmsSender(context) }
+    val mmsSender by lazy { MmsSender(context) }
+    val conversationStates by lazy { ConversationStateStore(database.conversationStates()) }
+    val verdictDao by lazy { database.verdicts() }
 
     private val access = MutableStateFlow(hasSmsAccess())
 
@@ -50,8 +55,8 @@ class AppContainer(private val context: Context) {
 
     val messages: MessageRepository by lazy {
         SwitchingMessageRepository(
-            live = TelephonyMessageRepository(context, database.verdicts(), contacts, smsSender),
-            demo = DemoMessageRepository(),
+            live = TelephonyMessageRepository(context, verdictDao, contacts, smsSender, mmsSender),
+            demo = DemoMessageRepository(context.packageName),
             isLive = access,
         )
     }
@@ -59,7 +64,7 @@ class AppContainer(private val context: Context) {
     val contactsSource by lazy { ContactsSource(context, access) }
 
     val incoming by lazy {
-        IncomingMessageHandler(context, database.verdicts(), contacts, settings, classifiers, notifier)
+        IncomingMessageHandler(context, verdictDao, contacts, settings, classifiers, notifier)
     }
 
     fun isDefaultSmsApp(): Boolean = context.getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_SMS)

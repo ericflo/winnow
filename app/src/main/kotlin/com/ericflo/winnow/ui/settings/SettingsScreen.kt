@@ -65,7 +65,7 @@ private val Action.label: String
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefault: () -> Unit) {
+fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefault: () -> Unit, onOpenSenderRules: () -> Unit) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val isDefault by viewModel.isDefault.collectAsStateWithLifecycle()
     val trial by viewModel.trial.collectAsStateWithLifecycle()
@@ -124,6 +124,13 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
 
             section("Privacy")
             privacyItems(s, viewModel)
+            item("sender-rules") {
+                ListItem(
+                    headlineContent = { Text("Sender rules") },
+                    supportingContent = { Text("Senders you've always allowed or always filtered") },
+                    modifier = Modifier.clickable(onClick = onOpenSenderRules),
+                )
+            }
 
             section("What happens to each kind of message")
             Category.entries.forEach { category ->

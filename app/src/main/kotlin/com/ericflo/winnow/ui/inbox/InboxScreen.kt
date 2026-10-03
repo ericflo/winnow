@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,10 +33,18 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.MailOutline
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -43,8 +52,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -62,20 +78,25 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ericflo.winnow.R
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.data.ConversationSummary
+import com.ericflo.winnow.data.SearchHit
+import com.ericflo.winnow.ui.components.Avatar
+import com.ericflo.winnow.ui.components.shortTimestamp
 import kotlinx.coroutines.launch
 
 @Composable
 fun InboxScreen(
     viewModel: InboxViewModel,
-    onOpenConversation: (ConversationSummary) -> Unit,
+    onOpenThread: (threadId: Long, recipients: List<String>) -> Unit,
     onNewChat: () -> Unit,
     onOpenFiltered: () -> Unit,
+    onOpenArchived: () -> Unit,
     onOpenSettings: () -> Unit,
     onMakeDefault: () -> Unit,
 ) {
@@ -86,35 +107,54 @@ fun InboxScreen(
     }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
     var searching by rememberSaveable { mutableStateOf(false) }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(emptySet<Long>()) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val atTop by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
     val farDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 6 } }
     val closeSearch = {
         searching = false
         viewModel.setQuery("")
     }
-    BackHandler(enabled = searching, onBack = closeSearch)
+    BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
+    BackHandler(enabled = searching && selected.isEmpty(), onBack = closeSearch)
+
+    fun toggle(id: Long) {
+        selected = if (id in selected) selected - id else selected + id
+    }
+
+    fun archive(ids: Set<Long>) {
+        viewModel.setArchived(ids, true)
+        selected = emptySet()
+        scope.launch {
+            val result = snackbar.showSnackbar(if (ids.size == 1) "Conversation archived" else "${ids.size} conversations archived", actionLabel = "Undo")
+            if (result == SnackbarResult.ActionPerformed) viewModel.setArchived(ids, false)
+        }
+    }
 
     val navBar = WindowInsets.navigationBars.asPaddingValues()
     val direction = LocalLayoutDirection.current
+    val selection = state.conversations.filter { it.threadId in selected }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surface,
+        snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onNewChat,
-                expanded = atTop,
-                icon = { Icon(painterResource(R.drawable.ic_chat), contentDescription = null) },
-                text = { Text("Start chat") },
-            )
+            if (selected.isEmpty()) {
+                ExtendedFloatingActionButton(
+                    onClick = onNewChat,
+                    expanded = atTop,
+                    icon = { Icon(painterResource(R.drawable.ic_chat), contentDescription = null) },
+                    text = { Text("Start chat") },
+                )
+            }
         },
     ) { _ ->
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize()) {
-                if (searching) {
-                    SearchBar(state.query, viewModel::setQuery, onClose = closeSearch)
-                }
+                if (searching) SearchBar(state.query, viewModel::setQuery, onClose = closeSearch)
                 if (state.loading) return@Column
                 LazyColumn(
                     state = listState,
@@ -128,18 +168,31 @@ fun InboxScreen(
                     if (!searching) {
                         item("header") { LargeHeader(onSearch = { searching = true }, onMenu = { menuOpen = true }) }
                         if (!state.live) item("make-default") { MakeDefaultCard(onMakeDefault) }
+                    } else if (state.query.isNotBlank() && state.conversations.isNotEmpty()) {
+                        item("h-conversations") { SectionHeader("Conversations") }
                     }
                     items(state.conversations, key = { it.threadId }) { conversation ->
-                        ConversationRow(
-                            conversation,
-                            showVerdict = conversation.verdict?.effectiveAction == Action.SILENCE,
-                            onClick = { onOpenConversation(conversation) },
-                        )
+                        val open = { onOpenThread(conversation.threadId, conversation.recipients) }
+                        SwipeToArchive(enabled = selected.isEmpty() && !searching, onArchive = { archive(setOf(conversation.threadId)) }) {
+                            ConversationRow(
+                                conversation,
+                                showVerdict = conversation.verdict?.effectiveAction == Action.SILENCE,
+                                selected = conversation.threadId in selected,
+                                onClick = { if (selected.isEmpty()) open() else toggle(conversation.threadId) },
+                                onLongClick = { toggle(conversation.threadId) },
+                            )
+                        }
                     }
-                    if (state.conversations.isEmpty()) {
+                    if (searching && state.messageHits.isNotEmpty()) {
+                        item("h-messages") { SectionHeader("Messages") }
+                        items(state.messageHits, key = { "hit-${it.threadId}-${it.timestamp}" }) { hit ->
+                            SearchHitRow(hit, onClick = { onOpenThread(hit.threadId, hit.recipients) })
+                        }
+                    }
+                    if (state.conversations.isEmpty() && state.messageHits.isEmpty()) {
                         item("empty") {
                             Text(
-                                if (state.query.isNotBlank()) "No conversations match \"${state.query}\"" else "No conversations yet",
+                                if (state.query.isNotBlank()) "Nothing matches \"${state.query}\"" else "No conversations yet",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
@@ -150,8 +203,28 @@ fun InboxScreen(
                 }
             }
 
-            AnimatedVisibility(visible = !atTop && !searching, enter = fadeIn(), exit = fadeOut()) {
+            AnimatedVisibility(visible = !atTop && !searching && selected.isEmpty(), enter = fadeIn(), exit = fadeOut()) {
                 CompactBar(onSearch = { searching = true }, onMenu = { menuOpen = true })
+            }
+            if (selected.isNotEmpty()) {
+                SelectionBar(
+                    selection = selection,
+                    onClose = { selected = emptySet() },
+                    onPin = { pin ->
+                        viewModel.setPinned(selected, pin)
+                        selected = emptySet()
+                    },
+                    onArchive = { archive(selected) },
+                    onRead = { read ->
+                        viewModel.setRead(selected, read)
+                        selected = emptySet()
+                    },
+                    onDelete = { confirmDelete = true },
+                    onBlock = { conversation ->
+                        viewModel.block(conversation)
+                        selected = emptySet()
+                    },
+                )
             }
             AnimatedVisibility(
                 visible = farDown,
@@ -168,6 +241,18 @@ fun InboxScreen(
         }
     }
 
+    if (confirmDelete) {
+        DeleteDialog(
+            count = selected.size,
+            onConfirm = {
+                viewModel.delete(selected)
+                selected = emptySet()
+                confirmDelete = false
+            },
+            onDismiss = { confirmDelete = false },
+        )
+    }
+
     if (menuOpen) {
         MenuSheet(
             state = state,
@@ -175,6 +260,10 @@ fun InboxScreen(
             onOpenFiltered = {
                 menuOpen = false
                 onOpenFiltered()
+            },
+            onOpenArchived = {
+                menuOpen = false
+                onOpenArchived()
             },
             onMarkAllRead = {
                 menuOpen = false
@@ -186,6 +275,123 @@ fun InboxScreen(
             },
             onMakeDefault = onMakeDefault,
         )
+    }
+}
+
+/** Swipe either way to archive, as in Messages. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SwipeToArchive(enabled: Boolean, onArchive: () -> Unit, content: @Composable () -> Unit) {
+    if (!enabled) {
+        content()
+        return
+    }
+    val state = rememberSwipeToDismissBoxState()
+    SwipeToDismissBox(
+        state = state,
+        onDismiss = { onArchive() },
+        backgroundContent = {
+            val start = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 28.dp),
+            ) {
+                if (!start) Spacer(Modifier.weight(1f))
+                Icon(painterResource(R.drawable.ic_archive), contentDescription = "Archive", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+        },
+    ) { content() }
+}
+
+@Composable
+private fun SelectionBar(
+    selection: List<ConversationSummary>,
+    onClose: () -> Unit,
+    onPin: (Boolean) -> Unit,
+    onArchive: () -> Unit,
+    onRead: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+    onBlock: (ConversationSummary) -> Unit,
+) {
+    var overflow by remember { mutableStateOf(false) }
+    val allPinned = selection.isNotEmpty() && selection.all { it.pinned }
+    val anyUnread = selection.any { it.unread }
+    val blockable = selection.singleOrNull()?.takeIf { !it.isGroup }
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 2.dp) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().statusBarsPadding().height(64.dp).padding(horizontal = 4.dp),
+        ) {
+            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Clear selection") }
+            Text("${selection.size}", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            IconButton(onClick = { onPin(!allPinned) }) {
+                Icon(painterResource(R.drawable.ic_pin), contentDescription = if (allPinned) "Unpin" else "Pin")
+            }
+            IconButton(onClick = onArchive) { Icon(painterResource(R.drawable.ic_archive), contentDescription = "Archive") }
+            IconButton(onClick = { onRead(anyUnread) }) {
+                Icon(if (anyUnread) Icons.Outlined.CheckCircle else Icons.Outlined.MailOutline, contentDescription = if (anyUnread) "Mark as read" else "Mark as unread")
+            }
+            IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Delete") }
+            if (blockable != null) {
+                Box {
+                    IconButton(onClick = { overflow = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "More options") }
+                    DropdownMenu(expanded = overflow, onDismissRequest = { overflow = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Block and filter") },
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_block), contentDescription = null) },
+                            onClick = {
+                                overflow = false
+                                onBlock(blockable)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DeleteDialog(count: Int, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (count == 1) "Delete this conversation?" else "Delete $count conversations?") },
+        text = { Text("Messages are removed from this phone. This can't be undone.") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun SearchHitRow(hit: SearchHit, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
+        Avatar(hit.displayName, seed = hit.recipients.firstOrNull().orEmpty(), size = 44.dp)
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(hit.displayName, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                hit.body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(shortTimestamp(hit.timestamp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -257,7 +463,7 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit, onClose: (
                 IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close search") }
                 Box(Modifier.weight(1f)) {
                     if (query.isEmpty()) {
-                        Text("Search conversations", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
+                        Text("Search conversations and messages", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
                     }
                     BasicTextField(
                         value = query,

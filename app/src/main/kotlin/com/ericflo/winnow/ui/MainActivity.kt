@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import com.ericflo.winnow.WinnowApp
+import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.sms.recipientsOf
 import com.ericflo.winnow.ui.theme.WinnowTheme
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -76,9 +77,9 @@ class MainActivity : ComponentActivity() {
                 pendingRoute.value = ThreadRoute(intent.getLongExtra(EXTRA_THREAD_ID, -1), address)
             }
             Intent.ACTION_SENDTO, Intent.ACTION_SEND -> {
-                val address = intent.data?.let(::recipientsOf)?.firstOrNull() ?: return
+                val recipients = intent.data?.let(::recipientsOf).orEmpty().ifEmpty { return }
                 val body = intent.getStringExtra("sms_body") ?: intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
-                pendingRoute.value = ThreadRoute(-1, address, body)
+                pendingRoute.value = ThreadRoute(-1, joinAddresses(recipients), body)
             }
         }
     }

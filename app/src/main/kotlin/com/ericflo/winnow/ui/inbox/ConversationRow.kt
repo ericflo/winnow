@@ -1,22 +1,36 @@
 package com.ericflo.winnow.ui.inbox
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.ericflo.winnow.R
 import com.ericflo.winnow.data.ConversationSummary
 import com.ericflo.winnow.ui.components.Avatar
 import com.ericflo.winnow.ui.components.UnreadCountBadge
@@ -24,24 +38,30 @@ import com.ericflo.winnow.ui.components.VerdictBadge
 import com.ericflo.winnow.ui.components.shortTimestamp
 
 /** One conversation, laid out like Messages: avatar, name over a one-line snippet, time over an unread count. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ConversationRow(
     conversation: ConversationSummary,
     showVerdict: Boolean,
     onClick: () -> Unit,
-    leading: @Composable () -> Unit = { Avatar(conversation.displayName, seed = conversation.address) },
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
+    leading: @Composable () -> Unit = { ConversationAvatar(conversation) },
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     val unread = conversation.unread
     val colors = MaterialTheme.colorScheme
     val badge = conversation.verdict?.takeIf { showVerdict }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .background(if (selected) colors.secondaryContainer else colors.surface)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        leading()
+        if (selected) SelectedAvatar() else leading()
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
@@ -51,8 +71,16 @@ fun ConversationRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            val draft = conversation.draft
             Text(
-                conversation.snippet,
+                buildAnnotatedString {
+                    if (draft != null) {
+                        withStyle(SpanStyle(color = colors.error)) { append("Draft: ") }
+                        append(draft)
+                    } else {
+                        append(conversation.snippet)
+                    }
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (unread) colors.onSurface else colors.onSurfaceVariant,
@@ -67,16 +95,58 @@ fun ConversationRow(
             horizontalAlignment = Alignment.End,
             modifier = if (badge != null) Modifier.align(Alignment.Top).padding(top = 4.dp) else Modifier,
         ) {
-            Text(
-                shortTimestamp(conversation.timestamp),
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
-                color = if (unread) colors.onSurface else colors.onSurfaceVariant,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (conversation.muted) StatusIcon(R.drawable.ic_muted)
+                if (conversation.pinned) StatusIcon(R.drawable.ic_pin)
+                Text(
+                    shortTimestamp(conversation.timestamp),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
+                    color = if (unread) colors.onSurface else colors.onSurfaceVariant,
+                )
+            }
             if (unread) {
                 Spacer(Modifier.height(6.dp))
                 UnreadCountBadge(conversation.unreadCount)
             }
         }
+        trailing?.invoke()
+    }
+}
+
+@Composable
+private fun StatusIcon(icon: Int) {
+    Icon(
+        painterResource(icon),
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(end = 4.dp).size(16.dp),
+    )
+}
+
+/** A person's avatar, or a group glyph for group conversations. */
+@Composable
+fun ConversationAvatar(conversation: ConversationSummary, size: Dp = 52.dp) {
+    if (conversation.isGroup) {
+        Box(
+            Modifier.size(size).background(MaterialTheme.colorScheme.tertiaryContainer, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_group),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.size(size * 0.5f),
+            )
+        }
+    } else {
+        Avatar(conversation.displayName, seed = conversation.address, size = size)
+    }
+}
+
+@Composable
+private fun SelectedAvatar() {
+    Box(Modifier.size(52.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
+        Icon(Icons.Filled.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.onPrimary)
     }
 }

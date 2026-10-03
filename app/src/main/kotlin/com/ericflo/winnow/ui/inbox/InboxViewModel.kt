@@ -3,15 +3,24 @@ package com.ericflo.winnow.ui.inbox
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ericflo.winnow.AppContainer
+import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.data.ConversationSummary
 import com.ericflo.winnow.data.ProviderKind
+import com.ericflo.winnow.data.SearchHit
+import com.ericflo.winnow.data.withState
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+enum class ListMode { INBOX, FILTERED, ARCHIVED }
 
 data class InboxUiState(
     val loading: Boolean = true,
@@ -19,13 +28,19 @@ data class InboxUiState(
     val isDefault: Boolean = false,
     val query: String = "",
     val conversations: List<ConversationSummary> = emptyList(),
+    /** Message bodies matching [query], beyond conversation names and snippets. */
+    val messageHits: List<SearchHit> = emptyList(),
     val filteredCount: Int = 0,
+    val archivedCount: Int = 0,
     /** Which classifier is active, for the menu, e.g. "Jev via OpenRouter". */
     val classifier: String = "",
 )
 
-/** Backs both the inbox and the Filtered list ([showFiltered]). */
-class InboxViewModel(private val container: AppContainer, private val showFiltered: Boolean) : ViewModel() {
+/** Backs the inbox and the Filtered and Archived lists. */
+@OptIn(FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+class InboxViewModel(private val container: AppContainer, private val mode: ListMode) : ViewModel() {
+    private val repo = container.messages
+    private val states = container.conversationStates
     private val query = MutableStateFlow("")
     private val isDefault = MutableStateFlow(container.isDefaultSmsApp())
 
@@ -37,22 +52,34 @@ class InboxViewModel(private val container: AppContainer, private val showFilter
         }
     }
 
+    private val all = combine(repo.conversations(), states.observe()) { list, s -> list.withState(s) }
+
+    private val hits = query.debounce(250).distinctUntilChanged().mapLatest { q -> if (q.length < 2) emptyList() else repo.search(q) }
+
     val state: StateFlow<InboxUiState> = combine(
-        container.messages.conversations(),
+        combine(all, hits, ::Pair),
         container.isLive,
         isDefault,
         query,
         classifier,
-    ) { all, live, isDefault, query, classifier ->
-        val (filtered, inbox) = all.partition { it.isFiltered }
-        val shown = if (showFiltered) filtered else inbox
+    ) { (all, hits), live, isDefault, query, classifier ->
+        val shown = all.filter { c ->
+            when (mode) {
+                ListMode.INBOX -> !c.isFiltered && !c.archived
+                ListMode.FILTERED -> c.isFiltered
+                ListMode.ARCHIVED -> c.archived && !c.isFiltered
+            }
+        }
+        val matching = if (query.isBlank()) shown else shown.filter { it.matches(query) }
         InboxUiState(
             loading = false,
             live = live,
             isDefault = isDefault,
             query = query,
-            conversations = if (query.isBlank()) shown else shown.filter { it.matches(query) },
-            filteredCount = filtered.size,
+            conversations = matching,
+            messageHits = hits,
+            filteredCount = all.count { it.isFiltered },
+            archivedCount = all.count { it.archived && !it.isFiltered },
             classifier = classifier,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxUiState())
@@ -65,10 +92,30 @@ class InboxViewModel(private val container: AppContainer, private val showFilter
         query.value = value
     }
 
-    fun markAllRead() {
-        viewModelScope.launch { container.messages.markAllRead() }
+    fun markAllRead() = launch { repo.markAllRead() }
+
+    fun setPinned(threadIds: Set<Long>, pinned: Boolean) = launch { states.setPinned(threadIds, pinned) }
+
+    fun setArchived(threadIds: Set<Long>, archived: Boolean) = launch { states.setArchived(threadIds, archived) }
+
+    fun setRead(threadIds: Set<Long>, read: Boolean) = launch {
+        threadIds.forEach { if (read) repo.markRead(it) else repo.markUnread(it) }
+    }
+
+    fun delete(threadIds: Set<Long>) = launch {
+        repo.deleteThreads(threadIds)
+        states.forget(threadIds)
+    }
+
+    /** Always filter the sender of a 1:1 conversation. */
+    fun block(conversation: ConversationSummary) = launch {
+        if (!conversation.isGroup) repo.overrideVerdict(conversation.threadId, conversation.address, Action.FILTER)
+    }
+
+    private fun launch(block: suspend () -> Unit) {
+        viewModelScope.launch { block() }
     }
 
     private fun ConversationSummary.matches(q: String) =
-        displayName.contains(q, ignoreCase = true) || snippet.contains(q, ignoreCase = true) || address.contains(q)
+        displayName.contains(q, ignoreCase = true) || snippet.contains(q, ignoreCase = true) || recipients.any { it.contains(q) }
 }

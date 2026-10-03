@@ -12,7 +12,7 @@ import com.ericflo.winnow.classifier.message.SenderRule
 import com.ericflo.winnow.classifier.message.Verdict
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.SettingsRepository
-import com.ericflo.winnow.data.TelephonyMessageRepository
+import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.db.VerdictDao
 import com.ericflo.winnow.data.db.VerdictEntity
 import com.ericflo.winnow.data.normalizeAddress
@@ -60,7 +60,7 @@ class IncomingMessageHandler(
         }
 
         if (verdict != null) {
-            val key = TelephonyMessageRepository.messageKey(ContentUris.parseId(uri))
+            val key = ChatMessage.messageKey(ChatMessage.Kind.SMS, ContentUris.parseId(uri))
             dao.upsert(VerdictEntity.from(key, threadId, address, verdict, System.currentTimeMillis()))
         }
         when (verdict?.action ?: Action.ALLOW) {

@@ -1,12 +1,22 @@
 package com.ericflo.winnow.classifier.message
 
-/** Decisions made on the phone, before any provider sees the message. */
-internal object LocalRules {
+/** Finds one-time codes ("Your code is 482913", "G-482913") so they can stay local and be copied. */
+object VerificationCodes {
     private val CODE_WORDS = Regex(
         """\b(code|passcode|verification|verify|one[- ]time|otp|pin|security code|2fa|login)\b""",
         RegexOption.IGNORE_CASE,
     )
-    private val CODE = Regex("""(?<![\d#])(?:[A-Z]-)?\d{4,8}(?![\d#])""")
+    private val CODE = Regex("""(?<![\d#])(?:[A-Z]-)?(\d{4,8})(?![\d#])""")
+
+    /** The code's digits, or null when [body] doesn't read like a verification message. */
+    fun find(body: String): String? {
+        if (body.length > 300 || !CODE_WORDS.containsMatchIn(body)) return null
+        return CODE.find(body)?.groupValues?.get(1)
+    }
+}
+
+/** Decisions made on the phone, before any provider sees the message. */
+internal object LocalRules {
 
     fun decide(message: InboundMessage, privacy: PrivacyPolicy): Verdict? = when {
         message.senderRule == SenderRule.ALWAYS_ALLOW ->
@@ -22,8 +32,7 @@ internal object LocalRules {
         else -> null
     }
 
-    fun looksLikeVerificationCode(body: String): Boolean =
-        body.length <= 300 && CODE_WORDS.containsMatchIn(body) && CODE.containsMatchIn(body)
+    fun looksLikeVerificationCode(body: String): Boolean = VerificationCodes.find(body) != null
 }
 
 /**

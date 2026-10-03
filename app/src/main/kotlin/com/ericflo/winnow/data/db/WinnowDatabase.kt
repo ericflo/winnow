@@ -1,5 +1,6 @@
 package com.ericflo.winnow.data.db
 
+import androidx.room.AutoMigration
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -18,10 +19,25 @@ import kotlinx.coroutines.flow.Flow
  * Messages themselves live in the system Telephony provider. Winnow only stores what it
  * adds: a verdict per message and the user's per-sender rules.
  */
-@Database(entities = [VerdictEntity::class, SenderRuleEntity::class], version = 1)
+@Database(
+    entities = [VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class],
+    version = 2,
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
+)
 abstract class WinnowDatabase : RoomDatabase() {
     abstract fun verdicts(): VerdictDao
+    abstract fun conversationStates(): ConversationStateDao
 }
+
+/** Winnow-only state for a thread. The system SMS store has no place for it. */
+@Entity(tableName = "conversation_state")
+data class ConversationStateEntity(
+    @PrimaryKey val threadId: Long,
+    val pinned: Boolean = false,
+    val archived: Boolean = false,
+    val muted: Boolean = false,
+    val draft: String? = null,
+)
 
 @Entity(tableName = "verdicts")
 data class VerdictEntity(
@@ -97,9 +113,36 @@ interface VerdictDao {
     @Query("UPDATE verdicts SET userAction = :userAction WHERE threadId = :threadId")
     suspend fun setUserAction(threadId: Long, userAction: String?)
 
+    @Query("DELETE FROM verdicts WHERE threadId IN (:threadIds)")
+    suspend fun deleteForThreads(threadIds: Collection<Long>)
+
+    @Query("DELETE FROM verdicts WHERE messageKey = :messageKey")
+    suspend fun deleteForMessage(messageKey: String)
+
     @Query("SELECT rule FROM sender_rules WHERE address = :address")
     suspend fun senderRule(address: String): String?
 
+    @Query("SELECT * FROM sender_rules ORDER BY createdAt DESC")
+    fun observeSenderRules(): Flow<List<SenderRuleEntity>>
+
     @Upsert
     suspend fun upsertSenderRule(rule: SenderRuleEntity)
+
+    @Query("DELETE FROM sender_rules WHERE address = :address")
+    suspend fun deleteSenderRule(address: String)
+}
+
+@Dao
+interface ConversationStateDao {
+    @Query("SELECT * FROM conversation_state")
+    fun observeAll(): Flow<List<ConversationStateEntity>>
+
+    @Query("SELECT * FROM conversation_state WHERE threadId = :threadId")
+    suspend fun get(threadId: Long): ConversationStateEntity?
+
+    @Upsert
+    suspend fun upsert(state: ConversationStateEntity)
+
+    @Query("DELETE FROM conversation_state WHERE threadId IN (:threadIds)")
+    suspend fun delete(threadIds: Collection<Long>)
 }

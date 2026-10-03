@@ -1,9 +1,17 @@
 package com.ericflo.winnow.ui.thread
 
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
+import android.telephony.SmsMessage
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,71 +27,118 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.AddCircle
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.AsyncImage
+import com.ericflo.winnow.R
 import com.ericflo.winnow.classifier.message.Action
+import com.ericflo.winnow.classifier.message.VerificationCodes
 import com.ericflo.winnow.data.ChatMessage
+import com.ericflo.winnow.data.ContactLookup
+import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.data.StoredVerdict
 import com.ericflo.winnow.ui.components.Avatar
-import com.ericflo.winnow.data.ContactLookup
+import com.ericflo.winnow.ui.components.ImageViewer
 import com.ericflo.winnow.ui.components.headerLabel
+import com.ericflo.winnow.ui.components.isEmojiOnly
+import com.ericflo.winnow.ui.components.linkify
 import com.ericflo.winnow.ui.components.timeOfDay
+import com.ericflo.winnow.ui.theme.avatarColors
 import com.ericflo.winnow.ui.theme.categoryColors
 import java.time.Instant
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ThreadScreen(
-    viewModel: ThreadViewModel,
-    address: String,
-    initialDraft: String,
-    onBack: () -> Unit,
-) {
+fun ThreadScreen(viewModel: ThreadViewModel, onBack: () -> Unit, onForward: (String) -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var draft by rememberSaveable { mutableStateOf(initialDraft) }
+    val draft by viewModel.draft.collectAsStateWithLifecycle()
+    val attachments by viewModel.attachments.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) { viewModel.notices.collect { snackbar.showSnackbar(it) } }
     var menuOpen by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var actionsFor by remember { mutableStateOf<ChatMessage?>(null) }
+    var detailsFor by remember { mutableStateOf<ChatMessage?>(null) }
+    var viewing by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    fun copy(text: String, notice: String) {
+        scope.launch {
+            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("message", text)))
+            snackbar.showSnackbar(notice)
+        }
+    }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) viewModel.addAttachment(OutgoingAttachment(uri.toString(), context.contentResolver.getType(uri) ?: "image/jpeg", null))
+    }
+    val single = state.recipients.singleOrNull()
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 navigationIcon = {
@@ -91,7 +146,7 @@ fun ThreadScreen(
                 },
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(state.title, seed = address, size = 36.dp)
+                        if (state.isGroup) GroupAvatar(36.dp) else Avatar(state.title, seed = single.orEmpty(), size = 36.dp)
                         Spacer(Modifier.width(12.dp))
                         Column {
                             Text(state.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -102,14 +157,41 @@ fun ThreadScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", address, null))) }) {
-                        Icon(Icons.Filled.Call, contentDescription = "Call")
+                    if (single != null) {
+                        IconButton(onClick = { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", single, null))) }) {
+                            Icon(Icons.Filled.Call, contentDescription = "Call")
+                        }
                     }
                     Box {
                         IconButton(onClick = { menuOpen = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "More options") }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(text = { Text("Always allow this sender") }, onClick = { menuOpen = false; viewModel.allow() })
-                            DropdownMenuItem(text = { Text("Always filter this sender") }, onClick = { menuOpen = false; viewModel.filter() })
+                            DropdownMenuItem(
+                                text = { Text(if (state.muted) "Unmute notifications" else "Mute notifications") },
+                                leadingIcon = { Icon(painterResource(R.drawable.ic_muted), contentDescription = null) },
+                                onClick = { menuOpen = false; viewModel.setMuted(!state.muted) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (state.archived) "Unarchive" else "Archive") },
+                                leadingIcon = { Icon(painterResource(if (state.archived) R.drawable.ic_unarchive else R.drawable.ic_archive), contentDescription = null) },
+                                onClick = { menuOpen = false; viewModel.setArchived(!state.archived) },
+                            )
+                            if (single != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Always allow this sender") },
+                                    leadingIcon = { Icon(Icons.Filled.CheckCircle, contentDescription = null) },
+                                    onClick = { menuOpen = false; viewModel.allow() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Always filter this sender") },
+                                    leadingIcon = { Icon(painterResource(R.drawable.ic_block), contentDescription = null) },
+                                    onClick = { menuOpen = false; viewModel.filter() },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Delete conversation") },
+                                leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                                onClick = { menuOpen = false; confirmDelete = true },
+                            )
                         }
                     }
                 },
@@ -118,11 +200,12 @@ fun ThreadScreen(
         bottomBar = {
             Composer(
                 draft = draft,
-                onDraftChange = { draft = it },
-                onSend = {
-                    viewModel.send(draft)
-                    draft = ""
-                },
+                onDraftChange = viewModel::setDraft,
+                attachments = attachments,
+                onAttach = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onRemoveAttachment = viewModel::removeAttachment,
+                isSms = single != null && attachments.isEmpty(),
+                onSend = viewModel::send,
             )
         },
     ) { padding ->
@@ -132,8 +215,54 @@ fun ThreadScreen(
                     VerdictBanner(verdict, onAllow = viewModel::allow, onFilter = viewModel::filter)
                 }
             }
-            MessageList(address, state.messages, Modifier.weight(1f))
+            MessageList(
+                state = state,
+                onViewImage = { viewing = it },
+                onActions = { actionsFor = it },
+                onRetry = viewModel::retry,
+                onCopyCode = { copy(it, "Code copied") },
+                modifier = Modifier.weight(1f),
+            )
         }
+    }
+
+    actionsFor?.let { message ->
+        MessageActionsSheet(
+            message = message,
+            onDismiss = { actionsFor = null },
+            onCopy = { copy(message.body, "Message copied") },
+            onForward = { onForward(message.body) },
+            onDelete = { viewModel.delete(message) },
+            onDetails = { detailsFor = message },
+        )
+    }
+    detailsFor?.let { message -> MessageDetailsDialog(message, state, onDismiss = { detailsFor = null }) }
+    viewing?.let { ImageViewer(it, onDismiss = { viewing = null }) }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete this conversation?") },
+            text = { Text("Messages are removed from this phone. This can't be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    viewModel.deleteConversation(onBack)
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun GroupAvatar(size: androidx.compose.ui.unit.Dp) {
+    Box(Modifier.size(size).background(MaterialTheme.colorScheme.tertiaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+        Icon(
+            painterResource(R.drawable.ic_group),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+            modifier = Modifier.size(size * 0.55f),
+        )
     }
 }
 
@@ -183,45 +312,54 @@ private sealed interface ListItem {
     val key: String
 
     /** "Texting with … (SMS/MMS)": which transport this conversation uses. */
-    data class Transport(val address: String) : ListItem {
+    data class Transport(val text: String) : ListItem {
         override val key get() = "transport"
     }
 
     data class Header(val label: String, override val key: String) : ListItem
     data class Bubble(val message: ChatMessage, val firstInGroup: Boolean, val lastInGroup: Boolean) : ListItem {
-        override val key get() = "m${message.id}"
+        override val key get() = message.key
     }
 }
 
 /** A header opens every block of messages more than an hour after the previous one, like Messages. */
 private const val BLOCK_GAP_MILLIS = 60 * 60_000L
 
-/** Same-side messages within a block group into one visual stack. */
+/** Same-sender messages within a block group into one visual stack. */
 private const val GROUP_GAP_MILLIS = 5 * 60_000L
 
 /** Transport line, time headers and grouped bubbles. Newest first, for a reversed list. */
-private fun buildItems(address: String, messages: List<ChatMessage>): List<ListItem> {
+private fun buildItems(transport: String, messages: List<ChatMessage>): List<ListItem> {
     fun day(t: Long) = Instant.ofEpochMilli(t).atZone(ZoneId.systemDefault()).toLocalDate()
     fun newBlock(prev: ChatMessage?, m: ChatMessage) =
         prev == null || m.timestamp - prev.timestamp > BLOCK_GAP_MILLIS || day(prev.timestamp) != day(m.timestamp)
-
     fun grouped(a: ChatMessage?, b: ChatMessage?) =
-        a != null && b != null && a.outgoing == b.outgoing && !newBlock(a, b) && b.timestamp - a.timestamp < GROUP_GAP_MILLIS
+        a != null && b != null && a.outgoing == b.outgoing && a.sender == b.sender &&
+            !newBlock(a, b) && b.timestamp - a.timestamp < GROUP_GAP_MILLIS
 
-    val items = mutableListOf<ListItem>(ListItem.Transport(address))
+    val items = mutableListOf<ListItem>(ListItem.Transport(transport))
     messages.forEachIndexed { i, m ->
         val prev = messages.getOrNull(i - 1)
         val next = messages.getOrNull(i + 1)
-        if (newBlock(prev, m)) items += ListItem.Header(headerLabel(m.timestamp), "h${m.id}")
+        if (newBlock(prev, m)) items += ListItem.Header(headerLabel(m.timestamp), "h-${m.key}")
         items += ListItem.Bubble(m, firstInGroup = !grouped(prev, m), lastInGroup = !grouped(m, next))
     }
     return items.asReversed()
 }
 
 @Composable
-private fun MessageList(address: String, messages: List<ChatMessage>, modifier: Modifier = Modifier) {
-    val items = remember(address, messages) { buildItems(address, messages) }
-    var revealed by rememberSaveable { mutableStateOf<Long?>(null) }
+private fun MessageList(
+    state: ThreadUiState,
+    onViewImage: (String) -> Unit,
+    onActions: (ChatMessage) -> Unit,
+    onRetry: (ChatMessage) -> Unit,
+    onCopyCode: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val transport = if (state.isGroup) "Group texting with ${state.recipients.size} people (MMS)"
+    else "Texting with ${ContactLookup.formatAddress(state.recipients.firstOrNull().orEmpty())} (SMS/MMS)"
+    val items = remember(transport, state.messages) { buildItems(transport, state.messages) }
+    var revealed by rememberSaveable { mutableStateOf<String?>(null) }
     LazyColumn(
         reverseLayout = true,
         modifier = modifier.fillMaxWidth(),
@@ -229,15 +367,17 @@ private fun MessageList(address: String, messages: List<ChatMessage>, modifier: 
     ) {
         items(items, key = { it.key }) { item ->
             when (item) {
-                is ListItem.Transport -> CenteredNote(
-                    "Texting with ${ContactLookup.formatAddress(item.address)} (SMS/MMS)",
-                    Modifier.padding(top = 4.dp, bottom = 4.dp),
-                )
+                is ListItem.Transport -> CenteredNote(item.text, Modifier.padding(vertical = 4.dp))
                 is ListItem.Header -> CenteredNote(item.label, Modifier.padding(top = 20.dp, bottom = 8.dp))
                 is ListItem.Bubble -> MessageBubble(
-                    item,
-                    showTime = revealed == item.message.id,
-                    onClick = { revealed = if (revealed == item.message.id) null else item.message.id },
+                    item = item,
+                    senderName = item.message.sender?.let { state.senderNames[it] }?.takeIf { state.isGroup },
+                    showTime = revealed == item.key,
+                    onClick = { revealed = if (revealed == item.key) null else item.key },
+                    onLongClick = { onActions(item.message) },
+                    onViewImage = onViewImage,
+                    onRetry = { onRetry(item.message) },
+                    onCopyCode = onCopyCode,
                 )
             }
         }
@@ -255,9 +395,20 @@ private fun CenteredNote(text: String, modifier: Modifier = Modifier) {
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(item: ListItem.Bubble, showTime: Boolean, onClick: () -> Unit) {
+private fun MessageBubble(
+    item: ListItem.Bubble,
+    senderName: String?,
+    showTime: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onViewImage: (String) -> Unit,
+    onRetry: () -> Unit,
+    onCopyCode: (String) -> Unit,
+) {
     val m = item.message
+    val colors = MaterialTheme.colorScheme
     val big = 22.dp
     val small = 6.dp
     val shape = if (m.outgoing) {
@@ -265,82 +416,267 @@ private fun MessageBubble(item: ListItem.Bubble, showTime: Boolean, onClick: () 
     } else {
         RoundedCornerShape(if (item.firstInGroup) big else small, big, big, if (item.lastInGroup) big else small)
     }
-    val colors = MaterialTheme.colorScheme
+    val fraud = m.verdict?.isFraud == true
+    val showAvatarColumn = senderName != null
+
     Column(
         horizontalAlignment = if (m.outgoing) Alignment.End else Alignment.Start,
         modifier = Modifier.fillMaxWidth().padding(top = if (item.firstInGroup) 8.dp else 2.dp),
     ) {
-        Box(Modifier.fillMaxWidth(0.8f), contentAlignment = if (m.outgoing) Alignment.CenterEnd else Alignment.CenterStart) {
+        if (senderName != null && item.firstInGroup) {
             Text(
-                m.body,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (m.outgoing) colors.onPrimaryContainer else colors.onSurface,
-                modifier = Modifier
-                    .clip(shape)
-                    .background(if (m.outgoing) colors.primaryContainer else colors.surfaceContainerHigh)
-                    .clickable(onClick = onClick)
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                senderName,
+                style = MaterialTheme.typography.labelMedium,
+                color = avatarColors(m.sender.orEmpty()).second,
+                modifier = Modifier.padding(start = 48.dp, bottom = 2.dp),
             )
+        }
+        Row(verticalAlignment = Alignment.Bottom) {
+            if (showAvatarColumn) {
+                if (item.lastInGroup) Avatar(senderName.orEmpty(), seed = m.sender.orEmpty(), size = 36.dp) else Spacer(Modifier.width(36.dp))
+                Spacer(Modifier.width(12.dp))
+            }
+            Column(
+                horizontalAlignment = if (m.outgoing) Alignment.End else Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxWidth(if (showAvatarColumn) 0.85f else 0.8f),
+            ) {
+                m.attachments.forEach { attachment ->
+                    if (attachment.isImage) {
+                        AsyncImage(
+                            model = attachment.uri,
+                            contentDescription = attachment.name ?: "Image",
+                            contentScale = ContentScale.Crop,
+                            onError = { Log.w("WinnowImage", "Couldn't load ${attachment.uri}", it.result.throwable) },
+                            modifier = Modifier
+                                .widthIn(max = 260.dp)
+                                .heightIn(max = 320.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .combinedClickable(onClick = { onViewImage(attachment.uri) }, onLongClick = onLongClick),
+                        )
+                    } else {
+                        Surface(color = colors.surfaceContainerHighest, shape = RoundedCornerShape(14.dp)) {
+                            Text(
+                                attachment.name ?: attachment.contentType,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            )
+                        }
+                    }
+                }
+                when {
+                    m.status == ChatMessage.Status.DOWNLOADING -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clip(shape).background(colors.surfaceContainerHigh).padding(horizontal = 16.dp, vertical = 10.dp),
+                    ) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Downloading MMS…", style = MaterialTheme.typography.bodyLarge)
+                    }
+                    m.body.isBlank() -> Unit
+                    isEmojiOnly(m.body) -> Text(
+                        m.body,
+                        fontSize = 44.sp,
+                        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
+                    )
+                    else -> Text(
+                        linkify(m.body, links = !fraud, linkColor = if (m.outgoing) colors.onPrimaryContainer else colors.primary),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (m.outgoing) colors.onPrimaryContainer else colors.onSurface,
+                        modifier = Modifier
+                            .clip(shape)
+                            .background(if (m.outgoing) colors.primaryContainer else colors.surfaceContainerHigh)
+                            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                    )
+                }
+                if (fraud && m.body.contains('.')) {
+                    Text("Links turned off: this looks like ${m.verdict?.category?.label?.lowercase()}", style = MaterialTheme.typography.labelSmall, color = colors.error)
+                }
+                if (!m.outgoing) {
+                    VerificationCodes.find(m.body)?.let { code ->
+                        AssistChip(
+                            onClick = { onCopyCode(code) },
+                            label = { Text("Copy $code") },
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_copy), contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        )
+                    }
+                }
+            }
         }
         val status = when (m.status) {
             ChatMessage.Status.SENDING -> "Sending…"
-            ChatMessage.Status.FAILED -> "Not sent"
+            ChatMessage.Status.FAILED -> "Not sent · Tap to retry"
             else -> if (showTime) timeOfDay(m.timestamp) else null
         }
         if (status != null) {
+            val failed = m.status == ChatMessage.Status.FAILED
             Text(
                 status,
                 style = MaterialTheme.typography.labelSmall,
-                color = if (m.status == ChatMessage.Status.FAILED) colors.error else colors.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                color = if (failed) colors.error else colors.onSurfaceVariant,
+                modifier = Modifier
+                    .then(if (failed) Modifier.clickable(onClick = onRetry) else Modifier)
+                    .padding(start = if (showAvatarColumn) 56.dp else 8.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MessageActionsSheet(
+    message: ChatMessage,
+    onDismiss: () -> Unit,
+    onCopy: () -> Unit,
+    onForward: () -> Unit,
+    onDelete: () -> Unit,
+    onDetails: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+        fun act(action: () -> Unit) = { onDismiss(); action() }
+        Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
+            if (message.body.isNotBlank()) {
+                ListItem(
+                    headlineContent = { Text("Copy text") },
+                    leadingContent = { Icon(painterResource(R.drawable.ic_copy), contentDescription = null) },
+                    colors = colors,
+                    modifier = Modifier.clickable(onClick = act(onCopy)),
+                )
+                ListItem(
+                    headlineContent = { Text("Forward") },
+                    leadingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null) },
+                    colors = colors,
+                    modifier = Modifier.clickable(onClick = act(onForward)),
+                )
+            }
+            ListItem(
+                headlineContent = { Text("View details") },
+                leadingContent = { Icon(Icons.Filled.Info, contentDescription = null) },
+                colors = colors,
+                modifier = Modifier.clickable(onClick = act(onDetails)),
+            )
+            ListItem(
+                headlineContent = { Text("Delete") },
+                leadingContent = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                colors = colors,
+                modifier = Modifier.clickable(onClick = act(onDelete)),
             )
         }
     }
 }
 
 @Composable
-private fun Composer(draft: String, onDraftChange: (String) -> Unit, onSend: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        verticalAlignment = Alignment.Bottom,
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(colors.surface)
-            .navigationBarsPadding()
-            .imePadding()
-            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp),
-    ) {
-        Surface(
-            shape = RoundedCornerShape(28.dp),
-            color = colors.surfaceContainerHigh,
-            modifier = Modifier.weight(1f).heightIn(min = 56.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 20.dp)) {
-                IconButton(onClick = {}, enabled = false) {
-                    Icon(Icons.Outlined.AddCircle, contentDescription = "Attach (needs MMS support)")
-                }
-                Box(Modifier.weight(1f).padding(vertical = 16.dp)) {
-                    if (draft.isEmpty()) {
-                        Text("Text message", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
+private fun MessageDetailsDialog(message: ChatMessage, state: ThreadUiState, onDismiss: () -> Unit) {
+    val at = Instant.ofEpochMilli(message.timestamp).atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM))
+    val rows = buildList {
+        add("Type" to if (message.kind == ChatMessage.Kind.MMS) "Multimedia message (MMS)" else "Text message (SMS)")
+        if (message.outgoing) {
+            add("To" to state.recipients.joinToString(", ") { ContactLookup.formatAddress(it) })
+            add("Sent" to at)
+        } else {
+            val from = message.sender ?: state.recipients.firstOrNull().orEmpty()
+            val number = ContactLookup.formatAddress(from)
+            val name = state.senderNames[from] ?: state.title.takeIf { !state.isGroup }
+            add("From" to if (name != null && name != number) "$name · $number" else number)
+            add("Received" to at)
+        }
+        message.subject?.let { add("Subject" to it) }
+        if (message.attachments.isNotEmpty()) add("Attachments" to message.attachments.joinToString { it.contentType })
+        message.verdict?.let { v ->
+            val percent = if (v.confidence < 1.0) " (${(v.confidence * 100).toInt()}%)" else ""
+            add("Winnow" to "${v.category?.label ?: "Sender rule"}$percent → ${v.effectiveAction.name.lowercase()}")
+            add("Decided by" to v.source)
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Message details") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                rows.forEach { (label, value) ->
+                    Column {
+                        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(value, style = MaterialTheme.typography.bodyMedium)
                     }
-                    BasicTextField(
-                        value = draft,
-                        onValueChange = onDraftChange,
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
-                        cursorBrush = SolidColor(colors.primary),
-                        maxLines = 6,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@Composable
+private fun Composer(
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    attachments: List<OutgoingAttachment>,
+    onAttach: () -> Unit,
+    onRemoveAttachment: (OutgoingAttachment) -> Unit,
+    isSms: Boolean,
+    onSend: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().background(colors.surface).navigationBarsPadding().imePadding()) {
+        if (attachments.isNotEmpty()) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                items(attachments, key = { it.uri }) { attachment ->
+                    Box {
+                        AsyncImage(
+                            model = attachment.uri,
+                            contentDescription = "Attachment",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(88.dp).clip(RoundedCornerShape(16.dp)),
+                        )
+                        IconButton(
+                            onClick = { onRemoveAttachment(attachment) },
+                            modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(24.dp).background(colors.surface.copy(alpha = 0.8f), CircleShape),
+                        ) { Icon(Icons.Filled.Close, contentDescription = "Remove attachment", modifier = Modifier.size(16.dp)) }
+                    }
                 }
             }
         }
-        Spacer(Modifier.width(8.dp))
-        FilledIconButton(
-            onClick = onSend,
-            enabled = draft.isNotBlank(),
-            modifier = Modifier.size(56.dp),
-        ) {
-            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+        Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)) {
+            Surface(shape = RoundedCornerShape(28.dp), color = colors.surfaceContainerHigh, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 16.dp)) {
+                    IconButton(onClick = onAttach) { Icon(Icons.Outlined.AddCircle, contentDescription = "Attach a photo") }
+                    Box(Modifier.weight(1f).padding(vertical = 16.dp)) {
+                        if (draft.isEmpty()) {
+                            Text(if (isSms) "Text message" else "MMS message", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
+                        }
+                        BasicTextField(
+                            value = draft,
+                            onValueChange = onDraftChange,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
+                            cursorBrush = SolidColor(colors.primary),
+                            maxLines = 6,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (isSms && draft.length >= 100) SegmentCounter(draft)
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            FilledIconButton(onClick = onSend, enabled = draft.isNotBlank() || attachments.isNotEmpty(), modifier = Modifier.size(56.dp)) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+            }
         }
     }
+}
+
+/** "37 / 2": characters left in the current SMS segment, and how many segments this will take. */
+@Composable
+private fun SegmentCounter(text: String) {
+    val (segments, _, remaining) = SmsMessage.calculateLength(text, false).let { Triple(it[0], it[1], it[2]) }
+    Text(
+        "$remaining / $segments",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 8.dp),
+    )
 }

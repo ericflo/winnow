@@ -10,11 +10,15 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.ericflo.winnow.AppContainer
-import com.ericflo.winnow.ui.inbox.FilteredScreen
+import com.ericflo.winnow.data.joinAddresses
+import com.ericflo.winnow.data.splitAddresses
+import com.ericflo.winnow.ui.inbox.ConversationListScreen
 import com.ericflo.winnow.ui.inbox.InboxScreen
 import com.ericflo.winnow.ui.inbox.InboxViewModel
+import com.ericflo.winnow.ui.inbox.ListMode
 import com.ericflo.winnow.ui.newchat.NewChatScreen
 import com.ericflo.winnow.ui.newchat.NewChatViewModel
+import com.ericflo.winnow.ui.settings.SenderRulesScreen
 import com.ericflo.winnow.ui.settings.SettingsScreen
 import com.ericflo.winnow.ui.settings.SettingsViewModel
 import com.ericflo.winnow.ui.thread.ThreadScreen
@@ -25,18 +29,28 @@ import kotlinx.serialization.Serializable
 @Serializable
 data object InboxRoute
 
-/** A negative [threadId] means "look up or create the thread for [address]". */
+/**
+ * [recipients] is a comma-joined address list. A negative [threadId] means "look up or create
+ * the thread for these recipients".
+ */
 @Serializable
-data class ThreadRoute(val threadId: Long, val address: String, val draft: String = "")
+data class ThreadRoute(val threadId: Long, val recipients: String, val draft: String = "")
 
 @Serializable
 data object SettingsRoute
 
 @Serializable
+data object SenderRulesRoute
+
+@Serializable
 data object FilteredRoute
 
 @Serializable
-data object NewChatRoute
+data object ArchivedRoute
+
+/** [draft] carries a forwarded message into the conversation the user picks. */
+@Serializable
+data class NewChatRoute(val draft: String = "")
 
 @Composable
 fun WinnowNavHost(
@@ -53,41 +67,58 @@ fun WinnowNavHost(
             onRouteConsumed()
         }
     }
+    val openThread = { threadId: Long, recipients: List<String> -> nav.navigate(ThreadRoute(threadId, joinAddresses(recipients))) }
 
     NavHost(navController = nav, startDestination = InboxRoute) {
         composable<InboxRoute> {
             InboxScreen(
-                viewModel = viewModel { InboxViewModel(container, showFiltered = false) },
-                onOpenConversation = { nav.navigate(ThreadRoute(it.threadId, it.address)) },
-                onNewChat = { nav.navigate(NewChatRoute) },
+                viewModel = viewModel { InboxViewModel(container, ListMode.INBOX) },
+                onOpenThread = openThread,
+                onNewChat = { nav.navigate(NewChatRoute()) },
                 onOpenFiltered = { nav.navigate(FilteredRoute) },
+                onOpenArchived = { nav.navigate(ArchivedRoute) },
                 onOpenSettings = { nav.navigate(SettingsRoute) },
                 onMakeDefault = onMakeDefault,
             )
         }
         composable<FilteredRoute> {
-            FilteredScreen(
-                viewModel = viewModel { InboxViewModel(container, showFiltered = true) },
+            ConversationListScreen(
+                viewModel = viewModel { InboxViewModel(container, ListMode.FILTERED) },
+                mode = ListMode.FILTERED,
                 onBack = { nav.popBackStack() },
-                onOpenConversation = { nav.navigate(ThreadRoute(it.threadId, it.address)) },
+                onOpenThread = openThread,
             )
         }
-        composable<NewChatRoute> {
+        composable<ArchivedRoute> {
+            ConversationListScreen(
+                viewModel = viewModel { InboxViewModel(container, ListMode.ARCHIVED) },
+                mode = ListMode.ARCHIVED,
+                onBack = { nav.popBackStack() },
+                onOpenThread = openThread,
+            )
+        }
+        composable<NewChatRoute> { entry ->
+            val route = entry.toRoute<NewChatRoute>()
             NewChatScreen(
                 viewModel = viewModel { NewChatViewModel(container) },
                 onBack = { nav.popBackStack() },
-                onStart = { address ->
-                    nav.navigate(ThreadRoute(-1, address)) { popUpTo<NewChatRoute> { inclusive = true } }
+                onStart = { recipients ->
+                    nav.navigate(ThreadRoute(-1, joinAddresses(recipients), route.draft)) {
+                        popUpTo<NewChatRoute> { inclusive = true }
+                    }
                 },
             )
         }
         composable<ThreadRoute> { entry ->
             val route = entry.toRoute<ThreadRoute>()
             ThreadScreen(
-                viewModel = viewModel { ThreadViewModel(container, route.threadId, route.address) },
-                address = route.address,
-                initialDraft = route.draft,
+                viewModel = viewModel {
+                    ThreadViewModel(container, route.threadId, splitAddresses(route.recipients)).also { vm ->
+                        if (route.draft.isNotEmpty()) vm.setDraft(route.draft)
+                    }
+                },
                 onBack = { nav.popBackStack() },
+                onForward = { text -> nav.navigate(NewChatRoute(draft = text)) },
             )
         }
         composable<SettingsRoute> {
@@ -95,7 +126,11 @@ fun WinnowNavHost(
                 viewModel = viewModel { SettingsViewModel(container) },
                 onBack = { nav.popBackStack() },
                 onMakeDefault = onMakeDefault,
+                onOpenSenderRules = { nav.navigate(SenderRulesRoute) },
             )
+        }
+        composable<SenderRulesRoute> {
+            SenderRulesScreen(container = container, onBack = { nav.popBackStack() })
         }
     }
 }

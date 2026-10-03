@@ -37,6 +37,8 @@ class RedactorTest {
         assertTrue(LocalRules.looksLikeVerificationCode("G-482913 is your Google verification code."))
         assertFalse(LocalRules.looksLikeVerificationCode("Lunch at 1230?"))
         assertFalse(LocalRules.looksLikeVerificationCode("Use code SAVE20 for 20% off"))
+        assertEquals("482913", VerificationCodes.find("G-482913 is your Google verification code."))
+        assertEquals("4821", VerificationCodes.find("Your Uber code is 4821"))
     }
 
     @Test
