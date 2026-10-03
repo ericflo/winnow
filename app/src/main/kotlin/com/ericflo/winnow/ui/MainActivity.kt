@@ -73,8 +73,8 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?) {
         when (intent?.action) {
             ACTION_OPEN_THREAD -> {
-                val address = intent.getStringExtra(EXTRA_ADDRESS) ?: return
-                pendingRoute.value = ThreadRoute(intent.getLongExtra(EXTRA_THREAD_ID, -1), address)
+                val recipients = intent.getStringExtra(EXTRA_ADDRESS) ?: return
+                pendingRoute.value = ThreadRoute(intent.getLongExtra(EXTRA_THREAD_ID, -1), recipients)
             }
             Intent.ACTION_SENDTO, Intent.ACTION_SEND -> {
                 val recipients = intent.data?.let(::recipientsOf).orEmpty().ifEmpty { return }
@@ -87,6 +87,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val ACTION_OPEN_THREAD = "com.ericflo.winnow.OPEN_THREAD"
         const val EXTRA_THREAD_ID = "thread_id"
+        /** Comma-joined recipients of the thread to open. */
         const val EXTRA_ADDRESS = "address"
     }
 }

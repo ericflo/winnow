@@ -64,7 +64,7 @@ class AppContainer(private val context: Context) {
     val contactsSource by lazy { ContactsSource(context, access) }
 
     val incoming by lazy {
-        IncomingMessageHandler(context, verdictDao, contacts, settings, classifiers, notifier)
+        IncomingMessageHandler(context, verdictDao, contacts, settings, classifiers, notifier, conversationStates)
     }
 
     fun isDefaultSmsApp(): Boolean = context.getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_SMS)

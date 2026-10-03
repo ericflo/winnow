@@ -20,6 +20,11 @@ class ConversationStateStore(private val dao: ConversationStateDao) {
     suspend fun setArchived(threadIds: Collection<Long>, archived: Boolean) =
         updateAll(threadIds) { it.copy(archived = archived, pinned = if (archived) false else it.pinned) }
 
+    /** Brings an archived thread back to the inbox; a no-op (and no write) otherwise. */
+    suspend fun unarchive(threadId: Long) {
+        if (dao.get(threadId)?.archived == true) setArchived(listOf(threadId), false)
+    }
+
     suspend fun setMuted(threadId: Long, muted: Boolean) = updateAll(listOf(threadId)) { it.copy(muted = muted) }
 
     suspend fun saveDraft(threadId: Long, draft: String) =

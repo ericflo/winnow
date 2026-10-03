@@ -11,6 +11,7 @@ import com.ericflo.winnow.classifier.message.InboundMessage
 import com.ericflo.winnow.classifier.message.SenderRule
 import com.ericflo.winnow.classifier.message.Verdict
 import com.ericflo.winnow.data.ContactLookup
+import com.ericflo.winnow.data.ConversationStateStore
 import com.ericflo.winnow.data.SettingsRepository
 import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.db.VerdictDao
@@ -36,13 +37,14 @@ class IncomingMessageHandler(
     private val settings: SettingsRepository,
     private val classifiers: ClassifierFactory,
     private val notifier: Notifier,
+    private val states: ConversationStateStore,
 ) {
 
     suspend fun onSmsDelivered(address: String, body: String, sentAt: Long, subscriptionId: Int) {
         val stored = withContext(Dispatchers.IO) { store(address, body, sentAt, subscriptionId) }
         if (stored == null) {
             Log.e(TAG, "Could not store incoming SMS; is Winnow the default SMS app?")
-            notifier.showMessage(-1, address, displayName(address), body)
+            notifier.showMessage(-1, listOf(address), displayName(address), displayName(address), body)
             return
         }
         val (uri, threadId) = stored
@@ -63,8 +65,14 @@ class IncomingMessageHandler(
             val key = ChatMessage.messageKey(ChatMessage.Kind.SMS, ContentUris.parseId(uri))
             dao.upsert(VerdictEntity.from(key, threadId, address, verdict, System.currentTimeMillis()))
         }
-        when (verdict?.action ?: Action.ALLOW) {
-            Action.ALLOW -> notifier.showMessage(threadId, address, displayName(address), body)
+        val action = verdict?.action ?: Action.ALLOW
+        // A new message brings an archived conversation back, unless it's being filtered.
+        if (action != Action.FILTER) states.unarchive(threadId)
+        when (action) {
+            Action.ALLOW -> if (!states.get(threadId).muted) {
+                val name = displayName(address)
+                notifier.showMessage(threadId, listOf(address), name, name, body)
+            }
             Action.SILENCE -> Unit
             Action.FILTER -> withContext(Dispatchers.IO) { markRead(uri) }
         }
