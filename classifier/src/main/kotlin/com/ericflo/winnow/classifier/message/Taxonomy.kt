@@ -14,33 +14,40 @@ enum class Category(val key: String, val label: String, val rubric: String, val 
     TRANSACTIONAL(
         "transactional", "Transactional",
         "An automated message the user plausibly expects because of something they did: verification codes, real " +
-            "order or delivery updates, appointment reminders, alerts from a bank or service they use. No pressure " +
-            "to click an unfamiliar link or to pay.",
+            "order or delivery updates, appointment reminders, bills and alerts from a bank, carrier or service " +
+            "they use. No pressure to click an unfamiliar link or to pay.",
         Action.ALLOW,
     ),
-    PROMOTIONAL(
-        "promotional", "Promotion",
-        "Marketing from a business the user may have signed up with: sales, coupons, offers, newsletters, " +
-            "loyalty programs. Usually offers an opt-out such as 'Reply STOP'.",
+    MARKETING(
+        "marketing", "Marketing",
+        "Advertising from a business the user may have signed up with: sales, coupons, offers, member days, " +
+            "newsletters, surveys, loyalty programs. Usually offers an opt-out such as 'Reply STOP'.",
         Action.SILENCE,
     ),
     POLITICAL(
         "political", "Political",
-        "From a campaign, party, PAC, advocacy group or pollster: donation asks, voting reminders, surveys, " +
-            "issue pushes.",
+        "From a campaign, party, PAC, advocacy group or pollster: donation and matching asks, fake polls, " +
+            "petitions and 'sign by' deadlines, voting reminders, sensational 'BREAKING' or 'devastating news' " +
+            "hooks about politicians, and fundraising texts addressed to someone else by name.",
         Action.FILTER,
     ),
-    SPAM(
-        "spam", "Spam",
-        "Unsolicited bulk junk that is not clearly fraud: lead generation, random offers, irrelevant mass texts, " +
-            "messages meant for someone else.",
+    PHISHING(
+        "phishing", "Phishing",
+        "Impersonates a company, bank, toll agency, delivery service, government office or one of the user's " +
+            "accounts to get a click, a login, a payment or personal details: fake unpaid tolls, package holds, " +
+            "account locks, refunds, benefit or Social Security payments.",
         Action.FILTER,
     ),
     SCAM(
         "scam", "Likely scam",
-        "Fraud or phishing: fake unpaid tolls, fake package or account problems, prize or job offers, investment " +
-            "or crypto pitches, 'wrong number' openers from strangers, anything urging a link, a payment, gift " +
-            "cards or personal details.",
+        "Other fraud from strangers: 'wrong number' and 'hi, is this…' or 'are you free to talk?' openers, " +
+            "romance, job, prize, investment or crypto pitches, requests for gift cards or money.",
+        Action.FILTER,
+    ),
+    SPAM(
+        "spam", "Spam",
+        "Unsolicited bulk junk that is not clearly fraud or politics: lead generation, random offers, " +
+            "irrelevant mass texts, messages meant for someone else.",
         Action.FILTER,
     ),
     ;

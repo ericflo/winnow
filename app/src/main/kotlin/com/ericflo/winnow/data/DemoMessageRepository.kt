@@ -15,7 +15,7 @@ class DemoMessageRepository : MessageRepository {
         val address: String,
         val name: String,
         val messages: List<ChatMessage>,
-        val unread: Boolean,
+        val unreadCount: Int,
     )
 
     private val threads = MutableStateFlow(seed())
@@ -29,7 +29,7 @@ class DemoMessageRepository : MessageRepository {
                 displayName = t.name,
                 snippet = if (last.outgoing) "You: ${last.body}" else last.body,
                 timestamp = last.timestamp,
-                unread = t.unread,
+                unreadCount = t.unreadCount,
                 verdict = t.messages.lastOrNull { !it.outgoing }?.verdict,
             )
         }.sortedByDescending { it.timestamp }
@@ -44,7 +44,7 @@ class DemoMessageRepository : MessageRepository {
     override suspend fun threadIdFor(address: String): Long {
         find(address)?.let { return it.threadId }
         val id = threads.value.maxOf { it.threadId } + 1
-        threads.update { it + DemoThread(id, address, ContactLookup.formatAddress(address), emptyList(), unread = false) }
+        threads.update { it + DemoThread(id, address, ContactLookup.formatAddress(address), emptyList(), unreadCount = 0) }
         return id
     }
 
@@ -59,7 +59,11 @@ class DemoMessageRepository : MessageRepository {
     }
 
     override suspend fun markRead(threadId: Long) {
-        threads.update { list -> list.map { if (it.threadId == threadId) it.copy(unread = false) else it } }
+        threads.update { list -> list.map { if (it.threadId == threadId) it.copy(unreadCount = 0) else it } }
+    }
+
+    override suspend fun markAllRead() {
+        threads.update { list -> list.map { it.copy(unreadCount = 0) } }
     }
 
     override suspend fun overrideVerdict(threadId: Long, address: String, action: Action) {
@@ -94,7 +98,7 @@ class DemoMessageRepository : MessageRepository {
             fun stranger(threadId: Long, number: String, unread: Boolean, vararg messages: ChatMessage) =
                 DemoThread(
                     threadId, number, ContactLookup.formatAddress(number), messages.toList(),
-                    unread = unread && messages.none { it.verdict?.effectiveAction == Action.FILTER },
+                    unreadCount = if (unread && messages.none { it.verdict?.effectiveAction == Action.FILTER }) messages.size else 0,
                 )
 
             return listOf(
@@ -105,7 +109,7 @@ class DemoMessageRepository : MessageRepository {
                         inbound(1, "Safe travels home 💛", 60 * 26 - 3, contact),
                         inbound(1, "Are you still coming Sunday? Dad's making his chili", 14, contact),
                     ),
-                    unread = true,
+                    unreadCount = 1,
                 ),
                 DemoThread(
                     2, "+15555550102", "Sam Rivera",
@@ -113,12 +117,12 @@ class DemoMessageRepository : MessageRepository {
                         inbound(2, "running 10 late, grab us a table?", 52, contact),
                         outbound(2, "On it. Back corner by the window", 50),
                     ),
-                    unread = false,
+                    unreadCount = 0,
                 ),
                 stranger(3, "72975", false, inbound(3, "Your Northwind Bank verification code is 482913. Don't share it with anyone.", 95, code)),
                 stranger(
                     4, "+13185550182", true,
-                    inbound(4, "E-ZPass: Your toll balance of \$4.35 is unpaid. Avoid a \$50 late fee, pay today: ezpass-tolls.top/pay", 33, jev(Category.SCAM, 0.98)),
+                    inbound(4, "E-ZPass: Your toll balance of \$4.35 is unpaid. Avoid a \$50 late fee, pay today: ezpass-tolls.top/pay", 33, jev(Category.PHISHING, 0.98)),
                 ),
                 stranger(
                     5, "+16595550147", true,
@@ -126,7 +130,7 @@ class DemoMessageRepository : MessageRepository {
                 ),
                 stranger(
                     6, "827438", false,
-                    inbound(6, "Harbor & Pine: 30% off fall decor this weekend only! Shop now: hpine.co/fall Reply STOP to opt out", 60 * 5, jev(Category.PROMOTIONAL, 0.95)),
+                    inbound(6, "Harbor & Pine: 30% off fall decor this weekend only! Shop now: hpine.co/fall Reply STOP to opt out", 60 * 5, jev(Category.MARKETING, 0.95)),
                 ),
                 stranger(
                     7, "+12025550199", true,
@@ -134,7 +138,15 @@ class DemoMessageRepository : MessageRepository {
                 ),
                 stranger(
                     8, "+447700900123", true,
-                    inbound(8, "USPS: Your package is on hold due to an incomplete address. Update within 12 hours: usps-redelivery.vip/track", 60 * 20, jev(Category.SCAM, 0.99)),
+                    inbound(8, "USPS: Your package is on hold due to an incomplete address. Update within 12 hours: usps-redelivery.vip/track", 60 * 20, jev(Category.PHISHING, 0.99)),
+                ),
+                stranger(
+                    11, "+17715550142", true,
+                    inbound(11, "BREAKING: The House just passed a CATASTROPHIC bill. Add your name before midnight >>", 6, jev(Category.POLITICAL, 0.98)),
+                ),
+                stranger(
+                    12, "+17715550143", true,
+                    inbound(12, "Hi, it's Mark! Can you complete your Approval Poll? Due to low response we need yours by 11:59pm", 60 * 26, jev(Category.POLITICAL, 0.91)),
                 ),
                 stranger(
                     9, "+14155550177", false,

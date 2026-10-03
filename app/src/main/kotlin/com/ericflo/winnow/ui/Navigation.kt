@@ -10,8 +10,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.ericflo.winnow.AppContainer
+import com.ericflo.winnow.ui.inbox.FilteredScreen
 import com.ericflo.winnow.ui.inbox.InboxScreen
 import com.ericflo.winnow.ui.inbox.InboxViewModel
+import com.ericflo.winnow.ui.newchat.NewChatScreen
+import com.ericflo.winnow.ui.newchat.NewChatViewModel
 import com.ericflo.winnow.ui.settings.SettingsScreen
 import com.ericflo.winnow.ui.settings.SettingsViewModel
 import com.ericflo.winnow.ui.thread.ThreadScreen
@@ -28,6 +31,12 @@ data class ThreadRoute(val threadId: Long, val address: String, val draft: Strin
 
 @Serializable
 data object SettingsRoute
+
+@Serializable
+data object FilteredRoute
+
+@Serializable
+data object NewChatRoute
 
 @Composable
 fun WinnowNavHost(
@@ -48,11 +57,28 @@ fun WinnowNavHost(
     NavHost(navController = nav, startDestination = InboxRoute) {
         composable<InboxRoute> {
             InboxScreen(
-                viewModel = viewModel { InboxViewModel(container) },
+                viewModel = viewModel { InboxViewModel(container, showFiltered = false) },
                 onOpenConversation = { nav.navigate(ThreadRoute(it.threadId, it.address)) },
-                onStartChat = { nav.navigate(ThreadRoute(-1, it)) },
+                onNewChat = { nav.navigate(NewChatRoute) },
+                onOpenFiltered = { nav.navigate(FilteredRoute) },
                 onOpenSettings = { nav.navigate(SettingsRoute) },
                 onMakeDefault = onMakeDefault,
+            )
+        }
+        composable<FilteredRoute> {
+            FilteredScreen(
+                viewModel = viewModel { InboxViewModel(container, showFiltered = true) },
+                onBack = { nav.popBackStack() },
+                onOpenConversation = { nav.navigate(ThreadRoute(it.threadId, it.address)) },
+            )
+        }
+        composable<NewChatRoute> {
+            NewChatScreen(
+                viewModel = viewModel { NewChatViewModel(container) },
+                onBack = { nav.popBackStack() },
+                onStart = { address ->
+                    nav.navigate(ThreadRoute(-1, address)) { popUpTo<NewChatRoute> { inclusive = true } }
+                },
             )
         }
         composable<ThreadRoute> { entry ->

@@ -95,6 +95,16 @@ class TelephonyMessageRepository(
         }
     }
 
+    override suspend fun markAllRead() {
+        withContext(Dispatchers.IO) {
+            val values = ContentValues().apply {
+                put(Telephony.Sms.READ, 1)
+                put(Telephony.Sms.SEEN, 1)
+            }
+            runCatching { resolver.update(Telephony.Sms.CONTENT_URI, values, "${Telephony.Sms.READ} = 0", null) }
+        }
+    }
+
     override suspend fun overrideVerdict(threadId: Long, address: String, action: Action) {
         dao.setUserAction(threadId, action.name)
         val rule = if (action == Action.ALLOW) SenderRule.ALWAYS_ALLOW else SenderRule.ALWAYS_FILTER
@@ -120,12 +130,12 @@ class TelephonyMessageRepository(
     /** One pass over the SMS table, newest first: each thread's summary and its newest incoming message key. */
     private fun queryThreads(): List<Pair<ConversationSummary, String?>> {
         val latest = LinkedHashMap<Long, Row>()
-        val unread = HashSet<Long>()
+        val unread = HashMap<Long, Int>()
         val latestIncoming = HashMap<Long, Long>()
         for (r in query(null, null, "${Telephony.Sms.DATE} DESC")) {
             latest.putIfAbsent(r.threadId, r)
             if (r.type == Telephony.Sms.MESSAGE_TYPE_INBOX) {
-                if (!r.read) unread += r.threadId
+                if (!r.read) unread.merge(r.threadId, 1, Int::plus)
                 latestIncoming.putIfAbsent(r.threadId, r.id)
             }
         }
@@ -136,7 +146,7 @@ class TelephonyMessageRepository(
                 displayName = displayName(r.address),
                 snippet = r.body,
                 timestamp = r.date,
-                unread = r.threadId in unread,
+                unreadCount = unread[r.threadId] ?: 0,
                 verdict = null,
             )
             summary to latestIncoming[r.threadId]?.let(::messageKey)

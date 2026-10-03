@@ -20,6 +20,8 @@ interface MessageRepository {
 
     suspend fun markRead(threadId: Long)
 
+    suspend fun markAllRead()
+
     /** Records the user's correction for a thread and remembers it for the sender. */
     suspend fun overrideVerdict(threadId: Long, address: String, action: Action)
 }
@@ -42,6 +44,7 @@ class SwitchingMessageRepository(
     override suspend fun threadIdFor(address: String) = current.threadIdFor(address)
     override suspend fun send(address: String, body: String) = current.send(address, body)
     override suspend fun markRead(threadId: Long) = current.markRead(threadId)
+    override suspend fun markAllRead() = current.markAllRead()
     override suspend fun overrideVerdict(threadId: Long, address: String, action: Action) =
         current.overrideVerdict(threadId, address, action)
 }

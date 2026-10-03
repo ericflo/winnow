@@ -9,11 +9,12 @@ data class ConversationSummary(
     val displayName: String,
     val snippet: String,
     val timestamp: Long,
-    val unread: Boolean,
+    val unreadCount: Int,
     /** Verdict on the newest incoming message, which decides where the conversation is shown. */
     val verdict: StoredVerdict?,
 ) {
     val isFiltered: Boolean get() = verdict?.effectiveAction == Action.FILTER
+    val unread: Boolean get() = unreadCount > 0
 }
 
 data class ChatMessage(

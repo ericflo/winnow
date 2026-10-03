@@ -37,6 +37,16 @@ app never imports a provider class except in `ClassifierFactory`.
 Every verdict records which provider produced it (`VerdictSource.Provider(id, model)`),
 so providers can be compared on real traffic before switching.
 
+### Taxonomy
+
+One Choice question, `category`, with seven options. Each option's rubric is the
+instruction the provider sees (`classifier/…/message/Taxonomy.kt`). The political, scam and
+phishing rubrics were tuned against patterns in a real spam folder: sensational "BREAKING"
+hooks, fake polls and petitions, wrong-name fundraising, and "are you free to talk?" openers.
+With Jev 1.13 on OpenRouter, the live test's 12 samples all land where they should. The two
+hardest (a fake "approval poll" and a wrong-name "tough news" text) score 0.55–0.61, so they
+are silenced rather than filtered.
+
 ### Adding a provider
 
 1. Implement `DecisionProvider` in `classifier/…/providers/` with tests that use a fake

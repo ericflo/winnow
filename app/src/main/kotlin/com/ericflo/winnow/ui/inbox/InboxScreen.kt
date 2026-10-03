@@ -1,15 +1,24 @@
 package com.ericflo.winnow.ui.inbox
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -20,224 +29,250 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ericflo.winnow.R
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.data.ConversationSummary
-import com.ericflo.winnow.ui.components.Avatar
-import com.ericflo.winnow.ui.components.VerdictBadge
-import com.ericflo.winnow.ui.components.shortTimestamp
+import kotlinx.coroutines.launch
 
 @Composable
 fun InboxScreen(
     viewModel: InboxViewModel,
     onOpenConversation: (ConversationSummary) -> Unit,
-    onStartChat: (address: String) -> Unit,
+    onNewChat: () -> Unit,
+    onOpenFiltered: () -> Unit,
     onOpenSettings: () -> Unit,
     onMakeDefault: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(Unit) {
+        viewModel.refresh()
+        onPauseOrDispose { }
+    }
     val listState = rememberLazyListState()
-    val expandedFab by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
-    var showNewChat by rememberSaveable { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var menuOpen by rememberSaveable { mutableStateOf(false) }
+    val atTop by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
+    val farDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 6 } }
+    val closeSearch = {
+        searching = false
+        viewModel.setQuery("")
+    }
+    BackHandler(enabled = searching, onBack = closeSearch)
+
+    val navBar = WindowInsets.navigationBars.asPaddingValues()
+    val direction = LocalLayoutDirection.current
 
     Scaffold(
-        topBar = {
-            Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
-                SearchPill(
-                    query = state.query,
-                    onQueryChange = viewModel::setQuery,
-                    onOpenSettings = onOpenSettings,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
-        },
+        containerColor = MaterialTheme.colorScheme.surface,
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = { showNewChat = true },
-                expanded = expandedFab,
-                icon = { Icon(Icons.Filled.Create, contentDescription = null) },
+                onClick = onNewChat,
+                expanded = atTop,
+                icon = { Icon(painterResource(R.drawable.ic_chat), contentDescription = null) },
                 text = { Text("Start chat") },
             )
         },
-    ) { padding ->
-        if (state.loading) return@Scaffold
-        LazyColumn(state = listState, contentPadding = padding, modifier = Modifier.fillMaxSize()) {
-            // One stable first item, so the list doesn't scroll when the card appears or goes away.
-            item("header") {
-                Column {
-                    if (!state.live) MakeDefaultCard(onMakeDefault)
-                    TabChips(state.tab, state.filteredCount, viewModel::selectTab)
+    ) { _ ->
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize()) {
+                if (searching) {
+                    SearchBar(state.query, viewModel::setQuery, onClose = closeSearch)
+                }
+                if (state.loading) return@Column
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(
+                        start = navBar.calculateStartPadding(direction),
+                        end = navBar.calculateEndPadding(direction),
+                        bottom = navBar.calculateBottomPadding() + 96.dp,
+                    ),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    if (!searching) {
+                        item("header") { LargeHeader(onSearch = { searching = true }, onMenu = { menuOpen = true }) }
+                        if (!state.live) item("make-default") { MakeDefaultCard(onMakeDefault) }
+                    }
+                    items(state.conversations, key = { it.threadId }) { conversation ->
+                        ConversationRow(
+                            conversation,
+                            showVerdict = conversation.verdict?.effectiveAction == Action.SILENCE,
+                            onClick = { onOpenConversation(conversation) },
+                        )
+                    }
+                    if (state.conversations.isEmpty()) {
+                        item("empty") {
+                            Text(
+                                if (state.query.isNotBlank()) "No conversations match \"${state.query}\"" else "No conversations yet",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(32.dp),
+                            )
+                        }
+                    }
                 }
             }
-            if (state.tab == InboxTab.FILTERED && state.conversations.isNotEmpty()) {
-                item("filtered-explainer") {
-                    Text(
-                        "Winnow kept these out of your inbox and didn't notify you. Open one to mark it as not spam.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+
+            AnimatedVisibility(visible = !atTop && !searching, enter = fadeIn(), exit = fadeOut()) {
+                CompactBar(onSearch = { searching = true }, onMenu = { menuOpen = true })
+            }
+            AnimatedVisibility(
+                visible = farDown,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 20.dp),
+            ) {
+                SmallFloatingActionButton(
+                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                    shape = CircleShape,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                ) { Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Scroll to top") }
+            }
+        }
+    }
+
+    if (menuOpen) {
+        MenuSheet(
+            state = state,
+            onDismiss = { menuOpen = false },
+            onOpenFiltered = {
+                menuOpen = false
+                onOpenFiltered()
+            },
+            onMarkAllRead = {
+                menuOpen = false
+                viewModel.markAllRead()
+            },
+            onOpenSettings = {
+                menuOpen = false
+                onOpenSettings()
+            },
+            onMakeDefault = onMakeDefault,
+        )
+    }
+}
+
+/** The tall tinted header with a centered title, which hands off to the list's rounded sheet. */
+@Composable
+private fun LargeHeader(onSearch: () -> Unit, onMenu: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().background(colors.surfaceContainerHigh)) {
+        Box(Modifier.fillMaxWidth().statusBarsPadding().height(212.dp)) {
+            Text(
+                "Winnow",
+                style = MaterialTheme.typography.displaySmall,
+                color = colors.onSurface,
+                modifier = Modifier.align(Alignment.Center),
+            )
+            Row(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, contentDescription = "Search conversations") }
+                MenuButton(onMenu)
+            }
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .background(colors.surface, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)),
+        )
+    }
+}
+
+@Composable
+private fun CompactBar(onSearch: () -> Unit, onMenu: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().statusBarsPadding().height(64.dp).padding(start = 20.dp, end = 12.dp),
+        ) {
+            Text("Winnow", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, contentDescription = "Search conversations") }
+            MenuButton(onMenu)
+        }
+    }
+}
+
+/** Where Messages shows your profile photo: Winnow's mark, opening the menu. */
+@Composable
+private fun MenuButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(52.dp)) {
+        Box(
+            Modifier.size(40.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_notification),
+                contentDescription = "Menu",
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchBar(query: String, onQueryChange: (String) -> Unit, onClose: () -> Unit) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) {
+                IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close search") }
+                Box(Modifier.weight(1f)) {
+                    if (query.isEmpty()) {
+                        Text("Search conversations", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
+                    }
+                    BasicTextField(
+                        value = query,
+                        onValueChange = onQueryChange,
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth().focusRequester(focus),
                     )
                 }
-            }
-            items(state.conversations, key = { it.threadId }) { conversation ->
-                ConversationRow(conversation, showVerdict = state.tab == InboxTab.FILTERED, onClick = { onOpenConversation(conversation) })
-            }
-            if (!state.loading && state.conversations.isEmpty()) {
-                item("empty") { EmptyState(state.tab, state.query) }
-            }
-            item("fab-clearance") { Spacer(Modifier.height(88.dp)) }
-        }
-    }
-
-    if (showNewChat) {
-        NewChatDialog(
-            onDismiss = { showNewChat = false },
-            onStart = {
-                showNewChat = false
-                onStartChat(it)
-            },
-        )
-    }
-}
-
-@Composable
-private fun SearchPill(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onOpenSettings: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier.fillMaxWidth().height(56.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, end = 4.dp)) {
-            Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(12.dp))
-            Box(Modifier.weight(1f)) {
-                if (query.isEmpty()) {
-                    Text("Search conversations", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Filled.Close, contentDescription = "Clear search") }
+                } else {
+                    Spacer(Modifier.width(12.dp))
                 }
-                BasicTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Filled.Close, contentDescription = "Clear search") }
-            }
-            IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
-        }
-    }
-}
-
-@Composable
-private fun TabChips(tab: InboxTab, filteredCount: Int, onSelect: (InboxTab) -> Unit) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-    ) {
-        FilterChip(
-            selected = tab == InboxTab.INBOX,
-            onClick = { onSelect(InboxTab.INBOX) },
-            label = { Text("Inbox") },
-        )
-        FilterChip(
-            selected = tab == InboxTab.FILTERED,
-            onClick = { onSelect(InboxTab.FILTERED) },
-            label = { Text(if (filteredCount > 0) "Filtered · $filteredCount" else "Filtered") },
-        )
-    }
-}
-
-@Composable
-private fun ConversationRow(conversation: ConversationSummary, showVerdict: Boolean, onClick: () -> Unit) {
-    val unread = conversation.unread
-    val verdict = conversation.verdict
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-    ) {
-        Avatar(conversation.displayName, seed = conversation.address)
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    conversation.displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    shortTimestamp(conversation.timestamp),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
-                    color = if (unread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    conversation.snippet,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (unread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (unread) {
-                    Spacer(Modifier.width(8.dp))
-                    Badge(containerColor = MaterialTheme.colorScheme.primary, modifier = Modifier.size(10.dp))
-                }
-            }
-            if (verdict != null && (showVerdict || verdict.effectiveAction == Action.SILENCE)) {
-                VerdictBadge(verdict, modifier = Modifier.padding(top = 6.dp))
             }
         }
     }
@@ -261,41 +296,4 @@ private fun MakeDefaultCard(onMakeDefault: () -> Unit) {
             FilledTonalButton(onClick = onMakeDefault) { Text("Set as default") }
         }
     }
-}
-
-@Composable
-private fun EmptyState(tab: InboxTab, query: String) {
-    val text = when {
-        query.isNotBlank() -> "No conversations match \"$query\""
-        tab == InboxTab.FILTERED -> "Nothing filtered. Spam, scams and political texts will land here."
-        else -> "No conversations yet"
-    }
-    Text(
-        text,
-        style = MaterialTheme.typography.bodyLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.fillMaxWidth().padding(32.dp),
-    )
-}
-
-@Composable
-private fun NewChatDialog(onDismiss: () -> Unit, onStart: (String) -> Unit) {
-    var number by rememberSaveable { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New conversation") },
-        text = {
-            OutlinedTextField(
-                value = number,
-                onValueChange = { number = it },
-                label = { Text("Phone number") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onStart(number.trim()) }, enabled = number.isNotBlank()) { Text("Start") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }

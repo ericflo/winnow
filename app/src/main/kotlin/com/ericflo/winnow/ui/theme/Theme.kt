@@ -38,9 +38,9 @@ fun avatarColors(seed: String): Pair<Color, Color> {
 fun categoryColors(category: Category?): Pair<Color, Color> {
     val c = MaterialTheme.colorScheme
     return when (category) {
-        Category.SCAM -> c.errorContainer to c.onErrorContainer
+        Category.SCAM, Category.PHISHING -> c.errorContainer to c.onErrorContainer
         Category.SPAM, Category.POLITICAL -> c.tertiaryContainer to c.onTertiaryContainer
-        Category.PROMOTIONAL -> c.secondaryContainer to c.onSecondaryContainer
+        Category.MARKETING -> c.secondaryContainer to c.onSecondaryContainer
         else -> c.surfaceContainerHighest to c.onSurfaceVariant
     }
 }

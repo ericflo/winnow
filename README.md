@@ -1,8 +1,9 @@
 # Winnow
 
 An Android SMS app that classifies every incoming text before it can buzz your phone.
-Personal messages come through. Scams, spam and political blasts go to a Filtered tab, and
-promotions arrive silently. One tap fixes a wrong call and teaches Winnow about that sender.
+Personal and expected messages come through. Phishing, scams, spam and political blasts go
+to Filtered without a notification, and marketing arrives silently. Nothing is deleted. One
+tap fixes a wrong call and teaches Winnow about that sender.
 
 Winnow uses a pluggable classifier. Jev by TypeSafe is the first provider, but the app depends only on a small decision interface, so any
 compatible service, a general-purpose LLM, or an on-device model can replace it. See
@@ -16,12 +17,26 @@ v0.1 scaffold. Works today:
 - Classification pipeline with privacy gate, redaction, timeouts, fail-open delivery
 - Providers: System One wire (Jev via TypeSafe or OpenRouter, any self-hosted server) and
   OpenAI-compatible chat completions; on-device keyword fallback
-- Inbox / Filtered tabs, conversation view with verdict banner and one-tap correction,
-  Settings with a live "Try it" box that shows exactly what would leave the phone
+- UI modeled on Google Messages: large-title inbox on a rounded sheet, avatar menu with
+  Filtered (Winnow's "Spam & blocked"), timestamped conversation blocks, New chat with
+  grouped contacts. Each verdict banner says what Winnow decided and who decided it, with a
+  one-tap "Not spam". Settings has a live "Try it" box that shows exactly what would leave the phone.
 - Sample conversations until Winnow is made the default SMS app
 
 Not yet: MMS (receive or send), RCS (see below), group threads, search inside threads,
-contact picker, backup/import, an on-device model.
+backup/import, an on-device model.
+
+## Categories
+
+Personal, Transactional and Marketing (silenced) reach the inbox. Political, Phishing, Likely
+scam and Spam are filtered. Each category's action can be changed in Settings. A verdict
+below 70% confidence is softened one step: Filter becomes Silence, Silence becomes Notify.
+
+To check the live classifier, run the opt-in test. It uses `OPENROUTER_API_KEY` and/or `TYPESAFE_API_KEY`:
+
+```sh
+WINNOW_LIVE_TESTS=1 ./gradlew :classifier:test --tests '*LiveProviderTest*' --rerun
+```
 
 ## RCS
 

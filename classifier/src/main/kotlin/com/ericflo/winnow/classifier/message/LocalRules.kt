@@ -33,14 +33,20 @@ internal object LocalRules {
 internal object HeuristicScorer {
     private fun words(vararg w: String) = Regex(w.joinToString("|", "(", ")"), RegexOption.IGNORE_CASE)
 
-    private val scam = words(
+    private val phishing = words(
         "unpaid toll", "toll (balance|violation)", "e-?zpass", "redeliver", "package (is )?(on hold|could not)",
-        "suspended", "verify your (account|identity)", "final notice", "gift ?card", "crypto", "you('ve| have) won",
-        "claim your", "refund", "irs", "wire transfer", "job offer", "is this \\w+\\?",
+        "suspended", "verify your (account|identity)", "final notice", "refund", "irs", "social security payment",
+    )
+    private val scam = words(
+        "gift ?card", "crypto", "you('ve| have) won", "claim your", "wire transfer", "job offer",
+        "is this \\w+\\?", "are you free to talk",
     )
     private val shortLink = words("bit\\.ly", "tinyurl", "t\\.co/", "\\.top\\b", "\\.xyz\\b", "\\.click\\b", "\\.vip\\b", "\\.icu\\b")
     private val promo = words("% off", "\\bsale\\b", "reply stop", "stop to (opt[- ]out|end|unsubscribe)", "coupon", "promo", "deal")
-    private val political = words("\\bvote\\b", "donat", "campaign", "election", "paid for by", "\\bpac\\b", "ballot", "chip in")
+    private val political = words(
+        "\\bvote\\b", "donat", "campaign", "election", "paid for by", "\\bpac\\b", "ballot", "chip in",
+        "\\bpoll\\b", "petition", "matched", "breaking:",
+    )
     private val transactional = words("your order", "delivered", "appointment", "reminder", "has shipped", "receipt")
 
     fun score(message: InboundMessage): Map<Category, Double> {
@@ -49,17 +55,19 @@ internal object HeuristicScorer {
         val raw = mutableMapOf(
             Category.PERSONAL to if (kind == SenderKind.PHONE_NUMBER) 1.0 else 0.2,
             Category.TRANSACTIONAL to 0.3,
-            Category.PROMOTIONAL to 0.2,
+            Category.MARKETING to 0.2,
             Category.POLITICAL to 0.1,
-            Category.SPAM to 0.2,
+            Category.PHISHING to 0.1,
             Category.SCAM to 0.1,
+            Category.SPAM to 0.2,
         )
         fun bump(c: Category, hits: Int, weight: Double) {
             raw[c] = raw.getValue(c) + hits * weight
         }
+        bump(Category.PHISHING, phishing.findAll(body).count(), 1.5)
+        bump(Category.PHISHING, shortLink.findAll(body).count(), 1.0)
         bump(Category.SCAM, scam.findAll(body).count(), 1.5)
-        bump(Category.SCAM, shortLink.findAll(body).count(), 1.0)
-        bump(Category.PROMOTIONAL, promo.findAll(body).count(), 1.0)
+        bump(Category.MARKETING, promo.findAll(body).count(), 1.0)
         bump(Category.POLITICAL, political.findAll(body).count(), 1.0)
         bump(Category.TRANSACTIONAL, transactional.findAll(body).count(), 0.8)
         val total = raw.values.sum()

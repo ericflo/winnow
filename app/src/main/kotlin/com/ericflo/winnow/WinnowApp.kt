@@ -10,6 +10,7 @@ import com.ericflo.winnow.classifier.http.OkHttpTransport
 import com.ericflo.winnow.classify.ClassifierFactory
 import com.ericflo.winnow.classify.IncomingMessageHandler
 import com.ericflo.winnow.data.ContactLookup
+import com.ericflo.winnow.data.ContactsSource
 import com.ericflo.winnow.data.DemoMessageRepository
 import com.ericflo.winnow.data.MessageRepository
 import com.ericflo.winnow.data.SecretBox
@@ -54,6 +55,8 @@ class AppContainer(private val context: Context) {
             isLive = access,
         )
     }
+
+    val contactsSource by lazy { ContactsSource(context, access) }
 
     val incoming by lazy {
         IncomingMessageHandler(context, database.verdicts(), contacts, settings, classifiers, notifier)

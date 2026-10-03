@@ -26,6 +26,13 @@ class LiveProviderTest {
         InboundMessage("+12025550199", "Election Day is 31 days away and we're \$12K short of our goal. Chip in \$5 before midnight?"),
         InboundMessage("+14155550177", "Reminder: you have an appointment Tue Oct 7 at 2:30 PM with Dr. Patel. Reply C to confirm or R to reschedule."),
         InboundMessage("+14155550110", "Hey it's Jordan from the climbing gym, still down for Thursday?"),
+        // Patterns from a real spam folder, with names and numbers made up.
+        InboundMessage("+17715550142", "BREAKING: The House just passed a CATASTROPHIC bill. Add your name before midnight >>"),
+        InboundMessage("+17715550143", "Hi, it's Mark! Can you complete your Approval Poll? Due to low response we need yours by 11:59pm"),
+        InboundMessage("+13305550144", "DANA, I have some tough news, and I wanted you to hear it from me first."),
+        InboundMessage("+17375550145", "Are you free to talk?"),
+        InboundMessage("+12025550146", "Tax-free Social Security payments start next month. Confirm your eligibility now"),
+        InboundMessage("64276", "Micro Mart: Hurry - Member Days end tonight! Up to 40% off. Reply STOP to opt out"),
     )
 
     @Test

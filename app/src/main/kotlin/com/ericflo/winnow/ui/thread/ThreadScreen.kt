@@ -3,6 +3,7 @@ package com.ericflo.winnow.ui.thread
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,12 +26,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.AddCircle
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,6 +52,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -61,10 +63,12 @@ import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.StoredVerdict
 import com.ericflo.winnow.ui.components.Avatar
-import com.ericflo.winnow.ui.components.dayLabel
+import com.ericflo.winnow.data.ContactLookup
+import com.ericflo.winnow.ui.components.headerLabel
 import com.ericflo.winnow.ui.components.timeOfDay
 import com.ericflo.winnow.ui.theme.categoryColors
-import kotlin.math.abs
+import java.time.Instant
+import java.time.ZoneId
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,7 +132,7 @@ fun ThreadScreen(
                     VerdictBanner(verdict, onAllow = viewModel::allow, onFilter = viewModel::filter)
                 }
             }
-            MessageList(state.messages, Modifier.weight(1f))
+            MessageList(address, state.messages, Modifier.weight(1f))
         }
     }
 }
@@ -178,32 +182,46 @@ private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter:
 private sealed interface ListItem {
     val key: String
 
-    data class Day(val label: String, override val key: String) : ListItem
+    /** "Texting with … (SMS/MMS)": which transport this conversation uses. */
+    data class Transport(val address: String) : ListItem {
+        override val key get() = "transport"
+    }
+
+    data class Header(val label: String, override val key: String) : ListItem
     data class Bubble(val message: ChatMessage, val firstInGroup: Boolean, val lastInGroup: Boolean) : ListItem {
         override val key get() = "m${message.id}"
     }
 }
 
-/** Day headers plus bubbles, grouped when the same side sends within two minutes. Newest first. */
-private fun buildItems(messages: List<ChatMessage>): List<ListItem> {
-    fun grouped(a: ChatMessage?, b: ChatMessage?) =
-        a != null && b != null && a.outgoing == b.outgoing &&
-            abs(a.timestamp - b.timestamp) < 120_000 && dayLabel(a.timestamp) == dayLabel(b.timestamp)
+/** A header opens every block of messages more than an hour after the previous one, like Messages. */
+private const val BLOCK_GAP_MILLIS = 60 * 60_000L
 
-    val items = mutableListOf<ListItem>()
+/** Same-side messages within a block group into one visual stack. */
+private const val GROUP_GAP_MILLIS = 5 * 60_000L
+
+/** Transport line, time headers and grouped bubbles. Newest first, for a reversed list. */
+private fun buildItems(address: String, messages: List<ChatMessage>): List<ListItem> {
+    fun day(t: Long) = Instant.ofEpochMilli(t).atZone(ZoneId.systemDefault()).toLocalDate()
+    fun newBlock(prev: ChatMessage?, m: ChatMessage) =
+        prev == null || m.timestamp - prev.timestamp > BLOCK_GAP_MILLIS || day(prev.timestamp) != day(m.timestamp)
+
+    fun grouped(a: ChatMessage?, b: ChatMessage?) =
+        a != null && b != null && a.outgoing == b.outgoing && !newBlock(a, b) && b.timestamp - a.timestamp < GROUP_GAP_MILLIS
+
+    val items = mutableListOf<ListItem>(ListItem.Transport(address))
     messages.forEachIndexed { i, m ->
         val prev = messages.getOrNull(i - 1)
         val next = messages.getOrNull(i + 1)
-        val day = dayLabel(m.timestamp)
-        if (prev == null || dayLabel(prev.timestamp) != day) items += ListItem.Day(day, "d${m.id}")
+        if (newBlock(prev, m)) items += ListItem.Header(headerLabel(m.timestamp), "h${m.id}")
         items += ListItem.Bubble(m, firstInGroup = !grouped(prev, m), lastInGroup = !grouped(m, next))
     }
     return items.asReversed()
 }
 
 @Composable
-private fun MessageList(messages: List<ChatMessage>, modifier: Modifier = Modifier) {
-    val items = remember(messages) { buildItems(messages) }
+private fun MessageList(address: String, messages: List<ChatMessage>, modifier: Modifier = Modifier) {
+    val items = remember(address, messages) { buildItems(address, messages) }
+    var revealed by rememberSaveable { mutableStateOf<Long?>(null) }
     LazyColumn(
         reverseLayout = true,
         modifier = modifier.fillMaxWidth(),
@@ -211,24 +229,37 @@ private fun MessageList(messages: List<ChatMessage>, modifier: Modifier = Modifi
     ) {
         items(items, key = { it.key }) { item ->
             when (item) {
-                is ListItem.Day -> Text(
-                    item.label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                is ListItem.Transport -> CenteredNote(
+                    "Texting with ${ContactLookup.formatAddress(item.address)} (SMS/MMS)",
+                    Modifier.padding(top = 4.dp, bottom = 4.dp),
                 )
-                is ListItem.Bubble -> MessageBubble(item)
+                is ListItem.Header -> CenteredNote(item.label, Modifier.padding(top = 20.dp, bottom = 8.dp))
+                is ListItem.Bubble -> MessageBubble(
+                    item,
+                    showTime = revealed == item.message.id,
+                    onClick = { revealed = if (revealed == item.message.id) null else item.message.id },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun MessageBubble(item: ListItem.Bubble) {
+private fun CenteredNote(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun MessageBubble(item: ListItem.Bubble, showTime: Boolean, onClick: () -> Unit) {
     val m = item.message
-    val big = 20.dp
-    val small = 4.dp
+    val big = 22.dp
+    val small = 6.dp
     val shape = if (m.outgoing) {
         RoundedCornerShape(big, if (item.firstInGroup) big else small, if (item.lastInGroup) big else small, big)
     } else {
@@ -245,16 +276,18 @@ private fun MessageBubble(item: ListItem.Bubble) {
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (m.outgoing) colors.onPrimaryContainer else colors.onSurface,
                 modifier = Modifier
-                    .background(if (m.outgoing) colors.primaryContainer else colors.surfaceContainerHigh, shape)
+                    .clip(shape)
+                    .background(if (m.outgoing) colors.primaryContainer else colors.surfaceContainerHigh)
+                    .clickable(onClick = onClick)
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             )
         }
-        if (item.lastInGroup) {
-            val status = when (m.status) {
-                ChatMessage.Status.SENDING -> "Sending…"
-                ChatMessage.Status.FAILED -> "Not sent"
-                else -> timeOfDay(m.timestamp)
-            }
+        val status = when (m.status) {
+            ChatMessage.Status.SENDING -> "Sending…"
+            ChatMessage.Status.FAILED -> "Not sent"
+            else -> if (showTime) timeOfDay(m.timestamp) else null
+        }
+        if (status != null) {
             Text(
                 status,
                 style = MaterialTheme.typography.labelSmall,
@@ -275,32 +308,38 @@ private fun Composer(draft: String, onDraftChange: (String) -> Unit, onSend: () 
             .background(colors.surface)
             .navigationBarsPadding()
             .imePadding()
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp),
     ) {
-        IconButton(onClick = {}, enabled = false) {
-            Icon(Icons.Filled.Add, contentDescription = "Attach (needs MMS support)")
-        }
         Surface(
             shape = RoundedCornerShape(28.dp),
             color = colors.surfaceContainerHigh,
-            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+            modifier = Modifier.weight(1f).heightIn(min = 56.dp),
         ) {
-            Box(Modifier.padding(horizontal = 20.dp, vertical = 13.dp), contentAlignment = Alignment.CenterStart) {
-                if (draft.isEmpty()) {
-                    Text("Text message", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 20.dp)) {
+                IconButton(onClick = {}, enabled = false) {
+                    Icon(Icons.Outlined.AddCircle, contentDescription = "Attach (needs MMS support)")
                 }
-                BasicTextField(
-                    value = draft,
-                    onValueChange = onDraftChange,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
-                    cursorBrush = SolidColor(colors.primary),
-                    maxLines = 6,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Box(Modifier.weight(1f).padding(vertical = 16.dp)) {
+                    if (draft.isEmpty()) {
+                        Text("Text message", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
+                    }
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = onDraftChange,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
+                        cursorBrush = SolidColor(colors.primary),
+                        maxLines = 6,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
         Spacer(Modifier.width(8.dp))
-        FilledIconButton(onClick = onSend, enabled = draft.isNotBlank(), modifier = Modifier.size(48.dp)) {
+        FilledIconButton(
+            onClick = onSend,
+            enabled = draft.isNotBlank(),
+            modifier = Modifier.size(56.dp),
+        ) {
             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
         }
     }

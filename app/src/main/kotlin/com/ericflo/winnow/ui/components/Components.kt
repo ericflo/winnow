@@ -2,6 +2,7 @@ package com.ericflo.winnow.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -15,10 +16,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ericflo.winnow.R
 import com.ericflo.winnow.classifier.message.Action
+import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.data.StoredVerdict
 import com.ericflo.winnow.ui.theme.avatarColors
 import com.ericflo.winnow.ui.theme.categoryColors
@@ -29,24 +34,57 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.time.temporal.ChronoUnit
 
-/** A colored circle with the sender's initial, or a person glyph for bare numbers. */
+/** A colored initial for named senders; a neutral person glyph for bare numbers, like Messages. */
 @Composable
-fun Avatar(name: String, seed: String, size: Dp = 48.dp, modifier: Modifier = Modifier) {
-    val (container, content) = avatarColors(seed)
-    val initial = name.firstOrNull { it.isLetter() }?.uppercaseChar()
-    Box(
-        modifier = modifier.size(size).background(container, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (initial != null && !name.startsWith("+") && !name.first().isDigit()) {
-            Text(initial.toString(), color = content, fontSize = (size.value * 0.42f).sp, style = MaterialTheme.typography.titleMedium)
+fun Avatar(name: String, seed: String, size: Dp = 52.dp, modifier: Modifier = Modifier) {
+    val named = name.firstOrNull()?.let { it.isLetter() } == true
+    val (container, content) = if (named) {
+        avatarColors(seed)
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHighest to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Box(modifier = modifier.size(size).background(container, CircleShape), contentAlignment = Alignment.Center) {
+        if (named) {
+            Text(name.first().uppercase(), color = content, fontSize = (size.value * 0.42f).sp, style = MaterialTheme.typography.titleMedium)
         } else {
-            Icon(Icons.Filled.Person, contentDescription = null, tint = content, modifier = Modifier.size(size * 0.55f))
+            Icon(Icons.Filled.Person, contentDescription = null, tint = content, modifier = Modifier.size(size * 0.5f))
         }
     }
 }
 
-/** "Likely scam · 98%" or "Promotion · silenced". */
+/** The Spam & blocked list's leading icon: a red "!" for fraud, a block sign for everything else filtered. */
+@Composable
+fun FilteredAvatar(category: Category?, size: Dp = 52.dp) {
+    val fraud = category == Category.SCAM || category == Category.PHISHING
+    val c = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier.size(size).background(if (fraud) c.errorContainer else c.surfaceContainerHighest, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (fraud) {
+            Text("!", color = c.onErrorContainer, fontWeight = FontWeight.Black, fontSize = (size.value * 0.45f).sp)
+        } else {
+            Icon(painterResource(R.drawable.ic_block), contentDescription = null, tint = c.onSurfaceVariant, modifier = Modifier.size(size * 0.55f))
+        }
+    }
+}
+
+@Composable
+fun UnreadCountBadge(count: Int, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.defaultMinSize(20.dp, 20.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            if (count > 99) "99+" else count.toString(),
+            color = MaterialTheme.colorScheme.onPrimary,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 6.dp),
+        )
+    }
+}
+
+/** "Likely scam · 98%" or "Marketing · silenced". */
 @Composable
 fun VerdictBadge(verdict: StoredVerdict, modifier: Modifier = Modifier) {
     val (container, content) = categoryColors(verdict.category)
@@ -71,9 +109,13 @@ private val weekdayFormat = DateTimeFormatter.ofPattern("EEE")
 private val monthDayFormat = DateTimeFormatter.ofPattern("MMM d")
 private val fullDateFormat = DateTimeFormatter.ofLocalizedDate(FormatStyle.SHORT)
 
-/** Conversation-list timestamp: time today, weekday this week, date otherwise. */
-fun shortTimestamp(epochMillis: Long, today: LocalDate = LocalDate.now()): String {
-    val at = Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault())
+/** Conversation-list time: "Now", "6 min", a time today, a weekday this week, a date otherwise. */
+fun shortTimestamp(epochMillis: Long, now: Long = System.currentTimeMillis()): String {
+    val minutes = (now - epochMillis) / 60_000
+    if (minutes in 0..59) return if (minutes == 0L) "Now" else "$minutes min"
+    val zone = ZoneId.systemDefault()
+    val at = Instant.ofEpochMilli(epochMillis).atZone(zone)
+    val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
     val days = ChronoUnit.DAYS.between(at.toLocalDate(), today)
     return when {
         days <= 0 -> at.format(timeFormat)
@@ -83,14 +125,16 @@ fun shortTimestamp(epochMillis: Long, today: LocalDate = LocalDate.now()): Strin
     }
 }
 
-/** Day header inside a conversation. */
-fun dayLabel(epochMillis: Long, today: LocalDate = LocalDate.now()): String {
-    val date = Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).toLocalDate()
-    return when (ChronoUnit.DAYS.between(date, today)) {
+/** Centered header inside a conversation: "Today • 2:25 PM", "Thursday, Sep 17 • 2:25 AM". */
+fun headerLabel(epochMillis: Long, today: LocalDate = LocalDate.now()): String {
+    val at = Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault())
+    val date = at.toLocalDate()
+    val day = when (ChronoUnit.DAYS.between(date, today)) {
         0L -> "Today"
         1L -> "Yesterday"
-        else -> date.format(DateTimeFormatter.ofPattern(if (date.year == today.year) "EEEE, MMM d" else "MMM d, yyyy"))
+        else -> date.format(DateTimeFormatter.ofPattern(if (date.year == today.year) "EEEE, MMM d" else "EEEE, MMM d, yyyy"))
     }
+    return "$day • ${at.format(timeFormat)}"
 }
 
 fun timeOfDay(epochMillis: Long): String =

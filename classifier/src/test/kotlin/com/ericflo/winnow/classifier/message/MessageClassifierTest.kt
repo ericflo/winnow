@@ -37,9 +37,9 @@ class MessageClassifierTest {
 
     @Test
     fun `provider verdict maps to category and configured action`() = runTest {
-        val provider = FakeProvider { mapOf("scam" to 0.95, "spam" to 0.05) }
+        val provider = FakeProvider { mapOf("phishing" to 0.95, "spam" to 0.05) }
         val verdict = MessageClassifier(listOf(provider)).classify(stranger)
-        assertEquals(Category.SCAM, verdict.category)
+        assertEquals(Category.PHISHING, verdict.category)
         assertEquals(Action.FILTER, verdict.action)
         assertEquals(VerdictSource.Provider("fake", "fake-1"), verdict.source)
     }
@@ -94,13 +94,13 @@ class MessageClassifierTest {
     fun `falls through failing and slow providers, then to a capped heuristic`() = runTest {
         val failing = FakeProvider("failing") { throw ProviderException("down", retryable = true) }
         val slow = FakeProvider("slow") { awaitCancellation() }
-        val backup = FakeProvider("backup") { mapOf("promotional" to 0.9, "spam" to 0.1) }
+        val backup = FakeProvider("backup") { mapOf("marketing" to 0.9, "spam" to 0.1) }
         val classifier = MessageClassifier(listOf(failing, slow, backup), timeoutMillis = 1_000)
         assertEquals(VerdictSource.Provider("backup", "fake-1"), classifier.classify(stranger).source)
 
         val offline = MessageClassifier(listOf(failing), timeoutMillis = 1_000).classify(stranger)
         assertIs<VerdictSource.Heuristic>(offline.source)
-        assertEquals(Category.SCAM, offline.category)
+        assertEquals(Category.PHISHING, offline.category)
         assertEquals(Action.SILENCE, offline.action, "the heuristic alone may silence but not filter")
     }
 }
