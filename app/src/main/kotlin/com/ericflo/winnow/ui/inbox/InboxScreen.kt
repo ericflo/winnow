@@ -99,6 +99,7 @@ fun InboxScreen(
     onNewChat: () -> Unit,
     onOpenFiltered: () -> Unit,
     onOpenArchived: () -> Unit,
+    onOpenActivity: () -> Unit,
     onOpenSettings: () -> Unit,
     onMakeDefault: () -> Unit,
 ) {
@@ -269,6 +270,10 @@ fun InboxScreen(
             onOpenArchived = {
                 menuOpen = false
                 onOpenArchived()
+            },
+            onOpenActivity = {
+                menuOpen = false
+                onOpenActivity()
             },
             onMarkAllRead = {
                 menuOpen = false

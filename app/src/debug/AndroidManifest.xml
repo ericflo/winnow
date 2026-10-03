@@ -5,5 +5,8 @@
         <receiver
             android:name=".debug.DebugMmsReceiver"
             android:exported="true" />
+        <receiver
+            android:name=".debug.DebugSeedReceiver"
+            android:exported="true" />
     </application>
 </manifest>

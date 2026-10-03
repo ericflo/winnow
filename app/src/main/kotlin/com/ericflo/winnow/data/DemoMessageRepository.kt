@@ -86,6 +86,15 @@ class DemoMessageRepository(private val packageName: String) : MessageRepository
     override suspend fun overrideVerdict(threadId: Long, address: String, action: Action) =
         updateThread(threadId) { t -> t.copy(messages = t.messages.map { m -> m.copy(verdict = m.verdict?.copy(userAction = action)) }) }
 
+    override fun verdictRecords(): Flow<List<VerdictRecord>> = threads.map { list ->
+        list.flatMap { t ->
+            t.messages.filterNot { it.outgoing }.mapNotNull { m ->
+                val v = m.verdict ?: return@mapNotNull null
+                VerdictRecord(v.category, v.effectiveAction, v.source.startsWith("Classified by"), m.timestamp, 0.0, m.sender ?: t.recipients.first())
+            }
+        }
+    }
+
     private fun updateThread(threadId: Long, transform: (DemoThread) -> DemoThread) =
         threads.update { list -> list.map { if (it.threadId == threadId) transform(it) else it } }
 

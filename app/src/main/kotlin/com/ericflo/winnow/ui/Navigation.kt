@@ -11,6 +11,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.ericflo.winnow.AppContainer
+import com.ericflo.winnow.ui.activity.ActivityScreen
+import com.ericflo.winnow.ui.activity.ActivityViewModel
 import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.data.splitAddresses
 import com.ericflo.winnow.ui.details.ConversationDetailsScreen
@@ -61,6 +63,9 @@ data object FilteredRoute
 
 @Serializable
 data object ArchivedRoute
+
+@Serializable
+data object ActivityRoute
 
 /** [draft] carries a forwarded message into the conversation the user picks. */
 @Serializable
@@ -113,6 +118,7 @@ fun WinnowNavHost(
                 onNewChat = { nav.navigate(NewChatRoute()) },
                 onOpenFiltered = { nav.navigate(FilteredRoute) },
                 onOpenArchived = { nav.navigate(ArchivedRoute) },
+                onOpenActivity = { nav.navigate(ActivityRoute) },
                 onOpenSettings = { nav.navigate(SettingsRoute) },
                 onMakeDefault = onMakeDefault,
             )
@@ -166,6 +172,9 @@ fun WinnowNavHost(
                 onBack = { nav.popBackStack() },
                 onDeleted = { nav.popBackStack<InboxRoute>(inclusive = false) },
             )
+        }
+        composable<ActivityRoute> {
+            ActivityScreen(viewModel = viewModel { ActivityViewModel(container) }, onBack = { nav.popBackStack() })
         }
         composable<SettingsRoute> {
             SettingsScreen(

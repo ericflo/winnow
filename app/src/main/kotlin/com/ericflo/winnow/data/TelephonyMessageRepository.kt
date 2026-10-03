@@ -8,7 +8,9 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.Telephony
+import android.util.Log
 import com.ericflo.winnow.classifier.message.Action
+import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classifier.message.SenderRule
 import com.ericflo.winnow.data.ChatMessage.Kind
 import com.ericflo.winnow.data.db.SenderRuleEntity
@@ -54,7 +56,10 @@ class TelephonyMessageRepository(
     }
 
     override fun conversations(): Flow<List<ConversationSummary>> {
-        val threads = changes().map { queryConversations() }.flowOn(Dispatchers.IO)
+        val threads = changes().map {
+            val started = System.nanoTime()
+            queryConversations().also { Log.d(TAG, "Loaded ${it.size} conversations in ${(System.nanoTime() - started) / 1_000_000} ms") }
+        }.flowOn(Dispatchers.IO)
         return combine(threads, verdictsByKey()) { list, verdicts ->
             list.map { (summary, incomingKey) -> summary.copy(verdict = incomingKey?.let(verdicts::get)) }
         }
@@ -178,6 +183,19 @@ class TelephonyMessageRepository(
         dao.setUserAction(threadId, action.name)
         val rule = if (action == Action.ALLOW) SenderRule.ALWAYS_ALLOW else SenderRule.ALWAYS_FILTER
         dao.upsertSenderRule(SenderRuleEntity(normalizeAddress(address), rule.name, System.currentTimeMillis()))
+    }
+
+    override fun verdictRecords(): Flow<List<VerdictRecord>> = dao.observeAll().map { rows ->
+        rows.map { row ->
+            VerdictRecord(
+                category = row.category?.let(Category::fromKey),
+                action = (row.userAction ?: row.action).let(Action::valueOf),
+                byProvider = row.sourceKind == "provider",
+                decidedAt = row.decidedAt,
+                costUsd = row.costUsd,
+                sender = row.address,
+            )
+        }
     }
 
     /** Emits once immediately, then whenever the SMS or MMS store changes. */
@@ -395,5 +413,7 @@ class TelephonyMessageRepository(
 
         /** PduHeaders.FROM, as stored in the MMS addr table. */
         const val ADDR_TYPE_FROM = 0x89
+
+        private const val TAG = "WinnowStore"
     }
 }

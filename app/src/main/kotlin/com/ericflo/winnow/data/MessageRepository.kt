@@ -47,6 +47,9 @@ interface MessageRepository {
 
     /** Records the user's correction for a thread and remembers it for the sender. */
     suspend fun overrideVerdict(threadId: Long, address: String, action: Action)
+
+    /** Every decision Winnow has recorded. */
+    fun verdictRecords(): Flow<List<VerdictRecord>>
 }
 
 /** "Mom" for one recipient; "Alex, Sam, (555) 555-0199" for a group, using first names where known. */
@@ -87,4 +90,5 @@ class SwitchingMessageRepository(
     override suspend fun search(query: String) = current.search(query)
     override suspend fun overrideVerdict(threadId: Long, address: String, action: Action) =
         current.overrideVerdict(threadId, address, action)
+    override fun verdictRecords() = isLive.flatMapLatest { if (it) live.verdictRecords() else demo.verdictRecords() }
 }

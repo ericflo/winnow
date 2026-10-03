@@ -80,6 +80,18 @@ data class StoredVerdict(
         )
 }
 
+/** One decision Winnow made, for the Activity screen. */
+data class VerdictRecord(
+    val category: com.ericflo.winnow.classifier.message.Category?,
+    /** What actually happened, after any correction by the user. */
+    val action: Action,
+    /** True when a classifier service decided; false for on-phone rules and keywords. */
+    val byProvider: Boolean,
+    val decidedAt: Long,
+    val costUsd: Double,
+    val sender: String,
+)
+
 /** A message match from Search. */
 data class SearchHit(
     val threadId: Long,

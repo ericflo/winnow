@@ -48,6 +48,7 @@ fun MenuSheet(
     onDismiss: () -> Unit,
     onOpenFiltered: () -> Unit,
     onOpenArchived: () -> Unit,
+    onOpenActivity: () -> Unit,
     onMarkAllRead: () -> Unit,
     onOpenSettings: () -> Unit,
     onMakeDefault: () -> Unit,
@@ -77,6 +78,8 @@ fun MenuSheet(
                     MenuItem(rememberVectorPainter(Icons.Outlined.CheckCircle), "Mark all as read", onClick = onMarkAllRead)
                 }
                 MenuGroup {
+                    MenuItem(painterResource(R.drawable.ic_insights), "Activity", onClick = onOpenActivity)
+                    MenuDivider()
                     MenuItem(rememberVectorPainter(Icons.Outlined.Settings), "Winnow settings", onClick = onOpenSettings)
                 }
             }
