@@ -52,6 +52,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setZdrOnly(value: Boolean) = update { it.copy(zdrOnly = value) }
 
+    fun setDeliveryReports(value: Boolean) = update { it.copy(deliveryReports = value) }
+
     fun setAction(category: Category, action: Action) = update { it.copy(categoryActions = it.categoryActions + (category to action)) }
 
     /** Runs the real pipeline, with the saved settings, on a message typed into Settings. */

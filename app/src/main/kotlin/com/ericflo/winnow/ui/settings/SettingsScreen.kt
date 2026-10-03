@@ -132,6 +132,16 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                 )
             }
 
+            section("Messages")
+            item("delivery-reports") {
+                SwitchRow(
+                    "SMS delivery reports",
+                    "Ask your carrier to confirm each text arrived, and show \"Delivered\"",
+                    s.deliveryReports,
+                    viewModel::setDeliveryReports,
+                )
+            }
+
             section("What happens to each kind of message")
             Category.entries.forEach { category ->
                 item(category.key) {

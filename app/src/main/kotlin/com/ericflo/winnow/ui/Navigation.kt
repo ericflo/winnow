@@ -26,6 +26,9 @@ import com.ericflo.winnow.ui.thread.ThreadViewModel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
 
+/** Where US carriers collect forwarded spam ("SPAM" on a keypad). */
+private const val CARRIER_SPAM_SHORT_CODE = "7726"
+
 @Serializable
 data object InboxRoute
 
@@ -119,6 +122,7 @@ fun WinnowNavHost(
                 },
                 onBack = { nav.popBackStack() },
                 onForward = { text -> nav.navigate(NewChatRoute(draft = text)) },
+                onReportSpam = { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
             )
         }
         composable<SettingsRoute> {

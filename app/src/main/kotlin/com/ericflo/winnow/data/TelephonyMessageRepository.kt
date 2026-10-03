@@ -273,7 +273,7 @@ class TelephonyMessageRepository(
         val messages = mutableListOf<ChatMessage>()
         resolver.query(
             Telephony.Sms.CONTENT_URI,
-            arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.ADDRESS),
+            arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.ADDRESS, Telephony.Sms.STATUS),
             "${Telephony.Sms.THREAD_ID} = ?", arrayOf(threadId.toString()), null,
         )?.use { c ->
             while (c.moveToNext()) {
@@ -285,7 +285,7 @@ class TelephonyMessageRepository(
                     body = c.getString(1).orEmpty(),
                     timestamp = c.getLong(2),
                     outgoing = !incoming,
-                    status = smsStatus(type),
+                    status = smsStatus(type, c.getInt(5)),
                     verdict = null,
                     sender = if (incoming) c.getString(4) else null,
                 )
@@ -361,11 +361,11 @@ class TelephonyMessageRepository(
             "${Telephony.Mms.Addr.TYPE} = $ADDR_TYPE_FROM", null, null,
         )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
 
-    private fun smsStatus(type: Int) = when (type) {
+    private fun smsStatus(type: Int, deliveryStatus: Int) = when (type) {
         Telephony.Sms.MESSAGE_TYPE_INBOX -> ChatMessage.Status.RECEIVED
         Telephony.Sms.MESSAGE_TYPE_OUTBOX, Telephony.Sms.MESSAGE_TYPE_QUEUED -> ChatMessage.Status.SENDING
         Telephony.Sms.MESSAGE_TYPE_FAILED -> ChatMessage.Status.FAILED
-        else -> ChatMessage.Status.SENT
+        else -> if (deliveryStatus == Telephony.Sms.STATUS_COMPLETE) ChatMessage.Status.DELIVERED else ChatMessage.Status.SENT
     }
 
     private fun mmsStatus(box: Int) = when (box) {

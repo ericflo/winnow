@@ -92,6 +92,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.ericflo.winnow.R
 import com.ericflo.winnow.classifier.message.Action
+import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classifier.message.VerificationCodes
 import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.ContactLookup
@@ -113,11 +114,18 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ThreadScreen(viewModel: ThreadViewModel, onBack: () -> Unit, onForward: (String) -> Unit) {
+fun ThreadScreen(
+    viewModel: ThreadViewModel,
+    onBack: () -> Unit,
+    onForward: (String) -> Unit,
+    /** Opens a conversation with the carrier's spam-reporting short code, pre-filled. */
+    onReportSpam: (String) -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val blocked by viewModel.blocked.collectAsStateWithLifecycle()
     var confirmBlock by remember { mutableStateOf(false) }
+    var confirmReport by remember { mutableStateOf(false) }
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { viewModel.notices.collect { snackbar.showSnackbar(it) } }
@@ -231,7 +239,7 @@ fun ThreadScreen(viewModel: ThreadViewModel, onBack: () -> Unit, onForward: (Str
         Column(Modifier.padding(padding).fillMaxSize()) {
             state.verdict?.let { verdict ->
                 if (verdict.effectiveAction != Action.ALLOW || verdict.userAction != null) {
-                    VerdictBanner(verdict, onAllow = viewModel::allow, onFilter = viewModel::filter)
+                    VerdictBanner(verdict, onAllow = viewModel::allow, onFilter = viewModel::filter, onReport = { confirmReport = true })
                 }
             }
             MessageList(
@@ -257,6 +265,26 @@ fun ThreadScreen(viewModel: ThreadViewModel, onBack: () -> Unit, onForward: (Str
     }
     detailsFor?.let { message -> MessageDetailsDialog(message, state, onDismiss = { detailsFor = null }) }
     viewing?.let { ImageViewer(it, onDismiss = { viewing = null }) }
+    if (confirmReport) {
+        val spam = state.messages.lastOrNull { !it.outgoing }?.body.orEmpty()
+        AlertDialog(
+            onDismissRequest = { confirmReport = false },
+            title = { Text("Report to your carrier?") },
+            text = {
+                Text(
+                    "US carriers collect spam at 7726 (\"SPAM\"). Winnow will open a message to 7726 with this text " +
+                        "filled in for you to send. Your carrier usually replies asking for the sender's number.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmReport = false
+                    onReportSpam(spam)
+                }) { Text("Continue") }
+            },
+            dismissButton = { TextButton(onClick = { confirmReport = false }) { Text("Cancel") } },
+        )
+    }
     if (confirmBlock) {
         AlertDialog(
             onDismissRequest = { confirmBlock = false },
@@ -306,7 +334,7 @@ private fun GroupAvatar(size: androidx.compose.ui.unit.Dp) {
 
 /** Why Winnow handled this conversation the way it did, and the one-tap correction. */
 @Composable
-private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter: () -> Unit) {
+private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter: () -> Unit, onReport: () -> Unit) {
     val (container, content) = categoryColors(if (verdict.userAction == Action.ALLOW) null else verdict.category)
     val label = verdict.category?.label ?: "This sender"
     val percent = if (verdict.confidence < 1.0) " · ${(verdict.confidence * 100).toInt()}%" else ""
@@ -339,12 +367,15 @@ private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter:
             Spacer(Modifier.height(4.dp))
             Text(detail, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(end = 8.dp))
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                if (verdict.userAction == null && verdict.category in REPORTABLE) TextButton(onClick = onReport) { Text("Report") }
                 if (verdict.effectiveAction != Action.ALLOW) TextButton(onClick = onAllow) { Text("Not spam") }
                 if (verdict.effectiveAction != Action.FILTER) TextButton(onClick = onFilter) { Text("Filter sender") }
             }
         }
     }
 }
+
+private val REPORTABLE = setOf(Category.SPAM, Category.SCAM, Category.PHISHING)
 
 private sealed interface ListItem {
     val key: String
@@ -397,6 +428,7 @@ private fun MessageList(
     val transport = if (state.isGroup) "Group texting with ${state.recipients.size} people (MMS)"
     else "Texting with ${ContactLookup.formatAddress(state.recipients.firstOrNull().orEmpty())} (SMS/MMS)"
     val items = remember(transport, state.messages) { buildItems(transport, state.messages) }
+    val latestOutgoing = state.messages.lastOrNull { it.outgoing }?.key
     var revealed by rememberSaveable { mutableStateOf<String?>(null) }
     LazyColumn(
         reverseLayout = true,
@@ -411,6 +443,7 @@ private fun MessageList(
                     item = item,
                     senderName = item.message.sender?.let { state.senderNames[it] }?.takeIf { state.isGroup },
                     showTime = revealed == item.key,
+                    isLatestOutgoing = item.key == latestOutgoing,
                     onClick = { revealed = if (revealed == item.key) null else item.key },
                     onLongClick = { onActions(item.message) },
                     onViewImage = onViewImage,
@@ -439,6 +472,7 @@ private fun MessageBubble(
     item: ListItem.Bubble,
     senderName: String?,
     showTime: Boolean,
+    isLatestOutgoing: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onViewImage: (String) -> Unit,
@@ -545,6 +579,11 @@ private fun MessageBubble(
         val status = when (m.status) {
             ChatMessage.Status.SENDING -> "Sending…"
             ChatMessage.Status.FAILED -> "Not sent · Tap to retry"
+            ChatMessage.Status.DELIVERED -> when {
+                showTime -> "Delivered · ${timeOfDay(m.timestamp)}"
+                isLatestOutgoing -> "Delivered"
+                else -> null
+            }
             else -> if (showTime) timeOfDay(m.timestamp) else null
         }
         if (status != null) {

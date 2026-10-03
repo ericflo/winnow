@@ -19,6 +19,7 @@ import com.ericflo.winnow.data.SecretBox
 import com.ericflo.winnow.data.SettingsRepository
 import com.ericflo.winnow.data.SwitchingMessageRepository
 import com.ericflo.winnow.data.TelephonyMessageRepository
+import com.ericflo.winnow.data.WinnowSettings
 import com.ericflo.winnow.data.db.WinnowDatabase
 import com.ericflo.winnow.notify.Notifier
 import com.ericflo.winnow.sms.MmsSender
@@ -27,7 +28,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 
 class WinnowApp : Application() {
     val container by lazy { AppContainer(this) }
@@ -44,7 +47,11 @@ class AppContainer(private val context: Context) {
     val classifiers by lazy { ClassifierFactory(OkHttpTransport()) }
     val contacts by lazy { ContactLookup(context) }
     val notifier by lazy { Notifier(context) }
-    val smsSender by lazy { SmsSender(context) }
+    /** The latest settings, for code that can't suspend (e.g. sending from a receiver). */
+    val currentSettings: StateFlow<WinnowSettings> by lazy {
+        settings.settings.stateIn(appScope, SharingStarted.Eagerly, WinnowSettings())
+    }
+    val smsSender by lazy { SmsSender(context) { currentSettings.value.deliveryReports } }
     val mmsSender by lazy { MmsSender(context) }
     val conversationStates by lazy { ConversationStateStore(database.conversationStates()) }
     val verdictDao by lazy { database.verdicts() }
