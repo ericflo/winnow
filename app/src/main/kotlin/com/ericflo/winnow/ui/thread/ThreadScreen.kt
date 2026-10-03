@@ -3,6 +3,7 @@ package com.ericflo.winnow.ui.thread
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
+import android.provider.ContactsContract
 import android.telephony.SmsMessage
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -115,6 +116,8 @@ import kotlinx.coroutines.launch
 fun ThreadScreen(viewModel: ThreadViewModel, onBack: () -> Unit, onForward: (String) -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
+    val blocked by viewModel.blocked.collectAsStateWithLifecycle()
+    var confirmBlock by remember { mutableStateOf(false) }
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { viewModel.notices.collect { snackbar.showSnackbar(it) } }
@@ -145,7 +148,13 @@ fun ThreadScreen(viewModel: ThreadViewModel, onBack: () -> Unit, onForward: (Str
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Tapping a 1:1 title shows the contact, or offers to create one, as in Messages.
+                    val showContact = single?.let { number ->
+                        Modifier.clickable {
+                            context.startActivity(Intent(ContactsContract.Intents.SHOW_OR_CREATE_CONTACT, Uri.fromParts("tel", number, null)))
+                        }
+                    } ?: Modifier
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = showContact) {
                         if (state.isGroup) GroupAvatar(36.dp) else Avatar(state.title, seed = single.orEmpty(), size = 36.dp)
                         Spacer(Modifier.width(12.dp))
                         Column {
@@ -185,6 +194,16 @@ fun ThreadScreen(viewModel: ThreadViewModel, onBack: () -> Unit, onForward: (Str
                                     text = { Text("Always filter this sender") },
                                     leadingIcon = { Icon(painterResource(R.drawable.ic_block), contentDescription = null) },
                                     onClick = { menuOpen = false; viewModel.filter() },
+                                )
+                            }
+                            if (viewModel.canBlock) {
+                                DropdownMenuItem(
+                                    text = { Text(if (blocked) "Unblock number" else "Block number") },
+                                    leadingIcon = { Icon(painterResource(R.drawable.ic_block), contentDescription = null) },
+                                    onClick = {
+                                        menuOpen = false
+                                        if (blocked) viewModel.setBlocked(false) else confirmBlock = true
+                                    },
                                 )
                             }
                             DropdownMenuItem(
@@ -238,6 +257,25 @@ fun ThreadScreen(viewModel: ThreadViewModel, onBack: () -> Unit, onForward: (Str
     }
     detailsFor?.let { message -> MessageDetailsDialog(message, state, onDismiss = { detailsFor = null }) }
     viewing?.let { ImageViewer(it, onDismiss = { viewing = null }) }
+    if (confirmBlock) {
+        AlertDialog(
+            onDismissRequest = { confirmBlock = false },
+            title = { Text("Block ${state.title}?") },
+            text = {
+                Text(
+                    "Android will drop texts and calls from this number before any app sees them. " +
+                        "To only keep them out of your inbox, use \"Always filter this sender\" instead.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmBlock = false
+                    viewModel.setBlocked(true)
+                }) { Text("Block") }
+            },
+            dismissButton = { TextButton(onClick = { confirmBlock = false }) { Text("Cancel") } },
+        )
+    }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },

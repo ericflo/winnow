@@ -17,7 +17,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -36,6 +39,8 @@ fun SenderRulesScreen(container: AppContainer, onBack: () -> Unit) {
     val dao = container.verdictDao
     val rules by remember { dao.observeSenderRules() }.collectAsStateWithLifecycle(emptyList())
     val scope = rememberCoroutineScope()
+    var blocked by remember { mutableStateOf(emptyList<String>()) }
+    LaunchedEffect(Unit) { blocked = container.blockedNumbers.all() }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -59,7 +64,31 @@ fun SenderRulesScreen(container: AppContainer, onBack: () -> Unit) {
                     },
                 )
             }
-            if (rules.isEmpty()) {
+            if (blocked.isNotEmpty()) {
+                item("blocked-header") {
+                    Text(
+                        "Blocked by Android",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+                    )
+                }
+                items(blocked, key = { "blocked-$it" }) { number ->
+                    ListItem(
+                        headlineContent = { Text(container.contacts.displayName(number) ?: ContactLookup.formatAddress(number)) },
+                        supportingContent = { Text("Texts and calls are dropped before any app sees them") },
+                        trailingContent = {
+                            IconButton(onClick = {
+                                scope.launch {
+                                    container.blockedNumbers.unblock(number)
+                                    blocked = container.blockedNumbers.all()
+                                }
+                            }) { Icon(Icons.Filled.Close, contentDescription = "Unblock") }
+                        },
+                    )
+                }
+            }
+            if (rules.isEmpty() && blocked.isEmpty()) {
                 item {
                     Text(
                         "No sender rules yet. Tap \"Not spam\" or \"Filter sender\" in a conversation to add one.",

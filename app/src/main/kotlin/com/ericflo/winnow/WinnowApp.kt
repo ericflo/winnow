@@ -9,6 +9,7 @@ import androidx.room.Room
 import com.ericflo.winnow.classifier.http.OkHttpTransport
 import com.ericflo.winnow.classify.ClassifierFactory
 import com.ericflo.winnow.classify.IncomingMessageHandler
+import com.ericflo.winnow.data.BlockedNumbers
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.ContactsSource
 import com.ericflo.winnow.data.ConversationStateStore
@@ -62,6 +63,7 @@ class AppContainer(private val context: Context) {
     }
 
     val contactsSource by lazy { ContactsSource(context, access) }
+    val blockedNumbers by lazy { BlockedNumbers(context) }
 
     val incoming by lazy {
         IncomingMessageHandler(context, verdictDao, contacts, settings, classifiers, notifier, conversationStates)

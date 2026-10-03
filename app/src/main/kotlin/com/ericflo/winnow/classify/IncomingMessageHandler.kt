@@ -10,6 +10,7 @@ import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.InboundMessage
 import com.ericflo.winnow.classifier.message.SenderRule
 import com.ericflo.winnow.classifier.message.Verdict
+import com.ericflo.winnow.classifier.message.VerificationCodes
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.ConversationStateStore
 import com.ericflo.winnow.data.SettingsRepository
@@ -71,7 +72,7 @@ class IncomingMessageHandler(
         when (action) {
             Action.ALLOW -> if (!states.get(threadId).muted) {
                 val name = displayName(address)
-                notifier.showMessage(threadId, listOf(address), name, name, body)
+                notifier.showMessage(threadId, listOf(address), name, name, body, code = VerificationCodes.find(body))
             }
             Action.SILENCE -> Unit
             Action.FILTER -> withContext(Dispatchers.IO) { markRead(uri) }

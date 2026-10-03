@@ -36,6 +36,8 @@ class Notifier(private val context: Context) {
         senderName: String,
         body: String,
         timestamp: Long = System.currentTimeMillis(),
+        /** A verification code in [body], offered as a one-tap "Copy" action. */
+        code: String? = null,
     ) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val id = notificationId(threadId)
@@ -73,16 +75,19 @@ class Notifier(private val context: Context) {
             .setShowsUserInterface(false)
             .build()
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
+        val builder = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
             .setSmallIcon(R.drawable.ic_notification)
             .setStyle(style)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setAutoCancel(true)
-            .setOnlyAlertOnce(false)
             .setContentIntent(PendingIntent.getActivity(context, id, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
-            .addAction(reply)
-            .addAction(markRead)
-            .build()
+        if (code != null) {
+            val copy = actionIntent(NotificationActionReceiver.ACTION_COPY_CODE, threadId, joined, mutable = false) {
+                putExtra(NotificationActionReceiver.EXTRA_CODE, code)
+            }
+            builder.addAction(R.drawable.ic_copy, "Copy $code", copy)
+        }
+        val notification = builder.addAction(reply).addAction(markRead).build()
         manager.notify(TAG, id, notification)
     }
 
@@ -90,11 +95,18 @@ class Notifier(private val context: Context) {
         manager.cancel(TAG, notificationId(threadId))
     }
 
-    private fun actionIntent(action: String, threadId: Long, recipients: String, mutable: Boolean): PendingIntent {
+    private fun actionIntent(
+        action: String,
+        threadId: Long,
+        recipients: String,
+        mutable: Boolean,
+        extras: Intent.() -> Unit = {},
+    ): PendingIntent {
         val intent = Intent(context, NotificationActionReceiver::class.java)
             .setAction(action)
             .putExtra(NotificationActionReceiver.EXTRA_THREAD_ID, threadId)
             .putExtra(NotificationActionReceiver.EXTRA_RECIPIENTS, recipients)
+            .apply(extras)
         // RemoteInput fills in the reply text, so the reply intent must be mutable.
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or if (mutable) PendingIntent.FLAG_MUTABLE else PendingIntent.FLAG_IMMUTABLE
         return PendingIntent.getBroadcast(context, (action.hashCode() * 31) + notificationId(threadId), intent, flags)

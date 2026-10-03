@@ -62,11 +62,21 @@ class ThreadViewModel(
     private val _attachments = MutableStateFlow<List<OutgoingAttachment>>(emptyList())
     val attachments: StateFlow<List<OutgoingAttachment>> = _attachments.asStateFlow()
 
+    private val blockedNumbers = container.blockedNumbers
+    private val _blocked = MutableStateFlow(false)
+    /** The single recipient is on Android's block list. */
+    val blocked: StateFlow<Boolean> = _blocked.asStateFlow()
+    /** Only 1:1 conversations can be blocked, and only while Winnow is the SMS app. */
+    val canBlock: Boolean get() = recipients.size == 1 && blockedNumbers.available()
+
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
     /** One-off messages for a snackbar. */
     val notices: SharedFlow<String> = _notices
 
     init {
+        viewModelScope.launch {
+            recipients.singleOrNull()?.let { _blocked.value = blockedNumbers.isBlocked(it) }
+        }
         viewModelScope.launch {
             if (threadId.value < 0) threadId.value = repo.threadIdFor(recipients)
             val id = threadId.value
@@ -132,6 +142,13 @@ class ThreadViewModel(
     fun allow() = launch { repo.overrideVerdict(threadId.value, overrideAddress(), Action.ALLOW) }
 
     fun filter() = launch { repo.overrideVerdict(threadId.value, overrideAddress(), Action.FILTER) }
+
+    fun setBlocked(block: Boolean) = launch {
+        val number = recipients.singleOrNull() ?: return@launch
+        if (block) blockedNumbers.block(number) else blockedNumbers.unblock(number)
+        _blocked.value = blockedNumbers.isBlocked(number)
+        _notices.emit(if (_blocked.value) "Blocked. Android will drop their texts and calls." else "Unblocked")
+    }
 
     fun setMuted(muted: Boolean) = launch { states.setMuted(threadId.value, muted) }
 
