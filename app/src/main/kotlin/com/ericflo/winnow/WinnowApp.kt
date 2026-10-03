@@ -15,6 +15,7 @@ import com.ericflo.winnow.data.ContactsSource
 import com.ericflo.winnow.data.ConversationStateStore
 import com.ericflo.winnow.data.DemoMessageRepository
 import com.ericflo.winnow.data.MessageRepository
+import com.ericflo.winnow.data.OwnNumbers
 import com.ericflo.winnow.data.SecretBox
 import com.ericflo.winnow.data.SettingsRepository
 import com.ericflo.winnow.data.SwitchingMessageRepository
@@ -23,7 +24,10 @@ import com.ericflo.winnow.data.WinnowSettings
 import com.ericflo.winnow.data.db.WinnowDatabase
 import com.ericflo.winnow.notify.Notifier
 import com.ericflo.winnow.sms.MessageScheduler
+import com.ericflo.winnow.sms.MmsFiles
+import com.ericflo.winnow.sms.MmsReceiver
 import com.ericflo.winnow.sms.MmsSender
+import com.ericflo.winnow.sms.MmsStore
 import com.ericflo.winnow.sms.SmsSender
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -53,7 +57,10 @@ class AppContainer(private val context: Context) {
         settings.settings.stateIn(appScope, SharingStarted.Eagerly, WinnowSettings())
     }
     val smsSender by lazy { SmsSender(context) { currentSettings.value.deliveryReports } }
-    val mmsSender by lazy { MmsSender(context) }
+    val mmsStore by lazy { MmsStore(context) }
+    val mmsFiles by lazy { MmsFiles(context) }
+    val mmsSender by lazy { MmsSender(context, mmsStore, mmsFiles) }
+    val mmsReceiver by lazy { MmsReceiver(context, mmsStore, mmsFiles, OwnNumbers(context), incoming) }
     val conversationStates by lazy { ConversationStateStore(database.conversationStates()) }
     val verdictDao by lazy { database.verdicts() }
 
@@ -64,7 +71,7 @@ class AppContainer(private val context: Context) {
 
     val messages: MessageRepository by lazy {
         SwitchingMessageRepository(
-            live = TelephonyMessageRepository(context, verdictDao, contacts, smsSender, mmsSender),
+            live = TelephonyMessageRepository(context, verdictDao, contacts, smsSender, mmsSender) { mmsReceiver.retryDownload(it) },
             demo = DemoMessageRepository(context.packageName),
             isLive = access,
         )

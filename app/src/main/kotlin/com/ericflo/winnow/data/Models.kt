@@ -38,7 +38,7 @@ data class ChatMessage(
     val attachments: List<Attachment> = emptyList(),
     val subject: String? = null,
 ) {
-    enum class Status { RECEIVED, SENDING, SENT, DELIVERED, FAILED, DOWNLOADING }
+    enum class Status { RECEIVED, SENDING, SENT, DELIVERED, FAILED, DOWNLOADING, DOWNLOAD_FAILED }
 
     enum class Kind { SMS, MMS }
 

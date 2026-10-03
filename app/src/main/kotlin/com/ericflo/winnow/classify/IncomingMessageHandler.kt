@@ -13,6 +13,7 @@ import com.ericflo.winnow.classifier.message.Verdict
 import com.ericflo.winnow.classifier.message.VerificationCodes
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.ConversationStateStore
+import com.ericflo.winnow.data.displayNameFor
 import com.ericflo.winnow.data.SettingsRepository
 import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.db.VerdictDao
@@ -49,9 +50,27 @@ class IncomingMessageHandler(
             return
         }
         val (uri, threadId) = stored
+        route(uri, ChatMessage.Kind.SMS, threadId, address, listOf(address), body, body)
+    }
 
+    /** A downloaded MMS, already stored by [com.ericflo.winnow.sms.MmsReceiver]. */
+    suspend fun onMmsStored(uri: Uri, threadId: Long, sender: String, recipients: List<String>, text: String, mediaCount: Int) {
+        val preview = text.ifBlank { if (mediaCount == 1) "Photo" else "$mediaCount attachments" }
+        // A media-only message still gets classified, on what little it says.
+        route(uri, ChatMessage.Kind.MMS, threadId, sender, recipients, text.ifBlank { "[photo]" }, preview)
+    }
+
+    private suspend fun route(
+        uri: Uri,
+        kind: ChatMessage.Kind,
+        threadId: Long,
+        sender: String,
+        recipients: List<String>,
+        text: String,
+        preview: String,
+    ) {
         val verdict = try {
-            withTimeout(BUDGET_MILLIS) { classify(address, body, threadId) }
+            withTimeout(BUDGET_MILLIS) { classify(sender, text, threadId) }
         } catch (e: TimeoutCancellationException) {
             Log.w(TAG, "Classification over budget; delivering normally")
             null
@@ -63,16 +82,22 @@ class IncomingMessageHandler(
         }
 
         if (verdict != null) {
-            val key = ChatMessage.messageKey(ChatMessage.Kind.SMS, ContentUris.parseId(uri))
-            dao.upsert(VerdictEntity.from(key, threadId, address, verdict, System.currentTimeMillis()))
+            val key = ChatMessage.messageKey(kind, ContentUris.parseId(uri))
+            dao.upsert(VerdictEntity.from(key, threadId, sender, verdict, System.currentTimeMillis()))
         }
         val action = verdict?.action ?: Action.ALLOW
         // A new message brings an archived conversation back, unless it's being filtered.
         if (action != Action.FILTER) states.unarchive(threadId)
         when (action) {
             Action.ALLOW -> if (!states.get(threadId).muted) {
-                val name = displayName(address)
-                notifier.showMessage(threadId, listOf(address), name, name, body, code = VerificationCodes.find(body))
+                notifier.showMessage(
+                    threadId = threadId,
+                    recipients = recipients,
+                    conversationTitle = displayNameFor(recipients, ::displayName),
+                    senderName = displayName(sender),
+                    body = preview,
+                    code = VerificationCodes.find(text),
+                )
             }
             Action.SILENCE -> Unit
             Action.FILTER -> withContext(Dispatchers.IO) { markRead(uri) }
@@ -109,12 +134,17 @@ class IncomingMessageHandler(
         return uri to threadId
     }
 
-    private fun hasOutgoing(threadId: Long): Boolean =
-        context.contentResolver.query(
+    private fun hasOutgoing(threadId: Long): Boolean {
+        val args = arrayOf(threadId.toString())
+        val sms = context.contentResolver.query(
             Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms._ID),
-            "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.TYPE} = ?",
-            arrayOf(threadId.toString(), Telephony.Sms.MESSAGE_TYPE_SENT.toString()), null,
+            "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_SENT}", args, null,
         )?.use { it.count > 0 } ?: false
+        return sms || context.contentResolver.query(
+            Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID),
+            "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms.MESSAGE_BOX} = ${Telephony.Mms.MESSAGE_BOX_SENT}", args, null,
+        )?.use { it.count > 0 } ?: false
+    }
 
     private fun markRead(uri: Uri) {
         val values = ContentValues().apply {

@@ -14,6 +14,7 @@ import com.ericflo.winnow.data.ChatMessage.Kind
 import com.ericflo.winnow.data.db.SenderRuleEntity
 import com.ericflo.winnow.data.db.VerdictDao
 import com.ericflo.winnow.sms.MmsSender
+import com.ericflo.winnow.sms.MmsStore
 import com.ericflo.winnow.sms.SmsSender
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -35,6 +36,8 @@ class TelephonyMessageRepository(
     private val contacts: ContactLookup,
     private val sms: SmsSender,
     private val mms: MmsSender,
+    /** Re-requests a failed MMS download. */
+    private val retryDownload: (mmsId: Long) -> Unit,
 ) : MessageRepository {
     private val resolver = context.contentResolver
 
@@ -87,7 +90,7 @@ class TelephonyMessageRepository(
                     resolver.delete(uri, null, null)
                     sms.send(address, message.body)
                 }
-                Kind.MMS -> mms.retry(message.id)
+                Kind.MMS -> if (message.status == ChatMessage.Status.DOWNLOAD_FAILED) retryDownload(message.id) else mms.retry(message.id)
             }
         }
     }
@@ -209,7 +212,8 @@ class TelephonyMessageRepository(
             val newest = list.first()
             val text = when (newest.kind) {
                 Kind.SMS -> snippets[threadId].orEmpty()
-                Kind.MMS -> mmsText[newest.id] ?: "Attachment"
+                // No parts yet means an announced message still waiting to download.
+                Kind.MMS -> mmsText[newest.id] ?: "MMS message"
             }
             val summary = ConversationSummary(
                 threadId = threadId,
@@ -293,7 +297,7 @@ class TelephonyMessageRepository(
         }
         resolver.query(
             Telephony.Mms.CONTENT_URI,
-            arrayOf(Telephony.Mms._ID, Telephony.Mms.DATE, Telephony.Mms.MESSAGE_BOX, Telephony.Mms.MESSAGE_TYPE, Telephony.Mms.SUBJECT),
+            arrayOf(Telephony.Mms._ID, Telephony.Mms.DATE, Telephony.Mms.MESSAGE_BOX, Telephony.Mms.MESSAGE_TYPE, Telephony.Mms.SUBJECT, Telephony.Mms.STATUS),
             "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms.MESSAGE_BOX} != ${Telephony.Mms.MESSAGE_BOX_DRAFTS}",
             arrayOf(threadId.toString()), null,
         )?.use { c ->
@@ -305,7 +309,11 @@ class TelephonyMessageRepository(
                     body = "",
                     timestamp = c.getLong(1) * 1000,
                     outgoing = box != Telephony.Mms.MESSAGE_BOX_INBOX,
-                    status = if (c.getInt(3) == MESSAGE_TYPE_NOTIFICATION_IND) ChatMessage.Status.DOWNLOADING else mmsStatus(box),
+                    status = when {
+                        c.getInt(3) != MESSAGE_TYPE_NOTIFICATION_IND -> mmsStatus(box)
+                        c.getInt(5) == MmsStore.STATUS_DOWNLOAD_FAILED -> ChatMessage.Status.DOWNLOAD_FAILED
+                        else -> ChatMessage.Status.DOWNLOADING
+                    },
                     verdict = null,
                     kind = Kind.MMS,
                     subject = c.getString(4)?.takeIf { it.isNotBlank() },

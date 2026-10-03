@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 
 data class ThreadUiState(
     val title: String,
@@ -136,10 +137,13 @@ class ThreadViewModel(
             states.saveDraft(threadId.value, "")
             try {
                 repo.send(recipients, text, files)
-            } catch (e: UnsupportedOperationException) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Put the message back so nothing typed is lost.
                 _draft.value = text
                 _attachments.value = files
-                _notices.emit("Group messages and attachments need MMS, which isn't ready yet")
+                _notices.emit("Couldn't send: ${e.message ?: "unknown error"}")
             }
         }
     }

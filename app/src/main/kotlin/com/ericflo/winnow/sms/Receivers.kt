@@ -35,15 +35,23 @@ class SmsDeliverReceiver : BroadcastReceiver() {
     }
 }
 
-/** Incoming MMS notification. Required for the default SMS role. */
+/** Incoming MMS notification (WAP push). Only the default SMS app receives WAP_PUSH_DELIVER. */
 class MmsWapPushReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        // TODO(mms): parse the WAP push, download with SmsManager.downloadMultimediaMessage, store, classify.
-        Log.i(TAG, "MMS arrived; MMS support is not implemented yet")
-    }
-
-    private companion object {
-        const val TAG = "WinnowMms"
+        if (intent.action != Telephony.Sms.Intents.WAP_PUSH_DELIVER_ACTION) return
+        val pdu = intent.getByteArrayExtra("data") ?: return
+        val subscriptionId = intent.getIntExtra(SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, SubscriptionManager.getDefaultSmsSubscriptionId())
+        val container = (context.applicationContext as WinnowApp).container
+        val pending = goAsync()
+        container.appScope.launch {
+            try {
+                container.mmsReceiver.onPush(pdu, subscriptionId)
+            } catch (e: Exception) {
+                Log.e("WinnowMms", "Handling MMS push failed", e)
+            } finally {
+                pending.finish()
+            }
+        }
     }
 }
 

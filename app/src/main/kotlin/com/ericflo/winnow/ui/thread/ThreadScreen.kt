@@ -555,6 +555,16 @@ private fun MessageBubble(
                     }
                 }
                 when {
+                    m.status == ChatMessage.Status.DOWNLOAD_FAILED -> Text(
+                        "Couldn't download this MMS · Tap to retry",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = colors.error,
+                        modifier = Modifier
+                            .clip(shape)
+                            .background(colors.surfaceContainerHigh)
+                            .clickable(onClick = onRetry)
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                    )
                     m.status == ChatMessage.Status.DOWNLOADING -> Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.clip(shape).background(colors.surfaceContainerHigh).padding(horizontal = 16.dp, vertical = 10.dp),

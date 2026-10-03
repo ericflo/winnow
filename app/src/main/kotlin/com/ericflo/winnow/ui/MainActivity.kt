@@ -13,7 +13,9 @@ import com.ericflo.winnow.WinnowApp
 import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.sms.recipientsOf
 import com.ericflo.winnow.ui.theme.WinnowTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { (application as WinnowApp).container }
@@ -32,6 +34,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null) handleIntent(intent)
+        container.appScope.launch(Dispatchers.IO) { container.mmsFiles.cleanUp() }
         setContent {
             WinnowTheme {
                 WinnowNavHost(
@@ -63,9 +66,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Contacts power the never-classify-contacts rule; notifications are the point of an SMS app. */
+    /**
+     * Contacts power the never-classify-contacts rule, notifications are the point of an SMS
+     * app, and our own number keeps us out of group MMS participant lists.
+     */
     private fun requestCompanionPermissions() {
-        val missing = listOf(Manifest.permission.READ_CONTACTS, Manifest.permission.POST_NOTIFICATIONS)
+        val missing = listOf(Manifest.permission.READ_CONTACTS, Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.READ_PHONE_NUMBERS)
             .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) permissionRequest.launch(missing.toTypedArray())
     }

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Debug builds only: lets adb feed MMS through the real receive path, since emulators have no MMSC. -->
+        <receiver
+            android:name=".debug.DebugMmsReceiver"
+            android:exported="true" />
+    </application>
+</manifest>

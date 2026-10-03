@@ -42,6 +42,7 @@ room {
 
 dependencies {
     implementation(project(":classifier"))
+    implementation(project(":mms"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
