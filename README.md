@@ -15,24 +15,29 @@ A working SMS/MMS app, developed and verified on the Android emulator only. It h
 
 - **Messaging:** SMS and MMS send/receive as the default SMS app; group MMS (participants
   threaded correctly, sender names and avatars); photos in and out (downscaled to carrier
-  limits) with a full-screen viewer; retry for failed sends and failed MMS downloads; opt-in
-  SMS delivery reports; scheduled send; drafts; SMS segment counter.
-- **Conversations:** pin, archive (swipe or select), mute, mark read/unread, delete, block
-  (Android's system block list), multi-select; full-text search across SMS and MMS; New chat
-  with contacts and Create group.
+  limits) with a full-screen viewer; iPhone tapbacks and SMS reactions drawn on the message
+  they react to; retry for failed sends and MMS downloads; opt-in delivery reports;
+  scheduled send; drafts; SMS segment counter.
+- **Conversations:** pin, archive, mute, mark read/unread, delete, block (Android's system
+  block list), multi-select; swipe to archive (inbox), to mark not spam (Filtered), or to
+  unarchive (Archived); a details screen with participants and per-sender decisions;
+  full-text search across SMS and MMS; New chat with contacts and Create group; contact
+  photos throughout.
 - **Messages:** copy, forward, delete, details; tappable links, emails and numbers, except
   in phishing/scam verdicts, where links are disabled; "Copy code" for verification codes.
-- **Notifications:** conversation-style, stacked per thread, with inline Reply, Mark as read,
-  and Copy code.
+- **Notifications:** Android conversation notifications (shortcuts, Conversations section,
+  priority), stacked per thread, with inline Reply, Mark as read and Copy code.
 - **Classification:** every incoming SMS and MMS goes through the provider-agnostic classifier
   (Jev, any System One server, any OpenAI-compatible LLM, or on-device rules) with a privacy
   gate and redaction. Filtered conversations go to a "Spam & blocked"-style list, and each
-  carries a banner saying why, with "Not spam" and "Report" (to the carrier's 7726).
+  carries a banner saying why, with "Not spam" and "Report" (to the carrier's 7726). Older
+  conversations from before Winnow can be reviewed on request.
+- **First run:** onboarding explains the RCS trade-off before asking to become the SMS app,
+  then offers a choice of classifier.
 - **UI:** modeled on Google Messages: large-title inbox on a rounded sheet, avatar menu,
   timestamped conversation blocks, Material You colors, dark mode.
 
-Not yet: RCS (see below), contact photos, backup/import, an on-device model, iPhone
-reaction rendering, multi-SIM choice.
+Not yet: RCS (see below), backup/import, an on-device model, multi-SIM choice.
 
 ## Categories
 
