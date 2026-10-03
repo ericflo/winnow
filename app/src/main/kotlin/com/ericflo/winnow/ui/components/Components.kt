@@ -19,6 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -87,7 +89,10 @@ fun FilteredAvatar(category: Category?, size: Dp = 52.dp) {
 @Composable
 fun UnreadCountBadge(count: Int, modifier: Modifier = Modifier) {
     Box(
-        modifier = modifier.defaultMinSize(20.dp, 20.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
+        modifier = modifier
+            .defaultMinSize(20.dp, 20.dp)
+            .background(MaterialTheme.colorScheme.primary, CircleShape)
+            .clearAndSetSemantics { contentDescription = "$count unread" },
         contentAlignment = Alignment.Center,
     ) {
         Text(

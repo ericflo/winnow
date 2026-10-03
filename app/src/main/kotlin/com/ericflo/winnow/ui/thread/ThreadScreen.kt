@@ -83,6 +83,8 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -641,7 +643,9 @@ private fun MessageBubble(
                         color = colors.surfaceContainerHighest,
                         shape = CircleShape,
                         border = BorderStroke(2.dp, colors.surface),
-                        modifier = Modifier.offset(x = if (m.outgoing) (-8).dp else 8.dp, y = (-10).dp),
+                        modifier = Modifier
+                            .offset(x = if (m.outgoing) (-8).dp else 8.dp, y = (-10).dp)
+                            .clearAndSetSemantics { contentDescription = "Reactions: ${item.reactions.joinToString(", ")}" },
                     ) {
                         Text(
                             item.reactions.joinToString(" "),
