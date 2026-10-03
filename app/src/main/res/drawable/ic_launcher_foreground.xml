@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A message bubble with a narrowing filter inside: what goes in isn't all that comes out. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#F3E9D2"
+        android:pathData="M40,30H68A10,10 0,0 1,78 40V60A10,10 0,0 1,68 70H40A10,10 0,0 1,30 60V40A10,10 0,0 1,40 30Z" />
+    <path
+        android:fillColor="#F3E9D2"
+        android:pathData="M36,66L33,80L50,68Z" />
+    <path
+        android:pathData="M41,43H67M46,50H62M50,57H58"
+        android:strokeWidth="4"
+        android:strokeColor="#2E5E3E"
+        android:strokeLineCap="round" />
+</vector>

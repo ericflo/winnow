@@ -1,0 +1,106 @@
+package com.ericflo.winnow.classifier.message
+
+import com.ericflo.winnow.classifier.DataHandling
+import com.ericflo.winnow.classifier.DecisionProvider
+import com.ericflo.winnow.classifier.DecisionRequest
+import com.ericflo.winnow.classifier.DecisionResponse
+import com.ericflo.winnow.classifier.Distribution
+import com.ericflo.winnow.classifier.ProviderDescriptor
+import com.ericflo.winnow.classifier.ProviderException
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+private class FakeProvider(
+    id: String = "fake",
+    handling: DataHandling = DataHandling.REMOTE,
+    private val answer: suspend (DecisionRequest) -> Map<String, Double>,
+) : DecisionProvider {
+    val seen = mutableListOf<DecisionRequest>()
+    override val descriptor = ProviderDescriptor(id, id, handling)
+    override suspend fun decide(request: DecisionRequest): DecisionResponse {
+        seen += request
+        val options = request.questions.getValue(MessageClassifier.QUESTION_KEY).options.keys
+        return DecisionResponse(mapOf(MessageClassifier.QUESTION_KEY to Distribution.of(answer(request), options)), model = "fake-1")
+    }
+}
+
+class MessageClassifierTest {
+    private val stranger = InboundMessage(sender = "+15555550123", body = "Toll balance unpaid, pay at ezpass-help.top/pay?id=8812")
+
+    @Test
+    fun `provider verdict maps to category and configured action`() = runTest {
+        val provider = FakeProvider { mapOf("scam" to 0.95, "spam" to 0.05) }
+        val verdict = MessageClassifier(listOf(provider)).classify(stranger)
+        assertEquals(Category.SCAM, verdict.category)
+        assertEquals(Action.FILTER, verdict.action)
+        assertEquals(VerdictSource.Provider("fake", "fake-1"), verdict.source)
+    }
+
+    @Test
+    fun `low confidence softens the action one step`() = runTest {
+        val provider = FakeProvider { mapOf("scam" to 0.55, "personal" to 0.45) }
+        assertEquals(Action.SILENCE, MessageClassifier(listOf(provider)).classify(stranger).action)
+    }
+
+    @Test
+    fun `contacts, prior conversations and codes never reach the provider`() = runTest {
+        val provider = FakeProvider { mapOf("scam" to 1.0) }
+        val classifier = MessageClassifier(listOf(provider))
+        assertEquals(Action.ALLOW, classifier.classify(stranger.copy(senderInContacts = true)).action)
+        assertEquals(Action.ALLOW, classifier.classify(stranger.copy(userHasMessagedSender = true)).action)
+        val code = classifier.classify(InboundMessage("72975", "Your verification code is 482913. Don't share it."))
+        assertEquals(Category.TRANSACTIONAL, code.category)
+        assertTrue(provider.seen.isEmpty())
+    }
+
+    @Test
+    fun `sender rules override everything without classifying`() = runTest {
+        val classifier = MessageClassifier(listOf(FakeProvider { mapOf("personal" to 1.0) }))
+        val filtered = classifier.classify(stranger.copy(senderInContacts = true, senderRule = SenderRule.ALWAYS_FILTER))
+        assertEquals(Action.FILTER, filtered.action)
+        assertNull(filtered.category)
+    }
+
+    @Test
+    fun `provider sees redacted text and no sender address by default`() = runTest {
+        val provider = FakeProvider { mapOf("scam" to 1.0) }
+        MessageClassifier(listOf(provider)).classify(stranger)
+        val state = provider.seen.single().state.jsonObject
+        assertEquals("Toll balance unpaid, pay at ezpass-help.top/…", state["message"]!!.jsonPrimitive.content)
+        val sender = state["sender"]!!.jsonObject
+        assertEquals("phone_number", sender["kind"]!!.jsonPrimitive.content)
+        assertFalse("address" in sender)
+    }
+
+    @Test
+    fun `ZDR-only mode skips providers that retain data`() = runTest {
+        val retains = FakeProvider("retains", DataHandling.REMOTE) { mapOf("personal" to 1.0) }
+        val zdr = FakeProvider("zdr", DataHandling.REMOTE_ZERO_RETENTION) { mapOf("scam" to 1.0) }
+        val privacy = PrivacyPolicy(allowedDataHandling = setOf(DataHandling.ON_DEVICE, DataHandling.REMOTE_ZERO_RETENTION))
+        val verdict = MessageClassifier(listOf(retains, zdr), privacy).classify(stranger)
+        assertEquals(VerdictSource.Provider("zdr", "fake-1"), verdict.source)
+        assertTrue(retains.seen.isEmpty())
+    }
+
+    @Test
+    fun `falls through failing and slow providers, then to a capped heuristic`() = runTest {
+        val failing = FakeProvider("failing") { throw ProviderException("down", retryable = true) }
+        val slow = FakeProvider("slow") { awaitCancellation() }
+        val backup = FakeProvider("backup") { mapOf("promotional" to 0.9, "spam" to 0.1) }
+        val classifier = MessageClassifier(listOf(failing, slow, backup), timeoutMillis = 1_000)
+        assertEquals(VerdictSource.Provider("backup", "fake-1"), classifier.classify(stranger).source)
+
+        val offline = MessageClassifier(listOf(failing), timeoutMillis = 1_000).classify(stranger)
+        assertIs<VerdictSource.Heuristic>(offline.source)
+        assertEquals(Category.SCAM, offline.category)
+        assertEquals(Action.SILENCE, offline.action, "the heuristic alone may silence but not filter")
+    }
+}

@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Winnow</string>
+    <string name="channel_messages">Messages</string>
+    <string name="channel_messages_description">New messages that pass Winnow\'s filter</string>
+</resources>

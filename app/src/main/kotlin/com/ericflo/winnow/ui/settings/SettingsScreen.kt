@@ -1,0 +1,366 @@
+package com.ericflo.winnow.ui.settings
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ericflo.winnow.classifier.message.Action
+import com.ericflo.winnow.classifier.message.Category
+import com.ericflo.winnow.classifier.message.VerdictSource
+import com.ericflo.winnow.data.ProviderKind
+import com.ericflo.winnow.data.ProviderSettings
+import com.ericflo.winnow.data.WinnowSettings
+
+private val Action.label: String
+    get() = when (this) {
+        Action.ALLOW -> "Notify"
+        Action.SILENCE -> "Silence"
+        Action.FILTER -> "Filter"
+    }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefault: () -> Unit) {
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val isDefault by viewModel.isDefault.collectAsStateWithLifecycle()
+    val trial by viewModel.trial.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(Unit) {
+        viewModel.refresh()
+        onPauseOrDispose { }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                },
+            )
+        },
+    ) { padding ->
+        val s = settings ?: return@Scaffold
+        LazyColumn(contentPadding = padding, modifier = Modifier.fillMaxSize()) {
+            item {
+                ListItem(
+                    headlineContent = { Text(if (isDefault) "Winnow is your SMS app" else "Winnow isn't your SMS app yet") },
+                    supportingContent = {
+                        Text(
+                            if (isDefault) "Incoming texts are classified before you're notified."
+                            else "Android only lets the default SMS app filter incoming texts.",
+                        )
+                    },
+                    trailingContent = if (isDefault) null else {
+                        { FilledTonalButton(onClick = onMakeDefault) { Text("Set") } }
+                    },
+                )
+            }
+
+            section("Classifier")
+            item {
+                Text(
+                    "Winnow asks one question per message: what kind of message is this? Any provider below can answer it, and you can switch at any time.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            ProviderKind.entries.forEach { kind ->
+                item(kind.name) {
+                    ProviderOption(kind, selected = s.provider == kind, onSelect = { viewModel.selectProvider(kind) })
+                    if (s.provider == kind && kind != ProviderKind.ON_DEVICE) {
+                        ProviderFields(kind, s.settingsFor(kind), onSave = { viewModel.saveProvider(kind, it) })
+                    }
+                }
+            }
+
+            section("Try it")
+            item { TrialCard(trial, onClassify = viewModel::tryClassify) }
+
+            section("Privacy")
+            privacyItems(s, viewModel)
+
+            section("What happens to each kind of message")
+            Category.entries.forEach { category ->
+                item(category.key) {
+                    CategoryActionRow(category, s.categoryActions[category] ?: category.defaultAction) {
+                        viewModel.setAction(category, it)
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(32.dp)) }
+        }
+    }
+}
+
+private fun LazyListScope.section(title: String) {
+    item("section-$title") {
+        Column {
+            HorizontalDivider(Modifier.padding(top = 8.dp))
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProviderOption(kind: ProviderKind, selected: Boolean, onSelect: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, onClick = onSelect, role = Role.RadioButton)
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+    ) {
+        RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(12.dp))
+        Column(Modifier.padding(top = 10.dp, end = 16.dp)) {
+            Text(kind.label, style = MaterialTheme.typography.bodyLarge)
+            Text(kind.blurb, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun ProviderFields(kind: ProviderKind, saved: ProviderSettings, onSave: (ProviderSettings) -> Unit) {
+    var apiKey by rememberSaveable(kind, saved) { mutableStateOf(saved.apiKey) }
+    var model by rememberSaveable(kind, saved) { mutableStateOf(saved.model) }
+    var baseUrl by rememberSaveable(kind, saved) { mutableStateOf(saved.baseUrl) }
+    var zeroRetention by rememberSaveable(kind, saved) { mutableStateOf(saved.zeroRetention) }
+    val edited = ProviderSettings(apiKey.trim(), model.trim(), baseUrl.trim(), zeroRetention)
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(start = 64.dp, end = 16.dp, bottom = 12.dp),
+    ) {
+        if (kind.needsBaseUrl) {
+            OutlinedTextField(
+                value = baseUrl,
+                onValueChange = { baseUrl = it },
+                label = { Text("Base URL") },
+                placeholder = { Text(if (kind == ProviderKind.CHAT_COMPLETIONS) "https://host/v1" else "https://host") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        OutlinedTextField(
+            value = apiKey,
+            onValueChange = { apiKey = it },
+            label = { Text(if (kind.needsApiKey) "API key" else "API key (optional)") },
+            visualTransformation = PasswordVisualTransformation(),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = model,
+            onValueChange = { model = it },
+            label = { Text("Model") },
+            placeholder = { Text(kind.defaultModel.ifBlank { "model id" }) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { zeroRetention = !zeroRetention }) {
+            Text(
+                "This provider keeps no message data (zero retention)",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Switch(checked = zeroRetention, onCheckedChange = { zeroRetention = it })
+        }
+        Button(onClick = { onSave(edited) }, enabled = edited != saved) { Text("Save") }
+    }
+}
+
+@Composable
+private fun TrialCard(trial: TrialState, onClassify: (sender: String, body: String) -> Unit) {
+    var sender by rememberSaveable { mutableStateOf("") }
+    var body by rememberSaveable { mutableStateOf("") }
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        OutlinedTextField(
+            value = body,
+            onValueChange = { body = it },
+            label = { Text("Message") },
+            minLines = 2,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = sender,
+            onValueChange = { sender = it },
+            label = { Text("From (optional)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = { onClassify(sender, body) }, enabled = body.isNotBlank() && trial != TrialState.Running) { Text("Classify") }
+            if (trial == TrialState.Running) {
+                CircularProgressIndicator(Modifier.padding(start = 16.dp).size(24.dp), strokeWidth = 3.dp)
+            }
+        }
+        if (trial is TrialState.Done) TrialResult(trial)
+    }
+}
+
+@Composable
+private fun TrialResult(result: TrialState.Done) {
+    val v = result.verdict
+    val origin = when (val source = v.source) {
+        is VerdictSource.Rule -> source.reason
+        is VerdictSource.Provider -> buildString {
+            append("Answered by ${ProviderKind.labelFor(source.providerId)}")
+            source.model?.let { append(" ($it)") }
+            if (v.costUsd > 0) append(" for $${"%.5f".format(v.costUsd)}")
+        }
+        is VerdictSource.Heuristic -> "On-device keywords: ${source.reason}"
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            val percent = if (v.confidence < 1.0) " · ${(v.confidence * 100).toInt()}%" else ""
+            Text("${v.category?.label ?: "Sender rule"}$percent → ${v.action.label}", style = MaterialTheme.typography.titleMedium)
+            Text(origin, style = MaterialTheme.typography.bodySmall)
+            if (v.distribution.isNotEmpty()) {
+                Text(
+                    v.distribution.entries.sortedByDescending { it.value }.take(3)
+                        .joinToString("   ") { "${it.key.label} ${(it.value * 100).toInt()}%" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (result.payload != null) {
+                Text(
+                    if (v.source is VerdictSource.Provider) "What the provider saw" else "What Winnow tried to send",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Text(result.payload, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+            } else {
+                Text("Nothing left this phone.", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
+    }
+}
+
+private fun LazyListScope.privacyItems(s: WinnowSettings, vm: SettingsViewModel) {
+    val p = s.privacy
+    item("p-contacts") {
+        SwitchRow("Keep contacts' messages on this phone", "Texts from saved contacts are always delivered and never sent to a provider.", !p.classifyContacts) { on ->
+            vm.setPrivacy { it.copy(classifyContacts = !on) }
+        }
+    }
+    item("p-known") {
+        SwitchRow("Keep known conversations on this phone", "Same for anyone you've texted before.", !p.classifyKnownConversations) { on ->
+            vm.setPrivacy { it.copy(classifyKnownConversations = !on) }
+        }
+    }
+    item("p-codes") {
+        SwitchRow("Keep verification codes on this phone", "One-time codes are recognized locally and delivered.", !p.classifyVerificationCodes) { on ->
+            vm.setPrivacy { it.copy(classifyVerificationCodes = !on) }
+        }
+    }
+    item("p-sender") {
+        SwitchRow("Share the sender's number", "Off: the provider only learns whether it's a phone number, short code or name.", p.shareSenderAddress) { on ->
+            vm.setPrivacy { it.copy(shareSenderAddress = on) }
+        }
+    }
+    item("p-digits") {
+        SwitchRow("Mask numbers and codes", "Runs of 4 or more digits are sent as ####.", p.redaction.maskDigitRuns) { on ->
+            vm.setPrivacy { it.copy(redaction = it.redaction.copy(maskDigitRuns = on)) }
+        }
+    }
+    item("p-emails") {
+        SwitchRow("Mask email addresses", "Sent as [email].", p.redaction.maskEmails) { on ->
+            vm.setPrivacy { it.copy(redaction = it.redaction.copy(maskEmails = on)) }
+        }
+    }
+    item("p-links") {
+        SwitchRow("Send links as their domain only", "The domain is what gives phishing away; the path often identifies you.", p.redaction.stripUrlPaths) { on ->
+            vm.setPrivacy { it.copy(redaction = it.redaction.copy(stripUrlPaths = on)) }
+        }
+    }
+    item("p-zdr") {
+        SwitchRow("Zero-retention providers only", "Skip any provider you haven't marked as keeping no data.", s.zdrOnly) { on ->
+            vm.setZdrOnly(on)
+        }
+    }
+}
+
+@Composable
+private fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = { Text(subtitle) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = onChange) },
+        modifier = Modifier.clickable { onChange(!checked) },
+    )
+}
+
+@Composable
+private fun CategoryActionRow(category: Category, action: Action, onSelect: (Action) -> Unit) {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(category.label, style = MaterialTheme.typography.bodyLarge)
+        Spacer(Modifier.height(6.dp))
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            Action.entries.forEachIndexed { i, a ->
+                SegmentedButton(
+                    selected = a == action,
+                    onClick = { onSelect(a) },
+                    shape = SegmentedButtonDefaults.itemShape(index = i, count = Action.entries.size),
+                ) { Text(a.label) }
+            }
+        }
+    }
+}
