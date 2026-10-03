@@ -13,6 +13,8 @@ import androidx.navigation.toRoute
 import com.ericflo.winnow.AppContainer
 import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.data.splitAddresses
+import com.ericflo.winnow.ui.details.ConversationDetailsScreen
+import com.ericflo.winnow.ui.details.ConversationDetailsViewModel
 import com.ericflo.winnow.ui.inbox.ConversationListScreen
 import com.ericflo.winnow.ui.inbox.InboxScreen
 import com.ericflo.winnow.ui.inbox.InboxViewModel
@@ -44,6 +46,9 @@ data object InboxRoute
  */
 @Serializable
 data class ThreadRoute(val threadId: Long, val recipients: String, val draft: String = "")
+
+@Serializable
+data class DetailsRoute(val threadId: Long, val recipients: String)
 
 @Serializable
 data object SettingsRoute
@@ -151,6 +156,15 @@ fun WinnowNavHost(
                 onBack = { nav.popBackStack() },
                 onForward = { text -> nav.navigate(NewChatRoute(draft = text)) },
                 onReportSpam = { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
+                onOpenDetails = { threadId -> nav.navigate(DetailsRoute(threadId, route.recipients)) },
+            )
+        }
+        composable<DetailsRoute> { entry ->
+            val route = entry.toRoute<DetailsRoute>()
+            ConversationDetailsScreen(
+                viewModel = viewModel { ConversationDetailsViewModel(container, route.threadId, splitAddresses(route.recipients)) },
+                onBack = { nav.popBackStack() },
+                onDeleted = { nav.popBackStack<InboxRoute>(inclusive = false) },
             )
         }
         composable<SettingsRoute> {

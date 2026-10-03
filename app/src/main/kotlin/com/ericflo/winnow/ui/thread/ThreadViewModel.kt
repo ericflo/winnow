@@ -119,6 +119,9 @@ class ThreadViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThreadUiState(title, subtitle, recipients))
 
+    /** The real thread id, once a new conversation's thread has been created; negative before. */
+    fun currentThreadId(): Long = threadId.value
+
     fun setDraft(value: String) {
         _draft.value = value
     }

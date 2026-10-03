@@ -3,7 +3,6 @@ package com.ericflo.winnow.ui.thread
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
-import android.provider.ContactsContract
 import android.telephony.SmsMessage
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -122,6 +121,7 @@ fun ThreadScreen(
     onForward: (String) -> Unit,
     /** Opens a conversation with the carrier's spam-reporting short code, pre-filled. */
     onReportSpam: (String) -> Unit,
+    onOpenDetails: (threadId: Long) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
@@ -159,13 +159,11 @@ fun ThreadScreen(
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
                 title = {
-                    // Tapping a 1:1 title shows the contact, or offers to create one, as in Messages.
-                    val showContact = single?.let { number ->
-                        Modifier.clickable {
-                            context.startActivity(Intent(ContactsContract.Intents.SHOW_OR_CREATE_CONTACT, Uri.fromParts("tel", number, null)))
-                        }
-                    } ?: Modifier
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = showContact) {
+                    // Tapping the title opens the conversation's details, as in Messages.
+                    val openDetails = Modifier.clickable {
+                        viewModel.currentThreadId().takeIf { it >= 0 }?.let(onOpenDetails)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = openDetails) {
                         if (state.isGroup) GroupAvatar(36.dp) else Avatar(state.title, seed = single.orEmpty(), size = 36.dp, photoUri = state.photos[single])
                         Spacer(Modifier.width(12.dp))
                         Column {
@@ -185,6 +183,14 @@ fun ThreadScreen(
                     Box {
                         IconButton(onClick = { menuOpen = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "More options") }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Details") },
+                                leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
+                                onClick = {
+                                    menuOpen = false
+                                    viewModel.currentThreadId().takeIf { it >= 0 }?.let(onOpenDetails)
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text(if (state.muted) "Unmute notifications" else "Mute notifications") },
                                 leadingIcon = { Icon(painterResource(R.drawable.ic_muted), contentDescription = null) },
