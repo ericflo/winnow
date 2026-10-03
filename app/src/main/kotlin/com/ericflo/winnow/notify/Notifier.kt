@@ -118,7 +118,9 @@ class Notifier(private val context: Context) {
             }
             builder.addAction(R.drawable.ic_copy, "Copy $code", copy)
         }
-        val notification = builder.addAction(reply).addAction(markRead).build()
+        // Without a stored thread (the store refused the message) there's nothing to reply into.
+        if (threadId >= 0) builder.addAction(reply).addAction(markRead)
+        val notification = builder.build()
         manager.notify(TAG, id, notification)
     }
 

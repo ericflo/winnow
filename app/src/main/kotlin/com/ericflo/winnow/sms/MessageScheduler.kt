@@ -20,7 +20,8 @@ import kotlin.coroutines.cancellation.CancellationException
 class MessageScheduler(
     private val context: Context,
     private val dao: ScheduledMessageDao,
-    private val messages: () -> MessageRepository,
+    /** The store to send through, or null when Winnow can't send right now (not the SMS app). */
+    private val messages: () -> MessageRepository?,
 ) {
     private val alarms = context.getSystemService(AlarmManager::class.java)
 
@@ -36,11 +37,15 @@ class MessageScheduler(
         dao.delete(id)
     }
 
-    /** Sends a scheduled message now, whether its time has come or the user asked. */
+    /**
+     * Sends a scheduled message now, whether its time has come or the user asked. It's only
+     * removed once the send has been handed off; on failure it stays, to go out on the next try.
+     */
     suspend fun sendNow(id: Long) {
         val message = dao.get(id) ?: return
+        val store = messages() ?: throw IllegalStateException("Winnow isn't the default SMS app, so it can't send")
+        store.send(splitAddresses(message.recipients), message.body)
         cancel(id)
-        messages().send(splitAddresses(message.recipients), message.body)
     }
 
     /** Alarms don't survive a reboot; this re-arms every pending message (overdue ones fire at once). */
@@ -73,8 +78,12 @@ class ScheduledSendReceiver : BroadcastReceiver() {
         val pending = goAsync()
         container.appScope.launch {
             try {
-                if (intent.action == Intent.ACTION_BOOT_COMPLETED) container.scheduler.rearmAll()
-                else container.scheduler.sendNow(intent.getLongExtra(EXTRA_ID, -1))
+                when (intent.action) {
+                    // Reboots and exact-alarm permission changes both drop or reshape pending alarms.
+                    Intent.ACTION_BOOT_COMPLETED, AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED ->
+                        container.scheduler.rearmAll()
+                    else -> container.scheduler.sendNow(intent.getLongExtra(EXTRA_ID, -1))
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -23,6 +23,7 @@ import com.ericflo.winnow.data.normalizeAddress
 import com.ericflo.winnow.notify.Notifier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.cancellation.CancellationException
@@ -41,6 +42,7 @@ class IncomingMessageHandler(
     private val classifiers: ClassifierFactory,
     private val notifier: Notifier,
     private val states: ConversationStateStore,
+    private val visibleThread: StateFlow<Long?>,
 ) {
 
     suspend fun onSmsDelivered(address: String, body: String, sentAt: Long, subscriptionId: Int) {
@@ -89,6 +91,11 @@ class IncomingMessageHandler(
         val action = verdict?.action ?: Action.ALLOW
         // A new message brings an archived conversation back, unless it's being filtered.
         if (action != Action.FILTER) states.unarchive(threadId)
+        if (action != Action.FILTER && visibleThread.value == threadId) {
+            // The user is looking at this conversation: no heads-up, and it's already read.
+            withContext(Dispatchers.IO) { markRead(uri) }
+            return
+        }
         when (action) {
             Action.ALLOW -> if (!states.get(threadId).muted) {
                 notifier.showMessage(

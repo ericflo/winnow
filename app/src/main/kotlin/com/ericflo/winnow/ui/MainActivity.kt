@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.ericflo.winnow.WinnowApp
 import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.sms.recipientsOf
+import com.ericflo.winnow.sms.smsBodyOf
 import com.ericflo.winnow.ui.theme.WinnowTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,7 +35,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null) handleIntent(intent)
-        container.appScope.launch(Dispatchers.IO) { container.mmsFiles.cleanUp() }
+        container.appScope.launch(Dispatchers.IO) {
+            container.mmsFiles.cleanUp()
+            // A force-stop cancels alarms without a reboot to re-arm them.
+            container.scheduler.rearmAll()
+        }
         setContent {
             WinnowTheme {
                 WinnowNavHost(
@@ -84,7 +89,9 @@ class MainActivity : ComponentActivity() {
             }
             Intent.ACTION_SENDTO, Intent.ACTION_SEND -> {
                 val recipients = intent.data?.let(::recipientsOf).orEmpty().ifEmpty { return }
-                val body = intent.getStringExtra("sms_body") ?: intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+                val body = intent.getStringExtra("sms_body")
+                    ?: intent.data?.let(::smsBodyOf)
+                    ?: intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
                 pendingRoute.value = ThreadRoute(-1, joinAddresses(recipients), body)
             }
         }

@@ -11,13 +11,13 @@ import android.provider.Telephony
 import android.telephony.SmsManager
 import android.telephony.SmsMessage
 
-class SmsSender(private val context: Context, private val deliveryReports: () -> Boolean) {
+class SmsSender(private val context: Context, private val deliveryReports: suspend () -> Boolean) {
 
     /**
      * Records the message in the outbox and sends it; [SmsStatusReceiver] moves it to sent or
      * failed, and with delivery reports on, marks it delivered when the carrier confirms.
      */
-    fun send(address: String, body: String): Uri? {
+    suspend fun send(address: String, body: String): Uri? {
         val reports = deliveryReports()
         val values = ContentValues().apply {
             put(Telephony.Sms.ADDRESS, address)
@@ -29,31 +29,63 @@ class SmsSender(private val context: Context, private val deliveryReports: () ->
             put(Telephony.Sms.STATUS, if (reports) Telephony.Sms.STATUS_PENDING else Telephony.Sms.STATUS_NONE)
         }
         val uri = context.contentResolver.insert(Telephony.Sms.CONTENT_URI, values)
+        transmit(uri, address, body, reports)
+        return uri
+    }
+
+    /**
+     * Sends a failed message again from its existing row. Deleting and re-inserting it instead
+     * would empty (and so delete) a new conversation's thread.
+     */
+    suspend fun retry(message: Uri, address: String, body: String) {
+        val reports = deliveryReports()
+        val values = ContentValues().apply {
+            put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_OUTBOX)
+            put(Telephony.Sms.DATE, System.currentTimeMillis())
+            put(Telephony.Sms.STATUS, if (reports) Telephony.Sms.STATUS_PENDING else Telephony.Sms.STATUS_NONE)
+        }
+        context.contentResolver.update(message, values, null, null)
+        transmit(message, address, body, reports)
+    }
+
+    private fun transmit(message: Uri?, address: String, body: String, reports: Boolean) {
         val manager = context.getSystemService(SmsManager::class.java)
         val parts = manager.divideMessage(body)
-        val requestCode = uri?.lastPathSegment?.toIntOrNull() ?: 0
-        val sent = PendingIntent.getBroadcast(
-            context, requestCode,
-            Intent(context, SmsStatusReceiver::class.java).setAction(SmsStatusReceiver.ACTION_SENT).setData(uri),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        // The radio attaches the status report PDU as extras, so this one must be mutable.
-        val delivered = if (!reports) null else PendingIntent.getBroadcast(
-            context, requestCode,
-            Intent(context, SmsStatusReceiver::class.java).setAction(SmsStatusReceiver.ACTION_DELIVERED).setData(uri),
-            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        // Only the last part's report matters: the message is delivered once all parts are.
-        val deliveredIntents = delivered?.let { d -> ArrayList(parts.indices.map { if (it == parts.lastIndex) d else null }) }
-        manager.sendMultipartTextMessage(address, null, parts, ArrayList(parts.map { sent }), deliveredIntents)
-        return uri
+        val id = message?.lastPathSegment?.toIntOrNull() ?: 0
+        // One sent intent per part (distinct request codes), so any failed part marks the message failed.
+        val sent = ArrayList(parts.indices.map { part ->
+            PendingIntent.getBroadcast(
+                context, id * MAX_PARTS + part,
+                Intent(context, SmsStatusReceiver::class.java).setAction(SmsStatusReceiver.ACTION_SENT).setData(message),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+        })
+        // The radio attaches the status-report PDU as extras, so this one must be mutable. Only
+        // the last part's report matters: the message is delivered once all parts are.
+        val delivered = if (!reports) null else ArrayList(parts.indices.map { part ->
+            if (part != parts.lastIndex) {
+                null
+            } else {
+                PendingIntent.getBroadcast(
+                    context, id * MAX_PARTS + part,
+                    Intent(context, SmsStatusReceiver::class.java).setAction(SmsStatusReceiver.ACTION_DELIVERED).setData(message),
+                    PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+            }
+        })
+        manager.sendMultipartTextMessage(address, null, parts, sent, delivered)
+    }
+
+    private companion object {
+        /** Request codes are id * MAX_PARTS + part index; SMS this long don't exist in practice. */
+        const val MAX_PARTS = 64
     }
 }
 
 class SmsStatusReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val uri = intent.data ?: return
-        val values = ContentValues()
+        val resolver = context.contentResolver
         when (intent.action) {
             ACTION_DELIVERED -> {
                 val pdu = intent.getByteArrayExtra("pdu") ?: return
@@ -64,14 +96,18 @@ class SmsStatusReceiver : BroadcastReceiver() {
                     report.status < 0x40 -> Telephony.Sms.STATUS_PENDING
                     else -> Telephony.Sms.STATUS_FAILED
                 }
-                values.put(Telephony.Sms.STATUS, status)
+                resolver.update(uri, ContentValues().apply { put(Telephony.Sms.STATUS, status) }, null, null)
             }
-            else -> values.put(
-                Telephony.Sms.TYPE,
-                if (resultCode == Activity.RESULT_OK) Telephony.Sms.MESSAGE_TYPE_SENT else Telephony.Sms.MESSAGE_TYPE_FAILED,
-            )
+            else -> if (resultCode == Activity.RESULT_OK) {
+                // Parts report in any order: only promote a message that no other part has failed.
+                resolver.update(
+                    uri, ContentValues().apply { put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_SENT) },
+                    "${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_OUTBOX}", null,
+                )
+            } else {
+                resolver.update(uri, ContentValues().apply { put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_FAILED) }, null, null)
+            }
         }
-        context.contentResolver.update(uri, values, null, null)
     }
 
     companion object {

@@ -21,7 +21,6 @@ import com.ericflo.winnow.data.SecretBox
 import com.ericflo.winnow.data.SettingsRepository
 import com.ericflo.winnow.data.SwitchingMessageRepository
 import com.ericflo.winnow.data.TelephonyMessageRepository
-import com.ericflo.winnow.data.WinnowSettings
 import com.ericflo.winnow.data.db.WinnowDatabase
 import com.ericflo.winnow.notify.Notifier
 import com.ericflo.winnow.sms.MessageScheduler
@@ -34,9 +33,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.stateIn
 
 class WinnowApp : Application() {
     val container by lazy { AppContainer(this) }
@@ -53,11 +50,11 @@ class AppContainer(private val context: Context) {
     val classifiers by lazy { ClassifierFactory(OkHttpTransport()) }
     val contacts by lazy { ContactLookup(context) }
     val notifier by lazy { Notifier(context) }
-    /** The latest settings, for code that can't suspend (e.g. sending from a receiver). */
-    val currentSettings: StateFlow<WinnowSettings> by lazy {
-        settings.settings.stateIn(appScope, SharingStarted.Eagerly, WinnowSettings())
-    }
-    val smsSender by lazy { SmsSender(context) { currentSettings.value.deliveryReports } }
+    // Read when sending, not cached at startup, so a cold process honors the saved setting.
+    val smsSender by lazy { SmsSender(context) { settings.current().deliveryReports } }
+
+    /** The conversation on screen right now, which shouldn't raise notifications for itself. */
+    val visibleThread = MutableStateFlow<Long?>(null)
     val mmsStore by lazy { MmsStore(context) }
     val mmsFiles by lazy { MmsFiles(context) }
     val mmsSender by lazy { MmsSender(context, mmsStore, mmsFiles) }
@@ -81,10 +78,11 @@ class AppContainer(private val context: Context) {
     val contactsSource by lazy { ContactsSource(context, access) }
     val blockedNumbers by lazy { BlockedNumbers(context) }
     val historyReviewer by lazy { HistoryReviewer(context, appScope, verdictDao, contacts, settings, classifiers) }
-    val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages } }
+    // Scheduled texts only ever go out through the real store, never the sample conversations.
+    val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages.takeIf { isDefaultSmsApp() } } }
 
     val incoming by lazy {
-        IncomingMessageHandler(context, verdictDao, contacts, settings, classifiers, notifier, conversationStates)
+        IncomingMessageHandler(context, verdictDao, contacts, settings, classifiers, notifier, conversationStates, visibleThread)
     }
 
     fun isDefaultSmsApp(): Boolean = context.getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_SMS)

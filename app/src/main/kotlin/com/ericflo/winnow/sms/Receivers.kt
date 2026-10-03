@@ -28,6 +28,10 @@ class SmsDeliverReceiver : BroadcastReceiver() {
         container.appScope.launch {
             try {
                 container.incoming.onSmsDelivered(address, body, first.timestampMillis, subscriptionId)
+            } catch (e: Exception) {
+                // Never lose an SMS to a bug downstream: at least tell the user it arrived.
+                Log.e("WinnowSms", "Handling incoming SMS failed", e)
+                runCatching { container.notifier.showMessage(-1, listOf(address), address, address, body) }
             } finally {
                 pending.finish()
             }
@@ -64,14 +68,26 @@ class HeadlessSmsSendService : Service() {
             val text = intent.getStringExtra(Intent.EXTRA_TEXT)
             val recipients = intent.data?.let(::recipientsOf).orEmpty()
             if (!text.isNullOrBlank()) {
-                val sender = (application as WinnowApp).container.smsSender
-                recipients.forEach { sender.send(it, text) }
+                val container = (application as WinnowApp).container
+                container.appScope.launch {
+                    try {
+                        recipients.forEach { container.smsSender.send(it, text) }
+                    } finally {
+                        stopSelf(startId)
+                    }
+                }
+                return START_NOT_STICKY
             }
         }
         stopSelf(startId)
         return START_NOT_STICKY
     }
 }
+
+/** `sms:+15551234567?body=Hello%20there` → "Hello there", as browsers and other apps link it. */
+fun smsBodyOf(uri: Uri): String? =
+    uri.schemeSpecificPart.orEmpty().substringAfter('?', "").split('&')
+        .firstOrNull { it.startsWith("body=") }?.removePrefix("body=")?.let(Uri::decode)
 
 /** `smsto:+15551234567,+15557654321?body=hi` → the recipient addresses. */
 fun recipientsOf(uri: Uri): List<String> =

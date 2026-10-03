@@ -103,7 +103,7 @@ class MmsStore(private val context: Context) {
         )?.use { c ->
             while (c.moveToNext()) {
                 val type = c.getString(1).orEmpty()
-                val data = if (type.startsWith("text/") || type == ContentTypes.SMIL) {
+                val data = if (type == ContentTypes.TEXT_PLAIN || type == ContentTypes.SMIL) {
                     c.getString(2).orEmpty().encodeToByteArray()
                 } else {
                     resolver.openInputStream(ContentUris.withAppendedId(Mms.Part.CONTENT_URI, c.getLong(0)))?.use { it.readBytes() } ?: continue
@@ -181,7 +181,8 @@ class MmsStore(private val context: Context) {
         }
     }
 
-    private fun MmsPart.isText() = contentType.startsWith("text/") || contentType == ContentTypes.SMIL
+    /** What the platform stores inline in the `text` column; everything else lives in the part's file. */
+    private fun MmsPart.isText() = contentType == ContentTypes.TEXT_PLAIN || contentType == ContentTypes.SMIL
 
     companion object {
         const val MESSAGE_TYPE_SEND_REQ = 0x80

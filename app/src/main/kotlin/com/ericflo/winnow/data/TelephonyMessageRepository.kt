@@ -94,8 +94,7 @@ class TelephonyMessageRepository(
                     val address = resolver.query(uri, arrayOf(Telephony.Sms.ADDRESS), null, null, null)?.use { c ->
                         if (c.moveToFirst()) c.getString(0) else null
                     } ?: return@withContext
-                    resolver.delete(uri, null, null)
-                    sms.send(address, message.body)
+                    sms.retry(uri, address, message.body)
                 }
                 Kind.MMS -> if (message.status == ChatMessage.Status.DOWNLOAD_FAILED) retryDownload(message.id) else mms.retry(message.id)
             }
@@ -228,7 +227,7 @@ class TelephonyMessageRepository(
         val mmsText = mmsSnippets(byThread.values.mapNotNull { list -> list.first().takeIf { it.kind == Kind.MMS }?.id })
 
         return byThread.mapNotNull { (threadId, list) ->
-            val people = recipients[threadId] ?: return@mapNotNull null
+            val people = recipients[threadId]?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
             val newest = list.first()
             val text = when (newest.kind) {
                 Kind.SMS -> Tapback.summarize(snippets[threadId].orEmpty())
@@ -255,7 +254,7 @@ class TelephonyMessageRepository(
         resolver.query(
             Telephony.Sms.CONTENT_URI,
             arrayOf(Telephony.Sms._ID, Telephony.Sms.THREAD_ID, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.READ),
-            selection, args, null,
+            if (selection == null) NOT_SMS_DRAFT else "($selection) AND $NOT_SMS_DRAFT", args, null,
         )?.use { c ->
             while (c.moveToNext()) {
                 val incoming = c.getInt(3) == Telephony.Sms.MESSAGE_TYPE_INBOX
@@ -299,7 +298,7 @@ class TelephonyMessageRepository(
         resolver.query(
             Telephony.Sms.CONTENT_URI,
             arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.ADDRESS, Telephony.Sms.STATUS),
-            "${Telephony.Sms.THREAD_ID} = ?", arrayOf(threadId.toString()), null,
+            "${Telephony.Sms.THREAD_ID} = ? AND $NOT_SMS_DRAFT", arrayOf(threadId.toString()), null,
         )?.use { c ->
             while (c.moveToNext()) {
                 val type = c.getInt(3)
@@ -415,5 +414,8 @@ class TelephonyMessageRepository(
         const val ADDR_TYPE_FROM = 0x89
 
         private const val TAG = "WinnowStore"
+
+        /** Drafts other SMS apps left in the store aren't messages. */
+        private const val NOT_SMS_DRAFT = "${Telephony.Sms.TYPE} != ${Telephony.Sms.MESSAGE_TYPE_DRAFT}"
     }
 }

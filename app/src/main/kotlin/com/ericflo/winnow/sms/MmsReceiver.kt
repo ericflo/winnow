@@ -51,17 +51,30 @@ class MmsReceiver(
             Log.e(TAG, "Couldn't store MMS notification; is Winnow the default SMS app?")
             return
         }
-        download(placeholder, ind.contentLocation, ind.transactionId, subscriptionId)
+        try {
+            download(placeholder, ind.contentLocation, ind.transactionId, subscriptionId)
+        } catch (e: Exception) {
+            Log.w(TAG, "Couldn't start the MMS download", e)
+            store.markDownloadFailed(placeholder)
+        }
     }
 
     /** Downloads a placeholder again after a failure. */
     fun retryDownload(mmsId: Long) {
         val placeholder = ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, mmsId)
         val location = store.contentLocation(mmsId) ?: return
-        val transactionId = context.contentResolver.query(placeholder, arrayOf(Telephony.Mms.TRANSACTION_ID), null, null, null)
-            ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }.orEmpty()
+        // Retry on the SIM the message arrived on, not whichever is the default now.
+        val (transactionId, subscriptionId) = context.contentResolver.query(
+            placeholder, arrayOf(Telephony.Mms.TRANSACTION_ID, Telephony.Mms.SUBSCRIPTION_ID), null, null, null,
+        )?.use { c -> if (c.moveToFirst()) c.getString(0).orEmpty() to c.getInt(1) else null }
+            ?: ("" to SubscriptionManager.getDefaultSmsSubscriptionId())
         context.contentResolver.update(placeholder, ContentValues().apply { putNull(Telephony.Mms.STATUS) }, null, null)
-        download(placeholder, location, transactionId, SubscriptionManager.getDefaultSmsSubscriptionId())
+        try {
+            download(placeholder, location, transactionId, subscriptionId)
+        } catch (e: Exception) {
+            Log.w(TAG, "Couldn't restart the MMS download", e)
+            store.markDownloadFailed(placeholder)
+        }
     }
 
     private fun download(placeholder: Uri, location: String, transactionId: String, subscriptionId: Int) {
@@ -97,7 +110,10 @@ class MmsReceiver(
         }
         val recipients = participants(conf)
         val threadId = Telephony.Threads.getOrCreateThreadId(context, recipients.toSet())
-        val message = store.insertIncoming(conf, threadId, subscriptionId) ?: return
+        val message = store.insertIncoming(conf, threadId, subscriptionId) ?: run {
+            placeholder?.let(store::markDownloadFailed)
+            return
+        }
         placeholder?.let(store::delete)
         if (acknowledge) transactionId?.takeIf { it.isNotBlank() }?.let { acknowledge(it, subscriptionId) }
         val text = conf.parts.filter { it.contentType == ContentTypes.TEXT_PLAIN }.mapNotNull { it.text }.joinToString("\n")

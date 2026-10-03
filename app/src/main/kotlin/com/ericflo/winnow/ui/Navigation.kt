@@ -154,7 +154,9 @@ fun WinnowNavHost(
         composable<ThreadRoute> { entry ->
             val route = entry.toRoute<ThreadRoute>()
             ThreadScreen(
-                viewModel = viewModel {
+                // Keyed by conversation: a notification or SENDTO intent for another thread reuses this
+                // entry (launchSingleTop), and must not get the previous thread's ViewModel back.
+                viewModel = viewModel(key = "thread:${route.threadId}:${route.recipients}") {
                     ThreadViewModel(container, route.threadId, splitAddresses(route.recipients)).also { vm ->
                         if (route.draft.isNotEmpty()) vm.setDraft(route.draft)
                     }

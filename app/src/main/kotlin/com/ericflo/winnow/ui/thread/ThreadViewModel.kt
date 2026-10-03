@@ -57,7 +57,7 @@ class ThreadViewModel(
     private val title = displayNameFor(recipients, repo::displayName)
     private val subtitle = when {
         recipients.size > 1 -> "${recipients.size + 1} people"
-        else -> ContactLookup.formatAddress(recipients.single()).takeIf { it != title }
+        else -> recipients.singleOrNull()?.let(ContactLookup::formatAddress)?.takeIf { it != title }
     }
 
     private val _draft = MutableStateFlow("")
@@ -122,6 +122,33 @@ class ThreadViewModel(
     /** The real thread id, once a new conversation's thread has been created; negative before. */
     fun currentThreadId(): Long = threadId.value
 
+    /**
+     * While the conversation is on screen, incoming texts for it don't notify (see
+     * IncomingMessageHandler) and coming back to it marks it read.
+     */
+    fun setVisible(visible: Boolean) {
+        val id = threadId.value
+        if (visible) {
+            container.visibleThread.value = id.takeIf { it >= 0 }
+            if (id >= 0) launch {
+                repo.markRead(id)
+                container.notifier.cancel(id)
+            }
+        } else if (container.visibleThread.value == id) {
+            container.visibleThread.value = null
+        }
+    }
+
+    /** Leaving within the debounce window would drop the last keystrokes; save whatever is there. */
+    override fun onCleared() {
+        val id = threadId.value
+        if (id >= 0) {
+            val draft = _draft.value
+            container.appScope.launch { states.saveDraft(id, draft) }
+        }
+        if (container.visibleThread.value == id) container.visibleThread.value = null
+    }
+
     fun setDraft(value: String) {
         _draft.value = value
     }
@@ -185,9 +212,9 @@ class ThreadViewModel(
 
     fun delete(message: ChatMessage) = launch { repo.deleteMessage(message) }
 
-    fun allow() = launch { repo.overrideVerdict(threadId.value, overrideAddress(), Action.ALLOW) }
+    fun allow() = launch { overrideAddress().takeIf { it.isNotBlank() }?.let { repo.overrideVerdict(threadId.value, it, Action.ALLOW) } }
 
-    fun filter() = launch { repo.overrideVerdict(threadId.value, overrideAddress(), Action.FILTER) }
+    fun filter() = launch { overrideAddress().takeIf { it.isNotBlank() }?.let { repo.overrideVerdict(threadId.value, it, Action.FILTER) } }
 
     fun setBlocked(block: Boolean) = launch {
         val number = recipients.singleOrNull() ?: return@launch
@@ -210,9 +237,18 @@ class ThreadViewModel(
 
     /** The sender a correction applies to: the newest incoming sender, or the first recipient. */
     private fun overrideAddress(): String =
-        state.value.messages.lastOrNull { !it.outgoing }?.sender ?: recipients.first()
+        state.value.messages.lastOrNull { !it.outgoing }?.sender ?: recipients.firstOrNull().orEmpty()
 
+    /** Runs a user action; a failure becomes a notice instead of a crash. */
     private fun launch(block: suspend () -> Unit) {
-        viewModelScope.launch { block() }
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _notices.emit("Something went wrong: ${e.message ?: e::class.simpleName}")
+            }
+        }
     }
 }
