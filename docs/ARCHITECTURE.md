@@ -93,6 +93,28 @@ per-sender rules from "Not spam" / "Filter sender".
 `DemoMessageRepository` serves sample threads until SMS access is granted, which also
 makes the UI developable on an emulator.
 
+## MMS
+
+`mms/` is a standalone PDU codec. The app uses it like this:
+
+- **Receive** (`sms/MmsReceiver`):
+  1. A WAP push delivers m-notification-ind.
+  2. A placeholder row goes into the system MMS store and the UI shows "Downloading MMS…".
+  3. `SmsManager.downloadMultimediaMessage` downloads into a FileProvider-shared cache file.
+  4. The m-retrieve-conf is parsed and written into the store, as message, parts and
+     addresses (`sms/MmsStore`).
+  5. An m-notifyresp-ind acknowledges the download to the carrier.
+  6. `IncomingMessageHandler` classifies and notifies, the same path as SMS.
+- **Group participants:** sender + To + Cc, minus this phone's own numbers. Those come from
+  `SubscriptionManager.getPhoneNumber` on the default subscriptions, which needs only
+  READ_PHONE_NUMBERS.
+- **Send** (`sms/MmsSender`): SMIL + media + text as m-send-req, via
+  `SmsManager.sendMultimediaMessage`. The m-send-conf moves the message to sent or failed.
+  Photos are downscaled so the whole message fits about 900 KB.
+
+Emulators have no MMS server. The debug-only `DebugMmsReceiver` feeds codec-built PDUs into
+the receive path. Its push mode exercises the download-failure and retry path.
+
 ## RCS
 
 Researched 2026-10-03:

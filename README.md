@@ -11,20 +11,28 @@ compatible service, a general-purpose LLM, or an on-device model can replace it.
 
 ## Status
 
-v0.1 scaffold. Works today:
+A working SMS/MMS app, developed and verified on the Android emulator only. It hasn't run on a phone yet.
 
-- Default-SMS-app plumbing: receive, store, send, "respond via message", role request
-- Classification pipeline with privacy gate, redaction, timeouts, fail-open delivery
-- Providers: System One wire (Jev via TypeSafe or OpenRouter, any self-hosted server) and
-  OpenAI-compatible chat completions; on-device keyword fallback
-- UI modeled on Google Messages: large-title inbox on a rounded sheet, avatar menu with
-  Filtered (Winnow's "Spam & blocked"), timestamped conversation blocks, New chat with
-  grouped contacts. Each verdict banner says what Winnow decided and who decided it, with a
-  one-tap "Not spam". Settings has a live "Try it" box that shows exactly what would leave the phone.
-- Sample conversations until Winnow is made the default SMS app
+- **Messaging:** SMS and MMS send/receive as the default SMS app; group MMS (participants
+  threaded correctly, sender names and avatars); photos in and out (downscaled to carrier
+  limits) with a full-screen viewer; retry for failed sends and failed MMS downloads; opt-in
+  SMS delivery reports; scheduled send; drafts; SMS segment counter.
+- **Conversations:** pin, archive (swipe or select), mute, mark read/unread, delete, block
+  (Android's system block list), multi-select; full-text search across SMS and MMS; New chat
+  with contacts and Create group.
+- **Messages:** copy, forward, delete, details; tappable links, emails and numbers, except
+  in phishing/scam verdicts, where links are disabled; "Copy code" for verification codes.
+- **Notifications:** conversation-style, stacked per thread, with inline Reply, Mark as read,
+  and Copy code.
+- **Classification:** every incoming SMS and MMS goes through the provider-agnostic classifier
+  (Jev, any System One server, any OpenAI-compatible LLM, or on-device rules) with a privacy
+  gate and redaction. Filtered conversations go to a "Spam & blocked"-style list, and each
+  carries a banner saying why, with "Not spam" and "Report" (to the carrier's 7726).
+- **UI:** modeled on Google Messages: large-title inbox on a rounded sheet, avatar menu,
+  timestamped conversation blocks, Material You colors, dark mode.
 
-Not yet: MMS (receive or send), RCS (see below), group threads, search inside threads,
-backup/import, an on-device model.
+Not yet: RCS (see below), contact photos, backup/import, an on-device model, iPhone
+reaction rendering, multi-SIM choice.
 
 ## Categories
 
@@ -53,10 +61,20 @@ Needs JDK 17+ (21 recommended) and an Android SDK with API 37.
 ```sh
 export JAVA_HOME=~/.local/opt/jdk-21          # wherever your JDK lives
 echo "sdk.dir=$HOME/Android/Sdk" > local.properties
-./gradlew :classifier:test                     # JVM unit tests for the classification layer
+./gradlew :classifier:test :mms:test :app:testDebugUnitTest   # JVM unit tests
 ./gradlew :app:assembleDebug                   # app/build/outputs/apk/debug/app-debug.apk
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+On an emulator, `adb emu sms send 4155550123 "hello"` delivers an SMS. Debug builds also
+accept fake MMS through the real receive path (emulators have no MMS server):
+
+```sh
+adb shell am broadcast -n com.ericflo.winnow/.debug.DebugMmsReceiver \
+    --es from +14155550181 --es to "+15551234567,+14155550182" --es text "hi" --ez photo true
+```
+
+Use fictional 555-01xx numbers when testing.
 
 Then open Winnow, tap **Set as default**, and pick a provider in Settings. Until a
 provider is configured, Winnow runs on-device only: keyword rules can silence messages
@@ -66,6 +84,8 @@ but never hide them.
 
 ```
 classifier/   Pure Kotlin/JVM. Decision interface, providers, message taxonomy, privacy, tests.
-app/          Android app. Compose + Material 3, Room for verdicts, DataStore for settings.
+mms/          Pure Kotlin/JVM. MMS PDU encoder/decoder (OMA-MMS-ENC over WSP), tests.
+app/          Android app. Compose + Material 3; Room for verdicts, conversation state and
+              scheduled sends; DataStore for settings; the system SMS/MMS store for messages.
 docs/         Architecture and decisions.
 ```
