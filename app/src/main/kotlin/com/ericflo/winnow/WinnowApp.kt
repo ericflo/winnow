@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import androidx.room.Room
 import com.ericflo.winnow.classifier.http.OkHttpTransport
 import com.ericflo.winnow.classify.ClassifierFactory
+import com.ericflo.winnow.classify.HistoryReviewer
 import com.ericflo.winnow.classify.IncomingMessageHandler
 import com.ericflo.winnow.data.BlockedNumbers
 import com.ericflo.winnow.data.ContactLookup
@@ -79,6 +80,7 @@ class AppContainer(private val context: Context) {
 
     val contactsSource by lazy { ContactsSource(context, access) }
     val blockedNumbers by lazy { BlockedNumbers(context) }
+    val historyReviewer by lazy { HistoryReviewer(context, appScope, verdictDao, contacts, settings, classifiers) }
     val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages } }
 
     val incoming by lazy {

@@ -121,6 +121,19 @@ class MmsStore(private val context: Context) {
         return parts
     }
 
+    /** A message's text parts joined, without reading any media. */
+    fun text(mmsId: Long): String =
+        resolver.query(
+            Mms.Part.CONTENT_URI, arrayOf(Mms.Part.TEXT),
+            "${Mms.Part.MSG_ID} = ? AND ${Mms.Part.CONTENT_TYPE} = 'text/plain'", arrayOf(mmsId.toString()), "${Mms.Part.SEQ} ASC",
+        )?.use { c -> buildList { while (c.moveToNext()) c.getString(0)?.let(::add) } }.orEmpty().joinToString("\n")
+
+    fun sender(mmsId: Long): String? =
+        resolver.query(
+            Mms.Addr.getAddrUriForMessage(mmsId.toString()), arrayOf(Mms.Addr.ADDRESS),
+            "${Mms.Addr.TYPE} = $ADDR_FROM", null, null,
+        )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+
     fun recipients(mmsId: Long): List<String> =
         resolver.query(
             Mms.Addr.getAddrUriForMessage(mmsId.toString()), arrayOf(Mms.Addr.ADDRESS),

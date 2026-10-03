@@ -74,6 +74,8 @@ data class WinnowSettings(
     val zdrOnly: Boolean = false,
     /** Ask the carrier to confirm delivery of each SMS. Off by default, as in Messages. */
     val deliveryReports: Boolean = false,
+    /** The user said "Not now" to reviewing older conversations. */
+    val reviewPromptDismissed: Boolean = false,
     val categoryActions: Map<Category, Action> = Category.entries.associateWith { it.defaultAction },
 ) {
     fun settingsFor(kind: ProviderKind): ProviderSettings = providers[kind] ?: ProviderSettings()
@@ -127,6 +129,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             privacy = privacy,
             zdrOnly = this[ZDR_ONLY] ?: false,
             deliveryReports = this[DELIVERY_REPORTS] ?: false,
+            reviewPromptDismissed = this[REVIEW_DISMISSED] ?: false,
             categoryActions = Category.entries.associateWith { c ->
                 this[actionKey(c)]?.let { runCatching { Action.valueOf(it) }.getOrNull() } ?: c.defaultAction
             },
@@ -150,6 +153,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[STRIP_URLS] = s.privacy.redaction.stripUrlPaths
         this[ZDR_ONLY] = s.zdrOnly
         this[DELIVERY_REPORTS] = s.deliveryReports
+        this[REVIEW_DISMISSED] = s.reviewPromptDismissed
         s.categoryActions.forEach { (c, a) -> this[actionKey(c)] = a.name }
     }
 
@@ -164,6 +168,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val STRIP_URLS = booleanPreferencesKey("privacy.strip_urls")
         val ZDR_ONLY = booleanPreferencesKey("privacy.zdr_only")
         val DELIVERY_REPORTS = booleanPreferencesKey("sms.delivery_reports")
+        val REVIEW_DISMISSED = booleanPreferencesKey("review.prompt_dismissed")
 
         fun apiKeyKey(k: ProviderKind) = stringPreferencesKey("provider.${k.name}.api_key_sealed")
         fun modelKey(k: ProviderKind) = stringPreferencesKey("provider.${k.name}.model")

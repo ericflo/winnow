@@ -40,9 +40,15 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     private val _trial = MutableStateFlow<TrialState>(TrialState.Idle)
     val trial: StateFlow<TrialState> = _trial.asStateFlow()
 
+    /** Reviewing older, never-classified conversations. */
+    val review = container.historyReviewer.status
+
     fun refresh() {
         _isDefault.value = container.isDefaultSmsApp()
+        container.historyReviewer.refresh()
     }
+
+    fun startReview() = container.historyReviewer.start()
 
     fun selectProvider(kind: ProviderKind) = update { it.copy(provider = kind) }
 

@@ -144,6 +144,10 @@ interface VerdictDao {
     @Query("UPDATE verdicts SET userAction = :userAction WHERE threadId = :threadId")
     suspend fun setUserAction(threadId: Long, userAction: String?)
 
+    /** Which of [keys] already have a verdict. Callers keep [keys] under SQLite's 999-variable limit. */
+    @Query("SELECT messageKey FROM verdicts WHERE messageKey IN (:keys)")
+    suspend fun existingKeys(keys: List<String>): List<String>
+
     @Query("DELETE FROM verdicts WHERE threadId IN (:threadIds)")
     suspend fun deleteForThreads(threadIds: Collection<Long>)
 

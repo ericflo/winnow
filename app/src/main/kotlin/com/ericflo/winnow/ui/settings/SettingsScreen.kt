@@ -55,6 +55,7 @@ import com.ericflo.winnow.classifier.message.VerdictSource
 import com.ericflo.winnow.data.ProviderKind
 import com.ericflo.winnow.data.ProviderSettings
 import com.ericflo.winnow.data.WinnowSettings
+import com.ericflo.winnow.ui.review.ReviewSettingsRow
 
 private val Action.label: String
     get() = when (this) {
@@ -69,6 +70,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val isDefault by viewModel.isDefault.collectAsStateWithLifecycle()
     val trial by viewModel.trial.collectAsStateWithLifecycle()
+    val review by viewModel.review.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
         viewModel.refresh()
         onPauseOrDispose { }
@@ -130,6 +132,11 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     supportingContent = { Text("Senders you've always allowed or always filtered") },
                     modifier = Modifier.clickable(onClick = onOpenSenderRules),
                 )
+            }
+
+            if (isDefault) {
+                section("Older conversations")
+                item("review") { ReviewSettingsRow(review, s.provider.label, onStart = viewModel::startReview) }
             }
 
             section("Messages")

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ericflo.winnow.AppContainer
 import com.ericflo.winnow.classifier.message.Action
+import com.ericflo.winnow.classify.ReviewStatus
 import com.ericflo.winnow.data.ConversationSummary
 import com.ericflo.winnow.data.ProviderKind
 import com.ericflo.winnow.data.SearchHit
@@ -34,6 +35,8 @@ data class InboxUiState(
     val archivedCount: Int = 0,
     /** Which classifier is active, for the menu, e.g. "Jev via OpenRouter". */
     val classifier: String = "",
+    /** Reviewing older, never-classified conversations, unless the user dismissed the prompt. */
+    val review: ReviewStatus = ReviewStatus.Unknown,
 )
 
 /** Backs the inbox and the Filtered and Archived lists. */
@@ -56,13 +59,17 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
 
     private val hits = query.debounce(250).distinctUntilChanged().mapLatest { q -> if (q.length < 2) emptyList() else repo.search(q) }
 
+    private val review = combine(container.historyReviewer.status, container.settings.settings) { status, s ->
+        if (s.reviewPromptDismissed) ReviewStatus.Unknown else status
+    }
+
     val state: StateFlow<InboxUiState> = combine(
         combine(all, hits, ::Pair),
-        container.isLive,
-        isDefault,
+        combine(container.isLive, isDefault, ::Pair),
         query,
         classifier,
-    ) { (all, hits), live, isDefault, query, classifier ->
+        review,
+    ) { (all, hits), (live, isDefault), query, classifier, review ->
         val shown = all.filter { c ->
             when (mode) {
                 ListMode.INBOX -> !c.isFiltered && !c.archived
@@ -81,12 +88,19 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
             filteredCount = all.count { it.isFiltered },
             archivedCount = all.count { it.archived && !it.isFiltered },
             classifier = classifier,
+            // Only offered once Winnow can actually read and file real messages.
+            review = if (live && isDefault) review else ReviewStatus.Unknown,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxUiState())
 
     fun refresh() {
         isDefault.value = container.isDefaultSmsApp()
+        if (mode == ListMode.INBOX) container.historyReviewer.refresh()
     }
+
+    fun startReview() = container.historyReviewer.start()
+
+    fun dismissReview() = launch { container.settings.update { it.copy(reviewPromptDismissed = true) } }
 
     fun setQuery(value: String) {
         query.value = value

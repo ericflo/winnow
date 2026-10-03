@@ -87,6 +87,7 @@ import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.data.ConversationSummary
 import com.ericflo.winnow.data.SearchHit
 import com.ericflo.winnow.ui.components.Avatar
+import com.ericflo.winnow.ui.review.ReviewInboxCard
 import com.ericflo.winnow.ui.components.shortTimestamp
 import kotlinx.coroutines.launch
 
@@ -168,6 +169,9 @@ fun InboxScreen(
                     if (!searching) {
                         item("header") { LargeHeader(onSearch = { searching = true }, onMenu = { menuOpen = true }) }
                         if (!state.live) item("make-default") { MakeDefaultCard(onMakeDefault) }
+                        item("review") {
+                            ReviewInboxCard(state.review, state.classifier, onStart = viewModel::startReview, onDismiss = viewModel::dismissReview)
+                        }
                     } else if (state.query.isNotBlank() && state.conversations.isNotEmpty()) {
                         item("h-conversations") { SectionHeader("Conversations") }
                     }
