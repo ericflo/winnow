@@ -76,6 +76,8 @@ data class WinnowSettings(
     val deliveryReports: Boolean = false,
     /** The user said "Not now" to reviewing older conversations. */
     val reviewPromptDismissed: Boolean = false,
+    /** First-run onboarding finished or skipped. */
+    val onboarded: Boolean = false,
     val categoryActions: Map<Category, Action> = Category.entries.associateWith { it.defaultAction },
 ) {
     fun settingsFor(kind: ProviderKind): ProviderSettings = providers[kind] ?: ProviderSettings()
@@ -130,6 +132,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             zdrOnly = this[ZDR_ONLY] ?: false,
             deliveryReports = this[DELIVERY_REPORTS] ?: false,
             reviewPromptDismissed = this[REVIEW_DISMISSED] ?: false,
+            onboarded = this[ONBOARDED] ?: false,
             categoryActions = Category.entries.associateWith { c ->
                 this[actionKey(c)]?.let { runCatching { Action.valueOf(it) }.getOrNull() } ?: c.defaultAction
             },
@@ -154,6 +157,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[ZDR_ONLY] = s.zdrOnly
         this[DELIVERY_REPORTS] = s.deliveryReports
         this[REVIEW_DISMISSED] = s.reviewPromptDismissed
+        this[ONBOARDED] = s.onboarded
         s.categoryActions.forEach { (c, a) -> this[actionKey(c)] = a.name }
     }
 
@@ -169,6 +173,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val ZDR_ONLY = booleanPreferencesKey("privacy.zdr_only")
         val DELIVERY_REPORTS = booleanPreferencesKey("sms.delivery_reports")
         val REVIEW_DISMISSED = booleanPreferencesKey("review.prompt_dismissed")
+        val ONBOARDED = booleanPreferencesKey("onboarding.done")
 
         fun apiKeyKey(k: ProviderKind) = stringPreferencesKey("provider.${k.name}.api_key_sealed")
         fun modelKey(k: ProviderKind) = stringPreferencesKey("provider.${k.name}.model")

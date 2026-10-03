@@ -3,6 +3,7 @@ package com.ericflo.winnow.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -18,16 +19,21 @@ import com.ericflo.winnow.ui.inbox.InboxViewModel
 import com.ericflo.winnow.ui.inbox.ListMode
 import com.ericflo.winnow.ui.newchat.NewChatScreen
 import com.ericflo.winnow.ui.newchat.NewChatViewModel
+import com.ericflo.winnow.ui.onboarding.OnboardingScreen
 import com.ericflo.winnow.ui.settings.SenderRulesScreen
 import com.ericflo.winnow.ui.settings.SettingsScreen
 import com.ericflo.winnow.ui.settings.SettingsViewModel
 import com.ericflo.winnow.ui.thread.ThreadScreen
 import com.ericflo.winnow.ui.thread.ThreadViewModel
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
 /** Where US carriers collect forwarded spam ("SPAM" on a keypad). */
 private const val CARRIER_SPAM_SHORT_CODE = "7726"
+
+@Serializable
+data object OnboardingRoute
 
 @Serializable
 data object InboxRoute
@@ -63,6 +69,10 @@ fun WinnowNavHost(
     onMakeDefault: () -> Unit,
 ) {
     val nav = rememberNavController()
+    val scope = rememberCoroutineScope()
+    val settings by container.settings.settings.collectAsStateWithLifecycle(initialValue = null)
+    // Wait for settings so a returning user never sees onboarding flash by.
+    val onboarded = settings?.onboarded ?: return
     val pending by pendingRoute.collectAsStateWithLifecycle()
     LaunchedEffect(pending) {
         pending?.let {
@@ -72,7 +82,25 @@ fun WinnowNavHost(
     }
     val openThread = { threadId: Long, recipients: List<String> -> nav.navigate(ThreadRoute(threadId, joinAddresses(recipients))) }
 
-    NavHost(navController = nav, startDestination = InboxRoute) {
+    NavHost(navController = nav, startDestination = if (onboarded) InboxRoute else OnboardingRoute) {
+        composable<OnboardingRoute> {
+            OnboardingScreen(
+                isDefault = container::isDefaultSmsApp,
+                onMakeDefault = onMakeDefault,
+                onChooseClassifier = { kind, key ->
+                    scope.launch {
+                        container.settings.update { s ->
+                            val keyed = if (key.isBlank()) s.providers else s.providers + (kind to s.settingsFor(kind).copy(apiKey = key))
+                            s.copy(provider = kind, providers = keyed)
+                        }
+                    }
+                },
+                onFinish = {
+                    scope.launch { container.settings.update { it.copy(onboarded = true) } }
+                    nav.navigate(InboxRoute) { popUpTo<OnboardingRoute> { inclusive = true } }
+                },
+            )
+        }
         composable<InboxRoute> {
             InboxScreen(
                 viewModel = viewModel { InboxViewModel(container, ListMode.INBOX) },
