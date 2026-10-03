@@ -21,6 +21,9 @@ interface MessageRepository {
     /** A contact name, or a formatted number. */
     fun displayName(address: String): String
 
+    /** A contact's photo, if any. */
+    fun photoUri(address: String): String? = null
+
     /** The thread for exactly these recipients, created if needed. */
     suspend fun threadIdFor(recipients: List<String>): Long
 
@@ -71,6 +74,7 @@ class SwitchingMessageRepository(
     override fun conversations() = isLive.flatMapLatest { if (it) live.conversations() else demo.conversations() }
     override fun messages(threadId: Long) = isLive.flatMapLatest { if (it) live.messages(threadId) else demo.messages(threadId) }
     override fun displayName(address: String) = current.displayName(address)
+    override fun photoUri(address: String) = current.photoUri(address)
     override suspend fun threadIdFor(recipients: List<String>) = current.threadIdFor(recipients)
     override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>) =
         current.send(recipients, body, attachments)

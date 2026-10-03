@@ -140,7 +140,7 @@ fun ConversationAvatar(conversation: ConversationSummary, size: Dp = 52.dp) {
             )
         }
     } else {
-        Avatar(conversation.displayName, seed = conversation.address, size = size)
+        Avatar(conversation.displayName, seed = conversation.address, size = size, photoUri = conversation.photoUri)
     }
 }
 

@@ -8,7 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
-data class ContactEntry(val name: String, val number: String)
+data class ContactEntry(val name: String, val number: String, val photoUri: String? = null)
 
 /** Phone contacts for New chat; sample contacts while the app shows sample conversations. */
 class ContactsSource(private val context: Context, private val isLive: StateFlow<Boolean>) {
@@ -19,7 +19,7 @@ class ContactsSource(private val context: Context, private val isLive: StateFlow
         return withContext(Dispatchers.IO) {
             context.contentResolver.query(
                 Phone.CONTENT_URI,
-                arrayOf(Phone.DISPLAY_NAME, Phone.NUMBER),
+                arrayOf(Phone.DISPLAY_NAME, Phone.NUMBER, Phone.PHOTO_THUMBNAIL_URI),
                 null, null,
                 "${Phone.DISPLAY_NAME} COLLATE LOCALIZED ASC",
             )?.use { c ->
@@ -27,7 +27,7 @@ class ContactsSource(private val context: Context, private val isLive: StateFlow
                     while (c.moveToNext()) {
                         val name = c.getString(0) ?: continue
                         val number = c.getString(1) ?: continue
-                        add(ContactEntry(name, number))
+                        add(ContactEntry(name, number, c.getString(2)))
                     }
                 }
             }.orEmpty().distinctBy { it.name to normalizeAddress(it.number) }

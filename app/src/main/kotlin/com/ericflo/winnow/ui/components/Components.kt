@@ -16,11 +16,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
 import com.ericflo.winnow.R
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
@@ -34,9 +37,12 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.time.temporal.ChronoUnit
 
-/** A colored initial for named senders; a neutral person glyph for bare numbers, like Messages. */
+/**
+ * The contact's photo when there is one; otherwise a colored initial for named senders and a
+ * neutral person glyph for bare numbers, like Messages.
+ */
 @Composable
-fun Avatar(name: String, seed: String, size: Dp = 52.dp, modifier: Modifier = Modifier) {
+fun Avatar(name: String, seed: String, size: Dp = 52.dp, modifier: Modifier = Modifier, photoUri: String? = null) {
     val named = name.firstOrNull()?.let { it.isLetter() } == true
     val (container, content) = if (named) {
         avatarColors(seed)
@@ -48,6 +54,15 @@ fun Avatar(name: String, seed: String, size: Dp = 52.dp, modifier: Modifier = Mo
             Text(name.first().uppercase(), color = content, fontSize = (size.value * 0.42f).sp, style = MaterialTheme.typography.titleMedium)
         } else {
             Icon(Icons.Filled.Person, contentDescription = null, tint = content, modifier = Modifier.size(size * 0.5f))
+        }
+        // Drawn over the initial, so a missing or unreadable photo just shows the initial.
+        if (photoUri != null) {
+            AsyncImage(
+                model = photoUri,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(size).clip(CircleShape),
+            )
         }
     }
 }

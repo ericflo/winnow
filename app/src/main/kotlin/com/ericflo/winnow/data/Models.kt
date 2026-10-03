@@ -16,6 +16,8 @@ data class ConversationSummary(
     val archived: Boolean = false,
     val muted: Boolean = false,
     val draft: String? = null,
+    /** The contact's photo, for 1:1 conversations with a contact who has one. */
+    val photoUri: String? = null,
 ) {
     /** The single address of a 1:1 conversation, or the first participant of a group. */
     val address: String get() = recipients.firstOrNull().orEmpty()

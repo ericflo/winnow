@@ -7,10 +7,13 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
+import androidx.core.graphics.drawable.IconCompat
 import com.ericflo.winnow.R
 import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.ui.MainActivity
@@ -38,10 +41,16 @@ class Notifier(private val context: Context) {
         timestamp: Long = System.currentTimeMillis(),
         /** A verification code in [body], offered as a one-tap "Copy" action. */
         code: String? = null,
+        senderPhotoUri: String? = null,
     ) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val id = notificationId(threadId)
-        val sender = Person.Builder().setName(senderName).setKey(senderName).build()
+        val photo = senderPhotoUri?.let { uri ->
+            runCatching { context.contentResolver.openInputStream(Uri.parse(uri))?.use(BitmapFactory::decodeStream) }.getOrNull()
+        }
+        val sender = Person.Builder().setName(senderName).setKey(senderName).apply {
+            photo?.let { setIcon(IconCompat.createWithBitmap(it)) }
+        }.build()
         val previous = manager.activeNotifications.firstOrNull { it.tag == TAG && it.id == id }
             ?.notification?.let(NotificationCompat.MessagingStyle::extractMessagingStyleFromNotification)
         val style = previous ?: NotificationCompat.MessagingStyle(Person.Builder().setName("You").build())

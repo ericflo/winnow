@@ -98,6 +98,7 @@ class IncomingMessageHandler(
                     senderName = displayName(sender),
                     body = preview,
                     code = VerificationCodes.find(text),
+                    senderPhotoUri = contacts.photoUri(sender),
                 )
             }
             Action.SILENCE -> Unit

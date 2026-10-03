@@ -166,7 +166,7 @@ fun ThreadScreen(
                         }
                     } ?: Modifier
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = showContact) {
-                        if (state.isGroup) GroupAvatar(36.dp) else Avatar(state.title, seed = single.orEmpty(), size = 36.dp)
+                        if (state.isGroup) GroupAvatar(36.dp) else Avatar(state.title, seed = single.orEmpty(), size = 36.dp, photoUri = state.photos[single])
                         Spacer(Modifier.width(12.dp))
                         Column {
                             Text(state.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -497,6 +497,7 @@ private fun MessageList(
                 is ListItem.Bubble -> MessageBubble(
                     item = item,
                     senderName = item.message.sender?.let { state.senderNames[it] }?.takeIf { state.isGroup },
+                    senderPhoto = item.message.sender?.let { state.photos[it] },
                     showTime = revealed == item.key,
                     isLatestOutgoing = item.key == latestOutgoing,
                     onClick = { revealed = if (revealed == item.key) null else item.key },
@@ -526,6 +527,7 @@ private fun CenteredNote(text: String, modifier: Modifier = Modifier) {
 private fun MessageBubble(
     item: ListItem.Bubble,
     senderName: String?,
+    senderPhoto: String?,
     showTime: Boolean,
     isLatestOutgoing: Boolean,
     onClick: () -> Unit,
@@ -560,7 +562,7 @@ private fun MessageBubble(
         }
         Row(verticalAlignment = Alignment.Bottom) {
             if (showAvatarColumn) {
-                if (item.lastInGroup) Avatar(senderName.orEmpty(), seed = m.sender.orEmpty(), size = 36.dp) else Spacer(Modifier.width(36.dp))
+                if (item.lastInGroup) Avatar(senderName.orEmpty(), seed = m.sender.orEmpty(), size = 36.dp, photoUri = senderPhoto) else Spacer(Modifier.width(36.dp))
                 Spacer(Modifier.width(12.dp))
             }
             Column(

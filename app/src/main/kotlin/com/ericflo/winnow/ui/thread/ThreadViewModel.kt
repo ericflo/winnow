@@ -37,6 +37,8 @@ data class ThreadUiState(
     val verdict: StoredVerdict? = null,
     /** Display names of group senders. */
     val senderNames: Map<String, String> = emptyMap(),
+    /** Contact photos by address, for the header and group sender avatars. */
+    val photos: Map<String, String> = emptyMap(),
     val muted: Boolean = false,
     val archived: Boolean = false,
 ) {
@@ -108,6 +110,8 @@ class ThreadViewModel(
                     messages = messages,
                     verdict = messages.lastOrNull { !it.outgoing }?.verdict,
                     senderNames = messages.mapNotNull { it.sender }.distinct().associateWith(repo::displayName),
+                    photos = (recipients + messages.mapNotNull { it.sender }).distinct()
+                        .mapNotNull { address -> repo.photoUri(address)?.let { address to it } }.toMap(),
                     muted = s?.muted == true,
                     archived = s?.archived == true,
                 )

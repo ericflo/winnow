@@ -10,26 +10,35 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 class ContactLookup(private val context: Context) {
-    // Empty string caches "not a contact".
-    private val names = ConcurrentHashMap<String, String>()
+    private data class Info(val name: String, val photoUri: String?)
 
-    fun displayName(address: String): String? {
+    // NOT_FOUND caches "not a contact" so unknown senders aren't looked up on every frame.
+    private val cache = ConcurrentHashMap<String, Info>()
+
+    fun displayName(address: String): String? = info(address)?.name
+
+    /** The contact's thumbnail photo, if they have one. */
+    fun photoUri(address: String): String? = info(address)?.photoUri
+
+    fun isContact(address: String): Boolean = info(address) != null
+
+    fun clear() = cache.clear()
+
+    private fun info(address: String): Info? {
         if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
-        return names.getOrPut(address) { query(address).orEmpty() }.ifEmpty { null }
+        return cache.getOrPut(address) { query(address) ?: NOT_FOUND }.takeIf { it !== NOT_FOUND }
     }
 
-    fun isContact(address: String): Boolean = displayName(address) != null
-
-    fun clear() = names.clear()
-
-    private fun query(address: String): String? {
+    private fun query(address: String): Info? {
         val uri = Uri.withAppendedPath(PhoneLookup.CONTENT_FILTER_URI, Uri.encode(address))
-        return context.contentResolver.query(uri, arrayOf(PhoneLookup.DISPLAY_NAME), null, null, null)?.use { c ->
-            if (c.moveToFirst()) c.getString(0) else null
+        return context.contentResolver.query(uri, arrayOf(PhoneLookup.DISPLAY_NAME, PhoneLookup.PHOTO_THUMBNAIL_URI), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0)?.let { Info(it, c.getString(1)) } else null
         }
     }
 
     companion object {
+        private val NOT_FOUND = Info("", null)
+
         fun formatAddress(address: String): String =
             if (address.any(Char::isLetter)) address
             else PhoneNumberUtils.formatNumber(address, Locale.getDefault().country) ?: address

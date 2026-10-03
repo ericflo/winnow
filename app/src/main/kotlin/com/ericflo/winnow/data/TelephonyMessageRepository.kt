@@ -68,6 +68,8 @@ class TelephonyMessageRepository(
     override fun displayName(address: String): String =
         contacts.displayName(address) ?: ContactLookup.formatAddress(address)
 
+    override fun photoUri(address: String): String? = contacts.photoUri(address)
+
     override suspend fun threadIdFor(recipients: List<String>): Long = withContext(Dispatchers.IO) {
         Telephony.Threads.getOrCreateThreadId(context, recipients.toSet())
     }
@@ -223,6 +225,7 @@ class TelephonyMessageRepository(
                 timestamp = newest.date,
                 unreadCount = list.count { it.unread },
                 verdict = null,
+                photoUri = people.singleOrNull()?.let(contacts::photoUri),
             )
             summary to list.firstOrNull { !it.outgoing }?.key
         }.sortedByDescending { it.first.timestamp }

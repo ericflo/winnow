@@ -197,6 +197,7 @@ fun NewChatScreen(viewModel: NewChatViewModel, onBack: () -> Unit, onStart: (rec
                         subtitle = ContactLookup.formatAddress(contact.number),
                         avatarName = contact.name,
                         seed = contact.number,
+                        photoUri = contact.photoUri,
                         shape = groupShape(i, contacts.size),
                         checked = state.groupMode && state.picked.any { it.number == contact.number },
                         onClick = { choose(contact) },
@@ -270,6 +271,7 @@ private fun ContactCard(
     shape: RoundedCornerShape,
     onClick: () -> Unit,
     checked: Boolean = false,
+    photoUri: String? = null,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -280,7 +282,7 @@ private fun ContactCard(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp),
         ) {
-            Avatar(avatarName, seed = seed, size = 48.dp)
+            Avatar(avatarName, seed = seed, size = 48.dp, photoUri = photoUri)
             Spacer(Modifier.width(16.dp))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
