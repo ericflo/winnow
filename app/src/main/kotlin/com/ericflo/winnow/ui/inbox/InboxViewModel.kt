@@ -122,6 +122,11 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         container.notifier.forget(threadIds)
     }
 
+    /** "Not spam" for a filtered 1:1 conversation: always allow its sender. */
+    fun allow(conversation: ConversationSummary) = launch {
+        if (!conversation.isGroup) repo.overrideVerdict(conversation.threadId, conversation.address, Action.ALLOW)
+    }
+
     /** Always filter the sender of a 1:1 conversation. */
     fun block(conversation: ConversationSummary) = launch {
         if (!conversation.isGroup) repo.overrideVerdict(conversation.threadId, conversation.address, Action.FILTER)

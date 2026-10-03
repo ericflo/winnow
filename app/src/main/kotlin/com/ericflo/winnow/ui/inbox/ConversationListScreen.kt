@@ -7,15 +7,23 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import kotlinx.coroutines.launch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
@@ -38,7 +46,10 @@ fun ConversationListScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val filtered = mode == ListMode.FILTERED
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text(if (filtered) "Filtered" else "Archived") },
@@ -51,7 +62,7 @@ fun ConversationListScreen(
         LazyColumn(contentPadding = padding, modifier = Modifier.fillMaxSize()) {
             item("explainer") {
                 Text(
-                    if (filtered) "Kept out of your inbox without a notification. Open one to see why, or to mark it as not spam."
+                    if (filtered) "Kept out of your inbox without a notification. Open one to see why, or swipe it to mark it as not spam."
                     else "Archived conversations come back to your inbox when a new message arrives.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -59,21 +70,36 @@ fun ConversationListScreen(
                 )
             }
             items(state.conversations, key = { it.threadId }) { conversation ->
-                ConversationRow(
-                    conversation,
-                    showVerdict = filtered,
-                    onClick = { onOpenThread(conversation.threadId, conversation.recipients) },
-                    leading = {
-                        if (filtered) FilteredAvatar(conversation.verdict?.category) else ConversationAvatar(conversation)
-                    },
-                    trailing = if (filtered) null else {
-                        {
-                            IconButton(onClick = { viewModel.setArchived(setOf(conversation.threadId), false) }) {
-                                Icon(painterResource(R.drawable.ic_unarchive), contentDescription = "Unarchive")
-                            }
+                val swipe = when {
+                    filtered && !conversation.isGroup -> Triple(rememberVectorPainter(Icons.Filled.CheckCircle), "Not spam") {
+                        viewModel.allow(conversation)
+                        scope.launch {
+                            val result = snackbar.showSnackbar("${conversation.displayName} will always reach your inbox", actionLabel = "Undo")
+                            if (result == SnackbarResult.ActionPerformed) viewModel.block(conversation)
                         }
-                    },
-                )
+                    }
+                    !filtered -> Triple(painterResource(R.drawable.ic_unarchive), "Unarchive") {
+                        viewModel.setArchived(setOf(conversation.threadId), false)
+                    }
+                    else -> null
+                }
+                SwipeAction(enabled = swipe != null, icon = swipe?.first ?: painterResource(R.drawable.ic_archive), label = swipe?.second.orEmpty(), onSwipe = { swipe?.third?.invoke() }) {
+                    ConversationRow(
+                        conversation,
+                        showVerdict = filtered,
+                        onClick = { onOpenThread(conversation.threadId, conversation.recipients) },
+                        leading = {
+                            if (filtered) FilteredAvatar(conversation.verdict?.category) else ConversationAvatar(conversation)
+                        },
+                        trailing = if (filtered) null else {
+                            {
+                                IconButton(onClick = { viewModel.setArchived(setOf(conversation.threadId), false) }) {
+                                    Icon(painterResource(R.drawable.ic_unarchive), contentDescription = "Unarchive")
+                                }
+                            }
+                        },
+                    )
+                }
             }
             if (!state.loading && state.conversations.isEmpty()) {
                 item("empty") {

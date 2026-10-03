@@ -75,6 +75,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
@@ -283,9 +284,20 @@ fun InboxScreen(
 }
 
 /** Swipe either way to archive, as in Messages. */
+@Composable
+fun SwipeToArchive(enabled: Boolean, onArchive: () -> Unit, content: @Composable () -> Unit) =
+    SwipeAction(enabled, painterResource(R.drawable.ic_archive), "Archive", onArchive, content)
+
+/** A row that runs [onSwipe] when swiped away in either direction, showing [icon] underneath. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SwipeToArchive(enabled: Boolean, onArchive: () -> Unit, content: @Composable () -> Unit) {
+fun SwipeAction(
+    enabled: Boolean,
+    icon: Painter,
+    label: String,
+    onSwipe: () -> Unit,
+    content: @Composable () -> Unit,
+) {
     if (!enabled) {
         content()
         return
@@ -293,7 +305,7 @@ fun SwipeToArchive(enabled: Boolean, onArchive: () -> Unit, content: @Composable
     val state = rememberSwipeToDismissBoxState()
     SwipeToDismissBox(
         state = state,
-        onDismiss = { onArchive() },
+        onDismiss = { onSwipe() },
         backgroundContent = {
             val start = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
             Row(
@@ -301,7 +313,9 @@ fun SwipeToArchive(enabled: Boolean, onArchive: () -> Unit, content: @Composable
                 modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 28.dp),
             ) {
                 if (!start) Spacer(Modifier.weight(1f))
-                Icon(painterResource(R.drawable.ic_archive), contentDescription = "Archive", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                Spacer(Modifier.width(8.dp))
+                Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
         },
     ) { content() }
