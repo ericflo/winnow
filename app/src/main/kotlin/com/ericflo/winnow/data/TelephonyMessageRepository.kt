@@ -211,7 +211,7 @@ class TelephonyMessageRepository(
             val people = recipients[threadId] ?: return@mapNotNull null
             val newest = list.first()
             val text = when (newest.kind) {
-                Kind.SMS -> snippets[threadId].orEmpty()
+                Kind.SMS -> Tapback.summarize(snippets[threadId].orEmpty())
                 // No parts yet means an announced message still waiting to download.
                 Kind.MMS -> mmsText[newest.id] ?: "MMS message"
             }

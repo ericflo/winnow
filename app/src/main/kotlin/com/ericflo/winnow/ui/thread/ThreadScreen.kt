@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -96,6 +98,7 @@ import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.data.StoredVerdict
+import com.ericflo.winnow.data.Tapback
 import com.ericflo.winnow.data.db.ScheduledMessageEntity
 import com.ericflo.winnow.ui.components.Avatar
 import com.ericflo.winnow.ui.components.ImageViewer
@@ -391,9 +394,42 @@ private sealed interface ListItem {
     }
 
     data class Header(val label: String, override val key: String) : ListItem
-    data class Bubble(val message: ChatMessage, val firstInGroup: Boolean, val lastInGroup: Boolean) : ListItem {
+    data class Bubble(
+        val message: ChatMessage,
+        val firstInGroup: Boolean,
+        val lastInGroup: Boolean,
+        /** Tapback emojis drawn on this bubble, e.g. "❤️" or "😂 2". */
+        val reactions: List<String> = emptyList(),
+    ) : ListItem {
         override val key get() = message.key
     }
+}
+
+/**
+ * Folds tapback texts into the messages they quote. Returns the messages still worth showing
+ * and the reactions per message key. A tapback whose original isn't found stays a message.
+ */
+private fun foldTapbacks(messages: List<ChatMessage>): Pair<List<ChatMessage>, Map<String, List<String>>> {
+    val reactions = HashMap<String, MutableList<String>>()
+    val shown = mutableListOf<ChatMessage>()
+    for (m in messages) {
+        val tapback = Tapback.parse(m.body)
+        val target = tapback?.let { t ->
+            shown.lastOrNull { prior ->
+                if (t.quoted == "an image") prior.attachments.any { it.isImage } else t.matches(prior.body)
+            }
+        }
+        if (tapback == null || target == null) {
+            shown += m
+            continue
+        }
+        val list = reactions.getOrPut(target.key) { mutableListOf() }
+        if (tapback.removal) list.remove(tapback.emoji) else list += tapback.emoji
+    }
+    val labels = reactions.mapValues { (_, emojis) ->
+        emojis.groupingBy { it }.eachCount().map { (emoji, n) -> if (n > 1) "$emoji $n" else emoji }
+    }.filterValues { it.isNotEmpty() }
+    return shown to labels
 }
 
 /** A header opens every block of messages more than an hour after the previous one, like Messages. */
@@ -411,12 +447,13 @@ private fun buildItems(transport: String, messages: List<ChatMessage>): List<Lis
         a != null && b != null && a.outgoing == b.outgoing && a.sender == b.sender &&
             !newBlock(a, b) && b.timestamp - a.timestamp < GROUP_GAP_MILLIS
 
+    val (shown, reactions) = foldTapbacks(messages)
     val items = mutableListOf<ListItem>(ListItem.Transport(transport))
-    messages.forEachIndexed { i, m ->
-        val prev = messages.getOrNull(i - 1)
-        val next = messages.getOrNull(i + 1)
+    shown.forEachIndexed { i, m ->
+        val prev = shown.getOrNull(i - 1)
+        val next = shown.getOrNull(i + 1)
         if (newBlock(prev, m)) items += ListItem.Header(headerLabel(m.timestamp), "h-${m.key}")
-        items += ListItem.Bubble(m, firstInGroup = !grouped(prev, m), lastInGroup = !grouped(m, next))
+        items += ListItem.Bubble(m, firstInGroup = !grouped(prev, m), lastInGroup = !grouped(m, next), reactions = reactions[m.key].orEmpty())
     }
     return items.asReversed()
 }
@@ -589,6 +626,21 @@ private fun MessageBubble(
                             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                     )
+                }
+                if (item.reactions.isNotEmpty()) {
+                    // Tucked under the bubble's corner, as Messages draws reactions.
+                    Surface(
+                        color = colors.surfaceContainerHighest,
+                        shape = CircleShape,
+                        border = BorderStroke(2.dp, colors.surface),
+                        modifier = Modifier.offset(x = if (m.outgoing) (-8).dp else 8.dp, y = (-10).dp),
+                    ) {
+                        Text(
+                            item.reactions.joinToString(" "),
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
                 }
                 if (fraud && m.body.contains('.')) {
                     Text("Links turned off: this looks like ${m.verdict?.category?.label?.lowercase()}", style = MaterialTheme.typography.labelSmall, color = colors.error)

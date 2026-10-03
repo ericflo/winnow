@@ -13,6 +13,7 @@ import com.ericflo.winnow.classifier.message.Verdict
 import com.ericflo.winnow.classifier.message.VerificationCodes
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.ConversationStateStore
+import com.ericflo.winnow.data.Tapback
 import com.ericflo.winnow.data.displayNameFor
 import com.ericflo.winnow.data.SettingsRepository
 import com.ericflo.winnow.data.ChatMessage
@@ -50,7 +51,7 @@ class IncomingMessageHandler(
             return
         }
         val (uri, threadId) = stored
-        route(uri, ChatMessage.Kind.SMS, threadId, address, listOf(address), body, body)
+        route(uri, ChatMessage.Kind.SMS, threadId, address, listOf(address), body, Tapback.summarize(body))
     }
 
     /** A downloaded MMS, already stored by [com.ericflo.winnow.sms.MmsReceiver]. */
