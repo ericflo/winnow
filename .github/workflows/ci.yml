@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+# A newer push to the same branch supersedes an in-flight run, which saves Actions minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
