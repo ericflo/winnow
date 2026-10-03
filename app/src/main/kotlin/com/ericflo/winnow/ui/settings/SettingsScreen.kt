@@ -1,5 +1,7 @@
 package com.ericflo.winnow.ui.settings
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -43,6 +45,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -71,6 +74,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
     val isDefault by viewModel.isDefault.collectAsStateWithLifecycle()
     val trial by viewModel.trial.collectAsStateWithLifecycle()
     val review by viewModel.review.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     LifecycleResumeEffect(Unit) {
         viewModel.refresh()
         onPauseOrDispose { }
@@ -140,6 +144,17 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
             }
 
             section("Messages")
+            item("notifications") {
+                ListItem(
+                    headlineContent = { Text("Notifications") },
+                    supportingContent = { Text("Sound, vibration and how messages appear") },
+                    modifier = Modifier.clickable {
+                        context.startActivity(
+                            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+                        )
+                    },
+                )
+            }
             item("delivery-reports") {
                 SwitchRow(
                     "SMS delivery reports",
