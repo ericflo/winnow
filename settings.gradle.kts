@@ -24,3 +24,4 @@ rootProject.name = "winnow"
 
 include(":app")
 include(":classifier")
+include(":mms")
