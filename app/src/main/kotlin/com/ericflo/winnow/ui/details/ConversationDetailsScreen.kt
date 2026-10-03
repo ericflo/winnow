@@ -141,6 +141,7 @@ class ConversationDetailsViewModel(
     fun delete(onDone: () -> Unit) = launch {
         repo.deleteThreads(setOf(threadId))
         container.conversationStates.forget(setOf(threadId))
+        container.notifier.forget(setOf(threadId))
         onDone()
     }
 

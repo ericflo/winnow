@@ -13,6 +13,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
+import androidx.core.content.LocusIdCompat
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import com.ericflo.winnow.R
 import com.ericflo.winnow.data.joinAddresses
@@ -84,7 +87,26 @@ class Notifier(private val context: Context) {
             .setShowsUserInterface(false)
             .build()
 
+        // A long-lived conversation shortcut puts the notification in the shade's Conversations
+        // section (priority, bubbles) and the thread on the launcher icon's long-press menu.
+        val shortcutId = shortcutId(threadId)
+        runCatching {
+            ShortcutManagerCompat.pushDynamicShortcut(
+                context,
+                ShortcutInfoCompat.Builder(context, shortcutId)
+                    .setShortLabel(conversationTitle)
+                    .setLongLived(true)
+                    .setIsConversation()
+                    .setLocusId(LocusIdCompat(shortcutId))
+                    .setPerson(sender)
+                    .setIcon(photo?.let(IconCompat::createWithBitmap) ?: IconCompat.createWithResource(context, R.mipmap.ic_launcher))
+                    .setIntent(Intent(open).setAction(MainActivity.ACTION_OPEN_THREAD))
+                    .build(),
+            )
+        }
         val builder = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
+            .setShortcutId(shortcutId)
+            .setLocusId(LocusIdCompat(shortcutId))
             .setSmallIcon(R.drawable.ic_notification)
             .setStyle(style)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -103,6 +125,14 @@ class Notifier(private val context: Context) {
     fun cancel(threadId: Long) {
         manager.cancel(TAG, notificationId(threadId))
     }
+
+    /** Drops notifications and conversation shortcuts for deleted threads. */
+    fun forget(threadIds: Collection<Long>) {
+        threadIds.forEach(::cancel)
+        runCatching { ShortcutManagerCompat.removeLongLivedShortcuts(context, threadIds.map(::shortcutId)) }
+    }
+
+    private fun shortcutId(threadId: Long) = "thread-$threadId"
 
     private fun actionIntent(
         action: String,

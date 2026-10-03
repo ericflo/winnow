@@ -204,6 +204,7 @@ class ThreadViewModel(
         val id = threadId.value
         repo.deleteThreads(setOf(id))
         states.forget(setOf(id))
+        container.notifier.forget(setOf(id))
         onDone()
     }
 

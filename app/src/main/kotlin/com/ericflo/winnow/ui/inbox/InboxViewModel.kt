@@ -119,6 +119,7 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     fun delete(threadIds: Set<Long>) = launch {
         repo.deleteThreads(threadIds)
         states.forget(threadIds)
+        container.notifier.forget(threadIds)
     }
 
     /** Always filter the sender of a 1:1 conversation. */
