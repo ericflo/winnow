@@ -79,7 +79,9 @@ adb shell am broadcast -n com.ericflo.winnow/.debug.DebugMmsReceiver \
     --es from +14155550181 --es to "+15551234567,+14155550182" --es text "hi" --ez photo true
 ```
 
-Use fictional 555-01xx numbers when testing.
+Use fictional 555-01xx numbers when testing. `scripts/emulator-smoke.sh` does all of the above
+in one go (install, SMS role, sample SMS, a tapback, group MMS and a failed MMS download), and
+refuses to run unless exactly one device is attached and that device is an emulator.
 
 Then open Winnow, tap **Set as default**, and pick a provider in Settings. Until a
 provider is configured, Winnow runs on-device only: keyword rules can silence messages
