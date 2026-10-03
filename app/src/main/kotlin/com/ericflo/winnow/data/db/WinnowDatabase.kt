@@ -4,6 +4,7 @@ import androidx.room.AutoMigration
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
@@ -20,13 +21,43 @@ import kotlinx.coroutines.flow.Flow
  * adds: a verdict per message and the user's per-sender rules.
  */
 @Database(
-    entities = [VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class],
-    version = 2,
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    entities = [VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class, ScheduledMessageEntity::class],
+    version = 3,
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
 )
 abstract class WinnowDatabase : RoomDatabase() {
     abstract fun verdicts(): VerdictDao
     abstract fun conversationStates(): ConversationStateDao
+    abstract fun scheduled(): ScheduledMessageDao
+}
+
+/** A text waiting for its send time. Lives here, not in the SMS store, until it's sent. */
+@Entity(tableName = "scheduled_messages")
+data class ScheduledMessageEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val threadId: Long,
+    /** Comma-joined addresses. */
+    val recipients: String,
+    val body: String,
+    val sendAt: Long,
+)
+
+@Dao
+interface ScheduledMessageDao {
+    @Query("SELECT * FROM scheduled_messages WHERE threadId = :threadId ORDER BY sendAt")
+    fun observeForThread(threadId: Long): Flow<List<ScheduledMessageEntity>>
+
+    @Query("SELECT * FROM scheduled_messages")
+    suspend fun all(): List<ScheduledMessageEntity>
+
+    @Query("SELECT * FROM scheduled_messages WHERE id = :id")
+    suspend fun get(id: Long): ScheduledMessageEntity?
+
+    @Insert
+    suspend fun insert(message: ScheduledMessageEntity): Long
+
+    @Query("DELETE FROM scheduled_messages WHERE id = :id")
+    suspend fun delete(id: Long)
 }
 
 /** Winnow-only state for a thread. The system SMS store has no place for it. */

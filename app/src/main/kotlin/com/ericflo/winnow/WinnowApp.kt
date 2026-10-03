@@ -22,6 +22,7 @@ import com.ericflo.winnow.data.TelephonyMessageRepository
 import com.ericflo.winnow.data.WinnowSettings
 import com.ericflo.winnow.data.db.WinnowDatabase
 import com.ericflo.winnow.notify.Notifier
+import com.ericflo.winnow.sms.MessageScheduler
 import com.ericflo.winnow.sms.MmsSender
 import com.ericflo.winnow.sms.SmsSender
 import kotlinx.coroutines.CoroutineScope
@@ -71,6 +72,7 @@ class AppContainer(private val context: Context) {
 
     val contactsSource by lazy { ContactsSource(context, access) }
     val blockedNumbers by lazy { BlockedNumbers(context) }
+    val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages } }
 
     val incoming by lazy {
         IncomingMessageHandler(context, verdictDao, contacts, settings, classifiers, notifier, conversationStates)

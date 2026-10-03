@@ -38,7 +38,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -53,7 +52,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -98,6 +96,7 @@ import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.data.StoredVerdict
+import com.ericflo.winnow.data.db.ScheduledMessageEntity
 import com.ericflo.winnow.ui.components.Avatar
 import com.ericflo.winnow.ui.components.ImageViewer
 import com.ericflo.winnow.ui.components.headerLabel
@@ -124,6 +123,7 @@ fun ThreadScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val blocked by viewModel.blocked.collectAsStateWithLifecycle()
+    val scheduled by viewModel.scheduled.collectAsStateWithLifecycle()
     var confirmBlock by remember { mutableStateOf(false) }
     var confirmReport by remember { mutableStateOf(false) }
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
@@ -233,6 +233,7 @@ fun ThreadScreen(
                 onRemoveAttachment = viewModel::removeAttachment,
                 isSms = single != null && attachments.isEmpty(),
                 onSend = viewModel::send,
+                onSchedule = viewModel::schedule,
             )
         },
     ) { padding ->
@@ -244,6 +245,10 @@ fun ThreadScreen(
             }
             MessageList(
                 state = state,
+                scheduled = scheduled,
+                onScheduledSendNow = viewModel::sendScheduledNow,
+                onScheduledEdit = viewModel::editScheduled,
+                onScheduledDelete = viewModel::cancelScheduled,
                 onViewImage = { viewing = it },
                 onActions = { actionsFor = it },
                 onRetry = viewModel::retry,
@@ -419,6 +424,10 @@ private fun buildItems(transport: String, messages: List<ChatMessage>): List<Lis
 @Composable
 private fun MessageList(
     state: ThreadUiState,
+    scheduled: List<ScheduledMessageEntity>,
+    onScheduledSendNow: (Long) -> Unit,
+    onScheduledEdit: (ScheduledMessageEntity) -> Unit,
+    onScheduledDelete: (Long) -> Unit,
     onViewImage: (String) -> Unit,
     onActions: (ChatMessage) -> Unit,
     onRetry: (ChatMessage) -> Unit,
@@ -435,6 +444,15 @@ private fun MessageList(
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
     ) {
+        // Reversed list: scheduled messages sit below everything already sent, latest last.
+        items(scheduled.asReversed(), key = { "scheduled-${it.id}" }) { message ->
+            ScheduledBubble(
+                message,
+                onSendNow = { onScheduledSendNow(message.id) },
+                onEdit = { onScheduledEdit(message) },
+                onDelete = { onScheduledDelete(message.id) },
+            )
+        }
         items(items, key = { it.key }) { item ->
             when (item) {
                 is ListItem.Transport -> CenteredNote(item.text, Modifier.padding(vertical = 4.dp))
@@ -694,6 +712,7 @@ private fun Composer(
     onRemoveAttachment: (OutgoingAttachment) -> Unit,
     isSms: Boolean,
     onSend: () -> Unit,
+    onSchedule: (at: Long, label: String) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().background(colors.surface).navigationBarsPadding().imePadding()) {
@@ -739,9 +758,7 @@ private fun Composer(
                 }
             }
             Spacer(Modifier.width(8.dp))
-            FilledIconButton(onClick = onSend, enabled = draft.isNotBlank() || attachments.isNotEmpty(), modifier = Modifier.size(56.dp)) {
-                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
-            }
+            SendButton(enabled = draft.isNotBlank() || attachments.isNotEmpty(), onSend = onSend, onSchedule = onSchedule)
         }
     }
 }

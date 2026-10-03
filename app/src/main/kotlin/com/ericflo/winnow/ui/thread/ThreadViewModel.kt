@@ -8,6 +8,7 @@ import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.data.StoredVerdict
+import com.ericflo.winnow.data.db.ScheduledMessageEntity
 import com.ericflo.winnow.data.displayNameFor
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -68,6 +69,14 @@ class ThreadViewModel(
     val blocked: StateFlow<Boolean> = _blocked.asStateFlow()
     /** Only 1:1 conversations can be blocked, and only while Winnow is the SMS app. */
     val canBlock: Boolean get() = recipients.size == 1 && blockedNumbers.available()
+
+    private val scheduler = container.scheduler
+
+    /** Texts in this conversation waiting for their send time. */
+    val scheduled: StateFlow<List<ScheduledMessageEntity>> = threadId
+        .filter { it >= 0 }
+        .flatMapLatest { scheduler.observe(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
     /** One-off messages for a snackbar. */
@@ -133,6 +142,32 @@ class ThreadViewModel(
                 _notices.emit("Group messages and attachments need MMS, which isn't ready yet")
             }
         }
+    }
+
+    /** Schedules the draft. Attachments can't be scheduled (yet): MMS bodies aren't stored ahead of time. */
+    fun schedule(sendAt: Long, label: String) {
+        val text = _draft.value.trim()
+        if (_attachments.value.isNotEmpty()) {
+            _notices.tryEmit("Only text messages can be scheduled")
+            return
+        }
+        if (text.isEmpty()) return
+        _draft.value = ""
+        viewModelScope.launch {
+            states.saveDraft(threadId.value, "")
+            scheduler.schedule(threadId.value, recipients, text, sendAt)
+            _notices.emit("Scheduled for $label")
+        }
+    }
+
+    fun sendScheduledNow(id: Long) = launch { scheduler.sendNow(id) }
+
+    fun cancelScheduled(id: Long) = launch { scheduler.cancel(id) }
+
+    /** Moves a scheduled message back into the composer. */
+    fun editScheduled(message: ScheduledMessageEntity) = launch {
+        scheduler.cancel(message.id)
+        _draft.value = message.body
     }
 
     fun retry(message: ChatMessage) = launch { repo.retry(message) }
