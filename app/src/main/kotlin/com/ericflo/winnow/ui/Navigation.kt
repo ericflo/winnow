@@ -64,6 +64,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.key
 import androidx.lifecycle.createSavedStateHandle
 import androidx.navigation.NavHostController
+import androidx.navigation.NavDestination.Companion.hasRoute
+import com.ericflo.winnow.data.normalizeAddress
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
@@ -150,7 +152,11 @@ fun WinnowNavHost(
     val twoPane = LocalConfiguration.current.screenWidthDp >= TWO_PANE_MIN_WIDTH_DP
     LaunchedEffect(pending) {
         pending?.let {
-            if (!(twoPane && it is ThreadRoute && openInPane(it, nav, pane, container))) nav.navigate(it) { launchSingleTop = true }
+            when {
+                twoPane && it is ThreadRoute && openInPane(it, nav, pane, container) -> Unit
+                it is ThreadRoute -> openThreadRoute(it, nav)
+                else -> nav.navigate(it) { launchSingleTop = true }
+            }
             onRouteConsumed()
         }
     }
@@ -339,6 +345,20 @@ private fun EmptyConversationPane() {
 private fun <T> whenResumed(navigate: (T) -> Unit): (T) -> Unit {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     return { if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) navigate(it) }
+}
+
+/**
+ * A conversation from a notification or another app. The one already open is left alone (its
+ * composer keeps what's in it) unless the route brings a draft or attachments; any other
+ * conversation replaces it, ViewModels and all, rather than sharing its back stack entry.
+ */
+private fun openThreadRoute(route: ThreadRoute, nav: NavHostController) {
+    val top = nav.currentBackStackEntry
+    if (top?.destination?.hasRoute<ThreadRoute>() != true) return nav.navigate(route)
+    val open = top.toRoute<ThreadRoute>()
+    val same = splitAddresses(open.recipients).map(::normalizeAddress).toSet() == splitAddresses(route.recipients).map(::normalizeAddress).toSet()
+    if (same && route.draft.isEmpty() && route.attachments.isEmpty()) return
+    nav.navigate(route) { popUpTo<ThreadRoute> { inclusive = true } }
 }
 
 /** ViewModels inside [content] come from [store]. */
