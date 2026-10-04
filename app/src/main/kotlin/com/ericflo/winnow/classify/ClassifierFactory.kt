@@ -3,6 +3,7 @@ package com.ericflo.winnow.classify
 import com.ericflo.winnow.classifier.DataHandling
 import com.ericflo.winnow.classifier.DecisionProvider
 import com.ericflo.winnow.classifier.http.HttpTransport
+import com.ericflo.winnow.classifier.local.OnDeviceClassifier
 import com.ericflo.winnow.classifier.message.MessageClassifier
 import com.ericflo.winnow.classifier.providers.ChatCompletionsConfig
 import com.ericflo.winnow.classifier.providers.ChatCompletionsProvider
@@ -13,6 +14,8 @@ import com.ericflo.winnow.data.WinnowSettings
 
 /** The only place that maps user settings to concrete providers. Add a provider here and in [ProviderKind]. */
 class ClassifierFactory(private val http: HttpTransport) {
+    /** Loads the bundled model once, on first use. */
+    private val onDevice by lazy { OnDeviceClassifier() }
 
     fun create(settings: WinnowSettings, timeoutMillis: Long = 5_000): MessageClassifier =
         MessageClassifier(
@@ -20,6 +23,8 @@ class ClassifierFactory(private val http: HttpTransport) {
             privacy = settings.effectivePrivacy,
             actions = settings.actionPolicy,
             timeoutMillis = timeoutMillis,
+            onDevice = onDevice,
+            decideOnDeviceAbove = SURE.takeIf { settings.decideOnPhoneWhenSure },
         )
 
     /** Null when the choice is on-device only or the chosen provider isn't configured yet. */
@@ -45,5 +50,10 @@ class ClassifierFactory(private val http: HttpTransport) {
                 ChatCompletionsProvider(ChatCompletionsConfig(baseUrl = it, model = model, apiKey = key, dataHandling = handling), http)
             }
         }
+    }
+
+    private companion object {
+        /** How sure the on-device model must be to decide without the provider. See classifier/training/REPORT.md. */
+        const val SURE = 0.95
     }
 }

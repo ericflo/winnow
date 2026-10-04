@@ -142,7 +142,7 @@ fun ActivityScreen(viewModel: ActivityViewModel, onBack: () -> Unit) {
             }
             item("deciders") {
                 Card("Who decided") {
-                    Line("On this phone", "${state.onPhone}", "Contacts, people you've texted, codes, sender rules, keywords")
+                    Line("On this phone", "${state.onPhone}", "Contacts, people you've texted, codes, sender rules, Winnow's model")
                     Line("Classifier service", "${state.byProvider}", if (state.costUsd > 0) "About $${"%.4f".format(state.costUsd)} in total" else null)
                 }
             }

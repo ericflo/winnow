@@ -21,6 +21,7 @@ fun WinnowSettings.toBackup() = SettingsBackup(
     maskEmails = privacy.redaction.maskEmails,
     stripUrlPaths = privacy.redaction.stripUrlPaths,
     zdrOnly = zdrOnly,
+    decideOnPhoneWhenSure = decideOnPhoneWhenSure,
     deliveryReports = deliveryReports,
     categoryActions = categoryActions.entries.associate { (c, a) -> c.key to a.name },
 )
@@ -40,6 +41,7 @@ fun WinnowSettings.restoring(backup: SettingsBackup) = copy(
         redaction = RedactionPolicy(backup.maskDigitRuns, backup.maskEmails, backup.stripUrlPaths),
     ),
     zdrOnly = backup.zdrOnly,
+    decideOnPhoneWhenSure = backup.decideOnPhoneWhenSure,
     deliveryReports = backup.deliveryReports,
     categoryActions = categoryActions + backup.categoryActions.mapNotNull { (key, action) ->
         val category = Category.fromKey(key) ?: return@mapNotNull null

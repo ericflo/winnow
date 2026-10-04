@@ -19,6 +19,8 @@ data class Verdict(
     val source: VerdictSource,
     val distribution: Map<Category, Double> = emptyMap(),
     val costUsd: Double = 0.0,
+    /** A provider was sent the (redacted) message, whether or not it answered. */
+    val providerContacted: Boolean = false,
 ) {
     companion object {
         internal fun rule(category: Category?, action: Action, reason: String) =
@@ -33,6 +35,12 @@ sealed interface VerdictSource {
     /** A [com.ericflo.winnow.classifier.DecisionProvider] answered. */
     data class Provider(val providerId: String, val model: String?) : VerdictSource
 
-    /** No provider could answer, so the offline keyword heuristic decided. */
+    /**
+     * Winnow's on-device model decided. [reasons] are what it went on ("a .vip link",
+     * "“unpaid toll”"); [fallbackReason] says why no provider decided instead, if one was meant to.
+     */
+    data class OnDevice(val model: String, val reasons: List<String>, val fallbackReason: String? = null) : VerdictSource
+
+    /** No provider or model could answer, so the offline keyword heuristic decided. */
     data class Heuristic(val reason: String) : VerdictSource
 }

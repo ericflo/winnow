@@ -3,6 +3,8 @@ package com.ericflo.winnow.classifier.message
 import com.ericflo.winnow.classifier.Choice
 import com.ericflo.winnow.classifier.DecisionProvider
 import com.ericflo.winnow.classifier.DecisionRequest
+import com.ericflo.winnow.classifier.local.LocalPrediction
+import com.ericflo.winnow.classifier.local.OnDeviceClassifier
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -13,9 +15,11 @@ import kotlin.coroutines.cancellation.CancellationException
  * Decides what to do with an incoming message.
  *
  * 1. Local rules (sender rules, contacts, verification codes) decide on the phone.
- * 2. Otherwise each provider the [privacy] policy allows is tried in order, with the
+ * 2. If [decideOnDeviceAbove] is set and the [onDevice] model is at least that sure, it decides.
+ * 3. Otherwise each provider the [privacy] policy allows is tried in order, with the
  *    redacted message, until one answers within [timeoutMillis].
- * 3. If none answers, the offline heuristic decides, capped so it can silence but not hide.
+ * 4. If none answers (or there are none), the on-device model decides. Without one, the
+ *    offline keyword heuristic does, capped so it can silence but not hide.
  *
  * Providers are interchangeable [DecisionProvider]s; nothing here knows which vendor is behind one.
  */
@@ -24,14 +28,21 @@ class MessageClassifier(
     private val privacy: PrivacyPolicy = PrivacyPolicy(),
     private val actions: ActionPolicy = ActionPolicy(),
     private val timeoutMillis: Long = 8_000,
+    private val onDevice: OnDeviceClassifier? = null,
+    private val decideOnDeviceAbove: Double? = null,
 ) {
 
     suspend fun classify(message: InboundMessage): Verdict {
         LocalRules.decide(message, privacy)?.let { return it }
 
+        // The model is a fallback as much as a first opinion, so a failure here must not stop classification.
+        val local = onDevice?.let { runCatching { it.classify(message) }.getOrNull() }
+        if (local != null && decideOnDeviceAbove != null && local.confidence >= decideOnDeviceAbove) return onDeviceVerdict(local, null)
+
         val eligible = providers.filter { it.descriptor.dataHandling in privacy.allowedDataHandling }
         if (eligible.isEmpty()) {
-            return heuristic(message, if (providers.isEmpty()) "No provider configured" else "No provider fits your privacy settings")
+            if (providers.isEmpty()) return local?.let { onDeviceVerdict(it, null) } ?: heuristic(message, "No provider configured")
+            return fallback(message, local, "No provider fits your privacy settings", contacted = false)
         }
 
         val request = buildRequest(message, privacy)
@@ -56,14 +67,26 @@ class MessageClassifier(
             return Verdict(
                 category = category,
                 confidence = answer.confidence,
-                action = actions.resolve(category, answer.confidence, fromHeuristic = false),
+                action = actions.resolve(category, answer.confidence, Origin.PROVIDER),
                 source = VerdictSource.Provider(id, response.model),
                 distribution = distribution,
                 costUsd = response.usage.costUsd,
+                providerContacted = true,
             )
         }
-        return heuristic(message, "Provider unavailable (${failures.joinToString("; ")})")
+        return fallback(message, local, "Provider unavailable (${failures.joinToString("; ")})", contacted = true)
     }
+
+    private fun fallback(message: InboundMessage, local: LocalPrediction?, reason: String, contacted: Boolean): Verdict =
+        (local?.let { onDeviceVerdict(it, reason) } ?: heuristic(message, reason)).copy(providerContacted = contacted)
+
+    private fun onDeviceVerdict(p: LocalPrediction, fallbackReason: String?) = Verdict(
+        category = p.category,
+        confidence = p.confidence,
+        action = actions.resolve(p.category, p.confidence, Origin.ON_DEVICE),
+        source = VerdictSource.OnDevice(p.model, p.reasons, fallbackReason),
+        distribution = p.distribution,
+    )
 
     private fun heuristic(message: InboundMessage, reason: String): Verdict {
         val distribution = HeuristicScorer.score(message)
@@ -71,7 +94,7 @@ class MessageClassifier(
         return Verdict(
             category = category,
             confidence = confidence,
-            action = actions.resolve(category, confidence, fromHeuristic = true),
+            action = actions.resolve(category, confidence, Origin.HEURISTIC),
             source = VerdictSource.Heuristic(reason),
             distribution = distribution,
         )

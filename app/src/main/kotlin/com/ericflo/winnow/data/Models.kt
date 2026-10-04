@@ -85,7 +85,7 @@ data class VerdictRecord(
     val category: com.ericflo.winnow.classifier.message.Category?,
     /** What actually happened, after any correction by the user. */
     val action: Action,
-    /** True when a classifier service decided; false for on-phone rules and keywords. */
+    /** True when a classifier service decided; false for on-phone rules, the on-device model and keywords. */
     val byProvider: Boolean,
     val decidedAt: Long,
     val costUsd: Double,

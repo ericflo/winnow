@@ -122,7 +122,7 @@ class DemoMessageRepository(private val packageName: String) : MessageRepository
         val contact = StoredVerdict(Category.PERSONAL, 1.0, Action.ALLOW, "Sender is in your contacts")
         val code = StoredVerdict(Category.TRANSACTIONAL, 1.0, Action.ALLOW, "Verification code, kept on this phone")
         fun jev(category: Category, p: Double) =
-            StoredVerdict(category, p, ActionPolicy().resolve(category, p, fromHeuristic = false), "Classified by ${ProviderKind.TYPESAFE_JEV.label}")
+            StoredVerdict(category, p, ActionPolicy().resolve(category, p), "Classified by ${ProviderKind.TYPESAFE_JEV.label}")
         // Filtered messages are marked read on arrival, as IncomingMessageHandler does.
         fun thread(n: Long, recipients: List<String>, unread: Boolean, vararg messages: ChatMessage): DemoThread {
             val incoming = messages.filterNot { it.outgoing }

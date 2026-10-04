@@ -126,22 +126,41 @@ payload for any message.
 - The sender's number isn't shared unless you turn that on.
 - **Zero-retention only** mode skips any provider you haven't marked as keeping no data.
 - API keys are encrypted with the Android Keystore.
-- If no provider answers in time, the message is delivered with a notification. On-phone
-  keyword rules can silence a message but never hide it.
+- **On this phone only** keeps everything local. Winnow's own model (below) decides, and
+  it only filters when it's at least 85% sure; otherwise it silences.
+- **Decide on this phone when it's sure** keeps texts the model is very sure about (95%+)
+  from ever reaching your provider. On held-out data that's about 70% of texts.
+- If no provider answers in time, the on-phone model decides. If classification fails
+  altogether, the message is delivered with a notification.
 
 ## Classification is provider-agnostic
 
 ```
 incoming text → local rules (contacts, codes, sender rules)
+              → on-phone model, if you let it decide when it's sure
               → privacy gate + redaction
               → DecisionProvider: Jev (TypeSafe / OpenRouter) · any System One server
                                   · any OpenAI-compatible LLM
-              → on-phone keyword fallback if nothing answers
+              → on-phone model if nothing answers
 ```
 
 The app only depends on `DecisionProvider`: a state plus typed multiple-choice questions,
 answered with probabilities. Jev speaks that shape natively. Anything else can implement it.
 Details, including how to add a provider: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+### The on-phone model
+
+Winnow ships its own classifier: a softmax regression over words, word pairs and signals
+like "links to an unusual domain" or "a web address dressed up as another". The weights are
+230 KB. It runs in well under a millisecond, and it says why it decided ("Decided on this
+phone: “confirm”, “package”, “fee”"). It's trained from a labeled corpus in
+`classifier/training/`. The model file is rebuilt with `./gradlew :classifier:trainLocalModel`,
+and a test fails if the shipped model doesn't match the corpus.
+
+On the 20% of the corpus held out from training it gets 90% of categories right, and 99%
+when it's at least 95% sure ([report](classifier/training/REPORT.md)). Those messages come
+from the same hand-written corpus, so expect less on real traffic. A provider like Jev is
+still the better judge, and the model's job is to keep the phone useful without one.
 
 ## RCS
 

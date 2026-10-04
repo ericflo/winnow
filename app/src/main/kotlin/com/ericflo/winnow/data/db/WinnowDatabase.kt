@@ -79,9 +79,9 @@ data class VerdictEntity(
     val category: String?,
     val confidence: Double,
     val action: String,
-    /** `rule`, `provider` or `heuristic`. */
+    /** `rule`, `provider`, `local` (the on-device model) or `heuristic`. */
     val sourceKind: String,
-    /** The rule's reason, the provider id, or the heuristic's fallback reason. */
+    /** The rule's reason, the provider id, the on-device model's reasons, or the heuristic's fallback reason. */
     val sourceDetail: String,
     val model: String?,
     val costUsd: Double,
@@ -95,6 +95,7 @@ data class VerdictEntity(
         source = when (sourceKind) {
             "provider" -> "Classified by ${providerNames(sourceDetail)}"
             "heuristic" -> "Guessed on this phone ($sourceDetail)"
+            "local" -> if (sourceDetail.isBlank()) "Decided on this phone" else "Decided on this phone: $sourceDetail"
             else -> sourceDetail
         },
         userAction = userAction?.let(Action::valueOf),
@@ -106,6 +107,7 @@ data class VerdictEntity(
                 is VerdictSource.Rule -> Triple("rule", s.reason, null)
                 is VerdictSource.Provider -> Triple("provider", s.providerId, s.model)
                 is VerdictSource.Heuristic -> Triple("heuristic", s.reason, null)
+                is VerdictSource.OnDevice -> Triple("local", s.reasons.joinToString(", "), s.model)
             }
             return VerdictEntity(
                 messageKey = messageKey,

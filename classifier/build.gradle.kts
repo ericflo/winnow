@@ -27,3 +27,18 @@ dependencies {
     testImplementation(kotlin("test-junit"))
     testImplementation(libs.kotlinx.coroutines.test)
 }
+
+// Rebuilds the bundled on-device model from training/corpus and writes training/REPORT.md.
+// LocalModelTest fails if the shipped model is stale, so run this after editing the corpus.
+tasks.register<JavaExec>("trainLocalModel") {
+    group = "winnow"
+    description = "Retrains the on-device model from training/corpus."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.ericflo.winnow.classifier.local.TrainLocalModelKt")
+    args(
+        file("training/corpus").path,
+        file("training/eval.tsv").path,
+        file("src/main/resources/com/ericflo/winnow/classifier/local/winnow-local.bin").path,
+        file("training/REPORT.md").path,
+    )
+}

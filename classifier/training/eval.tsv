@@ -1,0 +1,48 @@
+# Held-out evaluation set: category<TAB>sender<TAB>body. NEVER train on these.
+# Written separately from the corpus, with different wording, brands and senders.
+personal	+14155550142	yo did you end up going to that brewery? how was it
+personal	+12125550177	Hey! It's Becca from book club, finally got a new phone. Save this number 😊
+personal	+13125550103	Can you let the dog out at lunch? I'm stuck in meetings all day
+personal	+16175550190	I just saw the photos, the baby is so cute!!
+personal	+12065550111	we're getting pizza tonight, want in?
+personal	+15125550164	Hey, it's Ryan from the soccer team. Practice moved to the north field
+personal	+13035550129	thanks for checking in. doing a lot better today
+personal	+14045550186	Did you leave the back door unlocked? Delivery guy says he can't get in
+transactional	72166	Your Chase card ending in 0912 was charged $64.20 at WHOLE FOODS.
+transactional	+18885550101	Your appointment with Northside Pediatrics is Thursday 10/9 at 3:45 PM. Reply 1 to confirm.
+transactional	33733	Your Instacart order from Safeway has been delivered.
+transactional	288288	USPS Tracking: Your package will arrive by 9pm today.
+transactional	US-BANK	US Bank: Your deposit of $1,840.22 has posted to checking ...4471.
+transactional	+18005550199	Your Xfinity technician Carlos will arrive between 10 AM and 12 PM tomorrow.
+transactional	25521	Your prescription for amoxicillin is ready at Rite Aid on 3rd Ave.
+transactional	39367	Southwest Airlines: Flight 2214 to Phoenix now departs at 5:50 PM from gate C4.
+marketing	87411	Gap Factory: Doorbusters! Jeans $19.99 today only. Shop gapfactory.com Reply STOP to end
+marketing	+18335550172	Hi from Coastal Cleaners 👋 Get 20% off dry cleaning this week. Show this text. Reply STOP to opt out
+marketing	66219	Shake Shack: Free fries with any burger in the app this Friday 🍟 STOP to end
+marketing	40404	IKEA Family members save 15% on bedroom furniture this weekend. Reply STOP to unsubscribe
+marketing	52274	Ulta: Your birthday gift is waiting! Redeem in store this month. Reply STOP to quit
+marketing	+18445550133	Sunset Nails: Mani-pedi combo $45 all week! Book now. Reply STOP to opt out
+political	+17025550118	Hi Karen, it's Josh with the Nevada Democrats. Early voting starts Saturday, can we count on you? Reply STOP to opt out
+political	+13055550154	URGENT: Our records show you've NEVER donated to defend America. Will you chip in $10 now? winred.com/x STOP=end
+political	+18185550136	POLL: Do you support term limits for Congress? Reply YES or NO. Paid for by Citizens United PAC. Stop2End
+political	+12135550147	Devastating: we just fell behind in the polls. Can you rush $5 before midnight? actblue.com/z Txt STOP to stop
+political	+14155550168	Hi, this is Ana volunteering with Yes on Prop 33. Can I count on your support on Nov 4? Reply STOP to quit
+political	+13125550175	Your 2026 Patriot Membership Card has been reserved, claim it now with a $25 gift: gop.vote/card STOP to end
+phishing	+17865550122	USPS: Your shipment is suspended at the hub. Confirm your address to continue delivery: usps-hub.top/c
+phishing	+14695550140	NTTA: You have an unpaid toll of $7.40. Pay by today to avoid a $35 fee: ntta-pay.com-tollbill.vip
+phishing	refund.desk901@gmail.com	Amazon: Your refund of $329.00 is ready. Confirm your bank details: amzn-refund-center.com
+phishing	+19545550188	Apple: Your iCloud account has been locked. Unlock now: icloud-unlock.help
+phishing	+16025550109	Wells Fargo Alert: Card blocked due to unusual activity. Verify now at wf-unlock-card.com
+phishing	+17185550191	Your PayPal account was accessed from a new device. If not you, secure it: paypal-alert.co
+phishing	+12025550143	IRS: Your 2025 tax refund is on hold. Verify your identity to release it: irs-verify.top
+scam	+13475550151	Hi, is this Michael? We met at the conference last month
+scam	+16465550183	Hello, I'm Sophia. Are you the one selling the vintage camera?
+scam	+15625550126	We have a remote job opportunity: 1-2 hours per day, $400 daily. Reply Y to learn more.
+scam	+19175550104	Congrats! You've been selected for a $1,000 Target gift card. Reply CLAIM now.
+scam	+12815550178	Hi mom, this is my new number. My phone broke. Can you send me $200 for a new one?
+scam	+17735550165	I've been making $3,000 a week with crypto, my mentor can show you how too 🚀
+spam	+18775550114	We want to buy your house for cash! Any condition, close in 7 days. Reply YES. STOP to opt out
+spam	+18665550152	Lower your car insurance today. Free quote in 2 minutes: quote-saver.net Reply STOP to end
+spam	+18555550117	Medicare members: you may qualify for extra benefits. Call 555-0170. Reply STOP to unsubscribe
+spam	+18885550139	Is your business listed correctly on Google? Reply YES for a free review. STOP to end
+spam	+18005550120	Free roof inspection for homes in your neighborhood this week. Reply ROOF. STOP to quit

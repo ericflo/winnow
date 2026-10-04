@@ -7,6 +7,7 @@ import com.ericflo.winnow.classifier.DecisionResponse
 import com.ericflo.winnow.classifier.Distribution
 import com.ericflo.winnow.classifier.ProviderDescriptor
 import com.ericflo.winnow.classifier.ProviderException
+import com.ericflo.winnow.classifier.local.OnDeviceClassifier
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonObject
@@ -102,5 +103,49 @@ class MessageClassifierTest {
         assertIs<VerdictSource.Heuristic>(offline.source)
         assertEquals(Category.PHISHING, offline.category)
         assertEquals(Action.SILENCE, offline.action, "the heuristic alone may silence but not filter")
+    }
+
+    private val model = OnDeviceClassifier()
+
+    @Test
+    fun `with no provider the on-device model decides, and says why`() = runTest {
+        val verdict = MessageClassifier(emptyList(), onDevice = model).classify(stranger)
+        val source = assertIs<VerdictSource.OnDevice>(verdict.source)
+        assertNull(source.fallbackReason)
+        assertTrue(source.reasons.isNotEmpty())
+        assertEquals(Category.PHISHING, verdict.category)
+        assertFalse(verdict.providerContacted)
+    }
+
+    @Test
+    fun `a failing provider falls back to the model, not the keyword heuristic`() = runTest {
+        val failing = FakeProvider("failing") { throw ProviderException("down", retryable = true) }
+        val verdict = MessageClassifier(listOf(failing), onDevice = model).classify(stranger)
+        val source = assertIs<VerdictSource.OnDevice>(verdict.source)
+        assertTrue(source.fallbackReason!!.startsWith("Provider unavailable"))
+        assertTrue(verdict.providerContacted)
+        assertEquals(1, failing.seen.size)
+    }
+
+    @Test
+    fun `deciding on the phone when sure skips the provider`() = runTest {
+        val sure = FakeProvider("sure") { mapOf("personal" to 1.0) }
+        val local = MessageClassifier(listOf(sure), onDevice = model, decideOnDeviceAbove = 0.0).classify(stranger)
+        assertIs<VerdictSource.OnDevice>(local.source)
+        assertFalse(local.providerContacted)
+        assertTrue(sure.seen.isEmpty())
+
+        val asked = MessageClassifier(listOf(sure), onDevice = model, decideOnDeviceAbove = 1.01).classify(stranger)
+        assertEquals(VerdictSource.Provider("sure", "fake-1"), asked.source)
+        assertTrue(asked.providerContacted)
+    }
+
+    @Test
+    fun `the on-device model must be surer than a provider to filter`() {
+        val policy = ActionPolicy()
+        assertEquals(Action.FILTER, policy.resolve(Category.PHISHING, 0.8, Origin.PROVIDER))
+        assertEquals(Action.SILENCE, policy.resolve(Category.PHISHING, 0.8, Origin.ON_DEVICE))
+        assertEquals(Action.FILTER, policy.resolve(Category.PHISHING, 0.9, Origin.ON_DEVICE))
+        assertEquals(Action.SILENCE, policy.resolve(Category.PHISHING, 0.99, Origin.HEURISTIC))
     }
 }

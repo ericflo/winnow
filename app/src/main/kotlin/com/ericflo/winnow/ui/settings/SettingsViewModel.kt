@@ -10,7 +10,6 @@ import com.ericflo.winnow.classifier.message.InboundMessage
 import com.ericflo.winnow.classifier.message.MessageClassifier
 import com.ericflo.winnow.classifier.message.PrivacyPolicy
 import com.ericflo.winnow.classifier.message.Verdict
-import com.ericflo.winnow.classifier.message.VerdictSource
 import com.ericflo.winnow.data.ProviderKind
 import com.ericflo.winnow.data.ProviderSettings
 import com.ericflo.winnow.data.WinnowSettings
@@ -73,6 +72,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setZdrOnly(value: Boolean) = update { it.copy(zdrOnly = value) }
 
+    fun setDecideOnPhoneWhenSure(value: Boolean) = update { it.copy(decideOnPhoneWhenSure = value) }
+
     fun setDeliveryReports(value: Boolean) = update { it.copy(deliveryReports = value) }
 
     fun setAction(category: Category, action: Action) = update { it.copy(categoryActions = it.categoryActions + (category to action)) }
@@ -84,10 +85,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             val current = container.settings.current()
             val message = InboundMessage(sender = sender.ifBlank { "+15555550123" }, body = body)
             val verdict = container.classifiers.create(current).classify(message)
-            val provider = container.classifiers.provider(current)
-            val reachedProvider = verdict.source !is VerdictSource.Rule &&
-                provider != null && provider.descriptor.dataHandling in current.effectivePrivacy.allowedDataHandling
-            val payload = if (reachedProvider) {
+            val payload = if (verdict.providerContacted) {
                 prettyJson.encodeToString(JsonElement.serializer(), MessageClassifier.buildRequest(message, current.effectivePrivacy).state)
             } else {
                 null

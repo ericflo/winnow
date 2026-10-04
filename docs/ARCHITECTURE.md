@@ -8,10 +8,13 @@
  SmsDeliverReceiver                    MessageClassifier
    → IncomingMessageHandler ──────────▶  1. LocalRules        sender rules, contacts, prior
        store in Telephony provider                            conversations, verification codes
-       classify (7 s budget)             2. privacy gate      drop providers the policy forbids
-       save verdict (Room)               3. Redactor          mask digits/emails, strip URL paths
-       notify / silence / filter         4. DecisionProvider  first eligible provider to answer
-                                         5. HeuristicScorer   offline fallback, capped at SILENCE
+       classify (7 s budget)             2. OnDeviceClassifier decides alone if it's ≥95% sure
+       save verdict (Room)                                    (only when the user opts in)
+       notify / silence / filter         3. privacy gate      drop providers the policy forbids
+                                         4. Redactor          mask digits/emails, strip URL paths
+                                         5. DecisionProvider  first eligible provider to answer
+                                         6. OnDeviceClassifier fallback (or the only classifier)
+                                         7. HeuristicScorer   only if the model can't load
  ClassifierFactory ── settings ──────▶ DecisionProvider (interface)
                                          ├─ SystemOneProvider       Jev (TypeSafe, OpenRouter),
                                          │                          openjev-sglang, decider.serve, …
@@ -58,6 +61,32 @@ An on-device provider should report `DataHandling.ON_DEVICE`. A natural candidat
 open System One model (e.g. decider-2b) running through llama.cpp on the phone, behind
 the same wire format.
 
+### The on-device model
+
+`classifier/…/local/` is Winnow's own model, separate from `DecisionProvider` because it
+reads the unredacted message: nothing leaves the phone, so there's nothing to redact.
+
+- **Features** (`Featurizer`): words and word pairs after links, emails, money, phone
+  numbers and digit runs are replaced by placeholders. Named signals cover what words
+  miss: the kind of sender, the link's TLD, shorteners, a "risky" TLD, deceptive hosts
+  (`sunpass.com-tollpay.vip`), brand words inside a link's host, shouting, length.
+- **Model** (`LocalModel`): softmax regression over 2^15 FNV-1a-hashed buckets, stored as
+  int8 with a scale per class (230 KB), and temperature-calibrated.
+- **Training** (`LocalModelTrainer`): AdaGrad with class weighting and a fixed seed, using
+  StrictMath, so the model rebuilds bit-for-bit from `classifier/training/corpus/*.tsv`.
+  `./gradlew :classifier:trainLocalModel` writes the model and `training/REPORT.md`.
+  `LocalModelTest` fails if the shipped model is stale, if int8 quantization changes more
+  than 1% of predictions, or if held-out accuracy drops below 85%.
+- **Explanations:** the features with the largest margin toward the chosen category, with
+  redundant ones dropped ("pay now" makes "pay" redundant). They're stored with the verdict
+  and shown in the banner.
+- **Policy:** an on-device verdict needs 85% confidence to take its category's full action
+  (`ActionPolicy.onDeviceMinConfidence`); below that it's softened a step. Deciding without
+  the provider needs 95%.
+
+`training/eval.tsv` is a separate set the model never trains on. The corpus and the eval
+set are both hand-written, so the report's numbers are an upper bound.
+
 ### Privacy defaults
 
 What a provider sees for a stranger's text (also visible in Settings → Try it):
@@ -75,8 +104,9 @@ What a provider sees for a stranger's text (also visible in Settings → Try it)
 
 ### Failure behavior
 
-Classification fails open. If no provider answers within the budget, the keyword heuristic
-decides but may only silence, never filter. If anything throws, the message is delivered
+Classification fails open. If no provider answers within the budget, the on-device model
+decides under its stricter confidence bar. Only if the model can't load does the keyword
+heuristic decide, and it may only silence, never filter. If anything throws, the message is delivered
 with a notification. The message is written to the SMS store before classification starts,
 so nothing is ever lost.
 

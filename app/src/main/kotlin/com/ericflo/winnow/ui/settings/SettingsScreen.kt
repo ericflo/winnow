@@ -305,6 +305,11 @@ private fun TrialResult(result: TrialState.Done) {
             source.model?.let { append(" ($it)") }
             if (v.costUsd > 0) append(" for $${"%.5f".format(v.costUsd)}")
         }
+        is VerdictSource.OnDevice -> buildString {
+            append("Decided on this phone")
+            if (source.reasons.isNotEmpty()) append(": ${source.reasons.joinToString(", ")}")
+            source.fallbackReason?.let { append(". $it") }
+        }
         is VerdictSource.Heuristic -> "On-device keywords: ${source.reason}"
     }
     Card(
@@ -340,6 +345,16 @@ private fun TrialResult(result: TrialState.Done) {
 
 private fun LazyListScope.privacyItems(s: WinnowSettings, vm: SettingsViewModel) {
     val p = s.privacy
+    if (s.provider != ProviderKind.ON_DEVICE) {
+        item("p-local-first") {
+            SwitchRow(
+                "Decide on this phone when it's sure",
+                "Texts Winnow's built-in model is very sure about are never sent to ${s.provider.label}. Fewer texts leave your phone.",
+                s.decideOnPhoneWhenSure,
+                vm::setDecideOnPhoneWhenSure,
+            )
+        }
+    }
     item("p-contacts") {
         SwitchRow("Keep contacts' messages on this phone", "Texts from saved contacts are always delivered and never sent to a provider.", !p.classifyContacts) { on ->
             vm.setPrivacy { it.copy(classifyContacts = !on) }
