@@ -30,6 +30,16 @@ import java.util.concurrent.atomic.AtomicInteger
 class ContactLookup(private val context: Context, scope: CoroutineScope? = null) {
     private data class Info(val name: String, val photoUri: String?)
 
+    init {
+        // Where the phone is, for showing numbers: the SIM's country, else the network's, else the
+        // language setting's (an English (UK) phone in Ohio is still in the US).
+        val telephony = context.getSystemService(android.telephony.TelephonyManager::class.java)
+        homeCountry = listOfNotNull(
+            runCatching { telephony?.simCountryIso }.getOrNull(),
+            runCatching { telephony?.networkCountryIso }.getOrNull(),
+        ).firstOrNull { it.isNotBlank() }?.uppercase()
+    }
+
     // NOT_FOUND caches "not a contact" so unknown senders aren't looked up on every frame.
     private val cache = ConcurrentHashMap<String, Info>()
 
@@ -167,9 +177,12 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
         /** A full phone number (7+ digits), not a short code, email or alphanumeric sender. */
         fun isPersonalNumber(address: String): Boolean = numberKey(address)?.startsWith("short:") == false
 
+        /** Set from the SIM (see init); the language setting's country until then, or without a SIM. */
+        @Volatile private var homeCountry: String? = null
+
         fun formatAddress(address: String): String {
             if (address.any(Char::isLetter)) return address
-            val country = Locale.getDefault().country
+            val country = (homeCountry ?: Locale.getDefault().country).uppercase()
             // A home-country number reads the same however the carrier wrote it: "+14155550177"
             // and "4155550177" both as (415) 555-0177, as in Messages.
             return PhoneNumberUtils.formatNumber(nationalForm(address, country) ?: address, country) ?: address
@@ -182,6 +195,10 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
             return digits.drop(1).takeIf { digits.length == 11 && digits.startsWith('1') && address.trim().let { it.startsWith("+1") || it.startsWith("1") } }
         }
 
-        private val NANP = setOf("US", "CA")
+        /** The North American Numbering Plan: +1 everywhere here. */
+        private val NANP = setOf(
+            "US", "CA", "PR", "VI", "GU", "AS", "MP", "AG", "AI", "BB", "BM", "BS", "DM", "DO", "GD", "JM", "KN", "KY", "LC",
+            "MS", "SX", "TC", "TT", "VC", "VG",
+        )
     }
 }

@@ -91,6 +91,8 @@ class TelephonyMessageRepository(
 
     override fun photoUri(address: String): String? = contacts.photoUri(address)
 
+    override fun contactName(address: String): String? = contacts.displayName(address)
+
     override fun contactChanges(): Flow<Unit> = contacts.changes()
 
     override suspend fun threadIdFor(recipients: List<String>): Long = withContext(Dispatchers.IO) {

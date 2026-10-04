@@ -43,6 +43,8 @@ class DemoMessageRepository(private val packageName: String) : MessageRepository
     override fun displayName(address: String): String =
         NAMES[normalizeAddress(address)] ?: ContactLookup.formatAddress(address)
 
+    override fun contactName(address: String): String? = NAMES[normalizeAddress(address)]
+
     override suspend fun threadIdFor(recipients: List<String>): Long {
         find(recipients)?.let { return it.threadId }
         val id = threads.value.maxOf { it.threadId } + 1

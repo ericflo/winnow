@@ -196,8 +196,8 @@ class ConversationDetailsViewModel(
             people = recipients.map { address ->
                 val name = repo.displayName(address)
                 val number = ContactLookup.formatAddress(address)
-                // A known name means a contact, for real contacts and sample conversations alike.
-                DetailsUiState.Person(address, name, number, repo.photoUri(address), isContact = name != number)
+                // Asked, not inferred from the name: a contact saved without one shows its number.
+                DetailsUiState.Person(address, name, number, repo.photoUri(address), isContact = repo.contactName(address) != null)
             },
             muted = s?.isMuted() == true,
             mutedUntil = s?.takeIf { it.isMuted() }?.mutedUntil,

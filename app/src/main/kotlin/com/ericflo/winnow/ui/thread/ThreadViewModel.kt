@@ -98,7 +98,7 @@ class ThreadViewModel(
     private val subtitle = subtitleFor(title)
 
     /** [number]'s contact name, or null if it isn't a contact. Reads contacts: not on the main thread. */
-    fun contactName(number: String): String? = repo.displayName(number).takeIf { it != ContactLookup.formatAddress(number) }
+    fun contactName(number: String): String? = repo.contactName(number)
 
     /** Whether contacts can be read, so "not a contact" means something. */
     fun canReadContacts(): Boolean = container.contacts.canRead()
@@ -271,7 +271,7 @@ class ThreadViewModel(
                     // A real number with no name: short codes and alphanumeric senders aren't people to add.
                     members = if (recipients.size > 1) recipients.take(2).map { Member(it, repo.displayName(it), repo.photoUri(it)) } else emptyList(),
                     addableContact = single?.takeIf {
-                        container.contacts.canRead() && name == ContactLookup.formatAddress(it) && ContactLookup.isPersonalNumber(it)
+                        container.contacts.canRead() && repo.contactName(it) == null && ContactLookup.isPersonalNumber(it)
                     },
                 )
             }

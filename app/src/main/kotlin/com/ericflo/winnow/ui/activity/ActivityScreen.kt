@@ -30,6 +30,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.R
 import java.time.Instant
 import java.time.LocalDate
@@ -135,8 +136,10 @@ class ActivityViewModel(private val container: AppContainer) : ViewModel() {
             onPhone = records.count { !it.byProvider },
             byProvider = records.count { it.byProvider },
             costUsd = records.sumOf { it.costUsd },
-            topFiltered = records.filter { it.action == Action.FILTER }.groupingBy { it.sender }.eachCount()
-                .entries.sortedByDescending { it.value }.take(5)
+            // One row per sender, however the carrier wrote the number each time.
+            topFiltered = records.filter { it.action == Action.FILTER }.groupBy { ContactLookup.numberKey(it.sender) ?: it.sender }
+                .values.map { it.first().sender to it.size }
+                .sortedByDescending { it.second }.take(5)
                 .map { (sender, n) -> container.messages.displayName(sender) to n },
             buckets = buckets(records, window),
         )

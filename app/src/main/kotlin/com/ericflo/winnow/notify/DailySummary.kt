@@ -37,8 +37,19 @@ class DailySummary(
     /** When this process last fired one: trusted even if saving it failed, so a failed save can't mean "due now" again. */
     @Volatile private var firedAt = 0L
 
-    /** When the last one went out: saved or remembered, whichever is later, and never in the future (a clock set back). */
-    private fun lastAt(saved: Long, now: Long): Long = maxOf(saved, firedAt).takeIf { it <= now } ?: 0L
+    /**
+     * When the last one went out: saved or remembered, whichever is later. A little in the future
+     * (the clock was set back a day or so) counts as just now; far in the future (a clock that
+     * was years ahead) as never, so it can't silence the summary for that long.
+     */
+    private fun lastAt(saved: Long, now: Long): Long {
+        val last = maxOf(saved, firedAt)
+        return when {
+            last <= now -> last
+            last - now <= FUTURE_TOLERANCE_MILLIS -> now
+            else -> 0L
+        }
+    }
 
     /**
      * Arms (or disarms) the next summary, as the setting says: this evening's, or straight away if
@@ -79,14 +90,14 @@ class DailySummary(
         }
         // A debug run (force) reports the last day and leaves the real schedule alone.
         if (force) {
-            val (filtered, silenced) = counts(now - DAY_MILLIS)
+            val (filtered, silenced) = counts(now - DAY_MILLIS, now)
             if (filtered + silenced > 0) notifier.showSummary(filtered, silenced)
             return
         }
         firedAt = now
         try {
             if (isDefaultSmsApp()) {
-                val (filtered, silenced) = counts(maxOf(now - DAY_MILLIS, last))
+                val (filtered, silenced) = counts(maxOf(now - DAY_MILLIS, last), now)
                 if (filtered + silenced > 0) notifier.showSummary(filtered, silenced)
             }
         } catch (e: CancellationException) {
@@ -107,16 +118,18 @@ class DailySummary(
      * each (corrections included). By arrival, not by when Winnow decided: a review of older
      * conversations isn't "today".
      */
-    private suspend fun counts(since: Long): Pair<Int, Int> {
+    private suspend fun counts(since: Long, until: Long): Pair<Int, Int> {
         val resolver = context.contentResolver
         val keys = buildList {
             resolver.query(
                 Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms._ID),
-                "${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_INBOX} AND ${Telephony.Sms.DATE} >= ?", arrayOf(since.toString()), null,
+                "${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_INBOX} AND ${Telephony.Sms.DATE} >= ? AND ${Telephony.Sms.DATE} <= ?",
+                arrayOf(since.toString(), until.toString()), null,
             )?.use { c -> while (c.moveToNext()) add(ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0))) }
             resolver.query(
                 Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID),
-                "${Telephony.Mms.MESSAGE_BOX} = ${Telephony.Mms.MESSAGE_BOX_INBOX} AND ${Telephony.Mms.DATE} >= ?", arrayOf((since / 1000).toString()), null,
+                "${Telephony.Mms.MESSAGE_BOX} = ${Telephony.Mms.MESSAGE_BOX_INBOX} AND ${Telephony.Mms.DATE} >= ? AND ${Telephony.Mms.DATE} <= ?",
+                arrayOf((since / 1000).toString(), (until / 1000).toString()), null,
             )?.use { c -> while (c.moveToNext()) add(ChatMessage.messageKey(ChatMessage.Kind.MMS, c.getLong(0))) }
         }
         var filtered = 0
@@ -145,6 +158,7 @@ class DailySummary(
         const val DAY_MILLIS = 24 * 60 * 60_000L
         // Long enough that one evening never gets two; short enough that a late one (Doze) doesn't cost tomorrow's.
         const val MIN_GAP_MILLIS = 12 * 60 * 60_000L
+        const val FUTURE_TOLERANCE_MILLIS = 2 * 24 * 60 * 60_000L
     }
 }
 
