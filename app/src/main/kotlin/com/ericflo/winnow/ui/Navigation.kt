@@ -211,7 +211,8 @@ fun WinnowNavHost(
                         onOpenThread = if (twoPane) { id, recipients -> pane.open(id, joinAddresses(recipients)) } else openThread,
                         onOpenSearchHit = { hit, query ->
                             if (twoPane) {
-                                pane.open(hit.threadId, joinAddresses(hit.recipients), ThreadViewModel.SearchRequest(query, hit.key))
+                                // No words (a photo or link browsed to): just that message, no find bar.
+                                pane.open(hit.threadId, joinAddresses(hit.recipients), ThreadViewModel.SearchRequest(query.ifEmpty { null }, hit.key))
                             } else {
                                 nav.navigate(ThreadRoute(hit.threadId, joinAddresses(hit.recipients), search = query, focus = hit.key.orEmpty()))
                             }

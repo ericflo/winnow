@@ -20,10 +20,26 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.ericflo.winnow.data.MediaHit
+import com.ericflo.winnow.ui.components.allWebLinks
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import com.ericflo.winnow.data.SwipeChoice
 import com.ericflo.winnow.data.PreviousVerdict
 
 enum class ListMode { INBOX, FILTERED, ARCHIVED }
+
+/** What empty search can browse across every conversation. */
+enum class Browse { MEDIA, LINKS }
+
+/** A link from some conversation; opening it opens that conversation, never the link itself. */
+data class LinkHit(val url: String, val host: String, val hit: SearchHit)
+
+data class BrowseResults(val loading: Boolean = false, val media: List<MediaHit> = emptyList(), val links: List<LinkHit> = emptyList())
 
 data class InboxUiState(
     val loading: Boolean = true,
@@ -130,6 +146,33 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     val swipes: StateFlow<Pair<SwipeChoice, SwipeChoice>> = container.settings.settings
         .map { it.swipeRight to it.swipeLeft }
         .stateIn(viewModelScope, SharingStarted.Eagerly, SwipeChoice.ARCHIVE to SwipeChoice.ARCHIVE)
+
+    private val _browsing = MutableStateFlow<Browse?>(null)
+    val browsing: StateFlow<Browse?> = _browsing.asStateFlow()
+
+    /** Photos and videos, or links, from conversations that aren't filtered (spam stays out of it). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val browseResults: StateFlow<BrowseResults> = _browsing.flatMapLatest { kind ->
+        flow {
+            if (kind == null) return@flow emit(BrowseResults())
+            emit(BrowseResults(loading = true))
+            val allowed = all.first().filterNot { it.isFiltered }.mapTo(HashSet()) { it.threadId }
+            emit(
+                when (kind) {
+                    Browse.MEDIA -> BrowseResults(media = repo.recentMedia().filter { it.threadId in allowed })
+                    Browse.LINKS -> BrowseResults(
+                        links = repo.textsWithLinks().filter { it.threadId in allowed }.flatMap { hit ->
+                            allWebLinks(hit.body).map { url -> LinkHit(url, url.toHttpUrlOrNull()?.host?.removePrefix("www.") ?: url, hit) }
+                        },
+                    )
+                },
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BrowseResults())
+
+    fun browse(kind: Browse?) {
+        _browsing.value = kind
+    }
 
     fun markAllRead() = launch { repo.markAllRead() }
 

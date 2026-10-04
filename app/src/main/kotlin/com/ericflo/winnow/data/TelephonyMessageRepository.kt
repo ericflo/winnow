@@ -231,6 +231,61 @@ class TelephonyMessageRepository(
         hits.sortedByDescending { it.timestamp }.take(50)
     }
 
+    override suspend fun recentMedia(limit: Int): List<MediaHit> = withContext(Dispatchers.IO) {
+        data class Part(val id: Long, val mmsId: Long, val type: String, val name: String?)
+        val parts = mutableListOf<Part>()
+        resolver.query(
+            Telephony.Mms.Part.CONTENT_URI,
+            arrayOf(Telephony.Mms.Part._ID, Telephony.Mms.Part.MSG_ID, Telephony.Mms.Part.CONTENT_TYPE, Telephony.Mms.Part.NAME, Telephony.Mms.Part.FILENAME),
+            "${Telephony.Mms.Part.CONTENT_TYPE} LIKE 'image/%' OR ${Telephony.Mms.Part.CONTENT_TYPE} LIKE 'video/%'", null,
+            "${Telephony.Mms.Part._ID} DESC LIMIT $limit",
+        )?.use { c -> while (c.moveToNext()) parts += Part(c.getLong(0), c.getLong(1), c.getString(2).orEmpty().lowercase(), c.getString(3) ?: c.getString(4)) }
+        if (parts.isEmpty()) return@withContext emptyList()
+        val messages = HashMap<Long, Pair<Long, Long>>()
+        resolver.query(
+            Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.THREAD_ID, Telephony.Mms.DATE),
+            "${Telephony.Mms._ID} IN (${parts.map { it.mmsId }.distinct().joinToString(",")}) AND ${Telephony.Mms.MESSAGE_BOX} != ${Telephony.Mms.MESSAGE_BOX_DRAFTS}", null, null,
+        )?.use { c -> while (c.moveToNext()) messages[c.getLong(0)] = c.getLong(1) to c.getLong(2) * 1000 }
+        val recipients = resolver.threadRecipients()
+        parts.mapNotNull { part ->
+            val (threadId, date) = messages[part.mmsId] ?: return@mapNotNull null
+            val people = recipients[threadId].orEmpty()
+            MediaHit(
+                Attachment(ContentUris.withAppendedId(Telephony.Mms.Part.CONTENT_URI, part.id).toString(), part.type, part.name),
+                threadId, people, displayNameFor(people, ::displayName), date, ChatMessage.messageKey(Kind.MMS, part.mmsId),
+            )
+        }.sortedByDescending { it.timestamp }
+    }
+
+    override suspend fun textsWithLinks(limit: Int): List<SearchHit> = withContext(Dispatchers.IO) {
+        // A rough cut in SQL; the caller picks the actual links out.
+        val looksLinked = listOf("%http%", "%www.%", "%.com%", "%.org%", "%.net%", "%.io%", "%.ly/%")
+        val recipients = resolver.threadRecipients()
+        val hits = mutableListOf<SearchHit>()
+        resolver.query(
+            Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.THREAD_ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms._ID),
+            "(" + looksLinked.joinToString(" OR ") { "${Telephony.Sms.BODY} LIKE ?" } + ") AND $NOT_SMS_DRAFT",
+            looksLinked.toTypedArray(), "${Telephony.Sms.DATE} DESC LIMIT $limit",
+        )?.use { c ->
+            while (c.moveToNext()) hits += hit(c.getLong(0), recipients, c.getString(1).orEmpty(), c.getLong(2), ChatMessage.messageKey(Kind.SMS, c.getLong(3)))
+        }
+        val mmsText = HashMap<Long, String>()
+        resolver.query(
+            Telephony.Mms.Part.CONTENT_URI, arrayOf(Telephony.Mms.Part.MSG_ID, Telephony.Mms.Part.TEXT),
+            "${Telephony.Mms.Part.CONTENT_TYPE} = 'text/plain' AND (" + looksLinked.joinToString(" OR ") { "${Telephony.Mms.Part.TEXT} LIKE ?" } + ")",
+            looksLinked.toTypedArray(), "${Telephony.Mms.Part._ID} DESC LIMIT $limit",
+        )?.use { c -> while (c.moveToNext()) mmsText[c.getLong(0)] = c.getString(1).orEmpty() }
+        if (mmsText.isNotEmpty()) {
+            resolver.query(
+                Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.THREAD_ID, Telephony.Mms.DATE),
+                "${Telephony.Mms._ID} IN (${mmsText.keys.joinToString(",")})", null, null,
+            )?.use { c ->
+                while (c.moveToNext()) hits += hit(c.getLong(1), recipients, mmsText[c.getLong(0)].orEmpty(), c.getLong(2) * 1000, ChatMessage.messageKey(Kind.MMS, c.getLong(0)))
+            }
+        }
+        hits.sortedByDescending { it.timestamp }.take(limit)
+    }
+
     private fun hit(threadId: Long, recipients: Map<Long, List<String>>, body: String, date: Long, key: String): SearchHit {
         val people = recipients[threadId].orEmpty()
         return SearchHit(threadId, people, displayNameFor(people, ::displayName), body, date, key)

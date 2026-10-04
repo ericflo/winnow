@@ -26,6 +26,13 @@ fun firstWebLink(text: String): String? {
     return if (value.startsWith("http", ignoreCase = true)) value else "https://$value"
 }
 
+/** Every web link in [text], as URLs to show; emails don't count. */
+fun allWebLinks(text: String): List<String> = WEB.findAll(text)
+    .filterNot { m -> EMAIL.findAll(text).any { it.range.first <= m.range.first && m.range.first < it.range.last } }
+    .map { m -> m.value.trimEnd { it in TRAILING_PUNCTUATION }.let { if (it.startsWith("http", ignoreCase = true)) it else "https://$it" } }
+    .distinct()
+    .toList()
+
 fun linkify(text: String, links: Boolean, linkColor: Color): AnnotatedString {
     if (!links) return AnnotatedString(text)
     data class Span(val start: Int, val end: Int, val url: String)

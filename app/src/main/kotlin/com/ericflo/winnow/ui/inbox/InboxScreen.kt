@@ -76,6 +76,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material3.ListItem
+import com.ericflo.winnow.ui.components.AttachmentThumbnail
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -138,6 +144,8 @@ fun InboxScreen(
     // The search field shows what's typed straight from here: echoed back through the
     // ViewModel's combined flows, fast typing would drop and reorder characters.
     var typed by rememberSaveable { mutableStateOf("") }
+    val browsing by viewModel.browsing.collectAsStateWithLifecycle()
+    val browseResults by viewModel.browseResults.collectAsStateWithLifecycle()
     // Restored after the app was closed (or brought back into composition), the field and the
     // ViewModel's filter agree again.
     LaunchedEffect(Unit) { viewModel.setQuery(if (searching) typed else "") }
@@ -145,6 +153,7 @@ fun InboxScreen(
         searching = false
         typed = ""
         viewModel.setQuery("")
+        viewModel.browse(null)
     }
     BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
     BackHandler(enabled = searching && selected.isEmpty(), onBack = closeSearch)
@@ -226,7 +235,29 @@ fun InboxScreen(
                     } else if (state.query.isNotBlank() && state.conversations.isNotEmpty()) {
                         item("h-conversations") { SectionHeader("Conversations") }
                     }
-                    items(state.conversations, key = { it.threadId }) { conversation ->
+                    // Search with nothing typed: browse every conversation's photos and videos, or links.
+                    if (searching && typed.isBlank()) {
+                        item("browse") {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                FilterChip(
+                                    selected = browsing == Browse.MEDIA,
+                                    onClick = { viewModel.browse(if (browsing == Browse.MEDIA) null else Browse.MEDIA) },
+                                    label = { Text("Photos & videos") },
+                                    leadingIcon = { Icon(painterResource(R.drawable.ic_photo), contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                )
+                                FilterChip(
+                                    selected = browsing == Browse.LINKS,
+                                    onClick = { viewModel.browse(if (browsing == Browse.LINKS) null else Browse.LINKS) },
+                                    label = { Text("Links") },
+                                )
+                            }
+                        }
+                    }
+                    val browsingNow = if (searching && typed.isBlank()) browsing else null
+                    if (browsingNow != null) {
+                        browseItems(browsingNow, browseResults, onOpen = { hit -> onOpenSearchHit(hit, "") })
+                    }
+                    items(if (browsingNow != null) emptyList() else state.conversations, key = { it.threadId }) { conversation ->
                         val open = { onOpenThread(conversation.threadId, conversation.recipients) }
                         val enabled = selected.isEmpty() && !searching
                         @Composable
@@ -260,7 +291,7 @@ fun InboxScreen(
                             SearchHitRow(hit, onClick = { onOpenSearchHit(hit, state.query.trim()) })
                         }
                     }
-                    if (state.conversations.isEmpty() && state.messageHits.isEmpty()) {
+                    if (state.conversations.isEmpty() && state.messageHits.isEmpty() && !(searching && typed.isBlank() && browsing != null)) {
                         item("empty") {
                             Text(
                                 if (state.query.isNotBlank()) "Nothing matches \"${state.query}\"" else "No conversations yet",
@@ -503,6 +534,63 @@ private fun SectionHeader(title: String) {
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 4.dp),
+    )
+}
+
+/** Photos and videos three across, or links, each opening its conversation at that message. */
+private fun LazyListScope.browseItems(kind: Browse, results: BrowseResults, onOpen: (SearchHit) -> Unit) {
+    if (results.loading) {
+        item("browse-loading") { LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) }
+        return
+    }
+    when (kind) {
+        Browse.MEDIA -> {
+            if (results.media.isEmpty()) item("browse-empty") { BrowseEmpty("No photos or videos yet") }
+            items(results.media.chunked(3), key = { row -> "media-${row.first().attachment.uri}" }) { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
+                    row.forEach { media ->
+                        AttachmentThumbnail(
+                            media.attachment.uri,
+                            media.attachment.contentType,
+                            media.attachment.name,
+                            Modifier
+                                .weight(1f)
+                                .aspectRatio(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(onClickLabel = "Open in the conversation with ${media.displayName}") {
+                                    onOpen(SearchHit(media.threadId, media.recipients, media.displayName, "", media.timestamp, media.key))
+                                },
+                        )
+                    }
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+        Browse.LINKS -> {
+            if (results.links.isEmpty()) item("browse-empty") { BrowseEmpty("No links yet") }
+            items(results.links, key = { "link-${it.hit.key}-${it.url}" }) { link ->
+                ListItem(
+                    leadingContent = { Icon(painterResource(R.drawable.ic_link), contentDescription = null) },
+                    headlineContent = { Text(link.host, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    supportingContent = {
+                        Text("${link.hit.displayName} · ${shortTimestamp(link.hit.timestamp)}\n${link.url}", maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    },
+                    // The conversation, not the link: the message says who sent it and why Winnow trusts it or doesn't.
+                    modifier = Modifier.clickable(onClickLabel = "Open in the conversation") { onOpen(link.hit) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BrowseEmpty(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(32.dp),
     )
 }
 

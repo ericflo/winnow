@@ -110,6 +110,9 @@ data class VerdictRecord(
 data class StarredMessage(val message: ChatMessage, val recipients: List<String>, val conversationName: String)
 
 /** A message match from Search. */
+/** A photo or video from some conversation, for browsing them all at once. */
+data class MediaHit(val attachment: Attachment, val threadId: Long, val recipients: List<String>, val displayName: String, val timestamp: Long, val key: String)
+
 data class SearchHit(
     val threadId: Long,
     val recipients: List<String>,

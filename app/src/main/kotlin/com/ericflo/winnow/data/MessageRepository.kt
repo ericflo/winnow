@@ -62,6 +62,12 @@ interface MessageRepository {
 
     suspend fun search(query: String): List<SearchHit>
 
+    /** The newest photos and videos across every conversation. */
+    suspend fun recentMedia(limit: Int = 240): List<MediaHit> = emptyList()
+
+    /** The newest texts that look like they carry a link, across every conversation. */
+    suspend fun textsWithLinks(limit: Int = 300): List<SearchHit> = emptyList()
+
     /** Records the user's correction for a thread and remembers it for the sender. */
     suspend fun overrideVerdict(threadId: Long, address: String, action: Action): PreviousVerdict
 
@@ -116,6 +122,8 @@ class SwitchingMessageRepository(
     }
     override suspend fun deleteMessage(message: ChatMessage) = current.deleteMessage(message)
     override suspend fun search(query: String) = current.search(query)
+    override suspend fun recentMedia(limit: Int) = current.recentMedia(limit)
+    override suspend fun textsWithLinks(limit: Int) = current.textsWithLinks(limit)
     override suspend fun overrideVerdict(threadId: Long, address: String, action: Action) =
         current.overrideVerdict(threadId, address, action)
     override suspend fun restoreVerdict(previous: PreviousVerdict) = current.restoreVerdict(previous)
