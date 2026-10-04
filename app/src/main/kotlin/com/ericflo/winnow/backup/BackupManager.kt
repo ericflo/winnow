@@ -12,6 +12,7 @@ import android.provider.Telephony.Mms
 import android.provider.Telephony.Sms
 import android.util.Log
 import android.util.Xml
+import com.ericflo.winnow.data.normalizeAddress
 import android.provider.DocumentsContract
 import org.xmlpull.v1.XmlPullParser
 import android.webkit.MimeTypeMap
@@ -418,24 +419,28 @@ class BackupManager(
         // group one person at a time sits in the group's thread here but one person's elsewhere.
         val textsEverywhere = existingTextsEverywhere()
         for (conversation in backup.conversations) {
-            val knownTexts = conversation.messages.filter { it.kind == KIND_SMS && it.fingerprint in textsEverywhere }
+            fun textKey(m: MessageBackup) = if (m.kind == KIND_SMS) textKey(m.fingerprint, (if (m.outgoing) m.to else m.sender) ?: conversation.recipients.singleOrNull()) else null
+            val knownTexts = conversation.messages.filter { m -> textKey(m)?.let { it in textsEverywhere } == true }
             if (knownTexts.size == conversation.messages.size) {
                 // All already here: nothing to add, and no empty conversation to create for them.
                 knownTexts.forEach { m ->
-                    val (key, inThread) = textsEverywhere.getValue(m.fingerprint)
+                    val (key, inThread) = textsEverywhere.getValue(textKey(m)!!)
                     if (key !in classified) restoreVerdict(m, conversation, inThread, key)
                     if (m.starred) starred.star(StarredEntity(key, inThread, System.currentTimeMillis()))
                 }
                 present += knownTexts.size
                 done += knownTexts.size
+                // Its pin, mute, name and draft still come back (a reinstall leaves every text on
+                // the phone and none of Winnow's state), on the conversation those texts are in.
+                knownTexts.map { textsEverywhere.getValue(textKey(it)!!).second }.distinct().singleOrNull()?.let { restoreState(it, conversation) }
                 continue
             }
             val threadId = Telephony.Threads.getOrCreateThreadId(context, conversation.recipients.toSet())
             val existing = existingMessages(threadId)
-            val (here, missing) = conversation.messages.partition { it.fingerprint in existing || (it.kind == KIND_SMS && it.fingerprint in textsEverywhere) }
+            val (here, missing) = conversation.messages.partition { m -> m.fingerprint in existing || textKey(m)?.let { it in textsEverywhere } == true }
 
             here.forEach { m ->
-                val (key, inThread) = existing[m.fingerprint]?.let { it to threadId } ?: textsEverywhere.getValue(m.fingerprint)
+                val (key, inThread) = existing[m.fingerprint]?.let { it to threadId } ?: textsEverywhere.getValue(textKey(m)!!)
                 if (key !in classified) restoreVerdict(m, conversation, inThread, key)
                 if (m.starred) starred.star(StarredEntity(key, inThread, System.currentTimeMillis()))
             }
@@ -466,14 +471,22 @@ class BackupManager(
             }
             _status.value = BackupStatus.Working("Restoring messages", done, total)
 
-            val state = ConversationStateEntity(
-                threadId, conversation.pinned, conversation.archived, conversation.muted, conversation.draft, title = conversation.title,
-                mutedUntil = conversation.mutedUntil.takeIf { conversation.muted },
-            )
-            if (state != ConversationStateEntity(threadId) && states.get(threadId) == null) states.upsert(state)
+            restoreState(threadId, conversation)
         }
         return added to present
     }
+
+    /** A conversation's pin, archive, mute, name and draft, unless Winnow already has state for it. */
+    private suspend fun restoreState(threadId: Long, conversation: ConversationBackup) {
+        val state = ConversationStateEntity(
+            threadId, conversation.pinned, conversation.archived, conversation.muted, conversation.draft, title = conversation.title,
+            mutedUntil = conversation.mutedUntil.takeIf { conversation.muted },
+        )
+        if (state != ConversationStateEntity(threadId) && states.get(threadId) == null) states.upsert(state)
+    }
+
+    /** A text's identity across threads: its fingerprint and the other person's number. */
+    private fun textKey(fingerprint: String, address: String?) = "$fingerprint|${address?.let(::normalizeAddress).orEmpty()}"
 
     private fun smsValues(threadId: Long, conversation: ConversationBackup, m: MessageBackup) = ContentValues().apply {
         put(Sms.THREAD_ID, threadId)
@@ -530,16 +543,16 @@ class BackupManager(
     }
 
     /** What's already in a thread: [MessageBackup.fingerprint] → message key. */
-    /** Every text on the phone by fingerprint: its message key and thread. */
+    /** Every text on the phone by [textKey]: its message key and thread. */
     private fun existingTextsEverywhere(): Map<String, Pair<String, Long>> {
         val found = HashMap<String, Pair<String, Long>>()
         resolver.query(
-            Sms.CONTENT_URI, arrayOf(Sms._ID, Sms.DATE, Sms.TYPE, Sms.BODY, Sms.THREAD_ID),
+            Sms.CONTENT_URI, arrayOf(Sms._ID, Sms.DATE, Sms.TYPE, Sms.BODY, Sms.THREAD_ID, Sms.ADDRESS),
             "${Sms.TYPE} != ${Sms.MESSAGE_TYPE_DRAFT}", null, null,
         )?.use { c ->
             while (c.moveToNext()) {
                 val print = MessageBackup.fingerprint(KIND_SMS, c.getLong(1), c.getInt(2) != Sms.MESSAGE_TYPE_INBOX, c.getString(3).orEmpty(), 0)
-                found[print] = ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)) to c.getLong(4)
+                found[textKey(print, c.getString(5))] = ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)) to c.getLong(4)
             }
         }
         return found

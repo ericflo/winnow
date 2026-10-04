@@ -103,9 +103,11 @@ class VideoShrinker(private val context: Context) {
                 val item = MediaItem.Builder().setUri(uri).apply {
                     if (clipMs != null) setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setEndPositionMs(clipMs).build())
                 }.build()
+                // Down to mono from whatever the source has (surround included, where Media3 knows how).
                 val mono = ChannelMixingAudioProcessor().apply {
                     putChannelMixingMatrix(ChannelMixingMatrix.createForConstantGain(1, 1))
                     putChannelMixingMatrix(ChannelMixingMatrix.createForConstantGain(2, 1))
+                    for (channels in 3..8) runCatching { putChannelMixingMatrix(ChannelMixingMatrix.createForConstantGain(channels, 1)) }
                 }
                 val edited = EditedMediaItem.Builder(item)
                     .setEffects(Effects(listOf(mono), listOf(Presentation.createForHeight(heightFor(videoBitrate)), FrameDropEffect.createDefaultFrameDropEffect(frameRateFor(videoBitrate)))))

@@ -25,4 +25,17 @@ class ReturnedMessages {
     }
 
     fun take(threadId: Long): Returned? = byThread.remove(threadId)
+
+    companion object {
+        /**
+         * [draft] with [text] on a line of its own at the end, unless it's already there (it was
+         * saved into the draft, and the draft was read back). An exact line, not a substring: a
+         * returned "Yes" isn't already in "Yesterday was fun".
+         */
+        fun appendTo(draft: String, text: String): String = when {
+            text.isBlank() || draft == text || draft.endsWith("\n$text") -> draft
+            draft.isBlank() -> text
+            else -> "$draft\n$text"
+        }
+    }
 }

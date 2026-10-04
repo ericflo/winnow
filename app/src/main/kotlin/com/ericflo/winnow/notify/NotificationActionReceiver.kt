@@ -43,7 +43,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                         Log.w(TAG, "Reply from a notification failed", e)
                         if (threadId >= 0) {
                             val saved = container.conversationStates.get(threadId).draft.orEmpty()
-                            if (!saved.contains(reply)) container.conversationStates.saveDraft(threadId, listOf(saved, reply).filter { it.isNotBlank() }.joinToString("\n"))
+                            container.conversationStates.saveDraft(threadId, ReturnedMessages.appendTo(saved, reply))
                             container.returnedMessages.put(threadId, ReturnedMessages.Returned(reply, emptyList(), separately = false))
                         }
                         container.toast("Couldn't send your reply${e.message?.let { ": $it" }.orEmpty()}. It's saved in the conversation.")

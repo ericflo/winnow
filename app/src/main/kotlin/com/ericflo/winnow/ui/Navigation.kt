@@ -64,6 +64,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.key
 import androidx.lifecycle.createSavedStateHandle
 import androidx.navigation.NavHostController
+import androidx.navigation.NavBackStackEntry
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavDestination.Companion.hasRoute
 import com.ericflo.winnow.data.normalizeAddress
 import androidx.lifecycle.Lifecycle
@@ -153,12 +155,15 @@ fun WinnowNavHost(
     val onboarded = settings?.onboarded ?: return
     val pending by pendingRoute.collectAsStateWithLifecycle()
     val pane = viewModel { ConversationPane(createSavedStateHandle(), container.messages.deletedThreads()) }
+    // Who each full-screen conversation in the back stack is with, by entry, so a link to one
+    // that's further down goes back to it instead of opening a second copy.
+    val threadEntries = remember { HashMap<String, Set<String>>() }
     val twoPane = LocalConfiguration.current.screenWidthDp >= TWO_PANE_MIN_WIDTH_DP
     LaunchedEffect(pending) {
         pending?.let {
             when {
                 twoPane && it is ThreadRoute && openInPane(it, nav, pane, container) -> Unit
-                it is ThreadRoute -> openThreadRoute(it, nav)
+                it is ThreadRoute -> openThreadRoute(it, nav, threadEntries)
                 else -> nav.navigate(it) { launchSingleTop = true }
             }
             onRouteConsumed()
@@ -297,6 +302,10 @@ fun WinnowNavHost(
         }
         composable<ThreadRoute> { entry ->
             val route = entry.toRoute<ThreadRoute>()
+            LaunchedEffect(entry.id) {
+                threadEntries[entry.id] = recipientKey(route.recipients)
+                entry.lifecycle.addObserver(LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_DESTROY) threadEntries.remove(entry.id) })
+            }
             // A notification for another conversation replaces this one in place: start over on screen too.
             key(route.threadId, route.recipients) {
             ThreadScreen(
@@ -375,15 +384,24 @@ private fun <T> whenResumed(navigate: (T) -> Unit): (T) -> Unit {
  * on top, in its own back stack entry, so Back returns to the one before, half-written message
  * and all.
  */
-private fun openThreadRoute(route: ThreadRoute, nav: NavHostController) {
-    val top = nav.currentBackStackEntry
-    if (top?.destination?.hasRoute<ThreadRoute>() == true) {
-        val open = top.toRoute<ThreadRoute>()
-        val same = splitAddresses(open.recipients).map(::normalizeAddress).toSet() == splitAddresses(route.recipients).map(::normalizeAddress).toSet()
-        if (same && route.draft.isEmpty() && route.attachments.isEmpty()) return
+private fun openThreadRoute(route: ThreadRoute, nav: NavHostController, threadEntries: Map<String, Set<String>>) {
+    val wanted = recipientKey(route.recipients)
+    fun showing(entry: NavBackStackEntry?) =
+        entry?.destination?.hasRoute<ThreadRoute>() == true && recipientKey(entry.toRoute<ThreadRoute>().recipients) == wanted
+    if (route.draft.isEmpty() && route.attachments.isEmpty()) {
+        if (showing(nav.currentBackStackEntry)) return
+        // Further down: back to it. A second copy would show an old draft, and save it over the
+        // newer one when it closed.
+        if (wanted in threadEntries.values) {
+            while (!showing(nav.currentBackStackEntry) && nav.popBackStack()) Unit
+            if (showing(nav.currentBackStackEntry)) return
+        }
     }
     nav.navigate(route)
 }
+
+/** Who a conversation is with, however each number is written. */
+private fun recipientKey(recipients: String): Set<String> = splitAddresses(recipients).map(::normalizeAddress).toSet()
 
 /** ViewModels inside [content] come from [store]. */
 @Composable

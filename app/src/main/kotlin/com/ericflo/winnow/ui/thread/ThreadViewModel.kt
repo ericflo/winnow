@@ -42,6 +42,8 @@ import kotlinx.coroutines.CompletableDeferred
 import com.ericflo.winnow.data.CurrentLocation
 import com.ericflo.winnow.data.ReturnedMessages
 import com.ericflo.winnow.sms.MmsSender
+import com.ericflo.winnow.data.WinnowSettings
+import kotlinx.coroutines.CoroutineStart
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
@@ -114,6 +116,10 @@ class ThreadViewModel(
         .flatMapLatest { scheduler.observe(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** The undo window in seconds; null until settings have loaded. */
+    private val undoSeconds: StateFlow<Int?> = container.settings.settings.map<WinnowSettings, Int?> { it.undoSendSeconds }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     val enterToSend: StateFlow<Boolean> = container.settings.settings.map { it.enterToSend }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
@@ -182,9 +188,10 @@ class ThreadViewModel(
                 val kept = withContext(Dispatchers.IO) { drafts.decode(saved.draftAttachments) }
                 if (kept.isNotEmpty()) _attachments.value = kept
             }
+            // Listening first, so one that comes back in between isn't missed.
+            launch(start = CoroutineStart.UNDISPATCHED) { container.returnedMessages.arrived.filter { it == id }.collect { takeReturned(id) } }
             takeReturned(id)
             launch { _attachments.drop(1).debounce(400).collect { keepAttachments(id) } }
-            launch { container.returnedMessages.arrived.filter { it == id }.collect { takeReturned(id) } }
             draft.drop(1).debounce(400).collect { states.saveDraft(id, it) }
         }
     }
@@ -264,7 +271,7 @@ class ThreadViewModel(
     private suspend fun takeReturned(id: Long) {
         val returned = container.returnedMessages.take(id) ?: return
         // Its text was saved as the draft too, which this screen may have restored already.
-        if (!currentDraft().contains(returned.text)) setDraft(listOf(currentDraft(), returned.text).filter { it.isNotBlank() }.joinToString("\n"))
+        setDraft(ReturnedMessages.appendTo(currentDraft(), returned.text))
         _attachments.value = _attachments.value + returned.attachments
         if (returned.separately) _sendSeparately.value = true
         _notices.emit("A message that couldn't be sent is back in the composer")
@@ -308,7 +315,10 @@ class ThreadViewModel(
      * for any MMS is turned away now, rather than failing once the message is on its way.
      */
     fun addAttachment(attachment: OutgoingAttachment) {
-        if (MmsSender.canShrink(attachment.contentType)) {
+        // Photos shrink when sent; recordings (800 KB at most) and cards are small. Added at once,
+        // so a Send right after Done includes them.
+        val couldBeHuge = attachment.contentType.startsWith("video/") || attachment.contentType == "image/gif"
+        if (!couldBeHuge) {
             _attachments.value = _attachments.value + attachment
             return
         }
@@ -398,9 +408,20 @@ class ThreadViewModel(
     val shrinking: StateFlow<Int?> = _shrinking.asStateFlow()
 
     private suspend fun shrinkVideo(video: OutgoingAttachment) {
+        // Whatever the rest of the message leaves: other videos, recordings and cards at their
+        // size, photos at the least they shrink to.
+        val others = _attachments.value
+        val taken = withContext(Dispatchers.IO) {
+            others.sumOf { a -> if (MmsSender.canShrink(a.contentType)) MmsSender.MIN_PHOTO_BYTES.toLong() else container.sharedFiles.sizeOf(a.uri) ?: 0L }
+        }
+        val budget = MmsSender.MESSAGE_BUDGET_BYTES - taken
+        if (budget < MIN_VIDEO_ROOM) {
+            _notices.emit("There's no room left in this MMS for that video. Send it in a message of its own.")
+            return
+        }
         _shrinking.value = 0
         val result = try {
-            container.videoShrinker.shrink(android.net.Uri.parse(video.uri), MmsSender.MESSAGE_BUDGET_BYTES.toLong()) { _shrinking.value = it }
+            container.videoShrinker.shrink(android.net.Uri.parse(video.uri), budget) { _shrinking.value = it }
         } finally {
             _shrinking.value = null
         }
@@ -488,21 +509,23 @@ class ThreadViewModel(
         _attachments.value = emptyList()
         _sendSeparately.value = false
         val sim = _selectedSim.value
+        val window = (undoSeconds.value ?: 0) * 1000L
+        // Claimed right here, on the main thread, so a second Send meanwhile waits for this one.
+        val waiting = if (window > 0) PendingSend(text, files, System.currentTimeMillis() + window, window, apart) else null
+        waiting?.let { _pending.value = it }
         // The app scope, not this ViewModel's: leaving the conversation, mid-countdown or halfway
         // through sending to each person, must not lose the message.
-        container.appScope.launch {
+        val job = container.appScope.launch(start = CoroutineStart.LAZY) {
             states.saveDraft(threadId.value, "")
-            val window = container.settings.current().undoSendSeconds * 1000L
-            if (window > 0) {
-                val waiting = PendingSend(text, files, System.currentTimeMillis() + window, window, apart)
-                pendingJob = coroutineContext[Job]
-                _pending.value = waiting
+            if (waiting != null) {
                 delay(window)
                 // Undo and the end of the countdown race for it; whichever takes it, the other does nothing.
                 if (!_pending.compareAndSet(waiting, null)) return@launch
             }
             deliver(text, files, sim, apart)
         }
+        if (waiting != null) pendingJob = job
+        job.start()
     }
 
     /** Cancels a message still inside its undo window and puts it back in the composer. */
@@ -520,21 +543,21 @@ class ThreadViewModel(
      */
     private fun putBack(text: String, files: List<OutgoingAttachment>, separately: Boolean, reason: String? = null) {
         val id = threadId.value
-        if (cleared) {
-            container.appScope.launch {
+        // Decided on the main thread, where the screen is cleared, so it can't go in between.
+        container.appScope.launch(Dispatchers.Main.immediate) {
+            if (!cleared) {
+                setDraft(listOf(text, currentDraft()).filter { it.isNotBlank() }.joinToString("\n"))
+                _attachments.value = files + _attachments.value
+                if (separately) _sendSeparately.value = true
+                return@launch
+            }
+            withContext(Dispatchers.IO) {
                 if (id >= 0) {
-                    val saved = states.get(id).draft.orEmpty()
-                    if (!saved.contains(text)) states.saveDraft(id, listOf(saved, text).filter { it.isNotBlank() }.joinToString("\n"))
+                    states.saveDraft(id, ReturnedMessages.appendTo(states.get(id).draft.orEmpty(), text))
                     container.returnedMessages.put(id, ReturnedMessages.Returned(text, files, separately))
                 }
-                container.toast("Couldn't send${reason?.let { ": $it" }.orEmpty()}. It's back in the conversation's composer.")
             }
-            return
-        }
-        container.appScope.launch(Dispatchers.Main.immediate) {
-            setDraft(listOf(text, currentDraft()).filter { it.isNotBlank() }.joinToString("\n"))
-            _attachments.value = files + _attachments.value
-            if (separately) _sendSeparately.value = true
+            container.toast("Couldn't send${reason?.let { ": $it" }.orEmpty()}. It's back in the conversation's composer.")
         }
     }
 
@@ -696,5 +719,10 @@ class ThreadViewModel(
                 _notices.emit("Something went wrong: ${e.message ?: e::class.simpleName}")
             }
         }
+    }
+
+    private companion object {
+        /** Less than this left for a video, and it would be a smudge. */
+        const val MIN_VIDEO_ROOM = 150_000L
     }
 }

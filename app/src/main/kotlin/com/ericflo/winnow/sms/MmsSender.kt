@@ -180,7 +180,7 @@ class MmsSender(
         fun canShrink(contentType: String) = contentType.startsWith("image/") && contentType != "image/gif"
 
         /** Below this a shrunk photo is a smudge; better to say it doesn't fit. */
-        private const val MIN_PHOTO_BYTES = 40_000
+        const val MIN_PHOTO_BYTES = 40_000
         private const val MAX_EDGE_PX = 1600
         /** Photos get shrunk, but one bigger than this isn't worth decoding on a phone. */
         private const val MAX_PHOTO_BYTES = 40_000_000
