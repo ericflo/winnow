@@ -63,6 +63,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.AddCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -1092,10 +1093,12 @@ private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter:
             }
             Spacer(Modifier.height(4.dp))
             Text(detail, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(end = 8.dp))
+            // In the banner's own ink: the app's accent reads poorly on a red or amber banner.
+            val buttons = ButtonDefaults.textButtonColors(contentColor = content)
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                if (verdict.userAction == null && verdict.category in REPORTABLE) TextButton(onClick = onReport) { Text("Report") }
-                if (verdict.effectiveAction != Action.ALLOW) TextButton(onClick = onAllow) { Text("Not spam") }
-                if (verdict.effectiveAction != Action.FILTER) TextButton(onClick = onFilter) { Text("Filter sender") }
+                if (verdict.userAction == null && verdict.category in REPORTABLE) TextButton(onClick = onReport, colors = buttons) { Text("Report") }
+                if (verdict.effectiveAction != Action.ALLOW) TextButton(onClick = onAllow, colors = buttons) { Text("Not spam", fontWeight = FontWeight.SemiBold) }
+                if (verdict.effectiveAction != Action.FILTER) TextButton(onClick = onFilter, colors = buttons) { Text("Filter sender") }
             }
         }
     }
