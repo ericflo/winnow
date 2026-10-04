@@ -76,6 +76,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.ListItem
 import com.ericflo.winnow.ui.components.AttachmentThumbnail
 import androidx.compose.ui.draw.clip
@@ -220,15 +222,26 @@ fun InboxScreen(
                             ReviewInboxCard(state.review, state.classifier, onStart = viewModel::startReview, onDismiss = viewModel::dismissReview)
                         }
                         // Only worth offering when there's something unread (or the filter is on).
-                        if (state.unreadConversations > 0 || state.unreadOnly) {
+                        // Only worth offering when there's something to narrow down to (or a filter is on).
+                        if (state.unreadConversations > 0 || state.kinds.isNotEmpty() || state.filter != InboxFilter.ALL) {
                             item("filters") {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                                    FilterChip(selected = !state.unreadOnly, onClick = { viewModel.setUnreadOnly(false) }, label = { Text("All") })
-                                    FilterChip(
-                                        selected = state.unreadOnly,
-                                        onClick = { viewModel.setUnreadOnly(!state.unreadOnly) },
-                                        label = { Text(if (state.unreadConversations > 0) "Unread · ${state.unreadConversations}" else "Unread") },
-                                    )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+                                ) {
+                                    val chips = listOf(InboxFilter.ALL) +
+                                        listOfNotNull(InboxFilter.UNREAD.takeIf { state.unreadConversations > 0 || state.filter == InboxFilter.UNREAD }) +
+                                        state.kinds
+                                    chips.forEach { chip ->
+                                        FilterChip(
+                                            selected = state.filter == chip,
+                                            // Tapping the one that's on goes back to everything.
+                                            onClick = { viewModel.setFilter(if (state.filter == chip) InboxFilter.ALL else chip) },
+                                            label = {
+                                                Text(if (chip == InboxFilter.UNREAD && state.unreadConversations > 0) "Unread · ${state.unreadConversations}" else chip.label)
+                                            },
+                                        )
+                                    }
                                 }
                             }
                         }

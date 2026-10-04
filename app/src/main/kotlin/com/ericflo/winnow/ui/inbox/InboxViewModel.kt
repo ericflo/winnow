@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ericflo.winnow.AppContainer
 import com.ericflo.winnow.classifier.message.Action
+import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classify.ReviewStatus
 import com.ericflo.winnow.data.ConversationSummary
 import com.ericflo.winnow.data.ProviderKind
@@ -33,6 +34,22 @@ import com.ericflo.winnow.data.PreviousVerdict
 
 enum class ListMode { INBOX, FILTERED, ARCHIVED }
 
+/**
+ * The inbox's chips. Personal, Updates and Offers come from what Winnow's classifier made of
+ * each conversation's newest text: unclassified ones (contacts, texts you started) are personal.
+ */
+enum class InboxFilter(val label: String) {
+    ALL("All"), UNREAD("Unread"), PERSONAL("Personal"), UPDATES("Updates"), OFFERS("Offers");
+}
+
+/** Which kind chip a conversation falls under, if any. */
+fun ConversationSummary.kind(): InboxFilter? = when (verdict?.category) {
+    null, Category.PERSONAL -> InboxFilter.PERSONAL
+    Category.TRANSACTIONAL -> InboxFilter.UPDATES
+    Category.MARKETING -> InboxFilter.OFFERS
+    else -> null
+}
+
 /** What empty search can browse across every conversation. */
 enum class Browse { MEDIA, LINKS }
 
@@ -55,8 +72,9 @@ data class InboxUiState(
     val classifier: String = "",
     /** Reviewing older, never-classified conversations, unless the user dismissed the prompt. */
     val review: ReviewStatus = ReviewStatus.Unknown,
-    /** Only conversations with unread messages are shown. */
-    val unreadOnly: Boolean = false,
+    val filter: InboxFilter = InboxFilter.ALL,
+    /** The kind chips worth offering: there's at least one conversation of that kind. */
+    val kinds: List<InboxFilter> = emptyList(),
     /** Conversations in this list with unread messages, whatever the filter. */
     val unreadConversations: Int = 0,
 )
@@ -67,7 +85,7 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     private val repo = container.messages
     private val states = container.conversationStates
     private val query = MutableStateFlow("")
-    private val unreadOnly = MutableStateFlow(false)
+    private val filter = MutableStateFlow(InboxFilter.ALL)
     private val isDefault = MutableStateFlow(container.isDefaultSmsApp())
 
     private val classifier = container.settings.settings.map { s ->
@@ -89,10 +107,10 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     val state: StateFlow<InboxUiState> = combine(
         combine(all, hits, ::Pair),
         combine(container.isLive, isDefault, ::Pair),
-        combine(query, unreadOnly, ::Pair),
+        combine(query, filter, ::Pair),
         classifier,
         review,
-    ) { (all, hits), (live, isDefault), (query, unreadOnly), classifier, review ->
+    ) { (all, hits), (live, isDefault), (query, filter), classifier, review ->
         val shown = all.filter { c ->
             when (mode) {
                 ListMode.INBOX -> !c.isFiltered && !c.archived
@@ -101,7 +119,15 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
             }
         }
         val unread = shown.filter { it.unreadCount > 0 }
-        val filtered = if (unreadOnly && query.isBlank()) unread else shown
+        val filtered = when {
+            query.isNotBlank() || filter == InboxFilter.ALL -> shown
+            filter == InboxFilter.UNREAD -> unread
+            else -> shown.filter { it.kind() == filter }
+        }
+        // Updates and Offers only when there are some; Personal only as their counterpart.
+        val present = shown.mapNotNullTo(HashSet()) { it.kind() }
+        val kinds = listOf(InboxFilter.UPDATES, InboxFilter.OFFERS).filter { it in present }
+            .let { if (it.isEmpty()) it else listOf(InboxFilter.PERSONAL) + it }
         val matching = if (query.isBlank()) filtered else filtered.filter { it.matches(query) }
         InboxUiState(
             loading = false,
@@ -115,7 +141,8 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
             classifier = classifier,
             // Only offered once Winnow can actually read and file real messages.
             review = if (live && isDefault) review else ReviewStatus.Unknown,
-            unreadOnly = unreadOnly,
+            filter = filter,
+            kinds = kinds,
             unreadConversations = unread.size,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxUiState())
@@ -129,8 +156,8 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
 
     fun dismissReview() = launch { container.settings.update { it.copy(reviewPromptDismissed = true) } }
 
-    fun setUnreadOnly(value: Boolean) {
-        unreadOnly.value = value
+    fun setFilter(value: InboxFilter) {
+        filter.value = value
     }
 
     fun setQuery(value: String) {
