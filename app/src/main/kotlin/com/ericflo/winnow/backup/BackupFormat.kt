@@ -163,19 +163,26 @@ object BackupArchive {
     private const val MEDIA = "media/"
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = false; encodeDefaults = false }
 
-    /** Writes [backup] and its media; [media] streams each part's bytes by its `file` name. */
+    /**
+     * Writes [backup] and its media; [media] streams each part's bytes by its `file` name.
+     * [output] is left open, for the caller to close. The zip's index, without which it doesn't
+     * open, is written only once everything else is: a write that fails partway leaves no file
+     * that looks whole.
+     */
     fun write(output: OutputStream, backup: WinnowBackup, media: (PartBackup) -> InputStream?) {
-        ZipOutputStream(output.buffered()).use { zip ->
-            zip.putNextEntry(ZipEntry(MANIFEST))
-            zip.write(json.encodeToString(WinnowBackup.serializer(), backup).encodeToByteArray())
+        val buffered = output.buffered()
+        val zip = ZipOutputStream(buffered)
+        zip.putNextEntry(ZipEntry(MANIFEST))
+        zip.write(json.encodeToString(WinnowBackup.serializer(), backup).encodeToByteArray())
+        zip.closeEntry()
+        backup.conversations.flatMap { c -> c.messages.flatMap { it.parts } + c.draftAttachments }.forEach { part ->
+            val stream = media(part) ?: return@forEach
+            zip.putNextEntry(ZipEntry(MEDIA + part.file))
+            stream.use { it.copyTo(zip) }
             zip.closeEntry()
-            backup.conversations.flatMap { c -> c.messages.flatMap { it.parts } + c.draftAttachments }.forEach { part ->
-                val stream = media(part) ?: return@forEach
-                zip.putNextEntry(ZipEntry(MEDIA + part.file))
-                stream.use { it.copyTo(zip) }
-                zip.closeEntry()
-            }
         }
+        zip.finish()
+        buffered.flush()
     }
 
     /**
@@ -184,7 +191,8 @@ object BackupArchive {
      */
     fun read(input: InputStream, media: (name: String, InputStream) -> Unit = { _, _ -> }): WinnowBackup {
         var backup: WinnowBackup? = null
-        ZipInputStream(input.buffered()).use { zip ->
+        val buffered = input.buffered()
+        ZipInputStream(buffered).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
                 when {
@@ -192,6 +200,9 @@ object BackupArchive {
                     entry.name.startsWith(MEDIA) -> safeName(entry.name.removePrefix(MEDIA))?.let { media(it, zip) }
                 }
             }
+            // On to the end, past the zip's index: a protected file is checked whole only there.
+            val sink = ByteArray(8192)
+            while (buffered.read(sink) >= 0) Unit
         }
         return backup ?: throw IllegalArgumentException("Not a Winnow backup: $MANIFEST is missing")
     }

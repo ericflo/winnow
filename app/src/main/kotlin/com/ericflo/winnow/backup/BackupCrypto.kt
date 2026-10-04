@@ -8,6 +8,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.security.GeneralSecurityException
+import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
@@ -26,31 +27,52 @@ import javax.crypto.spec.SecretKeySpec
  * be reordered, dropped, cut off at the end or moved between files without the read failing.
  *
  *     magic "WNWNENC1" | iterations (int) | salt (16) | nonce prefix (7)
+ *     | key check (16) | SHA-256 of all the above (32)
  *     then per segment: last (1 byte, 0 or 1) | length (int) | ciphertext with its 16-byte tag
  *
- * The key is PBKDF2-HMAC-SHA256 of the password and salt.
+ * The key is PBKDF2-HMAC-SHA256 of the password and salt. The key check is a GCM tag over
+ * nothing, under a nonce no segment uses: it says whether a key is the right one before any
+ * segment is read. The hash, which needs no key, catches a damaged header. So a wrong password
+ * is told apart from damage anywhere in the file.
  */
 object BackupCrypto {
     private val MAGIC = "WNWNENC1".toByteArray(Charsets.US_ASCII)
     const val SALT_BYTES = 16
     private const val PREFIX_BYTES = 7
     private const val TAG_BITS = 128
+    private const val TAG_BYTES = TAG_BITS / 8
+    private const val HASH_BYTES = 32
     /** A segment's plaintext: small enough to hold, big enough that the per-segment cost is noise. */
     private const val SEGMENT = 64 * 1024
     /** PBKDF2 rounds: about a second on a phone, to slow guessing at a stolen file. */
     const val ITERATIONS = 310_000
+    /** The key check's nonce: a counter segments never reach, with a flag they never use. */
+    private const val CHECK_COUNTER = -1
+    private const val CHECK_FLAG: Byte = 2
 
     /** What a protected file's key comes from: [salt] and [iterations] are in its header. */
-    class KeyParams(val salt: ByteArray, val iterations: Int)
+    class KeyParams(val salt: ByteArray, val iterations: Int) {
+        fun sameAs(other: KeyParams): Boolean = iterations == other.iterations && salt.contentEquals(other.salt)
+    }
 
     /** A key made from a password, with what it was made from. */
     class Key(val secret: SecretKey, val params: KeyParams)
+
+    /** A protected file's header, read and checked by [readHeader]. */
+    class Header internal constructor(val params: KeyParams, internal val prefix: ByteArray, internal val check: ByteArray) {
+        /** What every segment and the key check authenticate: the header up to the key check. */
+        internal val bytes: ByteArray get() = headerBytes(params, prefix)
+    }
 
     fun deriveKey(password: CharArray, params: KeyParams): Key {
         val spec = PBEKeySpec(password, params.salt, params.iterations, 256)
         try {
             val bytes = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
-            return Key(SecretKeySpec(bytes, "AES"), params)
+            try {
+                return Key(SecretKeySpec(bytes, "AES"), params)
+            } finally {
+                bytes.fill(0)
+            }
         } finally {
             spec.clearPassword()
         }
@@ -64,55 +86,92 @@ object BackupCrypto {
     /** How many bytes [isProtected] needs. */
     val HEAD_BYTES: Int get() = MAGIC.size
 
-    /** A protected file's key parameters, read from its header (the stream is left after them). */
-    fun readParams(input: InputStream): KeyParams {
-        val data = DataInputStream(input)
-        val magic = ByteArray(MAGIC.size).also(data::readFully)
-        if (!magic.contentEquals(MAGIC)) throw IOException("Not a password-protected Winnow backup")
-        val iterations = data.readInt()
+    /** How many bytes come before the first segment. */
+    val HEADER_BYTES: Int get() = MAGIC.size + 4 + SALT_BYTES + PREFIX_BYTES + TAG_BYTES + HASH_BYTES
+
+    /**
+     * Reads a protected file's header, leaving [input] at its first segment. Fails with an
+     * IOException if it isn't one, or it's damaged or cut off.
+     */
+    fun readHeader(input: InputStream): Header {
+        val all = ByteArray(HEADER_BYTES)
+        try {
+            DataInputStream(input).readFully(all)
+        } catch (_: EOFException) {
+            throw IOException("This backup is cut off")
+        }
+        if (!all.copyOf(MAGIC.size).contentEquals(MAGIC)) throw IOException("Not a password-protected Winnow backup")
+        val hashed = HEADER_BYTES - HASH_BYTES
+        if (!MessageDigest.isEqual(sha256(all, hashed), all.copyOfRange(hashed, HEADER_BYTES))) throw IOException("This backup is damaged")
+        val buffer = ByteBuffer.wrap(all, MAGIC.size, hashed - MAGIC.size)
+        val iterations = buffer.int
         if (iterations !in 1..10_000_000) throw IOException("This backup is damaged")
-        val salt = ByteArray(SALT_BYTES).also(data::readFully)
-        return KeyParams(salt, iterations)
+        val salt = ByteArray(SALT_BYTES).also(buffer::get)
+        val prefix = ByteArray(PREFIX_BYTES).also(buffer::get)
+        val check = ByteArray(TAG_BYTES).also(buffer::get)
+        return Header(KeyParams(salt, iterations), prefix, check)
     }
 
-    /** Writes a protected file to [output]: what's written to the stream returned is sealed with [key]. */
-    fun encrypting(output: OutputStream, key: Key): OutputStream {
+    /** Whether [key] is the one [header]'s file was sealed with: the password's right. */
+    fun opens(header: Header, key: Key): Boolean =
+        key.params.sameAs(header.params) && MessageDigest.isEqual(checkTag(key.secret, header.bytes, header.prefix), header.check)
+
+    /**
+     * Writes a protected file to [output]: what's written to the stream returned is sealed with
+     * [key]. Only [SealedOutput.finish] ends the file; closing the stream without it leaves one
+     * that won't open, so a backup that fails partway can't pass for a whole one.
+     */
+    fun encrypting(output: OutputStream, key: Key): SealedOutput {
         val prefix = ByteArray(PREFIX_BYTES).also(SecureRandom()::nextBytes)
-        val header = header(key.params, prefix)
-        output.write(header)
-        return SealingStream(output, key.secret, header, prefix)
+        val header = headerBytes(key.params, prefix)
+        val unhashed = header + checkTag(key.secret, header, prefix)
+        output.write(unhashed)
+        output.write(sha256(unhashed, unhashed.size))
+        return SealedOutput(output, key.secret, header, prefix)
     }
 
     /**
-     * Opens a protected file whose header has been read already (see [readParams]): reads what
-     * [encrypting] wrote, failing with [WrongPasswordException] for the wrong key and an
-     * IOException for a damaged or cut-off file.
+     * Opens a protected file whose [header] has been read already: reads what [encrypting]
+     * wrote, failing with [WrongPasswordException] for the wrong key, before anything is read,
+     * and an IOException for a damaged or cut-off file.
      */
-    fun decrypting(input: InputStream, key: Key): InputStream {
-        val prefix = ByteArray(PREFIX_BYTES).also(DataInputStream(input)::readFully)
-        return OpeningStream(input, key.secret, header(key.params, prefix), prefix)
+    fun decrypting(input: InputStream, header: Header, key: Key): InputStream {
+        if (!opens(header, key)) throw WrongPasswordException()
+        return OpeningStream(input, key.secret, header.bytes, header.prefix)
     }
 
-    /** The wrong password (or a file sealed with another key): the first segment doesn't open. */
+    /** The wrong password (or a file sealed with another key). */
     class WrongPasswordException : IOException("That password doesn't open this backup")
 
-    private fun header(params: KeyParams, prefix: ByteArray): ByteArray =
+    private fun headerBytes(params: KeyParams, prefix: ByteArray): ByteArray =
         ByteBuffer.allocate(MAGIC.size + 4 + SALT_BYTES + PREFIX_BYTES).put(MAGIC).putInt(params.iterations).put(params.salt).put(prefix).array()
 
-    private fun nonce(prefix: ByteArray, counter: Int, last: Boolean): ByteArray =
-        ByteBuffer.allocate(12).put(prefix).putInt(counter).put(if (last) 1 else 0).array()
+    private fun nonce(prefix: ByteArray, counter: Int, flag: Byte): ByteArray =
+        ByteBuffer.allocate(12).put(prefix).putInt(counter).put(flag).array()
 
-    private class SealingStream(out: OutputStream, private val key: SecretKey, private val header: ByteArray, private val prefix: ByteArray) : FilterOutputStream(out) {
+    private fun checkTag(key: SecretKey, header: ByteArray, prefix: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(TAG_BITS, nonce(prefix, CHECK_COUNTER, CHECK_FLAG)))
+        cipher.updateAAD(header)
+        return cipher.doFinal()
+    }
+
+    private fun sha256(bytes: ByteArray, length: Int): ByteArray =
+        MessageDigest.getInstance("SHA-256").apply { update(bytes, 0, length) }.digest()
+
+    /** What [encrypting] returns: a stream to write the plaintext to, ended by [finish]. */
+    class SealedOutput internal constructor(out: OutputStream, private val key: SecretKey, private val header: ByteArray, private val prefix: ByteArray) : FilterOutputStream(out) {
         private val buffer = ByteArray(SEGMENT)
         private var filled = 0
         private var counter = 0
-        private var closed = false
+        private var finished = false
 
         override fun write(b: Int) {
             write(byteArrayOf(b.toByte()), 0, 1)
         }
 
         override fun write(b: ByteArray, off: Int, len: Int) {
+            check(!finished) { "Already finished" }
             var at = off
             var left = len
             while (left > 0) {
@@ -127,9 +186,17 @@ object BackupCrypto {
             }
         }
 
+        /** Seals what's left as the last segment: the file is whole. The stream stays open. */
+        fun finish() {
+            if (finished) return
+            seal(last = true)
+            finished = true
+            out.flush()
+        }
+
         private fun seal(last: Boolean) {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(TAG_BITS, nonce(prefix, counter, last)))
+            cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(TAG_BITS, nonce(prefix, counter, if (last) 1 else 0)))
             cipher.updateAAD(header)
             val sealed = cipher.doFinal(buffer, 0, filled)
             out.write(if (last) 1 else 0)
@@ -141,15 +208,10 @@ object BackupCrypto {
 
         override fun flush() = out.flush()
 
+        /** Closes the file, ended or not (see [finish]). */
         override fun close() {
-            if (closed) return
-            closed = true
-            try {
-                seal(last = true)
-                out.flush()
-            } finally {
-                out.close()
-            }
+            buffer.fill(0)
+            out.close()
         }
     }
 
@@ -178,24 +240,23 @@ object BackupCrypto {
         private fun fill(): Boolean {
             while (at >= plain.size) {
                 if (done) return false
-                val flag = try {
-                    data.readUnsignedByte()
+                val (last, sealed) = try {
+                    val flag = data.readUnsignedByte()
+                    if (flag > 1) throw IOException("This backup is damaged")
+                    val size = data.readInt()
+                    if (size !in TAG_BYTES..SEGMENT + TAG_BYTES) throw IOException("This backup is damaged")
+                    (flag == 1) to ByteArray(size).also(data::readFully)
                 } catch (_: EOFException) {
                     throw IOException("This backup is cut off")
                 }
-                if (flag > 1) throw IOException("This backup is damaged")
-                val size = data.readInt()
-                if (size !in 16..SEGMENT + 16) throw IOException("This backup is damaged")
-                val sealed = ByteArray(size).also(data::readFully)
-                val last = flag == 1
                 plain = try {
                     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-                    cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BITS, nonce(prefix, counter, last)))
+                    cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BITS, nonce(prefix, counter, if (last) 1 else 0)))
                     cipher.updateAAD(header)
                     cipher.doFinal(sealed)
                 } catch (e: GeneralSecurityException) {
-                    // The first segment is where a wrong password shows; later, it's tampering.
-                    throw if (counter == 0) WrongPasswordException() else IOException("This backup is damaged", e)
+                    // The key check passed, so the key is right: this is damage or tampering.
+                    throw IOException("This backup is damaged", e)
                 }
                 at = 0
                 counter++

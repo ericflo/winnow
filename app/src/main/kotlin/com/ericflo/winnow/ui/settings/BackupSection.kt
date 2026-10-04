@@ -31,6 +31,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -279,23 +281,42 @@ private fun BackupPasswordRow(viewModel: SettingsViewModel) {
     if (editing) {
         BackupPasswordDialog(
             isSet = isSet,
-            onSet = { viewModel.setBackupPassword(it); editing = false },
-            onRemove = { viewModel.removeBackupPassword(); editing = false },
+            onSet = viewModel::setBackupPassword,
+            onRemove = viewModel::removeBackupPassword,
             onDismiss = { editing = false },
         )
     }
 }
 
 @Composable
-private fun BackupPasswordDialog(isSet: Boolean, onSet: (CharArray) -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit) {
+private fun BackupPasswordDialog(
+    isSet: Boolean,
+    /** Whether it was kept. */
+    onSet: suspend (CharArray) -> Boolean,
+    onRemove: suspend () -> Boolean,
+    onDismiss: () -> Unit,
+) {
     var first by remember { mutableStateOf("") }
     var again by remember { mutableStateOf("") }
+    // Open until the change is made (a second or so) or has failed, so it's never in doubt.
+    var saving by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     val tooShort = first.isNotEmpty() && first.length < MIN_PASSWORD
     val mismatch = again.isNotEmpty() && again != first
-    val valid = first.length >= MIN_PASSWORD && again == first
-    val set = { if (valid) onSet(first.toCharArray()) }
+    val valid = first.length >= MIN_PASSWORD && again == first && !saving
+    fun change(failure: String, action: suspend () -> Boolean) {
+        saving = true
+        failed = null
+        scope.launch {
+            val ok = action()
+            saving = false
+            if (ok) onDismiss() else failed = failure
+        }
+    }
+    val set = { if (valid) change("The password couldn't be saved. Try again.") { onSet(first.toCharArray()) } }
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!saving) onDismiss() },
         title = { Text(if (isSet) "Change backup password" else "Set a backup password") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -312,6 +333,8 @@ private fun BackupPasswordDialog(isSet: Boolean, onSet: (CharArray) -> Unit, onR
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                if (saving) LinearProgressIndicator(Modifier.fillMaxWidth())
+                failed?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = {
@@ -319,8 +342,8 @@ private fun BackupPasswordDialog(isSet: Boolean, onSet: (CharArray) -> Unit, onR
         },
         dismissButton = {
             Row {
-                if (isSet) TextButton(onClick = onRemove) { Text("Turn off") }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                if (isSet) TextButton(onClick = { change("The password couldn't be turned off. Try again.", onRemove) }, enabled = !saving) { Text("Turn off") }
+                TextButton(onClick = onDismiss, enabled = !saving) { Text("Cancel") }
             }
         },
     )

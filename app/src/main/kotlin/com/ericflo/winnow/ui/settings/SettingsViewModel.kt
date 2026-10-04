@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -81,18 +82,26 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     val backupPasswordSet: StateFlow<Boolean> = container.backupPassword.isSet
 
-    /** Slow (about a second), so off the main thread; in the app's scope, so leaving Settings doesn't stop it. */
-    fun setBackupPassword(password: CharArray) {
-        container.appScope.launch {
-            try {
-                container.backupPassword.set(password)
-            } finally {
-                password.fill(' ')
-            }
+    /**
+     * Slow (about a second): run in the app's scope, so leaving Settings doesn't stop it, while
+     * the dialog waits for the answer. Whether it was kept.
+     */
+    suspend fun setBackupPassword(password: CharArray): Boolean = container.appScope.async {
+        try {
+            runCatching { container.backupPassword.set(password) }
+                .onFailure { android.util.Log.w("WinnowSettings", "Couldn't set the backup password", it) }
+                .isSuccess
+        } finally {
+            password.fill(' ')
         }
-    }
+    }.await()
 
-    fun removeBackupPassword() = container.backupPassword.clear()
+    /** Whether new backups are unprotected now. */
+    suspend fun removeBackupPassword(): Boolean = container.appScope.async {
+        runCatching { container.backupPassword.clear() }
+            .onFailure { android.util.Log.w("WinnowSettings", "Couldn't turn off the backup password", it) }
+            .isSuccess
+    }.await()
 
     fun importSmsBackupRestore(uri: Uri) = container.backups.importSmsBackupRestore(uri)
 

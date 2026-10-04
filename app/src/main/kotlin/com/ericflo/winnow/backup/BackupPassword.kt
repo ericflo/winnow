@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -27,25 +29,41 @@ class BackupPassword(context: Context) {
     /** Whether new backups are protected. */
     val isSet: StateFlow<Boolean> = _isSet.asStateFlow()
 
-    /** Protects backups from now on with [password] (slow: about a second, off the main thread). */
-    suspend fun set(password: CharArray) = withContext(Dispatchers.Default) {
-        val params = BackupCrypto.newParams()
-        val key = BackupCrypto.deriveKey(password, params)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, wrappingKey()) }
-        val sealed = cipher.doFinal(key.secret.encoded)
-        prefs.edit()
-            .putString(KEY_SALT, encode(params.salt))
-            .putInt(KEY_ITERATIONS, params.iterations)
-            .putString(KEY_IV, encode(cipher.iv))
-            .putString(KEY_SEALED, encode(sealed))
-            .commit()
-        _isSet.value = true
+    /** One change at a time: two at once could each make a Keystore key, and seal with the one that's lost. */
+    private val changing = Mutex()
+
+    /**
+     * Protects backups from now on with [password] (slow: about a second, off the main thread).
+     * Throws if it couldn't be kept, in which case nothing changed.
+     */
+    suspend fun set(password: CharArray) = changing.withLock {
+        withContext(Dispatchers.Default) {
+            val params = BackupCrypto.newParams()
+            val key = BackupCrypto.deriveKey(password, params)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, wrappingKey()) }
+            val raw = key.secret.encoded
+            val sealed = try {
+                cipher.doFinal(raw)
+            } finally {
+                raw.fill(0)
+            }
+            val saved = prefs.edit()
+                .putString(KEY_SALT, encode(params.salt))
+                .putInt(KEY_ITERATIONS, params.iterations)
+                .putString(KEY_IV, encode(cipher.iv))
+                .putString(KEY_SEALED, encode(sealed))
+                .commit()
+            if (!saved) error("The backup password couldn't be saved")
+            _isSet.value = true
+        }
     }
 
     /** New backups aren't protected; ones already made still need the password they were made with. */
-    fun clear() {
-        prefs.edit().clear().commit()
-        _isSet.value = false
+    suspend fun clear() = changing.withLock {
+        withContext(Dispatchers.IO) {
+            if (!prefs.edit().clear().commit()) error("The backup password couldn't be turned off")
+            _isSet.value = false
+        }
     }
 
     /** The key backups are protected with, or null if there's no password (or the Keystore lost its key). */
@@ -54,13 +72,18 @@ class BackupPassword(context: Context) {
         val iv = prefs.getString(KEY_IV, null)?.let(::decode) ?: return null
         val sealed = prefs.getString(KEY_SEALED, null)?.let(::decode) ?: return null
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, wrappingKey(), GCMParameterSpec(128, iv)) }
-        BackupCrypto.Key(SecretKeySpec(cipher.doFinal(sealed), "AES"), BackupCrypto.KeyParams(salt, prefs.getInt(KEY_ITERATIONS, BackupCrypto.ITERATIONS)))
+        val raw = cipher.doFinal(sealed)
+        try {
+            BackupCrypto.Key(SecretKeySpec(raw, "AES"), BackupCrypto.KeyParams(salt, prefs.getInt(KEY_ITERATIONS, BackupCrypto.ITERATIONS)))
+        } finally {
+            raw.fill(0)
+        }
     }.getOrNull()
 
     /** The key for a file made with [params], if it's this phone's password's: no need to ask for it. */
-    fun keyFor(params: BackupCrypto.KeyParams): BackupCrypto.Key? =
-        key()?.takeIf { it.params.salt.contentEquals(params.salt) && it.params.iterations == params.iterations }
+    fun keyFor(params: BackupCrypto.KeyParams): BackupCrypto.Key? = key()?.takeIf { it.params.sameAs(params) }
 
+    @Synchronized
     private fun wrappingKey(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }

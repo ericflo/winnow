@@ -16,7 +16,7 @@ class BackupCryptoTest {
     private val params = BackupCrypto.newParams(iterations = 1_000)
     private val key = BackupCrypto.deriveKey("correct horse".toCharArray(), params)
 
-    private fun seal(plain: ByteArray, writeInPieces: Boolean = false): ByteArray {
+    private fun seal(plain: ByteArray, writeInPieces: Boolean = false, finish: Boolean = true): ByteArray {
         val out = ByteArrayOutputStream()
         BackupCrypto.encrypting(out, key).use { sealed ->
             if (writeInPieces) {
@@ -29,15 +29,16 @@ class BackupCryptoTest {
             } else {
                 sealed.write(plain)
             }
+            if (finish) sealed.finish()
         }
         return out.toByteArray()
     }
 
     private fun open(file: ByteArray, password: String = "correct horse"): ByteArray {
         val input = ByteArrayInputStream(file)
-        val read = BackupCrypto.readParams(input)
-        val k = BackupCrypto.deriveKey(password.toCharArray(), read)
-        return BackupCrypto.decrypting(input, k).readBytes()
+        val header = BackupCrypto.readHeader(input)
+        val k = BackupCrypto.deriveKey(password.toCharArray(), header.params)
+        return BackupCrypto.decrypting(input, header, k).readBytes()
     }
 
     @Test
@@ -57,22 +58,41 @@ class BackupCryptoTest {
     }
 
     @Test
-    fun `the wrong password is told apart from damage`() {
+    fun `the wrong password is told apart from damage anywhere`() {
         val sealed = seal(Random(1).nextBytes(100_000))
         assertThrows(BackupCrypto.WrongPasswordException::class.java) { open(sealed, password = "wrong") }
-        // A byte changed in the second segment: damage, not a wrong password.
-        val damaged = sealed.copyOf().also { it[it.size - 100] = (it[it.size - 100] + 1).toByte() }
-        val thrown = assertThrows(IOException::class.java) { open(damaged) }
-        assertFalse(thrown is BackupCrypto.WrongPasswordException)
+        // A byte changed in the salt, the key check, the first segment or the last: damage, not a wrong password.
+        for (at in listOf(BackupCrypto.HEAD_BYTES + 6, BackupCrypto.HEADER_BYTES - 40, BackupCrypto.HEADER_BYTES + 50, sealed.size - 100)) {
+            val damaged = sealed.copyOf().also { it[at] = (it[at] + 1).toByte() }
+            val thrown = assertThrows("byte $at", IOException::class.java) { open(damaged) }
+            assertFalse("byte $at", thrown is BackupCrypto.WrongPasswordException)
+        }
+    }
+
+    @Test
+    fun `the key check answers before anything is read`() {
+        val header = BackupCrypto.readHeader(ByteArrayInputStream(seal(byteArrayOf(1))))
+        assertTrue(BackupCrypto.opens(header, key))
+        assertFalse(BackupCrypto.opens(header, BackupCrypto.deriveKey("wrong".toCharArray(), header.params)))
+        assertFalse(BackupCrypto.opens(header, BackupCrypto.deriveKey("correct horse".toCharArray(), BackupCrypto.newParams(iterations = 1_000))))
+    }
+
+    @Test
+    fun `a stream closed without finishing doesn't open`() {
+        val plain = Random(5).nextBytes(150_000)
+        val unfinished = seal(plain, finish = false)
+        assertThrows(IOException::class.java) { open(unfinished) }
     }
 
     @Test
     fun `a file cut short or added to doesn't open`() {
         val sealed = seal(Random(2).nextBytes(150_000))
         // Cut at a segment boundary: the last segment is missing, which the format notices.
-        val firstSegmentEnd = BackupCrypto.HEAD_BYTES + 4 + BackupCrypto.SALT_BYTES + 7 + 1 + 4 + 65_536 + 16
+        val firstSegmentEnd = BackupCrypto.HEADER_BYTES + 1 + 4 + 65_536 + 16
         assertThrows(IOException::class.java) { open(sealed.copyOf(firstSegmentEnd)) }
-        assertThrows(IOException::class.java) { open(sealed.copyOf(sealed.size - 1)) }
+        val cut = assertThrows(IOException::class.java) { open(sealed.copyOf(sealed.size - 1)) }
+        assertTrue(cut.message.orEmpty().contains("cut off"))
+        assertThrows(IOException::class.java) { open(sealed.copyOf(BackupCrypto.HEADER_BYTES - 1)) }
         assertThrows(IOException::class.java) { open(sealed + byteArrayOf(0)) }
     }
 
@@ -80,7 +100,7 @@ class BackupCryptoTest {
     fun `segments can't be moved between files sealed with the same key`() {
         val a = seal(Random(3).nextBytes(10))
         val b = seal(Random(4).nextBytes(10))
-        val headerSize = BackupCrypto.HEAD_BYTES + 4 + BackupCrypto.SALT_BYTES + 7
+        val headerSize = BackupCrypto.HEADER_BYTES
         // a's header with b's (only) segment: b's prefix differs, so its nonce and header don't match.
         val spliced = a.copyOf(headerSize) + b.copyOfRange(headerSize, b.size)
         assertThrows(IOException::class.java) { open(spliced) }

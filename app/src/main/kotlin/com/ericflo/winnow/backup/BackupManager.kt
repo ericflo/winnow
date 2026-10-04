@@ -45,6 +45,8 @@ import com.ericflo.winnow.sms.MmsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -112,7 +114,7 @@ class BackupManager(
     private val unlocked = java.util.concurrent.ConcurrentHashMap<Uri, BackupCrypto.Key>()
 
     /** A protected backup with no key at hand (see [BackupStatus.NeedsPassword]). */
-    private class PasswordNeeded : Exception()
+    private class PasswordNeeded : java.io.IOException("This backup needs its password")
 
     /**
      * [uri]'s backup to read: the zip itself, or (password-protected) what it opens to, with this
@@ -120,14 +122,15 @@ class BackupManager(
      */
     private fun openArchive(uri: Uri): java.io.InputStream {
         val raw = (resolver.openInputStream(uri) ?: error("The file couldn't be opened")).buffered()
-        raw.mark(BackupCrypto.HEAD_BYTES)
-        val head = ByteArray(BackupCrypto.HEAD_BYTES).also { buf -> var n = 0; while (n < buf.size) { val r = raw.read(buf, n, buf.size - n); if (r < 0) break; n += r } }
-        raw.reset()
-        if (!BackupCrypto.isProtected(head)) return raw
         try {
-            val params = BackupCrypto.readParams(raw)
-            val key = unlocked[uri] ?: password?.keyFor(params) ?: throw PasswordNeeded()
-            return BackupCrypto.decrypting(raw, key)
+            raw.mark(BackupCrypto.HEAD_BYTES)
+            val head = ByteArray(BackupCrypto.HEAD_BYTES).also { buf -> var n = 0; while (n < buf.size) { val r = raw.read(buf, n, buf.size - n); if (r < 0) break; n += r } }
+            raw.reset()
+            if (!BackupCrypto.isProtected(head)) return raw
+            val header = BackupCrypto.readHeader(raw)
+            // A key given for this file earlier counts only if the file is still the one it was for.
+            val key = unlocked[uri]?.takeIf { it.params.sameAs(header.params) } ?: password?.keyFor(header.params) ?: throw PasswordNeeded()
+            return BackupCrypto.decrypting(raw, header, key)
         } catch (e: Throwable) {
             raw.close()
             throw e
@@ -164,6 +167,10 @@ class BackupManager(
         } catch (_: PasswordNeeded) {
             _status.value = BackupStatus.NeedsPassword(uri)
             return@start
+        } catch (_: BackupCrypto.WrongPasswordException) {
+            // A key on hand that isn't this file's after all: ask.
+            _status.value = BackupStatus.NeedsPassword(uri)
+            return@start
         }
         _status.value = BackupStatus.Ready(
             uri,
@@ -172,23 +179,27 @@ class BackupManager(
     }
 
     /** The password for a protected backup [open] asked about: on to the summary, or asked again. */
-    fun unlock(uri: Uri, typed: CharArray) = start("Couldn't read that file") {
-        _status.value = BackupStatus.Working("Checking the password")
-        val params = (resolver.openInputStream(uri) ?: error("The file couldn't be opened")).buffered().use(BackupCrypto::readParams)
-        val key = BackupCrypto.deriveKey(typed, params)
-        typed.fill(' ')
-        unlocked[uri] = key
-        val backup = try {
-            openArchive(uri).use(BackupArchive::peek)
-        } catch (_: BackupCrypto.WrongPasswordException) {
-            unlocked.remove(uri)
-            _status.value = BackupStatus.NeedsPassword(uri, wrong = true)
-            return@start
+    fun unlock(uri: Uri, typed: CharArray) {
+        val started = start("Couldn't read that file") {
+            try {
+                _status.value = BackupStatus.Working("Checking the password")
+                val header = (resolver.openInputStream(uri) ?: error("The file couldn't be opened")).buffered().use(BackupCrypto::readHeader)
+                val key = BackupCrypto.deriveKey(typed, header.params)
+                if (!BackupCrypto.opens(header, key)) {
+                    _status.value = BackupStatus.NeedsPassword(uri, wrong = true)
+                    return@start
+                }
+                unlocked[uri] = key
+            } finally {
+                typed.fill(' ')
+            }
+            val backup = openArchive(uri).use(BackupArchive::peek)
+            _status.value = BackupStatus.Ready(
+                uri,
+                BackupSummary(backup.createdAt, backup.conversations.size, backup.messageCount, backup.senderRules.size, backup.settings != null),
+            )
         }
-        _status.value = BackupStatus.Ready(
-            uri,
-            BackupSummary(backup.createdAt, backup.conversations.size, backup.messageCount, backup.senderRules.size, backup.settings != null),
-        )
+        if (!started) typed.fill(' ')
     }
 
     fun restore(uri: Uri, includeSettings: Boolean) = start("Couldn't restore") { restoreFrom(uri, includeSettings) }
@@ -275,12 +286,16 @@ class BackupManager(
     }
 
     fun dismiss() {
-        unlocked.clear()
-        if (job?.isActive != true) _status.value = BackupStatus.Idle
+        // Mid-job the key may still be needed; the restore drops it when it's done.
+        if (job?.isActive != true) {
+            unlocked.clear()
+            _status.value = BackupStatus.Idle
+        }
     }
 
-    private fun start(failure: String, block: suspend () -> Unit) {
-        if (job?.isActive == true) return
+    /** Runs [block] unless something's running already; whether it started. */
+    private fun start(failure: String, block: suspend () -> Unit): Boolean {
+        if (job?.isActive == true) return false
         job = scope.launch(Dispatchers.IO) {
             try {
                 block()
@@ -295,6 +310,7 @@ class BackupManager(
                 _status.value = BackupStatus.Failed(listOfNotNull(failure, e.message).joinToString(": "))
             }
         }
+        return true
     }
 
     // --- Export ----------------------------------------------------------------------------
@@ -303,6 +319,9 @@ class BackupManager(
         // The archive is written with blocking calls; checking this between files lets a stopped
         // automatic backup actually stop.
         val job = coroutineContext
+        // With a backup password, everything in the file is sealed with it (see BackupCrypto).
+        // Known first, so a key that can't be read fails before any work, and before the file is touched.
+        val key = password?.takeIf { it.isSet.value }?.let { it.key() ?: error("The backup password can't be read on this phone; set it again in Settings") }
         report(BackupStatus.Working("Gathering messages"))
         val media = HashMap<String, Uri>()
         val backup = WinnowBackup(
@@ -317,16 +336,27 @@ class BackupManager(
         )
         var saved = 0
         report(BackupStatus.Working("Saving the backup", 0, media.size))
-        // With a backup password, everything in the file is sealed with it (see BackupCrypto).
-        val key = password?.takeIf { it.isSet.value }?.let { it.key() ?: error("The backup password can't be read on this phone; set it again in Settings") }
         val file = resolver.openOutputStream(uri, "wt") ?: error("The file couldn't be opened")
-        (key?.let { BackupCrypto.encrypting(file, it) } ?: file).use { output ->
-            BackupArchive.write(output, backup) { part ->
-                job.ensureActive()
-                val from = media[part.file] ?: return@write null
-                report(BackupStatus.Working("Saving photos and videos", ++saved, media.size))
-                runCatching { resolver.openInputStream(from) }.getOrNull()
+        try {
+            file.use { raw ->
+                val sealed = key?.let { BackupCrypto.encrypting(raw, it) }
+                try {
+                    BackupArchive.write(sealed ?: raw, backup) { part ->
+                        job.ensureActive()
+                        val from = media[part.file] ?: return@write null
+                        report(BackupStatus.Working("Saving photos and videos", ++saved, media.size))
+                        runCatching { resolver.openInputStream(from) }.getOrNull()
+                    }
+                    sealed?.finish()
+                } finally {
+                    sealed?.close()
+                }
             }
+        } catch (e: Throwable) {
+            // Nothing half-written left behind looking like a backup (a protected one wouldn't
+            // open anyway: it's only whole once finished).
+            withContext(NonCancellable) { runCatching { DocumentsContract.deleteDocument(resolver, uri) } }
+            throw e
         }
         report(BackupStatus.Done(
             if (backup.conversations.isEmpty()) {
@@ -495,8 +525,12 @@ class BackupManager(
                 } + also(restored)
             }
             _status.value = BackupStatus.Done(message)
+        } catch (_: PasswordNeeded) {
+            // The key it was opened with is gone (the password changed meanwhile): ask for it.
+            _status.value = BackupStatus.NeedsPassword(uri)
         } finally {
             spool.deleteRecursively()
+            unlocked.remove(uri)
         }
     }
 
