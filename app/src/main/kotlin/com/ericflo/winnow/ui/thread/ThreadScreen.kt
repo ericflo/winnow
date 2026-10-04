@@ -319,6 +319,7 @@ fun ThreadScreen(
             onDelete = { viewModel.delete(message) },
             onDetails = { detailsFor = message },
             onStar = { viewModel.toggleStar(message) },
+            onReact = { emoji -> viewModel.react(message, emoji) },
         )
     }
     detailsFor?.let { message -> MessageDetailsDialog(message, state, sims, onDismiss = { detailsFor = null }) }
@@ -761,11 +762,30 @@ private fun MessageActionsSheet(
     onDelete: () -> Unit,
     onDetails: () -> Unit,
     onStar: () -> Unit,
+    onReact: (String) -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         fun act(action: () -> Unit) = { onDismiss(); action() }
         Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
+            // Reactions go out as text ("Loved “…”"), so they only make sense on real messages.
+            if (message.status != ChatMessage.Status.DOWNLOADING && message.status != ChatMessage.Status.DOWNLOAD_FAILED) {
+                Row(
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                ) {
+                    Tapback.CHOICES.forEach { emoji ->
+                        Box(
+                            Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                .clickable(onClickLabel = "React $emoji") { onDismiss(); onReact(emoji) },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(emoji, fontSize = 22.sp) }
+                    }
+                }
+            }
             if (message.body.isNotBlank()) {
                 ListItem(
                     headlineContent = { Text("Copy text") },

@@ -8,6 +8,7 @@ import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.data.SimCard
+import com.ericflo.winnow.data.Tapback
 import com.ericflo.winnow.data.StoredVerdict
 import com.ericflo.winnow.data.db.ScheduledMessageEntity
 import com.ericflo.winnow.data.db.StarredEntity
@@ -237,6 +238,12 @@ class ThreadViewModel(
     fun retry(message: ChatMessage) = launch { repo.retry(message) }
 
     fun delete(message: ChatMessage) = launch { repo.deleteMessage(message) }
+
+    /** Sends a reaction as text (`Loved “…”`), which iPhones show as a tapback and Winnow folds onto [message]. */
+    fun react(message: ChatMessage, emoji: String) = launch {
+        val text = Tapback.compose(emoji, if (message.body.isBlank() && message.attachments.any { it.isImage }) "" else message.body)
+        repo.send(recipients, text, subscriptionId = _selectedSim.value)
+    }
 
     fun toggleStar(message: ChatMessage) = launch {
         if (message.starred) {

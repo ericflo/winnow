@@ -73,8 +73,9 @@ messages can't be tapped.
   goes out on, and tapping it switches. Each conversation remembers its SIM. Otherwise it
   uses the SIM their last text arrived on, then your default. Replies from notifications and
   scheduled texts use the same SIM, and message details say which SIM a text came in on.
-- **Messages:** copy, forward, star, delete, details, and "Copy code" for verification
-  codes. **Starred** (in the menu) collects starred messages from every conversation, photos
+- **Messages:** react (❤️ 👍 👎 😂 ‼️ ❓), copy, forward, star, delete, details, and "Copy
+  code" for verification codes. Reactions go out as `Loved “…”`, which iPhones show as a
+  tapback. **Starred** (in the menu) collects starred messages from every conversation, photos
   included.
 - **Share to Winnow:** text, photos and videos shared from any app open New chat with them
   attached.

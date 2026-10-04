@@ -30,7 +30,28 @@ data class Tapback(
             "an exclamation" to "‼️", "a question mark" to "❓",
         )
         private const val QUOTED = """[“"](.+)[”"]"""
-        private val ADD = Regex("""^(${VERBS.keys.joinToString("|") { Regex.escape(it) }}) $QUOTED$""", RegexOption.DOT_MATCHES_ALL)
+        // iPhones react to a photo with `Loved an image`, unquoted.
+        private val ADD = Regex("""^(${VERBS.keys.joinToString("|") { Regex.escape(it) }}) (?:$QUOTED|(an image))$""", RegexOption.DOT_MATCHES_ALL)
+
+        /** The reactions Winnow offers, in the order iPhones show them. */
+        val CHOICES = listOf("❤️", "👍", "👎", "😂", "‼️", "❓")
+
+        /** Longest quote sent; longer texts are cut with "…", which [matches] understands. */
+        private const val QUOTE_LIMIT = 100
+
+        /**
+         * The text that reacts to a message with [emoji]: `Loved “see you soon”`, as iPhones
+         * send and display as a tapback. [body] blank means a photo: `Loved an image`.
+         */
+        fun compose(emoji: String, body: String): String {
+            val verb = VERBS.entries.firstOrNull { it.value == emoji }?.key ?: return "Reacted $emoji to “${quote(body)}”"
+            return if (body.isBlank()) "$verb an image" else "$verb “${quote(body)}”"
+        }
+
+        private fun quote(body: String): String {
+            val text = body.trim()
+            return if (text.length <= QUOTE_LIMIT) text else text.take(QUOTE_LIMIT).trimEnd() + "…"
+        }
         private val REMOVE = Regex("""^Removed (${REMOVALS.keys.joinToString("|") { Regex.escape(it) }}) from $QUOTED$""", RegexOption.DOT_MATCHES_ALL)
         private val REACTED = Regex("""^Reacted (\S+) to $QUOTED$""", RegexOption.DOT_MATCHES_ALL)
 
@@ -41,7 +62,7 @@ data class Tapback(
 
         fun parse(body: String): Tapback? {
             val text = body.trim()
-            ADD.matchEntire(text)?.let { return Tapback(VERBS.getValue(it.groupValues[1]), it.groupValues[2]) }
+            ADD.matchEntire(text)?.let { return Tapback(VERBS.getValue(it.groupValues[1]), it.groupValues[2].ifEmpty { it.groupValues[3] }) }
             REMOVE.matchEntire(text)?.let { return Tapback(REMOVALS.getValue(it.groupValues[1]), it.groupValues[2], removal = true) }
             REACTED.matchEntire(text)?.let { return Tapback(it.groupValues[1], it.groupValues[2]) }
             return null

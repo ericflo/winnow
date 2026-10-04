@@ -42,4 +42,26 @@ class TapbackTest {
         assertTrue(Tapback("❤️", "Lake house is booked for…").matches("Lake house is booked for the 18th!"))
         assertFalse(Tapback("❤️", "see you soon").matches("see you later"))
     }
+
+    @Test
+    fun `reactions Winnow sends parse back to the same reaction`() {
+        val body = "see you at 7, bring snacks 🍿"
+        for (emoji in Tapback.CHOICES) {
+            val sent = Tapback.compose(emoji, body)
+            val parsed = Tapback.parse(sent)!!
+            assertEquals(emoji, parsed.emoji)
+            assertTrue(parsed.matches(body))
+        }
+        assertEquals("Loved “see you at 7, bring snacks 🍿”", Tapback.compose("❤️", body))
+        assertEquals("Laughed at an image", Tapback.compose("😂", ""))
+        assertEquals("an image", Tapback.parse("Laughed at an image")!!.quoted)
+    }
+
+    @Test
+    fun `long messages are quoted short and still match`() {
+        val long = "word ".repeat(60).trim()
+        val sent = Tapback.compose("👍", long)
+        assertTrue(sent.endsWith("…”"))
+        assertTrue(Tapback.parse(sent)!!.matches(long))
+    }
 }
