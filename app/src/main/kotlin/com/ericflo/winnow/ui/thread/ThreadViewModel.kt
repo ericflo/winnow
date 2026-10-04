@@ -784,6 +784,15 @@ class ThreadViewModel(
     fun setArchived(archived: Boolean) = launch { states.setArchived(setOf(threadId.value), archived) }
 
     /** In the app scope: deleting closes a conversation pane, and clears this ViewModel with it. */
+    /** Asks the launcher to put this conversation on the home screen. */
+    fun addToHomeScreen() = launch {
+        val s = state.value
+        val pinned = withContext(Dispatchers.IO) {
+            container.notifier.pinToHomeScreen(threadId.value, recipients, s.title, recipients.singleOrNull()?.let { s.photos[it] })
+        }
+        if (!pinned) _notices.emit("Your home screen doesn't take shortcuts")
+    }
+
     fun deleteConversation(onDone: () -> Unit) {
         val id = threadId.value
         container.appScope.launch {

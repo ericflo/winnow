@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Warning
@@ -499,6 +500,13 @@ fun ThreadScreen(
                                 leadingIcon = { Icon(painterResource(R.drawable.ic_muted), contentDescription = null) },
                                 onClick = { menuOpen = false; if (state.muted) viewModel.setMuted(false) else choosingMute = true },
                             )
+                            if (viewModel.currentThreadId() >= 0) {
+                                DropdownMenuItem(
+                                    text = { Text("Add to home screen") },
+                                    leadingIcon = { Icon(Icons.Filled.Home, contentDescription = null) },
+                                    onClick = { menuOpen = false; viewModel.addToHomeScreen() },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text(if (state.archived) "Unarchive" else "Archive") },
                                 leadingIcon = { Icon(painterResource(if (state.archived) R.drawable.ic_unarchive else R.drawable.ic_archive), contentDescription = null) },

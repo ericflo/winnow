@@ -255,28 +255,66 @@ class Notifier(private val context: Context) {
      */
     private fun pushShortcut(threadId: Long, joined: String, title: String, person: Person, photo: android.graphics.Bitmap?): String {
         val shortcutId = shortcutId(threadId)
+        runCatching { ShortcutManagerCompat.pushDynamicShortcut(context, shortcut(threadId, joined, title, person, photo)) }
+        return shortcutId
+    }
+
+    private fun shortcut(threadId: Long, joined: String, title: String, person: Person, photo: android.graphics.Bitmap?): ShortcutInfoCompat {
+        val shortcutId = shortcutId(threadId)
         val open = Intent(context, MainActivity::class.java)
             .setAction(MainActivity.ACTION_OPEN_THREAD)
             .putExtra(MainActivity.EXTRA_THREAD_ID, threadId)
             .putExtra(MainActivity.EXTRA_ADDRESS, joined)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        runCatching {
-            ShortcutManagerCompat.pushDynamicShortcut(
-                context,
-                ShortcutInfoCompat.Builder(context, shortcutId)
-                    .setShortLabel(title)
-                    .setLongLived(true)
-                    .setIsConversation()
-                    .setLocusId(LocusIdCompat(shortcutId))
-                    .setPerson(person)
-                    .setIcon(photo?.let(IconCompat::createWithBitmap) ?: IconCompat.createWithResource(context, R.mipmap.ic_launcher))
-                    .setIntent(open)
-                    // Offered by name in the share sheet (see res/xml/shortcuts.xml).
-                    .setCategories(setOf(SHARE_CATEGORY))
-                    .build(),
-            )
+        return ShortcutInfoCompat.Builder(context, shortcutId)
+            .setShortLabel(title)
+            .setLongLived(true)
+            .setIsConversation()
+            .setLocusId(LocusIdCompat(shortcutId))
+            .setPerson(person)
+            .setIcon(photo?.let(IconCompat::createWithAdaptiveBitmap) ?: letterIcon(title, joined))
+            .setIntent(open)
+            // Offered by name in the share sheet (see res/xml/shortcuts.xml).
+            .setCategories(setOf(SHARE_CATEGORY))
+            .build()
+    }
+
+    /** The conversation's first letter on its avatar color, as in the inbox; the app icon for a bare number. */
+    private fun letterIcon(title: String, seed: String): IconCompat {
+        val letter = title.firstOrNull()?.takeIf { it.isLetter() } ?: return IconCompat.createWithResource(context, R.mipmap.ic_launcher)
+        val hues = floatArrayOf(4f, 28f, 48f, 96f, 150f, 188f, 214f, 262f, 292f, 330f)
+        val hue = hues[Math.floorMod(seed.hashCode(), hues.size)]
+        // An adaptive icon: full bleed, with the letter inside the middle two thirds launchers keep.
+        val size = 432
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        canvas.drawColor(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.30f, 0.90f)))
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.70f, 0.35f))
+            textSize = size * 0.30f
+            textAlign = android.graphics.Paint.Align.CENTER
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
         }
-        return shortcutId
+        val baseline = size / 2f - (paint.descent() + paint.ascent()) / 2f
+        canvas.drawText(letter.uppercase(), size / 2f, baseline, paint)
+        return IconCompat.createWithAdaptiveBitmap(bitmap)
+    }
+
+    /**
+     * Asks the launcher to pin the conversation to the home screen (it asks the user to confirm).
+     * False if the launcher doesn't take pinned shortcuts.
+     */
+    fun pinToHomeScreen(threadId: Long, recipients: List<String>, title: String, photoUri: String?): Boolean {
+        if (threadId < 0 || !ShortcutManagerCompat.isRequestPinShortcutSupported(context)) return false
+        val photo = photoUri?.let { uri ->
+            runCatching { context.contentResolver.openInputStream(Uri.parse(uri))?.use(BitmapFactory::decodeStream) }.getOrNull()
+        }
+        val joined = joinAddresses(recipients)
+        val person = Person.Builder().setName(title).setKey(joined).apply { photo?.let { setIcon(IconCompat.createWithBitmap(it)) } }.build()
+        val info = shortcut(threadId, joined, title, person, photo)
+        // The same shortcut as the conversation's own: one shortcut, kept up to date, however reached.
+        runCatching { ShortcutManagerCompat.pushDynamicShortcut(context, info) }
+        return runCatching { ShortcutManagerCompat.requestPinShortcut(context, info, null) }.getOrDefault(false)
     }
 
     /**
@@ -351,6 +389,8 @@ class Notifier(private val context: Context) {
         val system = context.getSystemService(NotificationManager::class.java)
         threadIds.forEach { id -> conversationChannel(system, shortcutId(id))?.let { system.deleteNotificationChannel(it.id) } }
         runCatching { ShortcutManagerCompat.removeLongLivedShortcuts(context, threadIds.map(::shortcutId)) }
+        // One pinned to the home screen stays there, greyed out, rather than opening nothing.
+        runCatching { ShortcutManagerCompat.disableShortcuts(context, threadIds.map(::shortcutId), "This conversation was deleted") }
     }
 
     private fun shortcutId(threadId: Long) = "thread-$threadId"
