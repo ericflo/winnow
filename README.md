@@ -66,7 +66,8 @@ messages can't be tapped.
   reports are opt-in.
 - **Conversations:** pin, archive, mute, mark read/unread, delete, block (Android's system
   block list), name a group (just for you), and multi-select. Swipe to archive in the inbox, to mark not spam in Filtered,
-  or to unarchive in Archived. Full-text search covers SMS and MMS.
+  or to unarchive in Archived. Full-text search covers SMS and MMS, and each conversation can be searched on its own,
+  with matches highlighted. Settings links to Android's blocked-numbers list.
 - **Composing:** New chat with your contacts and Create group, photos from the gallery or the
   camera, drafts that stick, an SMS segment counter, and **scheduled send** (long-press Send).
 - **Dual SIM:** on a phone with two SIMs, a badge in the composer shows which one a text

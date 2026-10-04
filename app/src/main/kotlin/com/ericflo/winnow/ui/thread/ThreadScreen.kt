@@ -74,6 +74,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.DisposableEffect
 import com.ericflo.winnow.ui.components.VideoViewer
 import com.ericflo.winnow.ui.components.VideoAttachment
@@ -184,10 +194,30 @@ fun ThreadScreen(
     }
     val single = state.recipients.singleOrNull()
 
+    // Search within the conversation: matches newest first, and which one is in view.
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val matches = remember(query, state.messages) {
+        if (query.trim().length < 2) emptyList()
+        else state.messages.filter { Tapback.parse(it.body) == null && it.body.contains(query.trim(), ignoreCase = true) }.map { it.key }.reversed()
+    }
+    var matchIndex by rememberSaveable(query) { mutableIntStateOf(0) }
+    val focusKey = matches.getOrNull(matchIndex)
+    BackHandler(enabled = searching) { searching = false; query = "" }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
+            if (searching) {
+                ThreadSearchBar(
+                    query = query,
+                    onQueryChange = { query = it },
+                    position = if (matches.isEmpty()) null else matchIndex + 1 to matches.size,
+                    onOlder = { if (matchIndex < matches.lastIndex) matchIndex++ },
+                    onNewer = { if (matchIndex > 0) matchIndex-- },
+                    onClose = { searching = false; query = "" },
+                )
+            } else TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
@@ -216,6 +246,11 @@ fun ThreadScreen(
                     Box {
                         IconButton(onClick = { menuOpen = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "More options") }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Search") },
+                                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                                onClick = { menuOpen = false; searching = true },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Details") },
                                 leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
@@ -305,6 +340,8 @@ fun ThreadScreen(
                 onActions = { actionsFor = it },
                 onRetry = viewModel::retry,
                 onCopyCode = { copy(it, "Code copied") },
+                highlight = query.trim().takeIf { searching && it.length >= 2 },
+                focusKey = focusKey.takeIf { searching },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -523,6 +560,8 @@ private fun MessageList(
     onActions: (ChatMessage) -> Unit,
     onRetry: (ChatMessage) -> Unit,
     onCopyCode: (String) -> Unit,
+    highlight: String? = null,
+    focusKey: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val transport = if (state.isGroup) "Group texting with ${state.recipients.size} people (MMS)"
@@ -530,7 +569,14 @@ private fun MessageList(
     val items = remember(transport, state.messages) { buildItems(transport, state.messages) }
     val latestOutgoing = state.messages.lastOrNull { it.outgoing }?.key
     var revealed by rememberSaveable { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(focusKey) {
+        val index = items.indexOfFirst { it.key == focusKey }
+        // Reversed list: a negative offset lifts the match off the composer, a third of the way up.
+        if (focusKey != null && index >= 0) listState.animateScrollToItem(scheduled.size + index, -listState.layoutInfo.viewportSize.height / 3)
+    }
     LazyColumn(
+        state = listState,
         reverseLayout = true,
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
@@ -561,6 +607,8 @@ private fun MessageList(
                     onCopyCode = onCopyCode,
                     audio = audio,
                     onViewVideo = onViewVideo,
+                    highlight = highlight,
+                    focused = item.key == focusKey,
                 )
             }
         }
@@ -593,6 +641,8 @@ private fun MessageBubble(
     onCopyCode: (String) -> Unit,
     audio: AudioPlayer,
     onViewVideo: (String) -> Unit,
+    highlight: String? = null,
+    focused: Boolean = false,
 ) {
     val m = item.message
     val colors = MaterialTheme.colorScheme
@@ -681,7 +731,8 @@ private fun MessageBubble(
                         modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
                     )
                     else -> Text(
-                        linkify(m.body, links = !fraud, linkColor = if (m.outgoing) colors.onPrimaryContainer else colors.primary),
+                        linkify(m.body, links = !fraud, linkColor = if (m.outgoing) colors.onPrimaryContainer else colors.primary)
+                            .highlighted(highlight, if (focused) colors.tertiary.copy(alpha = 0.7f) else colors.tertiary.copy(alpha = 0.35f)),
                         style = MaterialTheme.typography.bodyLarge,
                         color = if (m.outgoing) colors.onPrimaryContainer else colors.onSurface,
                         modifier = Modifier
@@ -1002,6 +1053,66 @@ private fun SimPicker(sims: List<SimCard>, selected: SimCard, onSelect: (Int) ->
             }
         }
     }
+}
+
+/** Marks every occurrence of [query] in the text. */
+private fun AnnotatedString.highlighted(query: String?, color: Color): AnnotatedString {
+    if (query.isNullOrEmpty()) return this
+    val builder = AnnotatedString.Builder(this)
+    var at = text.indexOf(query, ignoreCase = true)
+    while (at >= 0) {
+        builder.addStyle(SpanStyle(background = color), at, at + query.length)
+        at = text.indexOf(query, at + query.length, ignoreCase = true)
+    }
+    return builder.toAnnotatedString()
+}
+
+/** The thread's top bar while searching: the query, which match is in view, and older/newer. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThreadSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    position: Pair<Int, Int>?,
+    onOlder: () -> Unit,
+    onNewer: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    TopAppBar(
+        navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close search") } },
+        title = {
+            Box(contentAlignment = Alignment.CenterStart) {
+                if (query.isEmpty()) {
+                    Text("Search this conversation", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                )
+            }
+        },
+        actions = {
+            if (query.trim().length >= 2) {
+                Text(
+                    position?.let { (n, of) -> "$n of $of" } ?: "No matches",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onOlder, enabled = position != null && position.first < position.second) {
+                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Older match")
+            }
+            IconButton(onClick = onNewer, enabled = position != null && position.first > 1) {
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Newer match")
+            }
+        },
+    )
 }
 
 /** "37 / 2": characters left in the current SMS segment, and how many segments this will take. */

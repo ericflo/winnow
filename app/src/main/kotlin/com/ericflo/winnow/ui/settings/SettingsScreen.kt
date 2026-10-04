@@ -2,6 +2,7 @@ package com.ericflo.winnow.ui.settings
 
 import android.content.Intent
 import android.provider.Settings
+import android.telecom.TelecomManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -171,6 +172,15 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                         context.startActivity(
                             Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
                         )
+                    },
+                )
+            }
+            item("blocked") {
+                ListItem(
+                    headlineContent = { Text("Blocked numbers") },
+                    supportingContent = { Text("Android's own list: blocked numbers can't text or call you") },
+                    modifier = Modifier.clickable {
+                        runCatching { context.startActivity(context.getSystemService(TelecomManager::class.java).createManageBlockedNumbersIntent()) }
                     },
                 )
             }
