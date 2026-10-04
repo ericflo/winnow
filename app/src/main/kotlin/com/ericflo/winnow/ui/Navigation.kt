@@ -161,7 +161,7 @@ fun WinnowNavHost(
     // Who each full-screen conversation in the back stack is with, by entry, so a link to one
     // that's further down goes back to it instead of opening a second copy.
     val threadEntries = remember { HashMap<String, Set<String>>() }
-    val twoPane = LocalConfiguration.current.screenWidthDp >= TWO_PANE_MIN_WIDTH_DP
+    val twoPane = isTwoPane()
     LaunchedEffect(pending) {
         pending?.let {
             when {
@@ -201,7 +201,7 @@ fun WinnowNavHost(
         }
         composable<InboxRoute> {
             // A tablet, an unfolded foldable or a wide window: the list and a conversation side by side.
-            val twoPane = LocalConfiguration.current.screenWidthDp >= TWO_PANE_MIN_WIDTH_DP
+            val twoPane = isTwoPane()
             val opened by pane.open.collectAsStateWithLifecycle()
             BackHandler(enabled = opened != null) { pane.close() }
             val inbox = @Composable { modifier: Modifier ->
@@ -366,6 +366,16 @@ fun WinnowNavHost(
 
 /** Window width at which the inbox shows a conversation beside the list instead of on top of it. */
 private const val TWO_PANE_MIN_WIDTH_DP = 840
+
+/** Below this height (a phone on its side) two panes leave no room once the keyboard is up. */
+private const val TWO_PANE_MIN_HEIGHT_DP = 480
+
+/** A tablet, an unfolded foldable or a big window; not a phone turned sideways, however wide. */
+@Composable
+private fun isTwoPane(): Boolean {
+    val configuration = LocalConfiguration.current
+    return configuration.screenWidthDp >= TWO_PANE_MIN_WIDTH_DP && configuration.screenHeightDp >= TWO_PANE_MIN_HEIGHT_DP
+}
 private val LIST_PANE_WIDTH = 400.dp
 
 @Composable

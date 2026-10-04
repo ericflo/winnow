@@ -76,6 +76,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
@@ -192,7 +193,14 @@ fun InboxScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     if (!searching) {
-                        item("header") { LargeHeader(onSearch = { searching = true }, onMenu = { menuOpen = true }) }
+                        item("header") {
+                            // A phone on its side has no height to spare for the tall title.
+                            if (LocalConfiguration.current.screenHeightDp < SHORT_SCREEN_DP) {
+                                CompactBar(onSearch = { searching = true }, onMenu = { menuOpen = true })
+                            } else {
+                                LargeHeader(onSearch = { searching = true }, onMenu = { menuOpen = true })
+                            }
+                        }
                         if (!state.live && !makeDefaultDismissed) {
                             item("make-default") { MakeDefaultCard(onMakeDefault, onDismiss = { makeDefaultDismissed = true }) }
                         }
@@ -517,6 +525,9 @@ private fun SearchHitRow(hit: SearchHit, onClick: () -> Unit) {
         Text(shortTimestamp(hit.timestamp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+/** Shorter than this (a phone on its side), the inbox starts with the compact bar instead of [LargeHeader]. */
+private const val SHORT_SCREEN_DP = 480
 
 /** The tall tinted header with a centered title, which hands off to the list's rounded sheet. */
 @Composable
