@@ -28,6 +28,9 @@ class BackupArchiveTest {
             ConversationBackup(
                 recipients = listOf("+14155550181", "+14155550182"),
                 pinned = true,
+                draft = "Bring snacks",
+                draftSubject = "Lake house 🏡",
+                draftAttachments = listOf(PartBackup("image/jpeg", "map.jpg", "draft-1-0.jpg")),
                 messages = listOf(
                     MessageBackup("mms", 1_790_000_000_000, outgoing = false, sender = "+14155550181", body = "Lake house!",
                         parts = listOf(PartBackup("image/jpeg", "photo.jpg", "0.jpg"))),
@@ -48,12 +51,21 @@ class BackupArchiveTest {
     @Test
     fun `round trips the manifest and media`() {
         val out = ByteArrayOutputStream()
-        BackupArchive.write(out, backup) { part -> if (part.file == "0.jpg") ByteArrayInputStream(photo) else null }
+        val map = ByteArray(300) { 7 }
+        BackupArchive.write(out, backup) { part ->
+            when (part.file) {
+                "0.jpg" -> ByteArrayInputStream(photo)
+                "draft-1-0.jpg" -> ByteArrayInputStream(map)
+                else -> null
+            }
+        }
         val media = HashMap<String, ByteArray>()
         val read = BackupArchive.read(ByteArrayInputStream(out.toByteArray())) { name, stream -> media[name] = stream.readBytes() }
         assertEquals(backup, read)
         assertEquals(3, read.messageCount)
         assertArrayEquals(photo, media.getValue("0.jpg"))
+        // A draft's attachments travel with the media, not as a message's.
+        assertArrayEquals(map, media.getValue("draft-1-0.jpg"))
         assertEquals(backup, BackupArchive.peek(ByteArrayInputStream(out.toByteArray())))
         val manifest = java.util.zip.ZipInputStream(ByteArrayInputStream(out.toByteArray())).use { it.nextEntry; it.readBytes().decodeToString() }
         assert(manifest.startsWith("{\"format\":1,")) { manifest.take(40) }

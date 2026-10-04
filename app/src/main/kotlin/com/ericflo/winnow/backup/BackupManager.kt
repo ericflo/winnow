@@ -30,6 +30,8 @@ import com.ericflo.winnow.data.db.StarredEntity
 import com.ericflo.winnow.data.db.VerdictDao
 import com.ericflo.winnow.data.splitAddresses
 import com.ericflo.winnow.data.threadRecipients
+import com.ericflo.winnow.data.DraftAttachments
+import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.mms.ContentTypes
 import com.ericflo.winnow.mms.MmsCharsets
 import com.ericflo.winnow.mms.MmsPart
@@ -92,6 +94,8 @@ class BackupManager(
     private val canWriteMessages: () -> Boolean,
     /** This phone's numbers, kept out of group conversations read from other apps' backups. */
     private val ownNumbers: () -> Set<String> = { emptySet() },
+    /** Where drafts keep their attachments; null leaves them out. */
+    private val drafts: DraftAttachments? = null,
 ) {
     private val resolver = context.contentResolver
     private val _status = MutableStateFlow<BackupStatus>(BackupStatus.Idle)
@@ -171,7 +175,7 @@ class BackupManager(
         }
         val job = coroutineContext
         _status.value = BackupStatus.Working("Gathering messages")
-        val media = HashMap<String, Long>()
+        val media = HashMap<String, Uri>()
         val conversations = readConversations(media)
         val total = conversations.sumOf { it.messages.size }
         try {
@@ -187,7 +191,7 @@ class BackupManager(
         )
     }
 
-    private fun writeSmsBackupRestore(uri: Uri, conversations: List<ConversationBackup>, media: Map<String, Long>, job: kotlin.coroutines.CoroutineContext) {
+    private fun writeSmsBackupRestore(uri: Uri, conversations: List<ConversationBackup>, media: Map<String, Uri>, job: kotlin.coroutines.CoroutineContext) {
         (resolver.openOutputStream(uri, "wt") ?: error("The file couldn't be opened")).buffered().use { output ->
             val serializer = Xml.newSerializer().apply { setOutput(output, "UTF-8") }
             SmsBackupRestoreXml.write(
@@ -196,8 +200,8 @@ class BackupManager(
                 ownNumber = ownNumbers().firstOrNull(),
                 media = { part ->
                     job.ensureActive()
-                    media[part.file]?.let { id ->
-                        runCatching { resolver.openInputStream(ContentUris.withAppendedId(Mms.Part.CONTENT_URI, id))?.use { it.readBytes() } }.getOrNull()
+                    media[part.file]?.let { from ->
+                        runCatching { resolver.openInputStream(from)?.use { it.readBytes() } }.getOrNull()
                     }
                 },
             ) { done, all ->
@@ -235,7 +239,7 @@ class BackupManager(
         // automatic backup actually stop.
         val job = coroutineContext
         report(BackupStatus.Working("Gathering messages"))
-        val media = HashMap<String, Long>()
+        val media = HashMap<String, Uri>()
         val backup = WinnowBackup(
             createdAt = System.currentTimeMillis(),
             settings = settings.current().toBackup(),
@@ -251,9 +255,9 @@ class BackupManager(
         (resolver.openOutputStream(uri, "wt") ?: error("The file couldn't be opened")).use { output ->
             BackupArchive.write(output, backup) { part ->
                 job.ensureActive()
-                val partId = media[part.file] ?: return@write null
+                val from = media[part.file] ?: return@write null
                 report(BackupStatus.Working("Saving photos and videos", ++saved, media.size))
-                runCatching { resolver.openInputStream(ContentUris.withAppendedId(Mms.Part.CONTENT_URI, partId)) }.getOrNull()
+                runCatching { resolver.openInputStream(from) }.getOrNull()
             }
         }
         report(BackupStatus.Done(
@@ -268,7 +272,7 @@ class BackupManager(
     /**
      * [only], when given, limits it to those conversations (Recently deleted keeps one at a time).
      */
-    internal suspend fun readConversations(media: MutableMap<String, Long>, only: Set<Long>? = null): List<ConversationBackup> {
+    internal suspend fun readConversations(media: MutableMap<String, Uri>, only: Set<Long>? = null): List<ConversationBackup> {
         val inThreads = only?.let { ids -> " AND ${Sms.THREAD_ID} IN (${ids.joinToString(",")})" }.orEmpty()
         val recipients = resolver.threadRecipients()
         val verdictsByKey = verdicts.all().associateBy { it.messageKey }
@@ -340,7 +344,7 @@ class BackupManager(
                 // left out of the manifest too, so its media count stays honest for later restores.
                 parts = own.media().filter { readable(it.id) }.map { part ->
                     val file = "${part.id}.${MimeTypeMap.getSingleton().getExtensionFromMimeType(part.contentType) ?: "bin"}"
-                    media[file] = part.id
+                    media[file] = ContentUris.withAppendedId(Mms.Part.CONTENT_URI, part.id)
                     PartBackup(part.contentType, part.name, file)
                 },
                 verdict = verdictsByKey[ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id)]?.toBackup(),
@@ -360,6 +364,13 @@ class BackupManager(
                 muted = state?.isMuted() == true,
                 mutedUntil = state?.takeIf { it.isMuted() }?.mutedUntil,
                 draft = state?.draft,
+                draftSubject = state?.draftSubject,
+                // Kept files of their own (see DraftAttachments), named so they can't meet a part's.
+                draftAttachments = drafts?.decode(state?.draftAttachments).orEmpty().mapIndexed { i, a ->
+                    val file = "draft-$threadId-$i.${MimeTypeMap.getSingleton().getExtensionFromMimeType(a.contentType) ?: "bin"}"
+                    media[file] = Uri.parse(a.uri)
+                    PartBackup(a.contentType, a.name, file)
+                },
                 title = state?.title,
                 messages = messages.sortedBy { it.date },
             )
@@ -455,7 +466,7 @@ class BackupManager(
                 done += knownTexts.size
                 // Its pin, mute, name and draft still come back (a reinstall leaves every text on
                 // the phone and none of Winnow's state), on the conversation those texts are in.
-                knownTexts.map { textsEverywhere.getValue(textKey(it)!!).second }.distinct().singleOrNull()?.let { restoreState(it, conversation) }
+                knownTexts.map { textsEverywhere.getValue(textKey(it)!!).second }.distinct().singleOrNull()?.let { restoreState(it, conversation, spool) }
                 continue
             }
             val threadId = Telephony.Threads.getOrCreateThreadId(context, conversation.recipients.toSet())
@@ -501,18 +512,28 @@ class BackupManager(
             }
             report(BackupStatus.Working("Restoring messages", done, total))
 
-            restoreState(threadId, conversation)
+            restoreState(threadId, conversation, spool)
         }
         return RestoreCount(added, present, empty)
     }
 
-    /** A conversation's pin, archive, mute, name and draft, unless Winnow already has state for it. */
-    private suspend fun restoreState(threadId: Long, conversation: ConversationBackup) {
+    /** A conversation's pin, archive, mute, name and draft (its subject too), unless Winnow already has state for it. */
+    private suspend fun restoreState(threadId: Long, conversation: ConversationBackup, spool: File) {
+        if (states.get(threadId) != null) return
+        // The draft's attachments, copied out of the spool (which goes) to where drafts keep theirs.
+        val attached = drafts?.let { d ->
+            conversation.draftAttachments.mapNotNull { p ->
+                val file = File(spool, p.file).takeIf { it.isFile } ?: return@mapNotNull null
+                d.keep(OutgoingAttachment(Uri.fromFile(file).toString(), p.contentType, p.name))
+            }.let(d::encode)
+        }
         val state = ConversationStateEntity(
             threadId, conversation.pinned, conversation.archived, conversation.muted, conversation.draft, title = conversation.title,
             mutedUntil = conversation.mutedUntil.takeIf { conversation.muted },
+            draftSubject = conversation.draftSubject,
+            draftAttachments = attached,
         )
-        if (state != ConversationStateEntity(threadId) && states.get(threadId) == null) states.upsert(state)
+        if (state != ConversationStateEntity(threadId)) states.upsert(state)
     }
 
     /** A text's identity across threads: its fingerprint and the other person's number. */

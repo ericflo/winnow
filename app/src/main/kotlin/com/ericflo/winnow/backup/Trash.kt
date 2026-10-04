@@ -1,6 +1,5 @@
 package com.ericflo.winnow.backup
 
-import android.content.ContentUris
 import android.content.Context
 import android.provider.Telephony
 import android.util.Log
@@ -116,7 +115,7 @@ class Trash(
             val partial = File(dir, "${file.name}.part")
             try {
                 val before = snapshot(threadId)
-                val media = HashMap<String, Long>()
+                val media = HashMap<String, android.net.Uri>()
                 val conversation = backups.readConversations(media, only = setOf(threadId)).singleOrNull()
                 if (conversation == null) {
                     // Nothing in it worth keeping (a new conversation, or only undownloaded MMS): fine
@@ -126,9 +125,7 @@ class Trash(
                 }
                 partial.outputStream().use { output ->
                     BackupArchive.write(output, WinnowBackup(createdAt = now, conversations = listOf(conversation))) { part ->
-                        media[part.file]?.let { id ->
-                            runCatching { context.contentResolver.openInputStream(ContentUris.withAppendedId(Telephony.Mms.Part.CONTENT_URI, id)) }.getOrNull()
-                        }
+                        media[part.file]?.let { from -> runCatching { context.contentResolver.openInputStream(from) }.getOrNull() }
                     }
                 }
                 // On the disk before the messages are deleted: a crash or power cut can't leave neither.

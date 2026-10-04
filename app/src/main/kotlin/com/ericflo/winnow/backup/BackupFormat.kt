@@ -87,6 +87,10 @@ data class ConversationBackup(
     val messages: List<MessageBackup> = emptyList(),
     /** When a timed mute ends; null with [muted] means until turned off. */
     val mutedUntil: Long? = null,
+    /** The draft's MMS subject: null for none, "" for an empty subject field. */
+    val draftSubject: String? = null,
+    /** What the draft has attached, stored with the media like a message's parts. */
+    val draftAttachments: List<PartBackup> = emptyList(),
 )
 
 /** [MessageBackup.kind] values. */
@@ -160,7 +164,7 @@ object BackupArchive {
             zip.putNextEntry(ZipEntry(MANIFEST))
             zip.write(json.encodeToString(WinnowBackup.serializer(), backup).encodeToByteArray())
             zip.closeEntry()
-            backup.conversations.flatMap { it.messages }.flatMap { it.parts }.forEach { part ->
+            backup.conversations.flatMap { c -> c.messages.flatMap { it.parts } + c.draftAttachments }.forEach { part ->
                 val stream = media(part) ?: return@forEach
                 zip.putNextEntry(ZipEntry(MEDIA + part.file))
                 stream.use { it.copyTo(zip) }

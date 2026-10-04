@@ -131,8 +131,8 @@ and opens Filtered; nothing on a quiet day.
   bubbles** that float a conversation over other apps. In **Android Auto** the same
   notifications are read aloud and answered by voice. A sideloaded build needs "Unknown
   sources" turned on in Android Auto's developer settings.
-- **Backup and restore:** messages, photos, Winnow's decisions, conversation state, sender
-  rules and settings go into one zip file that you choose where to keep. API keys are never
+- **Backup and restore:** messages, photos, Winnow's decisions, conversation state (drafts
+  too, with their subject and attachments), sender rules and settings go into one zip file that you choose where to keep. API keys are never
   included. Restoring onto a new phone, or the same one, only adds what's missing, so
   restoring twice is harmless. A new phone can restore right from onboarding. **Back up
   automatically** writes one every week while the phone charges, into a folder you pick

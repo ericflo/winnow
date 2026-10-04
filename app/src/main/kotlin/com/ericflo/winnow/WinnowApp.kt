@@ -229,6 +229,7 @@ class AppContainer(private val context: Context) {
             database.corrections(), starredDao, learner,
             canWriteMessages = { isDefaultSmsApp() },
             ownNumbers = { OwnNumbers(context).all() },
+            drafts = draftAttachments,
         )
     }
 
