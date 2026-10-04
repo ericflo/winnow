@@ -40,7 +40,15 @@ sms 72975 "Your Northwind verification code is 482913. It expires in 10 minutes.
 sms 4155550101 'Loved "Are you still coming Sunday? Dad'"'"'s making his chili"'
 mms --es from +14155550181 --es to "$me,+14155550182" --es text "'Lake house is booked for the 18th!'" --ez photo true
 mms --es from +14155550182 --es to "$me,+14155550181" --es text "'Count me in'"
+# A subject, a street address and a date: the bold subject line and smart links.
+mms --es from +14155550181 --es to "$me,+14155550182" --es subject "'Lake house'" \
+    --es text "'It is 12 Shoreline Dr, Tahoe City, CA 96145. Check-in is Friday October 16 at 4pm.'"
 mms --es mode push --es from +14155550191
+# A text Winnow never classified (as if from before it was the SMS app), from a stranger: the
+# "Not in your contacts" card, and Filter sender giving it a verdict of its own.
+"$ADB" shell am broadcast -n com.ericflo.winnow/.debug.DebugSeedReceiver \
+    --es from +12065550142 --es text "'Your package is on hold, confirm your address here'" >/dev/null
 
 "$ADB" shell am start -n com.ericflo.winnow/.ui.MainActivity >/dev/null
-echo "Done. Winnow is open on the emulator with sample SMS, a tapback, a group MMS and a failed MMS download."
+echo "Done. Winnow is open on the emulator with sample SMS, a tapback, group MMS (one with a subject and smart links),"
+echo "a failed MMS download and an unclassified text from a stranger."

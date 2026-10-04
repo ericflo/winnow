@@ -259,6 +259,18 @@ fun ThreadScreen(
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) viewModel.startRecording() else refused = "Voice messages need the microphone"
     }
+    // Without this phone's own number, a group text lists the user among its people.
+    val permissionContext = LocalContext.current
+    fun hasPhoneNumbers() = permissionContext.checkSelfPermission(android.Manifest.permission.READ_PHONE_NUMBERS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    var phoneNumbersAllowed by remember { mutableStateOf(hasPhoneNumbers()) }
+    LifecycleResumeEffect(Unit) {
+        phoneNumbersAllowed = hasPhoneNumbers()
+        onPauseOrDispose {}
+    }
+    val phoneNumbersPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        phoneNumbersAllowed = granted
+        if (!granted) refused = "Leaving you out of group texts needs your number (the Phone numbers permission)"
+    }
     val locating by viewModel.locating.collectAsStateWithLifecycle()
     val shrinking by viewModel.shrinking.collectAsStateWithLifecycle()
     val quickReplies by viewModel.quickReplies.collectAsStateWithLifecycle()
@@ -616,6 +628,13 @@ fun ThreadScreen(
             val verdictShown = state.verdict?.let { it.effectiveAction != Action.ALLOW || it.userAction != null } == true
             state.verdict?.takeIf { verdictShown }?.let { verdict ->
                 VerdictBanner(verdict, onAllow = viewModel::allow, onFilter = viewModel::filter, onReport = { confirmReport = true })
+            }
+            var ownNumberDismissed by rememberSaveable { mutableStateOf(false) }
+            if (state.isGroup && !phoneNumbersAllowed && !ownNumberDismissed) {
+                OwnNumberBanner(
+                    onAllow = { phoneNumbersPermission.launch(android.Manifest.permission.READ_PHONE_NUMBERS) },
+                    onDismiss = { ownNumberDismissed = true },
+                )
             }
             // Someone new, not yet answered: who is this? (Gone once they're added, or replied to.)
             var unknownDismissed by rememberSaveable(state.recipients) { mutableStateOf(false) }
@@ -975,6 +994,35 @@ private fun NumberSheet(
                 colors = colors,
                 modifier = Modifier.clickable(onClick = act(onCopy)),
             )
+        }
+    }
+}
+
+/** In a group, without the user's own number: ask for it, so they stop being listed as one of the people. */
+@Composable
+private fun OwnNumberBanner(onAllow: () -> Unit, onDismiss: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Which number is yours?", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Dismiss") }
+            }
+            Text(
+                "Without the Phone numbers permission Winnow can't tell, so group texts may list you as one of the people. " +
+                    "Your number stays on this phone.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onDismiss) { Text("Not now") }
+                TextButton(onClick = onAllow) { Text("Allow") }
+            }
         }
     }
 }
