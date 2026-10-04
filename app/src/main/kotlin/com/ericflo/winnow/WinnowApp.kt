@@ -2,6 +2,12 @@ package com.ericflo.winnow
 
 import android.Manifest
 import android.app.Application
+import android.provider.Settings
+import coil3.ImageLoader
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
+import coil3.serviceLoaderEnabled
+import coil3.gif.AnimatedImageDecoder
 import android.app.KeyguardManager
 import android.app.UiModeManager
 import android.app.role.RoleManager
@@ -55,8 +61,22 @@ import kotlinx.coroutines.launch
 import android.telephony.TelephonyManager
 import com.ericflo.winnow.data.LinkPreviewFetcher
 
-class WinnowApp : Application() {
+class WinnowApp : Application(), SingletonImageLoader.Factory {
     val container by lazy { AppContainer(this) }
+
+    /**
+     * GIFs and animated stickers play (Android's own decoder), unless animations are turned off
+     * in the phone's accessibility settings; then they hold still on their first frame. There's
+     * no network fetcher: every picture Winnow shows is already on the phone.
+     */
+    override fun newImageLoader(context: PlatformContext): ImageLoader {
+        val animate = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
+        return ImageLoader.Builder(context)
+            // coil-gif would otherwise register its decoder on its own, animations off or not.
+            .serviceLoaderEnabled(false)
+            .components { if (animate) add(AnimatedImageDecoder.Factory()) }
+            .build()
+    }
 }
 
 /** Debug-only shared preference: pretend the phone has a second SIM. */

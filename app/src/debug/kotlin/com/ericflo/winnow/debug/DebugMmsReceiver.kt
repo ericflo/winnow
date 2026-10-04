@@ -29,7 +29,8 @@ import java.io.ByteArrayOutputStream
  *     adb shell am broadcast -n com.ericflo.winnow/.debug.DebugMmsReceiver \
  *         --es from +14155550161 --es to +15555215554,+14155550162 --es text "hi" --ez photo true
  *
- * `--ez voice true` adds a voice memo (audio/amr), `--ez video true` a short clip (video/mp4) and
+ * `--ez voice true` adds a voice memo (audio/amr), `--ez video true` a short clip (video/mp4),
+ * `--ez gif true` an animated GIF (a dot looping over a field, drawn for this) and
  * `--ez contact true` a shared contact (text/x-vcard, fictional 555 numbers).
  *
  * The default mode runs an m-retrieve-conf through [com.ericflo.winnow.sms.MmsReceiver.onDownloaded];
@@ -46,6 +47,7 @@ class DebugMmsReceiver : BroadcastReceiver() {
         val voice = intent.getBooleanExtra("voice", false)
         val video = intent.getBooleanExtra("video", false)
         val contact = intent.getBooleanExtra("contact", false)
+        val gif = intent.getBooleanExtra("gif", false)
         val subscriptionId = SubscriptionManager.getDefaultSmsSubscriptionId()
         val id = "debug${System.currentTimeMillis()}"
         val pending = goAsync()
@@ -59,6 +61,7 @@ class DebugMmsReceiver : BroadcastReceiver() {
                         if (photo) add(MmsPart("image/jpeg", samplePhoto(), name = "photo.jpg", contentId = "photo", contentLocation = "photo.jpg"))
                         if (voice) add(MmsPart("audio/amr", raw(context, R.raw.sample_voice), name = "voice.amr", contentId = "voice", contentLocation = "voice.amr"))
                         if (video) add(MmsPart("video/mp4", raw(context, R.raw.sample_clip), name = "clip.mp4", contentId = "clip", contentLocation = "clip.mp4"))
+                        if (gif) add(MmsPart("image/gif", raw(context, R.raw.sample_gif), name = "loop.gif", contentId = "gif", contentLocation = "loop.gif"))
                         if (contact) add(MmsPart("text/x-vcard", SAMPLE_CONTACT.toByteArray(), name = "Dana Whitfield.vcf", contentId = "contact", contentLocation = "contact.vcf"))
                         text?.let { add(MmsPart.plainText(it)) }
                     }

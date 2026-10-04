@@ -62,6 +62,7 @@ messages can't be tapped.
 - **SMS and MMS:** group conversations threaded correctly, photos in and out (downscaled to
   carrier limits) and a full-screen viewer (swipe through a conversation's photos, pinch or
   double-tap to zoom), and voice messages and videos that play right in the conversation.
+  GIFs and animated stickers move (they hold still when Android's "Remove animations" is on).
   Any attachment can be saved to the phone or shared to another app. **Link previews**
   (off by default) show a link's title and picture, but only for your own links and texts
   from people in your contacts or that you've texted. Strangers and filtered texts never
