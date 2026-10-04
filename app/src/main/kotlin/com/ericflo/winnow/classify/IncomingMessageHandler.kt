@@ -118,6 +118,10 @@ class IncomingMessageHandler(
         /** What an MMS said in words, if anything: shown under its photo in the notification. */
         caption: String? = null,
     ): Action {
+        val key = ChatMessage.messageKey(kind, ContentUris.parseId(uri))
+        // The store reuses a deleted message's id, and a deletion Winnow didn't make (another app's,
+        // a restore elsewhere) leaves its verdict behind: that one isn't this message's.
+        dao.deleteForMessage(key)
         val verdict = try {
             withTimeout(BUDGET_MILLIS) { classify(sender, text, threadId) }
         } catch (e: TimeoutCancellationException) {
@@ -131,9 +135,8 @@ class IncomingMessageHandler(
         }
 
         // A correction the user made while this was being classified (Filter sender from the
-        // conversation, say) stands.
-        val key = ChatMessage.messageKey(kind, ContentUris.parseId(uri))
-        val corrected = dao.forKey(key)?.userAction?.let { runCatching { Action.valueOf(it) }.getOrNull() }
+        // conversation, say) stands: any row for it now was written since.
+        val corrected = dao.forKey(key)?.takeIf { it.threadId == threadId }?.userAction?.let { runCatching { Action.valueOf(it) }.getOrNull() }
         if (verdict != null) {
             dao.upsert(VerdictEntity.from(key, threadId, sender, verdict, System.currentTimeMillis()).copy(userAction = corrected?.name))
         }

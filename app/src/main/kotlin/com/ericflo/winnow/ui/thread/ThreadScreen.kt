@@ -2,6 +2,7 @@ package com.ericflo.winnow.ui.thread
 
 import androidx.compose.material3.LinearProgressIndicator
 import kotlinx.coroutines.delay
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.filled.Add
@@ -144,6 +145,7 @@ import com.ericflo.winnow.ui.components.Avatar
 import com.ericflo.winnow.ui.components.ImageViewer
 import com.ericflo.winnow.ui.components.headerLabel
 import com.ericflo.winnow.ui.components.isEmojiOnly
+import com.ericflo.winnow.ui.components.isSingleEmoji
 import com.ericflo.winnow.ui.components.allWebLinks
 import com.ericflo.winnow.ui.components.showOrCreateContact
 import com.ericflo.winnow.ui.components.linkify
@@ -900,19 +902,19 @@ private fun OtherReactionDialog(onReact: (String) -> Unit, onDismiss: () -> Unit
     var emoji by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
-    val valid = isEmojiOnly(emoji)
+    val valid = isSingleEmoji(emoji)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("React with an emoji") },
         text = {
             OutlinedTextField(
                 value = emoji,
-                // Emoji only, and a reaction's worth of them.
-                onValueChange = { emoji = it.trim().take(16) },
+                // One emoji, however many code points it takes (a family is eleven).
+                onValueChange = { emoji = it.trim().take(32) },
                 placeholder = { Text("🎉") },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.headlineSmall,
-                supportingText = { Text(if (emoji.isNotEmpty() && !valid) "Just an emoji, please" else "Pick one from the keyboard's emoji panel") },
+                supportingText = { Text(if (emoji.isNotEmpty() && !valid) "Just one emoji, please" else "Pick one from the keyboard's emoji panel") },
                 isError = emoji.isNotEmpty() && !valid,
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
             )
@@ -1710,7 +1712,10 @@ private fun MessageActionsSheet(
                 links.take(MAX_COPY_LINKS).forEach { url ->
                     ListItem(
                         headlineContent = { Text("Copy link") },
-                        supportingContent = { Text(url.substringAfter("://").removePrefix("www.").substringBefore('/'), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        // The real host, cut from the front: "paypal.com-verify….evil.example" ends in what matters.
+                        supportingContent = {
+                            Text(url.toHttpUrlOrNull()?.host?.removePrefix("www.") ?: url, maxLines = 1, overflow = TextOverflow.StartEllipsis)
+                        },
                         leadingContent = { Icon(painterResource(R.drawable.ic_link), contentDescription = null) },
                         colors = colors,
                         modifier = Modifier.clickable(onClick = act { onCopyLink(url) }),

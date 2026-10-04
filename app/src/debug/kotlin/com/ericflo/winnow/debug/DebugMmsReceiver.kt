@@ -66,7 +66,12 @@ class DebugMmsReceiver : BroadcastReceiver() {
                         android.content.ContentValues().apply { put(android.provider.Telephony.Mms.MESSAGE_ID, messageId) }, null, null,
                     )
                     val report = com.ericflo.winnow.mms.DeliveryInd(messageId = messageId, status = com.ericflo.winnow.mms.MmsStatus.RETRIEVED, to = from)
-                    container.mmsReceiver.onPush(PduComposer.compose(report), subscriptionId)
+                    // On the SIM the message went out on, as a carrier's report would arrive.
+                    val sim = context.contentResolver.query(
+                        android.content.ContentUris.withAppendedId(android.provider.Telephony.Mms.CONTENT_URI, sent),
+                        arrayOf(android.provider.Telephony.Mms.SUBSCRIPTION_ID), null, null, null,
+                    )?.use { c -> if (c.moveToFirst()) c.getInt(0) else null } ?: subscriptionId
+                    container.mmsReceiver.onPush(PduComposer.compose(report), sim)
                 } else if (intent.getStringExtra("mode") == "push") {
                     val ind = NotificationInd(transactionId = id, contentLocation = "http://mmsc.invalid/$id", from = from, messageSize = 50_000)
                     container.mmsReceiver.onPush(PduComposer.compose(ind), subscriptionId)

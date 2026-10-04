@@ -122,7 +122,11 @@ class Notifier(private val context: Context) {
         // otherwise both build on the same old stack, the second dropping the first.
         val picture = image?.let { notificationImage(it, "$threadId-$timestamp") }
         synchronized(lockFor(threadId)) {
-        val previous = manager.activeNotifications.firstOrNull { it.tag == TAG && it.id == id }
+        // What was just posted, if it was a moment ago: Android takes a moment to list a new
+        // notification, and a text arriving right behind another mustn't build on the one before.
+        val now = System.currentTimeMillis()
+        val justPosted = recent[threadId]?.takeIf { now - it.first < RECENT_MILLIS }?.second
+        val previous = justPosted ?: manager.activeNotifications.firstOrNull { it.tag == TAG && it.id == id }
             ?.notification?.let(NotificationCompat.MessagingStyle::extractMessagingStyleFromNotification)
         val style = previous ?: NotificationCompat.MessagingStyle(Person.Builder().setName("You").build())
         if (picture != null) {
@@ -211,8 +215,12 @@ class Notifier(private val context: Context) {
         }
         val notification = builder.build()
         manager.notify(TAG, id, notification)
+        recent[threadId] = now to style
         }
     }
+
+    /** Each conversation's notification as last posted, and when: see showMessage. */
+    private val recent = java.util.concurrent.ConcurrentHashMap<Long, Pair<Long, NotificationCompat.MessagingStyle>>()
 
     private val locks = java.util.concurrent.ConcurrentHashMap<Long, Any>()
     private fun lockFor(threadId: Long): Any = locks.computeIfAbsent(threadId) { Any() }
@@ -379,7 +387,10 @@ class Notifier(private val context: Context) {
 
     /** Clears just the new-message notification, leaving any "not sent" one standing. */
     fun cancelMessages(threadId: Long) {
-        manager.cancel(TAG, notificationId(threadId))
+        synchronized(lockFor(threadId)) {
+            recent.remove(threadId)
+            manager.cancel(TAG, notificationId(threadId))
+        }
     }
 
     /** Drops notifications and conversation shortcuts for deleted threads. */
@@ -426,6 +437,7 @@ class Notifier(private val context: Context) {
         const val TAG_NOT_SENT = "not_sent"
         const val IMAGE_EDGE_PX = 1024
         const val MAX_IMAGE_PIXELS = 40_000_000L
+        const val RECENT_MILLIS = 3_000L
         const val DAY_MILLIS = 24 * 60 * 60_000L
     }
 }

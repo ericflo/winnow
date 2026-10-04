@@ -54,7 +54,7 @@ class MmsReceiver(
         }
         // A delivery report for an MMS Winnow sent (asked for when delivery reports are on).
         if (parsed is DeliveryInd) {
-            if (!store.markDelivered(parsed.messageId, parsed.status)) Log.i(TAG, "Delivery report for a message that isn't here")
+            if (!store.markDelivered(parsed.messageId, parsed.status, subscriptionId)) Log.i(TAG, "Delivery report for a message that isn't here")
             return
         }
         val ind = parsed as? NotificationInd ?: return

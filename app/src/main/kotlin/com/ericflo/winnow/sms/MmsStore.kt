@@ -102,12 +102,21 @@ class MmsStore(private val context: Context) {
      * status column takes the report's X-Mms-Status (retrieved means delivered). In a group, the
      * first report to arrive. Returns whether a sent message matched.
      */
-    fun markDelivered(messageId: String, status: Int): Boolean = resolver.update(
-        Mms.CONTENT_URI,
-        ContentValues().apply { put(Mms.STATUS, status) },
-        "${Mms.MESSAGE_ID} = ? AND ${Mms.MESSAGE_BOX} = ${Mms.MESSAGE_BOX_SENT} AND (${Mms.STATUS} IS NULL OR ${Mms.STATUS} != $DELIVERED)",
-        arrayOf(messageId),
-    ) > 0
+    fun markDelivered(messageId: String, status: Int, subscriptionId: Int): Boolean {
+        if (messageId.isBlank()) return false
+        // On the SIM it came in on (each carrier numbers its own messages), and only the newest
+        // match, should a carrier ever reuse an ID.
+        val onSim = if (subscriptionId >= 0) " AND ${Mms.SUBSCRIPTION_ID} = $subscriptionId" else ""
+        val id = resolver.query(
+            Mms.CONTENT_URI, arrayOf(Mms._ID),
+            "${Mms.MESSAGE_ID} = ? AND ${Mms.MESSAGE_BOX} = ${Mms.MESSAGE_BOX_SENT}$onSim", arrayOf(messageId), "${Mms.DATE} DESC",
+        )?.use { c -> if (c.moveToFirst()) c.getLong(0) else null } ?: return false
+        return resolver.update(
+            ContentUris.withAppendedId(Mms.CONTENT_URI, id),
+            ContentValues().apply { put(Mms.STATUS, status) },
+            "${Mms.STATUS} IS NULL OR ${Mms.STATUS} != $DELIVERED", null,
+        ) > 0
+    }
 
     /**
      * A placeholder already stored for this announcement, if the carrier is repeating itself.
