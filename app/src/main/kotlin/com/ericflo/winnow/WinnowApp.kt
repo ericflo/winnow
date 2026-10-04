@@ -64,6 +64,15 @@ import com.ericflo.winnow.data.LinkPreviewFetcher
 class WinnowApp : Application(), SingletonImageLoader.Factory {
     val container by lazy { AppContainer(this) }
 
+    override fun onCreate() {
+        super.onCreate()
+        // Kept draft attachments nothing refers to any more. Here, as the process starts, before
+        // any screen (the main one or a chat bubble) can be holding one in memory.
+        container.appScope.launch(Dispatchers.IO) {
+            container.draftAttachments.sweep(container.conversationStates.all().map { it.draftAttachments })
+        }
+    }
+
     /**
      * GIFs and animated stickers play (Android's own decoder), unless animations are turned off
      * in the phone's accessibility settings; then they hold still on their first frame. There's

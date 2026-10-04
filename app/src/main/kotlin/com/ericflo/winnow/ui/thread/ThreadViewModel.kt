@@ -199,6 +199,9 @@ class ThreadViewModel(
             // Listening first, so one that comes back in between isn't missed.
             launch(start = CoroutineStart.UNDISPATCHED) { container.returnedMessages.arrived.filter { it == id }.collect { takeReturned(id) } }
             takeReturned(id)
+            // Saved now, not on the first keystroke: a shared or forwarded draft (already in by
+            // the time this runs) must outlive the app being closed before the user types.
+            if (currentDraft().isNotEmpty()) states.saveDraft(id, currentDraft())
             draft.drop(1).debounce(400).collect { states.saveDraft(id, it) }
         }
     }
@@ -658,8 +661,8 @@ class ThreadViewModel(
     fun cancelScheduled(id: Long) = launch { scheduler.cancel(id) }
 
     fun rescheduleScheduled(id: Long, at: Long) = launch {
-        scheduler.reschedule(id, at)
-        _notices.emit("Rescheduled for ${scheduleLabel(at)}")
+        // Gone already if it went out while the picker was open.
+        if (scheduler.reschedule(id, at)) _notices.emit("Rescheduled for ${scheduleLabel(at)}")
     }
 
     /** Moves a scheduled message back into the composer. */

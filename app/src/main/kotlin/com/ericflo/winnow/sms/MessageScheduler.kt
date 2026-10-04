@@ -40,11 +40,17 @@ class MessageScheduler(
         arm(id, sendAt)
     }
 
-    /** Moves a scheduled text to [sendAt]; its alarm moves with it. */
-    suspend fun reschedule(id: Long, sendAt: Long) {
-        dao.get(id) ?: return
+    /**
+     * Moves a scheduled text to [sendAt]; its alarm moves with it, and a failure it had is
+     * forgotten, so a new one is reported. False if it's gone (sent or deleted meanwhile).
+     */
+    suspend fun reschedule(id: Long, sendAt: Long): Boolean {
+        val message = dao.get(id) ?: return false
         dao.setSendAt(id, sendAt)
         arm(id, sendAt)
+        forgetFailure(id)
+        (context.applicationContext as WinnowApp).container.notifier.cancelNotSent(message.threadId)
+        return true
     }
 
     suspend fun cancel(id: Long) {

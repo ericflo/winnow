@@ -97,6 +97,7 @@ import com.ericflo.winnow.ui.components.AudioAttachment
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -240,6 +241,7 @@ fun ThreadScreen(
     }
     val linkPreviewSenders by viewModel.linkPreviewSenders.collectAsStateWithLifecycle()
     var confirmBlock by remember { mutableStateOf(false) }
+    val scheduledJustNow = remember { mutableStateOf(false) }
     var confirmReport by remember { mutableStateOf(false) }
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -543,7 +545,10 @@ fun ThreadScreen(
                 onSendSeparately = if (state.isGroup && !sendSeparately) ({ viewModel.send(separately = true) }) else null,
                 sendSeparately = sendSeparately,
                 onClearSendSeparately = viewModel::clearSendSeparately,
-                onSchedule = viewModel::schedule,
+                onSchedule = { at, label ->
+                    scheduledJustNow.value = true
+                    viewModel.schedule(at, label)
+                },
             )
             }
         },
@@ -569,6 +574,7 @@ fun ThreadScreen(
                 onCopyCode = { copy(it, "Code copied") },
                 highlight = query.trim().takeIf { searching && it.length >= 2 },
                 focusKey = if (searching) focusKey else jumpTo,
+                scheduledJustNow = scheduledJustNow,
                 onMessageNumber = onMessageNumber,
                 unreadOnOpen = unreadOnOpen,
                 linkPreviewSenders = linkPreviewSenders,
@@ -868,6 +874,8 @@ private fun MessageList(
     onCopyCode: (String) -> Unit,
     highlight: String? = null,
     focusKey: String? = null,
+    /** Set when the user schedules a text, so the list shows it once it's in. */
+    scheduledJustNow: MutableState<Boolean> = remember { mutableStateOf(false) },
     onMessageNumber: (String) -> Unit = {},
     unreadOnOpen: List<String> = emptyList(),
     linkPreviewSenders: Set<String>? = null,
@@ -901,11 +909,13 @@ private fun MessageList(
         if (newestKey == null || focusKey != null) return@LaunchedEffect
         if (previous == null || listState.layoutInfo.visibleItemsInfo.any { it.key == previous }) listState.animateScrollToItem(0)
     }
-    // A text just scheduled sits below the newest message: brought into view.
-    var shownScheduled by remember { mutableIntStateOf(scheduled.size) }
+    // A text the user just scheduled sits below the newest message: brought into view. (Not
+    // when the list of scheduled texts first loads, which would undo a jump to a message.)
     LaunchedEffect(scheduled.size) {
-        if (scheduled.size > shownScheduled) listState.animateScrollToItem(0)
-        shownScheduled = scheduled.size
+        if (scheduledJustNow.value) {
+            scheduledJustNow.value = false
+            listState.animateScrollToItem(0)
+        }
     }
     // Opening onto more new messages than fit on screen starts at the first of them, not the last.
     var jumpedToNew by remember { mutableStateOf(false) }

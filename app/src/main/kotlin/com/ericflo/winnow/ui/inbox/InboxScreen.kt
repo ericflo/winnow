@@ -138,6 +138,9 @@ fun InboxScreen(
     // The search field shows what's typed straight from here: echoed back through the
     // ViewModel's combined flows, fast typing would drop and reorder characters.
     var typed by rememberSaveable { mutableStateOf("") }
+    // Restored after the app was closed (or brought back into composition), the field and the
+    // ViewModel's filter agree again.
+    LaunchedEffect(Unit) { viewModel.setQuery(if (searching) typed else "") }
     val closeSearch = {
         searching = false
         typed = ""

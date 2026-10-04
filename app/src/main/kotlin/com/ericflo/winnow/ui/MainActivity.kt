@@ -55,7 +55,6 @@ class MainActivity : ComponentActivity() {
         container.appScope.launch(Dispatchers.IO) {
             container.mmsFiles.cleanUp()
             container.sharedFiles.cleanUp()
-            container.draftAttachments.sweep(container.conversationStates.all().map { it.draftAttachments })
             container.codeCleaner.clean()
             // A force-stop cancels alarms without a reboot to re-arm them.
             container.scheduler.rearmAll()

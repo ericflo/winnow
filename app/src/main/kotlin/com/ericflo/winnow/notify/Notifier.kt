@@ -248,6 +248,10 @@ class Notifier(private val context: Context) {
         manager.cancel(TAG_NOT_SENT, notificationId(threadId))
     }
 
+    fun cancelNotSent(threadId: Long) {
+        manager.cancel(TAG_NOT_SENT, notificationId(threadId))
+    }
+
     /** Clears just the new-message notification, leaving any "not sent" one standing. */
     fun cancelMessages(threadId: Long) {
         manager.cancel(TAG, notificationId(threadId))

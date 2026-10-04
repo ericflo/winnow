@@ -100,7 +100,7 @@ class NewChatViewModel(
         NewChatUiState(
             query = q,
             groups = matches.groupBy { c -> c.name.first().uppercaseChar().takeIf { it.isLetter() }?.toString() ?: "#" }.toList(),
-            dialable = q.trim().takeIf { t -> t.count(Char::isDigit) >= 3 && t.all { it.isDigit() || it in "+()- ." } },
+            dialable = dialable(q),
             groupMode = group,
             picked = picked,
         )
@@ -134,6 +134,8 @@ fun NewChatScreen(viewModel: NewChatViewModel, onBack: () -> Unit, onStart: (rec
     // combined flows, fast typing would drop and reorder characters.
     var typed by rememberSaveable { mutableStateOf("") }
     val type = { value: String -> typed = value; viewModel.setQuery(value) }
+    // Restored after the app was closed, the field keeps its text; the ViewModel starts over.
+    LaunchedEffect(Unit) { viewModel.setQuery(typed) }
     val choose = { contact: ContactEntry ->
         if (state.groupMode) {
             viewModel.toggle(contact)
@@ -159,7 +161,8 @@ fun NewChatScreen(viewModel: NewChatViewModel, onBack: () -> Unit, onStart: (rec
     ) { padding ->
         LazyColumn(contentPadding = padding, modifier = Modifier.fillMaxSize().imePadding()) {
             item("to") {
-                ToField(typed, type, onDone = { state.dialable?.let { choose(ContactEntry(ContactLookup.formatAddress(it), it)) } })
+                // From what's typed right now; the ViewModel's view of it can be a frame behind.
+                ToField(typed, type, onDone = { dialable(typed)?.let { choose(ContactEntry(ContactLookup.formatAddress(it), it)) } })
             }
             if (state.groupMode && state.picked.isNotEmpty()) {
                 item("picked") {
@@ -313,3 +316,7 @@ private fun ContactCard(
         }
     }
 }
+
+/** What's typed, if it's a phone number to text rather than a name to look up. */
+private fun dialable(query: String): String? =
+    query.trim().takeIf { t -> t.count(Char::isDigit) >= 3 && t.all { it.isDigit() || it in "+()- ." } }
