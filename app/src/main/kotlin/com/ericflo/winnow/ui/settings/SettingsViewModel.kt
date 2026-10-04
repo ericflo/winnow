@@ -76,6 +76,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun dismissBackup() = container.backups.dismiss()
 
+    fun importSmsBackupRestore(uri: Uri) = container.backups.importSmsBackupRestore(uri)
+
     /** The automatic-backup folder's name, for display; null when off. */
     val autoBackupFolderName: StateFlow<String?> = container.settings.settings
         .map { it.autoBackupFolder }

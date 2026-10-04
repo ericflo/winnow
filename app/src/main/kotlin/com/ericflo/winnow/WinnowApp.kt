@@ -168,7 +168,9 @@ class AppContainer(private val context: Context) {
         BackupManager(
             context, appScope, verdictDao, database.conversationStates(), database.scheduled(), settings, mmsStore, scheduler,
             database.corrections(), starredDao, learner,
-        ) { isDefaultSmsApp() }
+            canWriteMessages = { isDefaultSmsApp() },
+            ownNumbers = { OwnNumbers(context).all() },
+        )
     }
 
     val incoming by lazy {

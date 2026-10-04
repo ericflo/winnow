@@ -47,6 +47,9 @@ fun BackupSection(status: BackupStatus, isDefault: Boolean, canBackUpMessages: B
     val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::openBackup)
     }
+    val openXml = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::importSmsBackupRestore)
+    }
 
     Column {
         ListItem(
@@ -64,6 +67,11 @@ fun BackupSection(status: BackupStatus, isDefault: Boolean, canBackUpMessages: B
             headlineContent = { Text("Restore from a file") },
             supportingContent = { Text("Adds whatever is missing from a Winnow backup. Nothing on this phone is deleted.") },
             modifier = Modifier.clickable(enabled = !busy) { open.launch(arrayOf("application/zip", "application/octet-stream")) },
+        )
+        ListItem(
+            headlineContent = { Text("Import from SMS Backup & Restore") },
+            supportingContent = { Text("Adds the texts and picture messages from its .xml backup that aren't on this phone yet") },
+            modifier = Modifier.clickable(enabled = !busy) { openXml.launch(arrayOf("text/xml", "application/xml", "*/*")) },
         )
         BackupProgress(
             status,

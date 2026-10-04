@@ -11,6 +11,7 @@ import android.provider.Telephony
 import android.provider.Telephony.Mms
 import android.provider.Telephony.Sms
 import android.util.Log
+import android.util.Xml
 import android.webkit.MimeTypeMap
 import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.SettingsRepository
@@ -85,6 +86,8 @@ class BackupManager(
     private val learner: Learner,
     /** Restoring messages writes the SMS store, which only the default SMS app may do. */
     private val canWriteMessages: () -> Boolean,
+    /** This phone's numbers, kept out of group conversations read from other apps' backups. */
+    private val ownNumbers: () -> Set<String> = { emptySet() },
 ) {
     private val resolver = context.contentResolver
     private val _status = MutableStateFlow<BackupStatus>(BackupStatus.Idle)
@@ -117,6 +120,39 @@ class BackupManager(
     }
 
     fun restore(uri: Uri, includeSettings: Boolean) = start("Couldn't restore") { restoreFrom(uri, includeSettings) }
+
+    /** Adds the messages from an SMS Backup & Restore XML file that this phone doesn't have yet. */
+    fun importSmsBackupRestore(uri: Uri) = start("Couldn't import that file") {
+        if (!canWriteMessages()) {
+            _status.value = BackupStatus.Done("Messages can only be imported once Winnow is your SMS app.")
+            return@start
+        }
+        _status.value = BackupStatus.Working("Reading messages")
+        val spool = File(context.cacheDir, "import").apply { deleteRecursively(); mkdirs() }
+        try {
+            val (backup, skipped) = (resolver.openInputStream(uri) ?: error("The file couldn't be opened")).use { input ->
+                val parser = Xml.newPullParser().apply { setInput(input, null) }
+                SmsBackupRestoreXml.read(parser, spool, ownNumbers()) { done, total ->
+                    if (done % 200 == 0) _status.value = BackupStatus.Working("Reading messages", done, maxOf(total, done))
+                }
+            }
+            if (backup.messageCount == 0) {
+                _status.value = BackupStatus.Done("That file had no messages Winnow could read. Is it an SMS Backup & Restore backup?")
+                return@start
+            }
+            val (added, present) = restoreMessages(backup, spool)
+            val note = if (skipped > 0) " ${plural(skipped, "draft or unreadable message")} skipped." else ""
+            _status.value = BackupStatus.Done(
+                when {
+                    added == 0 -> allPresent(present) + note
+                    present == 0 -> "Imported ${plural(added, "message")}.$note"
+                    else -> "Imported ${plural(added, "message")} (${alreadyHere(present)}).$note"
+                },
+            )
+        } finally {
+            spool.deleteRecursively()
+        }
+    }
 
     /** Clears a finished, failed or unconfirmed job's status. */
     fun dismiss() {
@@ -304,9 +340,9 @@ class BackupManager(
                 if (scheduled > 0) restored += plural(scheduled, "scheduled message")
                 when {
                     added == 0 && present == 0 -> "The backup had no messages."
-                    added == 0 -> if (present == 1) "Its one message was already on this phone." else "All ${format(present)} messages were already on this phone."
+                    added == 0 -> allPresent(present)
                     present == 0 -> "Restored ${plural(added, "message")}."
-                    else -> "Restored ${plural(added, "message")} (${format(present)} were already here)."
+                    else -> "Restored ${plural(added, "message")} (${alreadyHere(present)})."
                 } + also(restored)
             }
             _status.value = BackupStatus.Done(message)
@@ -487,6 +523,11 @@ class BackupManager(
         fun format(n: Int): String = NumberFormat.getIntegerInstance().format(n)
 
         fun plural(n: Int, noun: String) = "${format(n)} $noun${if (n == 1) "" else "s"}"
+
+        private fun alreadyHere(n: Int) = if (n == 1) "1 was already here" else "${format(n)} were already here"
+
+        private fun allPresent(n: Int) =
+            if (n == 1) "Its one message was already on this phone." else "All ${format(n)} messages were already on this phone."
 
         fun also(restored: List<String>) = if (restored.isEmpty()) "" else " Also restored ${restored.joinToString(" and ")}."
     }

@@ -106,7 +106,9 @@ messages can't be tapped.
   included. Restoring onto a new phone, or the same one, only adds what's missing, so
   restoring twice is harmless. A new phone can restore right from onboarding. **Back up
   automatically** writes one every week while the phone charges, into a folder you pick
-  once, such as one your cloud drive syncs. It keeps the newest four.
+  once, such as one your cloud drive syncs. It keeps the newest four. Coming from another
+  app? **Import from SMS Backup & Restore** reads that app's .xml backup, texts and picture
+  messages included, and adds whatever isn't on the phone yet.
 - **Big screens:** on a tablet, an unfolded foldable or a wide window, the conversation list
   and the open conversation sit side by side. **Enter sends** (optional) makes a keyboard's
   Enter send; Shift+Enter still starts a new line.
