@@ -16,7 +16,9 @@ import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
 import android.provider.Telephony
+import android.os.Bundle
 import android.telephony.SmsManager
+import android.telephony.SmsMessage
 import android.telephony.SubscriptionManager
 import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.mms.MmsPart
@@ -90,14 +92,41 @@ class MmsSender(
      * the carrier's own limit (from its MMS config) less room for headers and the text, or
      * [DEFAULT_BUDGET_BYTES] if it won't say. Carriers range from 300 KB to well over 1 MB.
      */
-    fun messageBudget(subscriptionId: Int?): Int {
+    fun messageBudget(subscriptionId: Int?): Int =
+        budgetFor(carrierConfig(subscriptionId)?.getInt(SmsManager.MMS_CONFIG_MAX_MESSAGE_SIZE, 0) ?: 0)
+
+    /**
+     * Whether the carrier wants [body] (to one person, nothing attached) sent as an MMS: some
+     * say past so many parts, or so many characters, a text should be one MMS, and some can't
+     * send a text in parts at all.
+     */
+    fun textNeedsMms(body: String, subscriptionId: Int?): Boolean {
+        if (body.length <= SINGLE_SMS_CHARS) return false
+        val config = carrierConfig(subscriptionId) ?: return false
+        return textNeedsMms(
+            segments = SmsMessage.calculateLength(body, false)[0],
+            length = body.length,
+            segmentThreshold = config.getInt(SmsManager.MMS_CONFIG_SMS_TO_MMS_TEXT_THRESHOLD, -1),
+            lengthThreshold = config.getInt(SmsManager.MMS_CONFIG_SMS_TO_MMS_TEXT_LENGTH_THRESHOLD, -1),
+            multipart = config.getBoolean(SmsManager.MMS_CONFIG_MULTIPART_SMS_ENABLED, true),
+        )
+    }
+
+    private class Config(val readAt: Long, val values: Bundle)
+    private val configs = java.util.concurrent.ConcurrentHashMap<Int, Config>()
+
+    /** The carrier's MMS config for the SIM a message would go out on, read at most once a minute: the composer asks per keystroke. */
+    private fun carrierConfig(subscriptionId: Int?): Bundle? {
         val sub = forSending(subscriptionId)
-        val max = runCatching {
+        val now = System.currentTimeMillis()
+        configs[sub ?: -1]?.takeIf { now - it.readAt < CONFIG_MAX_AGE_MILLIS }?.let { return it.values }
+        val values = runCatching {
             context.getSystemService(SmsManager::class.java)
                 .let { if (sub != null) it.createForSubscriptionId(sub) else it }
-                .carrierConfigValues.getInt(SmsManager.MMS_CONFIG_MAX_MESSAGE_SIZE, 0)
-        }.getOrDefault(0)
-        return budgetFor(max)
+                .carrierConfigValues
+        }.getOrNull() ?: return null
+        configs[sub ?: -1] = Config(now, values)
+        return values
     }
 
     /**
@@ -204,6 +233,16 @@ class MmsSender(
         private const val MIN_BUDGET_BYTES = 100_000
         /** Whatever a carrier claims: some configs say far more than the network takes. */
         private const val MAX_BUDGET_BYTES = 2_000_000
+
+        /** The carrier's rules for when a text goes as an MMS ([textNeedsMms]); a threshold of 0 or less is no rule. */
+        fun textNeedsMms(segments: Int, length: Int, segmentThreshold: Int, lengthThreshold: Int, multipart: Boolean): Boolean =
+            (segmentThreshold > 0 && segments > segmentThreshold) ||
+                (lengthThreshold > 0 && length > lengthThreshold) ||
+                (!multipart && segments > 1)
+
+        /** No text this short is more than one part, whatever its alphabet. */
+        private const val SINGLE_SMS_CHARS = 70
+        private const val CONFIG_MAX_AGE_MILLIS = 60_000L
 
         /** Attachments' share of a carrier's [maxMessageSize] (0 or less: it didn't say). */
         fun budgetFor(maxMessageSize: Int): Int =

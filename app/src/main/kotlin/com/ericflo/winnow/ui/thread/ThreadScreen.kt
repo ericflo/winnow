@@ -575,6 +575,7 @@ fun ThreadScreen(
                 onRemoveAttachment = viewModel::removeAttachment,
                 // Sent separately, each person gets a plain text.
                 isSms = (single != null || sendSeparately) && attachments.isEmpty(),
+                textGoesAsMms = viewModel::textGoesAsMms,
                 onSend = viewModel::send,
                 enterToSend = enterToSend,
                 onSendSeparately = if (state.isGroup && !sendSeparately) ({ viewModel.send(separately = true) }) else null,
@@ -1715,6 +1716,8 @@ private fun Composer(
     onStopRecording: () -> Unit = {},
     onCancelRecording: () -> Unit = {},
     isSms: Boolean,
+    /** A long text the carrier has sent as an MMS. */
+    textGoesAsMms: (CharSequence) -> Boolean = { false },
     onSend: () -> Unit,
     onSchedule: (at: Long, label: String) -> Unit,
     enterToSend: Boolean = false,
@@ -1824,7 +1827,18 @@ private fun Composer(
                             },
                         )
                     }
-                    if (isSms && draft.length >= 100) SegmentCounter(draft.toString())
+                    if (isSms && draft.length >= 100) {
+                        if (textGoesAsMms(draft)) {
+                            Text(
+                                "MMS",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 8.dp).semantics { contentDescription = "Long enough that your carrier has it sent as an MMS" },
+                            )
+                        } else {
+                            SegmentCounter(draft.toString())
+                        }
+                    }
                     if (sims.size >= 2 && selectedSim != null) SimPicker(sims, selectedSim, onSelectSim)
                 }
             }

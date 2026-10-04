@@ -459,6 +459,9 @@ class ThreadViewModel(
         return budget() - taken
     }
 
+    /** Whether the carrier has [text] sent as an MMS from here (it's long; see MmsSender.textNeedsMms). */
+    fun textGoesAsMms(text: CharSequence): Boolean = container.mmsSender.textNeedsMms(text.toString(), _selectedSim.value)
+
     /** What one MMS can carry on the SIM this conversation sends from. */
     private fun budget(): Long = container.mmsSender.messageBudget(_selectedSim.value).toLong()
 

@@ -21,4 +21,17 @@ class MmsBudgetTest {
         assertEquals(100_000, MmsSender.budgetFor(20_000))
         assertTrue(MmsSender.budgetFor(600_000) > MmsSender.MIN_PHOTO_BYTES)
     }
+
+    @Test
+    fun `long texts go as MMS only where the carrier says so`() {
+        // No rules (most carriers): always a text, in as many parts as it takes.
+        assertEquals(false, MmsSender.textNeedsMms(segments = 9, length = 1200, segmentThreshold = -1, lengthThreshold = -1, multipart = true))
+        // Past so many parts, or so many characters.
+        assertEquals(false, MmsSender.textNeedsMms(segments = 4, length = 600, segmentThreshold = 4, lengthThreshold = -1, multipart = true))
+        assertEquals(true, MmsSender.textNeedsMms(segments = 5, length = 700, segmentThreshold = 4, lengthThreshold = -1, multipart = true))
+        assertEquals(true, MmsSender.textNeedsMms(segments = 3, length = 400, segmentThreshold = -1, lengthThreshold = 300, multipart = true))
+        // A carrier that can't send a text in parts.
+        assertEquals(false, MmsSender.textNeedsMms(segments = 1, length = 150, segmentThreshold = -1, lengthThreshold = -1, multipart = false))
+        assertEquals(true, MmsSender.textNeedsMms(segments = 2, length = 200, segmentThreshold = -1, lengthThreshold = -1, multipart = false))
+    }
 }

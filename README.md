@@ -60,7 +60,7 @@ messages can't be tapped.
 ### A complete messaging app
 
 - **SMS and MMS:** group conversations threaded correctly, photos in and out (downscaled to
-  carrier limits) and a full-screen viewer (swipe through a conversation's photos, pinch or
+  the carrier's own MMS size limit, and a long text goes as an MMS where the carrier asks for that) and a full-screen viewer (swipe through a conversation's photos, pinch or
   double-tap to zoom), and voice messages and videos that play right in the conversation.
   GIFs and animated stickers move (they hold still when Android's "Remove animations" is on),
   and an MMS's subject heads its bubble in bold (placeholders like "NoSubject" are left out).
