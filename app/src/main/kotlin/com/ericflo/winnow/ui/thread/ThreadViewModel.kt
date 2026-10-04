@@ -120,6 +120,14 @@ class ThreadViewModel(
     private val undoSeconds: StateFlow<Int?> = container.settings.settings.map<WinnowSettings, Int?> { it.undoSendSeconds }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    val quickReplies: StateFlow<List<String>> = container.settings.settings.map { it.quickReplies }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** A quick reply into the composer, after whatever's typed. */
+    fun insertQuickReply(text: String) {
+        setDraft(listOf(currentDraft().trimEnd(), text).filter { it.isNotEmpty() }.joinToString(" "))
+    }
+
     val enterToSend: StateFlow<Boolean> = container.settings.settings.map { it.enterToSend }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 

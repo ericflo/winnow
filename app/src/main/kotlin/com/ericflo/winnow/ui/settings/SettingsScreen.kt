@@ -47,6 +47,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
@@ -267,6 +271,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     onChange = viewModel::setEnterToSend,
                 )
             }
+            item("quick-replies") { QuickRepliesRow(s.quickReplies, viewModel::setQuickReplies) }
             item("link-previews") {
                 SwitchRow(
                     "Link previews",
@@ -656,4 +661,58 @@ private fun SwipeChoiceRow(title: String, choice: SwipeChoice, onChange: (SwipeC
             }
         }
     }
+}
+
+/** The quick replies, edited in a dialog: take some out, add your own. */
+@Composable
+private fun QuickRepliesRow(replies: List<String>, onSave: (List<String>) -> Unit) {
+    var editing by rememberSaveable { mutableStateOf(false) }
+    ListItem(
+        headlineContent = { Text("Quick replies") },
+        supportingContent = {
+            Text(
+                if (replies.isEmpty()) "None. Add some to answer from a notification in one tap."
+                else "${replies.size} saved: in the composer's + menu and on notifications. ${replies.joinToString(" · ")}",
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        modifier = Modifier.clickable { editing = true },
+    )
+    if (!editing) return
+    var list by remember(replies) { mutableStateOf(replies) }
+    var adding by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = { editing = false },
+        title = { Text("Quick replies") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                list.forEach { reply ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(reply, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { list = list - reply }) { Icon(Icons.Filled.Close, contentDescription = "Remove \"$reply\"") }
+                    }
+                }
+                OutlinedTextField(
+                    value = adding,
+                    onValueChange = { adding = it.take(160) },
+                    label = { Text("New reply") },
+                    singleLine = true,
+                    trailingIcon = {
+                        IconButton(onClick = { list = list + adding.trim(); adding = "" }, enabled = adding.isNotBlank()) {
+                            Icon(Icons.Filled.Add, contentDescription = "Add")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onSave(if (adding.isNotBlank()) list + adding.trim() else list)
+                editing = false
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = { editing = false }) { Text("Cancel") } },
+    )
 }

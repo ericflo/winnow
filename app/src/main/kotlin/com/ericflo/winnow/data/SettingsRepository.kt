@@ -1,5 +1,8 @@
 package com.ericflo.winnow.data
 
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import android.content.Context
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
@@ -91,6 +94,9 @@ object TextScale {
     fun settle(value: Float): Float = clamp(value).let { if (kotlin.math.abs(it - 1f) < 0.05f) 1f else it }
 }
 
+/** The replies Winnow starts with; the user edits them in Settings. */
+val DEFAULT_QUICK_REPLIES = listOf("On my way", "Running a few minutes late", "Can't talk now, I'll call you later", "Sounds good!", "Thanks!")
+
 data class WinnowSettings(
     val provider: ProviderKind = ProviderKind.ON_DEVICE,
     val providers: Map<ProviderKind, ProviderSettings> = emptyMap(),
@@ -115,6 +121,8 @@ data class WinnowSettings(
     val autoDownloadMmsRoaming: Boolean = false,
     /** Enter sends instead of starting a new line (Shift+Enter still does), for hardware keyboards. */
     val enterToSend: Boolean = false,
+    /** Canned replies: in the composer's attach menu, and as one-tap choices on notifications. */
+    val quickReplies: List<String> = DEFAULT_QUICK_REPLIES,
     /** Fetch link previews for texts from people you know. Off by default: fetching tells the site your IP. */
     val linkPreviews: Boolean = false,
     /** A folder (SAF tree URI) for weekly automatic backups; this phone's only, never backed up. */
@@ -194,6 +202,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             autoDownloadMmsRoaming = this[AUTO_DOWNLOAD_MMS_ROAMING] ?: false,
             linkPreviews = this[LINK_PREVIEWS] ?: false,
             enterToSend = this[ENTER_TO_SEND] ?: false,
+            quickReplies = this[QUICK_REPLIES]?.let { runCatching { Json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrNull() } ?: DEFAULT_QUICK_REPLIES,
             autoBackupFolder = this[AUTO_BACKUP_FOLDER],
             autoBackupLast = this[AUTO_BACKUP_LAST] ?: 0,
             autoBackupError = this[AUTO_BACKUP_ERROR],
@@ -235,6 +244,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[AUTO_DOWNLOAD_MMS_ROAMING] = s.autoDownloadMmsRoaming
         this[LINK_PREVIEWS] = s.linkPreviews
         this[ENTER_TO_SEND] = s.enterToSend
+        this[QUICK_REPLIES] = Json.encodeToString(ListSerializer(String.serializer()), s.quickReplies)
         s.autoBackupFolder?.let { this[AUTO_BACKUP_FOLDER] = it } ?: remove(AUTO_BACKUP_FOLDER)
         this[AUTO_BACKUP_LAST] = s.autoBackupLast
         s.autoBackupError?.let { this[AUTO_BACKUP_ERROR] = it } ?: remove(AUTO_BACKUP_ERROR)
@@ -267,6 +277,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val AUTO_DOWNLOAD_MMS_ROAMING = booleanPreferencesKey("mms.auto_download_roaming")
         val LINK_PREVIEWS = booleanPreferencesKey("messages.link_previews")
         val ENTER_TO_SEND = booleanPreferencesKey("compose.enter_to_send")
+        val QUICK_REPLIES = stringPreferencesKey("compose.quick_replies")
         val AUTO_BACKUP_FOLDER = stringPreferencesKey("backup.auto_folder")
         val AUTO_BACKUP_LAST = longPreferencesKey("backup.auto_last")
         val AUTO_BACKUP_ERROR = stringPreferencesKey("backup.auto_error")

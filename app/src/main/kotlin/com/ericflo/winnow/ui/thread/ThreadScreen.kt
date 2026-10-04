@@ -241,6 +241,7 @@ fun ThreadScreen(
     }
     val locating by viewModel.locating.collectAsStateWithLifecycle()
     val shrinking by viewModel.shrinking.collectAsStateWithLifecycle()
+    val quickReplies by viewModel.quickReplies.collectAsStateWithLifecycle()
     // Precise or approximate, whichever the user allows; either makes a usable map link.
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants.values.any { it }) viewModel.shareLocation() else refused = "Sharing your location needs location access"
@@ -536,6 +537,8 @@ fun ThreadScreen(
                 },
                 locating = locating,
                 shrinking = shrinking,
+                quickReplies = quickReplies,
+                onQuickReply = viewModel::insertQuickReply,
                 recording = recording,
                 recordingElapsed = viewModel::recordingElapsed,
                 onStopRecording = viewModel::stopRecording,
@@ -1540,6 +1543,8 @@ private fun Composer(
     onVoice: () -> Unit = {},
     onVideo: () -> Unit = {},
     onLocation: () -> Unit = {},
+    quickReplies: List<String> = emptyList(),
+    onQuickReply: (String) -> Unit = {},
     locating: Boolean = false,
     /** A video being made small enough to send, 0–100; null when none is. */
     shrinking: Int? = null,
@@ -1612,7 +1617,10 @@ private fun Composer(
         Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)) {
             Surface(shape = RoundedCornerShape(28.dp), color = colors.surfaceContainerHigh, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 16.dp)) {
-                    AttachMenu(onGallery = onAttach, onCamera = onCamera, onVideo = onVideo, onContact = onContact, onVoice = onVoice, onLocation = onLocation)
+                    AttachMenu(
+                        onGallery = onAttach, onCamera = onCamera, onVideo = onVideo, onContact = onContact, onVoice = onVoice, onLocation = onLocation,
+                        quickReplies = quickReplies, onQuickReply = onQuickReply,
+                    )
                     Box(Modifier.weight(1f).padding(vertical = 16.dp)) {
                         if (draft.isEmpty()) {
                             val kind = if (isSms) "Text message" else "MMS message"
@@ -1666,11 +1674,34 @@ private fun Composer(
 
 /** The composer's "+": a photo from the gallery, or a new one from the camera. */
 @Composable
-private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit, onVideo: () -> Unit, onContact: () -> Unit, onVoice: () -> Unit, onLocation: () -> Unit) {
+private fun AttachMenu(
+    onGallery: () -> Unit,
+    onCamera: () -> Unit,
+    onVideo: () -> Unit,
+    onContact: () -> Unit,
+    onVoice: () -> Unit,
+    onLocation: () -> Unit,
+    quickReplies: List<String> = emptyList(),
+    onQuickReply: (String) -> Unit = {},
+) {
     var open by remember { mutableStateOf(false) }
+    // The menu turns into the list of quick replies.
+    var replies by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { open = true }) { Icon(Icons.Outlined.AddCircle, contentDescription = "Attach") }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        IconButton(onClick = { open = true; replies = false }) { Icon(Icons.Outlined.AddCircle, contentDescription = "Attach") }
+        DropdownMenu(expanded = open && replies, onDismissRequest = { open = false }) {
+            quickReplies.forEach { reply ->
+                DropdownMenuItem(text = { Text(reply, maxLines = 2, overflow = TextOverflow.Ellipsis) }, onClick = { open = false; onQuickReply(reply) })
+            }
+        }
+        DropdownMenu(expanded = open && !replies, onDismissRequest = { open = false }) {
+            if (quickReplies.isNotEmpty()) {
+                DropdownMenuItem(
+                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                    text = { Text("Quick reply") },
+                    onClick = { replies = true },
+                )
+            }
             DropdownMenuItem(
                 leadingIcon = { Icon(painterResource(R.drawable.ic_photo), contentDescription = null) },
                 text = { Text("Gallery") },

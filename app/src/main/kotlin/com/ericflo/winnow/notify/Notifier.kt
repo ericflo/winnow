@@ -27,6 +27,9 @@ import android.provider.Settings
 class Notifier(private val context: Context) {
     private val manager = NotificationManagerCompat.from(context)
 
+    /** The user's quick replies, offered as one-tap answers on message notifications. */
+    @Volatile var quickReplies: List<String> = emptyList()
+
     init {
         val channel = NotificationChannel(CHANNEL_MESSAGES, context.getString(R.string.channel_messages), NotificationManager.IMPORTANCE_HIGH)
             .apply { description = context.getString(R.string.channel_messages_description) }
@@ -125,7 +128,11 @@ class Notifier(private val context: Context) {
             "Reply",
             actionIntent(NotificationActionReceiver.ACTION_REPLY, threadId, joined, mutable = true),
         )
-            .addRemoteInput(RemoteInput.Builder(NotificationActionReceiver.KEY_REPLY).setLabel("Reply").build())
+            .addRemoteInput(
+                RemoteInput.Builder(NotificationActionReceiver.KEY_REPLY).setLabel("Reply")
+                    .apply { if (quickReplies.isNotEmpty()) setChoices(quickReplies.toTypedArray()) }
+                    .build(),
+            )
             .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
             .setShowsUserInterface(false)
             .build()

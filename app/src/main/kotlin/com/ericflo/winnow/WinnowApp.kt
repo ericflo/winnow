@@ -112,7 +112,9 @@ class AppContainer(private val context: Context) {
     val learner by lazy { Learner(database.corrections(), settings) }
     val classifiers by lazy { ClassifierFactory(OkHttpTransport()) { learner.classifier() } }
     val contacts by lazy { ContactLookup(context) }
-    val notifier by lazy { Notifier(context) }
+    val notifier by lazy {
+        Notifier(context).also { notifier -> appScope.launch { settings.settings.collect { notifier.quickReplies = it.quickReplies } } }
+    }
     /** The phone's SIMs. Debug builds can pretend there's a second one (see DebugSimReceiver). */
     val sims by lazy {
         val debug = context.getSharedPreferences("debug", Context.MODE_PRIVATE)

@@ -151,6 +151,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setEnterToSend(value: Boolean) = update { it.copy(enterToSend = value) }
 
+    fun setQuickReplies(value: List<String>) = update { it.copy(quickReplies = value.map(String::trim).filter(String::isNotEmpty).distinct()) }
+
     fun setAutoDownloadMmsRoaming(value: Boolean) = update { it.copy(autoDownloadMmsRoaming = value) }
 
     fun setTheme(value: ThemeMode) = update { it.copy(theme = value) }
