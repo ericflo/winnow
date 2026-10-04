@@ -38,6 +38,14 @@
         android:theme="@style/Theme.Winnow">
 
         <!-- The four components below are what Android requires of a default SMS app. -->
+        <!-- A conversation in a chat bubble. Bubbles need an embeddable, resizable activity. -->
+        <activity
+            android:name=".ui.BubbleActivity"
+            android:allowEmbedded="true"
+            android:documentLaunchMode="always"
+            android:exported="false"
+            android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"

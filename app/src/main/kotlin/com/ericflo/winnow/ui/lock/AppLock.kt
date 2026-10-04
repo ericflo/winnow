@@ -36,33 +36,37 @@ import kotlinx.coroutines.flow.asStateFlow
  * of their messages.
  */
 class AppLock {
-    /** Set from settings; the lock only engages while this is true. */
-    @Volatile var enabled: Boolean = false
-        set(value) {
-            // Turning it on from inside the app counts as being unlocked right now.
-            if (value && !field && settingsLoaded) unlockedOnce = true
-            field = value
-        }
-
-    /** False until the first settings value arrives; until then the app stays covered. */
-    @Volatile var settingsLoaded = false
     enum class State { CHECKING, LOCKED, UNLOCKED }
 
     private val _state = MutableStateFlow(State.CHECKING)
+    /** Screens cover themselves unless this is [State.UNLOCKED], and prompt when it's [State.LOCKED]. */
     val state: StateFlow<State> = _state.asStateFlow()
+
+    private val _enabled = MutableStateFlow(false)
+    val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
 
     private var leftAt: Long? = null
     private var unlockedOnce = false
+    private var settingsLoaded = false
 
-    /** Call on start (cold or warm) once settings are loaded. */
-    fun onStart() {
-        val away = leftAt?.let { SystemClock.elapsedRealtime() - it }
-        _state.value = when {
-            !enabled -> State.UNLOCKED
-            !unlockedOnce -> State.LOCKED
-            away != null && away > GRACE_MILLIS -> State.LOCKED
-            else -> _state.value.takeIf { it != State.CHECKING } ?: State.UNLOCKED
+    /** From settings (the app container watches them). The first value ends [State.CHECKING]. */
+    fun update(enabled: Boolean) {
+        // Turning it on from inside the app counts as being unlocked right now.
+        if (enabled && !_enabled.value && settingsLoaded) unlockedOnce = true
+        _enabled.value = enabled
+        if (!settingsLoaded) {
+            settingsLoaded = true
+            _state.value = if (enabled) State.LOCKED else State.UNLOCKED
+        } else if (!enabled) {
+            _state.value = State.UNLOCKED
         }
+    }
+
+    /** Call when a screen starts: locks again after more than [GRACE_MILLIS] away. */
+    fun onStart() {
+        if (!settingsLoaded) return
+        val away = leftAt?.let { SystemClock.elapsedRealtime() - it }
+        if (_enabled.value && (!unlockedOnce || (away != null && away > GRACE_MILLIS))) _state.value = State.LOCKED
     }
 
     fun onStop() {

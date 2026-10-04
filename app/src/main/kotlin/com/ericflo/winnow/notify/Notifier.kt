@@ -19,6 +19,7 @@ import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import com.ericflo.winnow.R
 import com.ericflo.winnow.data.joinAddresses
+import com.ericflo.winnow.ui.BubbleActivity
 import com.ericflo.winnow.ui.MainActivity
 
 /** Conversation notifications with inline reply and mark-as-read. */
@@ -130,7 +131,22 @@ class Notifier(private val context: Context) {
             builder.addAction(R.drawable.ic_copy, "Copy $code", copy)
         }
         // Without a stored thread (the store refused the message) there's nothing to reply into.
-        if (threadId >= 0) builder.addAction(reply).addAction(markRead)
+        if (threadId >= 0) {
+            builder.addAction(reply).addAction(markRead)
+            // Lets Android float the conversation as a chat bubble, if the user allows bubbles.
+            val bubble = Intent(context, BubbleActivity::class.java)
+                .putExtra(MainActivity.EXTRA_THREAD_ID, threadId)
+                .putExtra(MainActivity.EXTRA_ADDRESS, joined)
+            builder.setBubbleMetadata(
+                NotificationCompat.BubbleMetadata.Builder(
+                    // Bubble intents must be mutable: the system adds the bubble's own extras.
+                    PendingIntent.getActivity(context, id, bubble, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT),
+                    photo?.let(IconCompat::createWithAdaptiveBitmap) ?: IconCompat.createWithResource(context, R.mipmap.ic_launcher),
+                )
+                    .setDesiredHeight(640)
+                    .build(),
+            )
+        }
         val notification = builder.build()
         manager.notify(TAG, id, notification)
     }

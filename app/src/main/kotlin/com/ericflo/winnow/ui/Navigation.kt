@@ -39,7 +39,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
 /** Where US carriers collect forwarded spam ("SPAM" on a keypad). */
-private const val CARRIER_SPAM_SHORT_CODE = "7726"
+const val CARRIER_SPAM_SHORT_CODE = "7726"
 
 @Serializable
 data object OnboardingRoute

@@ -44,6 +44,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 class WinnowApp : Application() {
     val container by lazy { AppContainer(this) }
@@ -78,7 +79,10 @@ class AppContainer(private val context: Context) {
     val sharedFiles by lazy { SharedFiles(context) }
 
     /** Process-wide, so rotating the screen or reopening the activity doesn't re-lock. */
-    val appLock = AppLock()
+    val appLock = AppLock().also { lock ->
+        // Watched here, not in an activity, so a bubble or notification in a fresh process sees it too.
+        appScope.launch { settings.settings.collect { lock.update(it.appLock && deviceIsSecure()) } }
+    }
 
     /** Photos shared into Winnow, waiting for the user to pick a conversation. */
     val pendingShare = MutableStateFlow<List<OutgoingAttachment>>(emptyList())

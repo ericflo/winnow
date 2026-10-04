@@ -79,7 +79,8 @@ messages can't be tapped.
 - **Share to Winnow:** text, photos and videos shared from any app open New chat with them
   attached.
 - **Notifications:** Android conversation notifications (Conversations section, priority),
-  stacked per thread, with inline **Reply**, **Mark as read** and **Copy code**.
+  stacked per thread, with inline **Reply**, **Mark as read** and **Copy code**, and **chat
+  bubbles** that float a conversation over other apps.
 - **Backup and restore:** messages, photos, Winnow's decisions, conversation state, sender
   rules and settings go into one zip file that you choose where to keep. API keys are never
   included. Restoring onto a new phone, or the same one, only adds what's missing, so
@@ -116,11 +117,13 @@ messages can't be tapped.
     <td><img src="docs/screenshots/backup.png" width="200" alt="Restore a backup"></td>
     <td><img src="docs/screenshots/sim-picker.png" width="200" alt="Choosing a SIM"></td>
     <td><img src="docs/screenshots/starred.png" width="200" alt="Starred messages"></td>
+    <td><img src="docs/screenshots/bubble.png" width="200" alt="A conversation in a chat bubble"></td>
   </tr>
   <tr>
     <td align="center"><sub>Back up and restore</sub></td>
     <td align="center"><sub>Dual SIM: pick per conversation</sub></td>
     <td align="center"><sub>Starred messages</sub></td>
+    <td align="center"><sub>Chat bubbles</sub></td>
   </tr>
 </table>
 

@@ -52,6 +52,11 @@ class ThreadViewModel(
     private val container: AppContainer,
     initialThreadId: Long,
     private val recipients: List<String>,
+    /**
+     * Shown in a chat bubble. A bubble lives only as long as its notification, so reading the
+     * conversation there must not cancel it.
+     */
+    private val inBubble: Boolean = false,
 ) : ViewModel() {
     private val repo = container.messages
     private val states = container.conversationStates
@@ -103,7 +108,7 @@ class ThreadViewModel(
             if (threadId.value < 0) threadId.value = repo.threadIdFor(recipients)
             val id = threadId.value
             repo.markRead(id)
-            container.notifier.cancel(id)
+            if (!inBubble) container.notifier.cancel(id)
             _sims.value = container.sims.available().takeIf { it.size >= 2 }.orEmpty()
             _selectedSim.value = container.simFor(id)
             states.get(id).draft?.let { saved -> if (_draft.value.isEmpty()) _draft.value = saved }
@@ -145,7 +150,7 @@ class ThreadViewModel(
             container.visibleThread.value = id.takeIf { it >= 0 }
             if (id >= 0) launch {
                 repo.markRead(id)
-                container.notifier.cancel(id)
+                if (!inBubble) container.notifier.cancel(id)
             }
         } else if (container.visibleThread.value == id) {
             container.visibleThread.value = null

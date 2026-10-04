@@ -12,6 +12,7 @@ import com.ericflo.winnow.ui.lock.LockScreen
 import com.ericflo.winnow.ui.lock.AppLock
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
@@ -56,20 +57,14 @@ class MainActivity : ComponentActivity() {
             // A force-stop cancels alarms without a reboot to re-arm them.
             container.scheduler.rearmAll()
         }
-        // Track the setting; the first value decides whether a cold start is locked.
-        lifecycleScope.launch {
-            container.settings.settings.collect { s ->
-                val first = !appLock.settingsLoaded
-                appLock.enabled = s.appLock && container.deviceIsSecure()
-                appLock.settingsLoaded = true
-                // With app lock on, recents shows a blank card instead of the conversation list.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(!appLock.enabled)
-                if (first) startLock()
-            }
+        // With app lock on, recents shows a blank card instead of the conversation list.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            lifecycleScope.launch { appLock.enabled.collect { setRecentsScreenshotEnabled(!it) } }
         }
         setContent {
             WinnowTheme {
                 val lock by appLock.state.collectAsStateWithLifecycle()
+                LaunchedEffect(lock) { if (lock == AppLock.State.LOCKED) appLock.authenticate(this@MainActivity) }
                 Box(Modifier.fillMaxSize()) {
                     WinnowNavHost(
                         container = container,
@@ -85,14 +80,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startLock() {
-        appLock.onStart()
-        if (appLock.state.value == AppLock.State.LOCKED) appLock.authenticate(this)
-    }
-
     override fun onStart() {
         super.onStart()
-        if (appLock.settingsLoaded) startLock()
+        appLock.onStart()
     }
 
     override fun onStop() {
