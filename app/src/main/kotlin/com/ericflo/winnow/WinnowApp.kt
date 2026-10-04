@@ -21,6 +21,8 @@ import com.ericflo.winnow.data.MessageRepository
 import com.ericflo.winnow.data.OwnNumbers
 import com.ericflo.winnow.data.SecretBox
 import com.ericflo.winnow.data.SettingsRepository
+import com.ericflo.winnow.data.SimCards
+import com.ericflo.winnow.data.SimChoice
 import com.ericflo.winnow.data.SwitchingMessageRepository
 import com.ericflo.winnow.data.TelephonyMessageRepository
 import com.ericflo.winnow.data.db.WinnowDatabase
@@ -43,6 +45,9 @@ class WinnowApp : Application() {
     val container by lazy { AppContainer(this) }
 }
 
+/** Debug-only shared preference: pretend the phone has a second SIM. */
+const val SIMULATE_SECOND_SIM = "simulate_second_sim"
+
 /** Hand-rolled dependency graph. Small enough that a DI framework would cost more than it saves. */
 class AppContainer(private val context: Context) {
     // Background work (receivers, reviews, sends) must never take the app down with it.
@@ -58,14 +63,19 @@ class AppContainer(private val context: Context) {
     val classifiers by lazy { ClassifierFactory(OkHttpTransport()) { learner.classifier() } }
     val contacts by lazy { ContactLookup(context) }
     val notifier by lazy { Notifier(context) }
+    /** The phone's SIMs. Debug builds can pretend there's a second one (see DebugSimReceiver). */
+    val sims by lazy {
+        val debug = context.getSharedPreferences("debug", Context.MODE_PRIVATE)
+        SimCards(context) { debug.getBoolean(SIMULATE_SECOND_SIM, false) }
+    }
     // Read when sending, not cached at startup, so a cold process honors the saved setting.
-    val smsSender by lazy { SmsSender(context) { settings.current().deliveryReports } }
+    val smsSender by lazy { SmsSender(context, { settings.current().deliveryReports }, sims::forSending) }
 
     /** The conversation on screen right now, which shouldn't raise notifications for itself. */
     val visibleThread = MutableStateFlow<Long?>(null)
     val mmsStore by lazy { MmsStore(context) }
     val mmsFiles by lazy { MmsFiles(context) }
-    val mmsSender by lazy { MmsSender(context, mmsStore, mmsFiles) }
+    val mmsSender by lazy { MmsSender(context, mmsStore, mmsFiles, sims::forSending) }
     val mmsReceiver by lazy { MmsReceiver(context, mmsStore, mmsFiles, OwnNumbers(context), incoming) }
     val conversationStates by lazy { ConversationStateStore(database.conversationStates()) }
     val verdictDao by lazy { database.verdicts() }
@@ -102,6 +112,13 @@ class AppContainer(private val context: Context) {
 
     val incoming by lazy {
         IncomingMessageHandler(context, verdictDao, contacts, settings, classifiers, notifier, conversationStates, visibleThread)
+    }
+
+    /** The SIM a new message to [threadId] should go out on; null for Android's default. */
+    suspend fun simFor(threadId: Long): Int? {
+        val available = sims.available().map { it.subscriptionId }
+        if (available.size < 2) return null
+        return SimChoice.pick(available, conversationStates.get(threadId).subscriptionId, messages.lastIncomingSubscription(threadId), sims.systemDefault())
     }
 
     fun isDefaultSmsApp(): Boolean = context.getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_SMS)

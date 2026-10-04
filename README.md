@@ -68,6 +68,10 @@ messages can't be tapped.
   or to unarchive in Archived. Full-text search covers SMS and MMS.
 - **Composing:** New chat with your contacts and Create group, drafts that stick, an SMS
   segment counter, and **scheduled send** (long-press Send).
+- **Dual SIM:** on a phone with two SIMs, a badge in the composer shows which one a text
+  goes out on, and tapping it switches. Each conversation remembers its SIM. Otherwise it
+  uses the SIM their last text arrived on, then your default. Replies from notifications and
+  scheduled texts use the same SIM, and message details say which SIM a text came in on.
 - **Messages:** copy, forward, delete, details, and "Copy code" for verification codes.
 - **Notifications:** Android conversation notifications (Conversations section, priority),
   stacked per thread, with inline **Reply**, **Mark as read** and **Copy code**.
@@ -105,9 +109,11 @@ messages can't be tapped.
   </tr>
   <tr>
     <td><img src="docs/screenshots/backup.png" width="200" alt="Restore a backup"></td>
+    <td><img src="docs/screenshots/sim-picker.png" width="200" alt="Choosing a SIM"></td>
   </tr>
   <tr>
     <td align="center"><sub>Back up and restore</sub></td>
+    <td align="center"><sub>Dual SIM: pick per conversation</sub></td>
   </tr>
 </table>
 
@@ -285,5 +291,7 @@ scripts/      Emulator smoke test.
 
 ## Status
 
-Developed and verified on the Android emulator, and not yet run on a phone. Not built yet:
-RCS (see above), an on-device model, multi-SIM choice when sending.
+Developed and verified on the Android emulator, and not yet run on a phone. Not built:
+RCS (see above). Emulators have one SIM, so the SIM picker was exercised with a debug-only
+pretend second SIM (`DebugSimReceiver`) that sends through the real one. Sending on a real
+second SIM is the platform's `SmsManager.createForSubscriptionId`, and it hasn't run yet.

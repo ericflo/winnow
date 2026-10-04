@@ -25,26 +25,34 @@ import java.io.File
 import java.util.UUID
 
 /** Sends MMS (group texts and attachments) through the system MMS service. */
-class MmsSender(private val context: Context, private val store: MmsStore, private val files: MmsFiles) {
+class MmsSender(
+    private val context: Context,
+    private val store: MmsStore,
+    private val files: MmsFiles,
+    /** Maps a chosen SIM to the subscription to send on (null: Android's default). */
+    private val forSending: (Int?) -> Int? = { it },
+) {
 
-    fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>) {
+    fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int? = null) {
+        val sub = forSending(subscriptionId)
         val media = attachments.mapIndexedNotNull { i, attachment -> readAttachment(attachment, i + 1, attachments.size) }
         val content = media + listOfNotNull(body.takeIf { it.isNotBlank() }?.let { MmsPart.plainText(it) })
         require(content.isNotEmpty()) { "nothing to send" }
         val parts = listOf(Smil.forParts(content)) + content
         val threadId = Telephony.Threads.getOrCreateThreadId(context, recipients.toSet())
-        val uri = store.insertOutgoing(threadId, recipients, parts, SubscriptionManager.getDefaultSmsSubscriptionId())
+        val uri = store.insertOutgoing(threadId, recipients, parts, sub ?: SubscriptionManager.getDefaultSmsSubscriptionId())
             ?: error("couldn't store the outgoing MMS; is Winnow the default SMS app?")
-        transmit(uri, recipients, parts)
+        transmit(uri, recipients, parts, sub)
     }
 
     fun retry(mmsId: Long) {
         val uri = ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, mmsId)
         store.setBox(uri, Telephony.Mms.MESSAGE_BOX_OUTBOX)
-        transmit(uri, store.recipients(mmsId), store.parts(mmsId))
+        // Retry on the SIM it was first sent from.
+        transmit(uri, store.recipients(mmsId), store.parts(mmsId), forSending(store.subscriptionId(mmsId)))
     }
 
-    private fun transmit(message: Uri, recipients: List<String>, parts: List<MmsPart>) {
+    private fun transmit(message: Uri, recipients: List<String>, parts: List<MmsPart>, subscriptionId: Int?) {
         val pdu = PduComposer.compose(
             SendReq(
                 transactionId = "T" + UUID.randomUUID().toString().replace("-", "").take(12),
@@ -60,7 +68,9 @@ class MmsSender(private val context: Context, private val store: MmsStore, priva
             // The MMS service attaches the carrier's m-send-conf, so this must be mutable.
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        context.getSystemService(SmsManager::class.java).sendMultimediaMessage(context, files.uriFor(file), null, null, sent)
+        context.getSystemService(SmsManager::class.java)
+            .let { if (subscriptionId != null) it.createForSubscriptionId(subscriptionId) else it }
+            .sendMultimediaMessage(context, files.uriFor(file), null, null, sent)
     }
 
     /** Reads an attachment, shrinking photos so the whole message fits carrier limits (~1 MB). */

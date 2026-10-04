@@ -27,8 +27,10 @@ class MessageScheduler(
 
     fun observe(threadId: Long): Flow<List<ScheduledMessageEntity>> = dao.observeForThread(threadId)
 
-    suspend fun schedule(threadId: Long, recipients: List<String>, body: String, sendAt: Long) {
-        val id = dao.insert(ScheduledMessageEntity(threadId = threadId, recipients = joinAddresses(recipients), body = body, sendAt = sendAt))
+    suspend fun schedule(threadId: Long, recipients: List<String>, body: String, sendAt: Long, subscriptionId: Int? = null) {
+        val id = dao.insert(
+            ScheduledMessageEntity(threadId = threadId, recipients = joinAddresses(recipients), body = body, sendAt = sendAt, subscriptionId = subscriptionId),
+        )
         arm(id, sendAt)
     }
 
@@ -44,7 +46,7 @@ class MessageScheduler(
     suspend fun sendNow(id: Long) {
         val message = dao.get(id) ?: return
         val store = messages() ?: throw IllegalStateException("Winnow isn't the default SMS app, so it can't send")
-        store.send(splitAddresses(message.recipients), message.body)
+        store.send(splitAddresses(message.recipients), message.body, subscriptionId = message.subscriptionId)
         cancel(id)
     }
 

@@ -30,6 +30,8 @@ class ConversationStateStore(private val dao: ConversationStateDao) {
     suspend fun saveDraft(threadId: Long, draft: String) =
         updateAll(listOf(threadId)) { it.copy(draft = draft.takeIf(String::isNotBlank)) }
 
+    suspend fun setSim(threadId: Long, subscriptionId: Int?) = updateAll(listOf(threadId)) { it.copy(subscriptionId = subscriptionId) }
+
     suspend fun forget(threadIds: Collection<Long>) = dao.delete(threadIds)
 
     private suspend fun updateAll(threadIds: Collection<Long>, transform: (ConversationStateEntity) -> ConversationStateEntity) {

@@ -50,7 +50,7 @@ class DemoMessageRepository(private val packageName: String) : MessageRepository
         return id
     }
 
-    override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>) {
+    override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int?) {
         val threadId = threadIdFor(recipients)
         val message = ChatMessage(
             id = nextId(), threadId = threadId, body = body, timestamp = System.currentTimeMillis(), outgoing = true,

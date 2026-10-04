@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Our own number, to leave ourselves out of group MMS participant lists. -->
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+    <!-- Lists the SIMs on dual-SIM phones, to choose which one a text goes out on. Requested only there. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <!-- Scheduled send: exact alarms if the user allows them, re-armed after a reboot. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />

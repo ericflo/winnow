@@ -39,6 +39,8 @@ data class ChatMessage(
     val sender: String? = null,
     val attachments: List<Attachment> = emptyList(),
     val subject: String? = null,
+    /** The SIM it was sent or received on, where the store records one. */
+    val subscriptionId: Int? = null,
 ) {
     enum class Status { RECEIVED, SENDING, SENT, DELIVERED, FAILED, DOWNLOADING, DOWNLOAD_FAILED }
 

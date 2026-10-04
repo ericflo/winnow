@@ -175,6 +175,12 @@ Confidence below `ActionPolicy.minConfidence` (0.7) softens the action one step
   newest incoming message that has no verdict, under the same privacy gate. It never notifies.
 - **Activity** summarizes the verdict table: actions, categories, and who decided (on the
   phone or a classifier service).
+- **Dual SIM** (`data/Sims.kt`): `SimCards` lists active subscriptions (READ_PHONE_STATE,
+  requested only when the phone has two or more modems). `SimChoice.pick` chooses the
+  conversation's saved SIM (`conversation_state.subscriptionId`), else the SIM of its newest
+  incoming message, else the system default. The SMS and MMS senders send on that
+  subscription, retries reuse the one a message was first sent on, and scheduled texts store
+  theirs. Debug builds can add a pretend second SIM that routes to the real one.
 - **Tapbacks:** iPhone and Google Messages reaction texts (`Tapback.parse`) are folded into
   reaction pills on the message they quote.
 

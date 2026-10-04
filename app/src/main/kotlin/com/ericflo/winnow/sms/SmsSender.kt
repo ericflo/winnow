@@ -10,15 +10,22 @@ import android.net.Uri
 import android.provider.Telephony
 import android.telephony.SmsManager
 import android.telephony.SmsMessage
+import android.telephony.SubscriptionManager
 
-class SmsSender(private val context: Context, private val deliveryReports: suspend () -> Boolean) {
+class SmsSender(
+    private val context: Context,
+    private val deliveryReports: suspend () -> Boolean,
+    /** Maps a chosen SIM to the subscription to send on (null: Android's default). */
+    private val forSending: (Int?) -> Int? = { it },
+) {
 
     /**
      * Records the message in the outbox and sends it; [SmsStatusReceiver] moves it to sent or
      * failed, and with delivery reports on, marks it delivered when the carrier confirms.
      */
-    suspend fun send(address: String, body: String): Uri? {
+    suspend fun send(address: String, body: String, subscriptionId: Int? = null): Uri? {
         val reports = deliveryReports()
+        val sub = forSending(subscriptionId)
         val values = ContentValues().apply {
             put(Telephony.Sms.ADDRESS, address)
             put(Telephony.Sms.BODY, body)
@@ -27,9 +34,10 @@ class SmsSender(private val context: Context, private val deliveryReports: suspe
             put(Telephony.Sms.SEEN, 1)
             put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_OUTBOX)
             put(Telephony.Sms.STATUS, if (reports) Telephony.Sms.STATUS_PENDING else Telephony.Sms.STATUS_NONE)
+            put(Telephony.Sms.SUBSCRIPTION_ID, sub ?: SubscriptionManager.getDefaultSmsSubscriptionId())
         }
         val uri = context.contentResolver.insert(Telephony.Sms.CONTENT_URI, values)
-        transmit(uri, address, body, reports)
+        transmit(uri, address, body, reports, sub)
         return uri
     }
 
@@ -37,7 +45,7 @@ class SmsSender(private val context: Context, private val deliveryReports: suspe
      * Sends a failed message again from its existing row. Deleting and re-inserting it instead
      * would empty (and so delete) a new conversation's thread.
      */
-    suspend fun retry(message: Uri, address: String, body: String) {
+    suspend fun retry(message: Uri, address: String, body: String, subscriptionId: Int? = null) {
         val reports = deliveryReports()
         val values = ContentValues().apply {
             put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_OUTBOX)
@@ -45,11 +53,11 @@ class SmsSender(private val context: Context, private val deliveryReports: suspe
             put(Telephony.Sms.STATUS, if (reports) Telephony.Sms.STATUS_PENDING else Telephony.Sms.STATUS_NONE)
         }
         context.contentResolver.update(message, values, null, null)
-        transmit(message, address, body, reports)
+        transmit(message, address, body, reports, forSending(subscriptionId))
     }
 
-    private fun transmit(message: Uri?, address: String, body: String, reports: Boolean) {
-        val manager = context.getSystemService(SmsManager::class.java)
+    private fun transmit(message: Uri?, address: String, body: String, reports: Boolean, subscriptionId: Int?) {
+        val manager = context.getSystemService(SmsManager::class.java).let { if (subscriptionId != null) it.createForSubscriptionId(subscriptionId) else it }
         val parts = manager.divideMessage(body)
         val id = message?.lastPathSegment?.toIntOrNull() ?: 0
         // One sent intent per part (distinct request codes), so any failed part marks the message failed.

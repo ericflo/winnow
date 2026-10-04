@@ -28,7 +28,9 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val pending = goAsync()
         container.appScope.launch {
             try {
-                if (intent.action == ACTION_REPLY && !reply.isNullOrEmpty()) container.messages.send(recipients, reply)
+                if (intent.action == ACTION_REPLY && !reply.isNullOrEmpty()) {
+                    container.messages.send(recipients, reply, subscriptionId = container.simFor(threadId))
+                }
                 container.messages.markRead(threadId)
                 container.notifier.cancel(threadId)
             } catch (e: CancellationException) {

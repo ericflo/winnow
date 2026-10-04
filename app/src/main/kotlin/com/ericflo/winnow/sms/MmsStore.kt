@@ -111,6 +111,10 @@ class MmsStore(private val context: Context) {
         resolver.query(ContentUris.withAppendedId(Mms.CONTENT_URI, mmsId), arrayOf(Mms.CONTENT_LOCATION), null, null, null)
             ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
 
+    fun subscriptionId(mmsId: Long): Int? =
+        resolver.query(ContentUris.withAppendedId(Mms.CONTENT_URI, mmsId), arrayOf(Mms.SUBSCRIPTION_ID), null, null, null)
+            ?.use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getInt(0) else null }
+
     fun threadId(mmsId: Long): Long? =
         resolver.query(ContentUris.withAppendedId(Mms.CONTENT_URI, mmsId), arrayOf(Mms.THREAD_ID), null, null, null)
             ?.use { c -> if (c.moveToFirst()) c.getLong(0) else null }

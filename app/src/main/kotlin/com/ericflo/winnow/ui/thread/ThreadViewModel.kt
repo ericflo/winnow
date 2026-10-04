@@ -7,6 +7,7 @@ import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.OutgoingAttachment
+import com.ericflo.winnow.data.SimCard
 import com.ericflo.winnow.data.StoredVerdict
 import com.ericflo.winnow.data.db.ScheduledMessageEntity
 import com.ericflo.winnow.data.displayNameFor
@@ -81,6 +82,14 @@ class ThreadViewModel(
         .flatMapLatest { scheduler.observe(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    private val _sims = MutableStateFlow<List<SimCard>>(emptyList())
+    /** The phone's SIMs when there are two or more to choose from; empty otherwise. */
+    val sims: StateFlow<List<SimCard>> = _sims.asStateFlow()
+
+    private val _selectedSim = MutableStateFlow<Int?>(null)
+    /** The SIM this conversation's texts go out on; null for Android's default. */
+    val selectedSim: StateFlow<Int?> = _selectedSim.asStateFlow()
+
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
     /** One-off messages for a snackbar. */
     val notices: SharedFlow<String> = _notices
@@ -94,6 +103,8 @@ class ThreadViewModel(
             val id = threadId.value
             repo.markRead(id)
             container.notifier.cancel(id)
+            _sims.value = container.sims.available().takeIf { it.size >= 2 }.orEmpty()
+            _selectedSim.value = container.simFor(id)
             states.get(id).draft?.let { saved -> if (_draft.value.isEmpty()) _draft.value = saved }
             _draft.drop(1).debounce(400).collect { states.saveDraft(id, it) }
         }
@@ -170,7 +181,7 @@ class ThreadViewModel(
         viewModelScope.launch {
             states.saveDraft(threadId.value, "")
             try {
-                repo.send(recipients, text, files)
+                repo.send(recipients, text, files, _selectedSim.value)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -193,9 +204,15 @@ class ThreadViewModel(
         _draft.value = ""
         viewModelScope.launch {
             states.saveDraft(threadId.value, "")
-            scheduler.schedule(threadId.value, recipients, text, sendAt)
+            scheduler.schedule(threadId.value, recipients, text, sendAt, _selectedSim.value)
             _notices.emit("Scheduled for $label")
         }
+    }
+
+    /** Remembers [subscriptionId] as this conversation's SIM. */
+    fun selectSim(subscriptionId: Int) {
+        _selectedSim.value = subscriptionId
+        launch { states.setSim(threadId.value, subscriptionId) }
     }
 
     fun sendScheduledNow(id: Long) = launch { scheduler.sendNow(id) }

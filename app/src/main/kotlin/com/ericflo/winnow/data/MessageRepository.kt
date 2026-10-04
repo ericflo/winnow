@@ -27,8 +27,11 @@ interface MessageRepository {
     /** The thread for exactly these recipients, created if needed. */
     suspend fun threadIdFor(recipients: List<String>): Long
 
-    /** SMS to one recipient without attachments; MMS otherwise. */
-    suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment> = emptyList())
+    /** SMS to one recipient without attachments; MMS otherwise. [subscriptionId] picks the SIM; null for the default. */
+    suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment> = emptyList(), subscriptionId: Int? = null)
+
+    /** The SIM the thread's newest incoming message arrived on, if the store knows. */
+    suspend fun lastIncomingSubscription(threadId: Long): Int? = null
 
     /** Re-sends a failed outgoing message. */
     suspend fun retry(message: ChatMessage)
@@ -79,8 +82,9 @@ class SwitchingMessageRepository(
     override fun displayName(address: String) = current.displayName(address)
     override fun photoUri(address: String) = current.photoUri(address)
     override suspend fun threadIdFor(recipients: List<String>) = current.threadIdFor(recipients)
-    override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>) =
-        current.send(recipients, body, attachments)
+    override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int?) =
+        current.send(recipients, body, attachments, subscriptionId)
+    override suspend fun lastIncomingSubscription(threadId: Long) = current.lastIncomingSubscription(threadId)
     override suspend fun retry(message: ChatMessage) = current.retry(message)
     override suspend fun markRead(threadId: Long) = current.markRead(threadId)
     override suspend fun markUnread(threadId: Long) = current.markUnread(threadId)

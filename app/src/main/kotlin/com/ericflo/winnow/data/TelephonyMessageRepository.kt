@@ -81,11 +81,18 @@ class TelephonyMessageRepository(
         Telephony.Threads.getOrCreateThreadId(context, recipients.toSet())
     }
 
-    override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>) {
+    override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int?) {
         withContext(Dispatchers.IO) {
-            if (recipients.size == 1 && attachments.isEmpty()) sms.send(recipients.single(), body)
-            else mms.send(recipients, body, attachments)
+            if (recipients.size == 1 && attachments.isEmpty()) sms.send(recipients.single(), body, subscriptionId)
+            else mms.send(recipients, body, attachments, subscriptionId)
         }
+    }
+
+    override suspend fun lastIncomingSubscription(threadId: Long): Int? = withContext(Dispatchers.IO) {
+        val newest = heads("${Telephony.Sms.THREAD_ID} = ?", arrayOf(threadId.toString())).firstOrNull { !it.outgoing } ?: return@withContext null
+        val (table, column) = if (newest.kind == Kind.SMS) Telephony.Sms.CONTENT_URI to Telephony.Sms.SUBSCRIPTION_ID else Telephony.Mms.CONTENT_URI to Telephony.Mms.SUBSCRIPTION_ID
+        resolver.query(ContentUris.withAppendedId(table, newest.id), arrayOf(column), null, null, null)
+            ?.use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getInt(0).takeIf { it >= 0 } else null }
     }
 
     override suspend fun retry(message: ChatMessage) {
@@ -93,10 +100,11 @@ class TelephonyMessageRepository(
             when (message.kind) {
                 Kind.SMS -> {
                     val uri = ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, message.id)
-                    val address = resolver.query(uri, arrayOf(Telephony.Sms.ADDRESS), null, null, null)?.use { c ->
-                        if (c.moveToFirst()) c.getString(0) else null
+                    val (address, sub) = resolver.query(uri, arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.SUBSCRIPTION_ID), null, null, null)?.use { c ->
+                        if (c.moveToFirst()) c.getString(0) to (if (c.isNull(1)) null else c.getInt(1).takeIf { it >= 0 }) else null
                     } ?: return@withContext
-                    sms.retry(uri, address, message.body)
+                    // Retry on the SIM it was first sent from.
+                    sms.retry(uri, address ?: return@withContext, message.body, sub)
                 }
                 Kind.MMS -> if (message.status == ChatMessage.Status.DOWNLOAD_FAILED) retryDownload(message.id) else mms.retry(message.id)
             }
@@ -298,7 +306,7 @@ class TelephonyMessageRepository(
         val messages = mutableListOf<ChatMessage>()
         resolver.query(
             Telephony.Sms.CONTENT_URI,
-            arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.ADDRESS, Telephony.Sms.STATUS),
+            arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.ADDRESS, Telephony.Sms.STATUS, Telephony.Sms.SUBSCRIPTION_ID),
             "${Telephony.Sms.THREAD_ID} = ? AND $NOT_SMS_DRAFT", arrayOf(threadId.toString()), null,
         )?.use { c ->
             while (c.moveToNext()) {
@@ -313,12 +321,16 @@ class TelephonyMessageRepository(
                     status = smsStatus(type, c.getInt(5)),
                     verdict = null,
                     sender = if (incoming) c.getString(4) else null,
+                    subscriptionId = if (c.isNull(6)) null else c.getInt(6).takeIf { it >= 0 },
                 )
             }
         }
         resolver.query(
             Telephony.Mms.CONTENT_URI,
-            arrayOf(Telephony.Mms._ID, Telephony.Mms.DATE, Telephony.Mms.MESSAGE_BOX, Telephony.Mms.MESSAGE_TYPE, Telephony.Mms.SUBJECT, Telephony.Mms.STATUS),
+            arrayOf(
+                Telephony.Mms._ID, Telephony.Mms.DATE, Telephony.Mms.MESSAGE_BOX, Telephony.Mms.MESSAGE_TYPE, Telephony.Mms.SUBJECT,
+                Telephony.Mms.STATUS, Telephony.Mms.SUBSCRIPTION_ID,
+            ),
             "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms.MESSAGE_BOX} != ${Telephony.Mms.MESSAGE_BOX_DRAFTS}",
             arrayOf(threadId.toString()), null,
         )?.use { c ->
@@ -338,6 +350,7 @@ class TelephonyMessageRepository(
                     verdict = null,
                     kind = Kind.MMS,
                     subject = c.getString(4)?.takeIf { it.isNotBlank() },
+                    subscriptionId = if (c.isNull(6)) null else c.getInt(6).takeIf { it >= 0 },
                 )
             }
         }

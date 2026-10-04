@@ -82,6 +82,8 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.POST_NOTIFICATIONS.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU },
             Manifest.permission.READ_PHONE_NUMBERS,
+            // Only phones with room for two SIMs need to say which SIM a text goes out on.
+            Manifest.permission.READ_PHONE_STATE.takeIf { container.sims.needsPermission() },
         )
         val missing = wanted.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) permissionRequest.launch(missing.toTypedArray())

@@ -25,8 +25,10 @@ import kotlinx.coroutines.flow.Flow
         VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class, ScheduledMessageEntity::class,
         CorrectionEntity::class,
     ],
-    version = 4,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
+    version = 5,
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
+    ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
     abstract fun verdicts(): VerdictDao
@@ -80,6 +82,8 @@ data class ScheduledMessageEntity(
     val recipients: String,
     val body: String,
     val sendAt: Long,
+    /** The SIM to send from on dual-SIM phones; null for the default. */
+    val subscriptionId: Int? = null,
 )
 
 @Dao
@@ -108,6 +112,8 @@ data class ConversationStateEntity(
     val archived: Boolean = false,
     val muted: Boolean = false,
     val draft: String? = null,
+    /** The SIM the user picked for this conversation on a dual-SIM phone. */
+    val subscriptionId: Int? = null,
 )
 
 @Entity(tableName = "verdicts")

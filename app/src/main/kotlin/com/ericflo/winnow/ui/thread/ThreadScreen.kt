@@ -1,5 +1,10 @@
 package com.ericflo.winnow.ui.thread
 
+import com.ericflo.winnow.data.SimCard
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.filled.Check
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
@@ -128,6 +133,8 @@ fun ThreadScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
+    val sims by viewModel.sims.collectAsStateWithLifecycle()
+    val selectedSim by viewModel.selectedSim.collectAsStateWithLifecycle()
     val blocked by viewModel.blocked.collectAsStateWithLifecycle()
     val scheduled by viewModel.scheduled.collectAsStateWithLifecycle()
     var confirmBlock by remember { mutableStateOf(false) }
@@ -242,6 +249,9 @@ fun ThreadScreen(
         },
         bottomBar = {
             Composer(
+                sims = sims,
+                selectedSim = sims.firstOrNull { it.subscriptionId == selectedSim },
+                onSelectSim = viewModel::selectSim,
                 draft = draft,
                 onDraftChange = viewModel::setDraft,
                 attachments = attachments,
@@ -284,7 +294,7 @@ fun ThreadScreen(
             onDetails = { detailsFor = message },
         )
     }
-    detailsFor?.let { message -> MessageDetailsDialog(message, state, onDismiss = { detailsFor = null }) }
+    detailsFor?.let { message -> MessageDetailsDialog(message, state, sims, onDismiss = { detailsFor = null }) }
     viewing?.let { ImageViewer(it, onDismiss = { viewing = null }) }
     if (confirmReport) {
         val spam = state.messages.lastOrNull { !it.outgoing }?.body.orEmpty()
@@ -742,7 +752,7 @@ private fun MessageActionsSheet(
 }
 
 @Composable
-private fun MessageDetailsDialog(message: ChatMessage, state: ThreadUiState, onDismiss: () -> Unit) {
+private fun MessageDetailsDialog(message: ChatMessage, state: ThreadUiState, sims: List<SimCard>, onDismiss: () -> Unit) {
     val at = Instant.ofEpochMilli(message.timestamp).atZone(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM))
     val rows = buildList {
@@ -757,6 +767,8 @@ private fun MessageDetailsDialog(message: ChatMessage, state: ThreadUiState, onD
             add("From" to if (name != null && name != number) "$name · $number" else number)
             add("Received" to at)
         }
+        // Which SIM only matters on a phone with more than one.
+        sims.firstOrNull { it.subscriptionId == message.subscriptionId }?.let { add("SIM" to "${it.slotName} · ${it.label}") }
         message.subject?.let { add("Subject" to it) }
         if (message.attachments.isNotEmpty()) add("Attachments" to message.attachments.joinToString { it.contentType })
         message.verdict?.let { v ->
@@ -784,6 +796,9 @@ private fun MessageDetailsDialog(message: ChatMessage, state: ThreadUiState, onD
 
 @Composable
 private fun Composer(
+    sims: List<SimCard>,
+    selectedSim: SimCard?,
+    onSelectSim: (Int) -> Unit,
     draft: String,
     onDraftChange: (String) -> Unit,
     attachments: List<OutgoingAttachment>,
@@ -822,7 +837,14 @@ private fun Composer(
                     IconButton(onClick = onAttach) { Icon(Icons.Outlined.AddCircle, contentDescription = "Attach a photo") }
                     Box(Modifier.weight(1f).padding(vertical = 16.dp)) {
                         if (draft.isEmpty()) {
-                            Text(if (isSms) "Text message" else "MMS message", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
+                            val kind = if (isSms) "Text message" else "MMS message"
+                            Text(
+                                selectedSim?.let { "$kind · ${it.label}" } ?: kind,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = colors.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                         BasicTextField(
                             value = draft,
@@ -834,10 +856,54 @@ private fun Composer(
                         )
                     }
                     if (isSms && draft.length >= 100) SegmentCounter(draft)
+                    if (sims.size >= 2 && selectedSim != null) SimPicker(sims, selectedSim, onSelectSim)
                 }
             }
             Spacer(Modifier.width(8.dp))
             SendButton(enabled = draft.isNotBlank() || attachments.isNotEmpty(), onSend = onSend, onSchedule = onSchedule)
+        }
+    }
+}
+
+/** A small badge with the SIM's number in its color; tapping it lists the SIMs to choose from. */
+@Composable
+private fun SimPicker(sims: List<SimCard>, selected: SimCard, onSelect: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Box(
+            Modifier
+                .padding(start = 8.dp)
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(Color(selected.color))
+                .clickable { open = true }
+                .semantics { contentDescription = "Sending from ${selected.slotName}, ${selected.label}. Change SIM" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("${selected.slot + 1}", style = MaterialTheme.typography.labelLarge, color = Color.White, fontWeight = FontWeight.Bold)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            sims.forEach { sim ->
+                DropdownMenuItem(
+                    leadingIcon = {
+                        Box(Modifier.size(24.dp).clip(CircleShape).background(Color(sim.color)), contentAlignment = Alignment.Center) {
+                            Text("${sim.slot + 1}", style = MaterialTheme.typography.labelMedium, color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    text = {
+                        Column {
+                            Text(sim.label, style = MaterialTheme.typography.bodyLarge)
+                            Text(sim.slotName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    trailingIcon = if (sim.subscriptionId == selected.subscriptionId) {
+                        { Icon(Icons.Filled.Check, contentDescription = "Selected") }
+                    } else {
+                        null
+                    },
+                    onClick = { open = false; onSelect(sim.subscriptionId) },
+                )
+            }
         }
     }
 }
