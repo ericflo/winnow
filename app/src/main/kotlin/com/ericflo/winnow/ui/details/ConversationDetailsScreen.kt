@@ -88,7 +88,14 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
 import com.ericflo.winnow.ui.components.MuteDialog
+import androidx.compose.ui.text.style.TextOverflow
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import com.ericflo.winnow.ui.components.allWebLinks
+import kotlinx.coroutines.flow.shareIn
 import com.ericflo.winnow.ui.components.mutedLabel
+
+/** Links listed in a conversation's details; the conversation itself has the rest. */
+private const val MAX_LINKS = 20
 
 data class DetailsUiState(
     val title: String,
@@ -126,9 +133,30 @@ class ConversationDetailsViewModel(
         reload()
     }
 
+    /** Loaded once for both the photos and the links. */
+    private val messages = (if (threadId >= 0) repo.messages(threadId) else flowOf(emptyList()))
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
     /** The conversation's photos and videos, newest first. */
-    val media: StateFlow<List<Attachment>> = (if (threadId >= 0) repo.messages(threadId) else flowOf(emptyList()))
+    val media: StateFlow<List<Attachment>> = messages
         .map { messages -> messages.flatMap { m -> m.attachments.filter { it.isImage || it.isVideo } }.asReversed() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    data class Link(val url: String, val host: String, val timestamp: Long)
+
+    /**
+     * Links shared in the conversation, newest first, each once. Not from a message Winnow
+     * flagged as fraud: its links are disabled in the conversation, and stay out of reach here.
+     */
+    val links: StateFlow<List<Link>> = messages
+        .map { messages ->
+            messages.asReversed().asSequence()
+                .filter { it.verdict?.isFraud != true }
+                .flatMap { m -> allWebLinks(m.body).map { url -> Link(url, url.toHttpUrlOrNull()?.host?.removePrefix("www.") ?: url, m.timestamp) } }
+                .distinctBy { it.url }
+                .take(MAX_LINKS)
+                .toList()
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The whole conversation as a text file, in a share sheet. */
@@ -226,9 +254,32 @@ fun ConversationDetailsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val media by viewModel.media.collectAsStateWithLifecycle()
+    val links by viewModel.links.collectAsStateWithLifecycle()
+    // A link about to be opened: the whole address first, so a look-alike is seen for what it is.
+    var opening by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var viewing by rememberSaveable { mutableStateOf<String?>(null) }
+    opening?.let { url ->
+        AlertDialog(
+            onDismissRequest = { opening = null },
+            title = { Text("Open this link?") },
+            text = { Text(url) },
+            confirmButton = {
+                TextButton(onClick = {
+                    opening = null
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                }) { Text("Open") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    opening = null
+                    val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("link", url))
+                }) { Text("Copy") }
+            },
+        )
+    }
     var watching by rememberSaveable { mutableStateOf<String?>(null) }
     val toast = { message: String -> Toast.makeText(context, message, Toast.LENGTH_SHORT).show() }
     val share = { attachment: Attachment ->
@@ -308,6 +359,18 @@ fun ConversationDetailsScreen(
                     supportingContent = { Text("Starts a new group with ${if (state.isGroup) "everyone here" else state.people.singleOrNull()?.name ?: "them"} and whoever you add") },
                     modifier = Modifier.clickable(onClick = onAddPeople),
                 )
+            }
+
+            if (links.isNotEmpty()) {
+                section("Links")
+                items(links, key = { "link-${it.url}" }) { link ->
+                    ListItem(
+                        leadingContent = { Icon(painterResource(R.drawable.ic_link), contentDescription = null) },
+                        headlineContent = { Text(link.host, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        supportingContent = { Text(link.url, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier.clickable(onClickLabel = "Open link") { opening = link.url },
+                    )
+                }
             }
 
             if (media.isNotEmpty()) {
