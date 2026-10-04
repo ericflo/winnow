@@ -1,6 +1,7 @@
 package com.ericflo.winnow.data
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -35,6 +36,8 @@ class SimCards(private val context: Context, private val debugFlags: () -> Boole
     private val subscriptions = context.getSystemService(SubscriptionManager::class.java)
     private val telephony = context.getSystemService(TelephonyManager::class.java)
 
+    // Lint can't follow canList() into the call; it checks READ_PHONE_STATE first.
+    @SuppressLint("MissingPermission")
     fun available(): List<SimCard> {
         val real = if (canList()) {
             runCatching { subscriptions.activeSubscriptionInfoList.orEmpty().map { it.toCard() } }.getOrDefault(emptyList())
