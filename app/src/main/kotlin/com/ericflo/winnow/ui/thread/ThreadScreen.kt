@@ -228,6 +228,10 @@ fun ThreadScreen(
     val contactPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickContact()) { uri ->
         if (uri != null) viewModel.attachContact(uri)
     }
+    // Without the contacts permission only a picked phone number's own row is readable.
+    val phonePicker = rememberLauncherForActivityResult(PickPhoneNumber) { uri ->
+        if (uri != null) viewModel.attachPhone(uri)
+    }
     // The camera app writes into a file of ours, so nothing depends on its permissions later.
     var cameraTarget by rememberSaveable { mutableStateOf<String?>(null) }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
@@ -361,7 +365,10 @@ fun ThreadScreen(
                     cameraTarget = android.net.Uri.fromFile(file).toString()
                     runCatching { camera.launch(uri) }.onFailure { cameraTarget = null }
                 },
-                onContact = { runCatching { contactPicker.launch(null) } },
+                onContact = {
+                    val canReadContacts = context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    runCatching { if (canReadContacts) contactPicker.launch(null) else phonePicker.launch(null) }
+                },
                 onRemoveAttachment = viewModel::removeAttachment,
                 isSms = single != null && attachments.isEmpty(),
                 onSend = viewModel::send,
@@ -591,6 +598,15 @@ private fun foldTapbacks(messages: List<ChatMessage>): Pair<List<ChatMessage>, M
     return shown to labels
 }
 
+/** The system's phone-number picker; the result is one readable Phone row. */
+private object PickPhoneNumber : androidx.activity.result.contract.ActivityResultContract<Unit?, android.net.Uri?>() {
+    override fun createIntent(context: android.content.Context, input: Unit?) =
+        android.content.Intent(android.content.Intent.ACTION_PICK).setType(android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE)
+
+    override fun parseResult(resultCode: Int, intent: android.content.Intent?): android.net.Uri? =
+        intent?.data.takeIf { resultCode == android.app.Activity.RESULT_OK }
+}
+
 /** Photo shapes already measured, so a bubble scrolled back into view doesn't jump from 4:3. */
 private val photoRatios = android.util.LruCache<String, Float>(512)
 
@@ -653,9 +669,15 @@ private fun MessageList(
     // A message arriving (or sent) while the newest ones are in view scrolls up into view. A
     // lazy list otherwise keeps the item that was at the bottom in place, leaving the new one
     // just below the edge. Someone reading further up is left where they are.
+    // "In view" means the previous newest message is still on screen; a new message can bring a
+    // time header with it, so its index alone doesn't say.
     val newestKey = items.firstOrNull()?.key
+    var shownNewest by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(newestKey) {
-        if (newestKey != null && focusKey == null && listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
+        val previous = shownNewest
+        shownNewest = newestKey
+        if (newestKey == null || focusKey != null) return@LaunchedEffect
+        if (previous == null || listState.layoutInfo.visibleItemsInfo.any { it.key == previous }) listState.animateScrollToItem(0)
     }
     LaunchedEffect(focusKey) {
         val index = items.indexOfFirst { it.key == focusKey }

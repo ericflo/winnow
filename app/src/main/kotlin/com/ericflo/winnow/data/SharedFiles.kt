@@ -22,7 +22,10 @@ class SharedFiles(private val context: Context) {
     fun import(uri: Uri, fallbackType: String? = null): OutgoingAttachment? {
         // Only another app's content. file:// (which would read with Winnow's own permissions,
         // its private files included) and the message stores Winnow alone can read are refused.
-        if (uri.scheme != "content" || uri.authority in privateAuthorities()) {
+        // The host, not the authority: "content://0@mms/part/1" names the same provider as
+        // "content://mms/part/1", and ContentResolver strips the user prefix.
+        val host = uri.host
+        if (uri.scheme != "content" || host == null || host in privateAuthorities()) {
             Log.w(TAG, "Refused a shared item from $uri")
             return null
         }
@@ -32,6 +35,8 @@ class SharedFiles(private val context: Context) {
             ?: fallbackType?.let { if (it.startsWith("video/")) "video/mp4" else if (it.startsWith("image/")) "image/jpeg" else null }
             ?: return null.also { Log.w(TAG, "Shared item has no type: $uri") }
         if (VCard.isVCard(type)) return importContact(uri)
+        // Winnow can read contacts and the other app may not, so nothing but a contact card comes from there.
+        if (host == ContactsContract.AUTHORITY) return null
         if (!type.startsWith("image/") && !type.startsWith("video/")) return null
         val name = runCatching {
             resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
@@ -49,9 +54,20 @@ class SharedFiles(private val context: Context) {
         val lookupKey = runCatching {
             context.contentResolver.query(contactUri, arrayOf(ContactsContract.Contacts.LOOKUP_KEY), null, null, null)
                 ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
-        }.getOrNull() ?: return null
-        return importContact(Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_VCARD_URI, lookupKey))
+        }.getOrNull()
+        return lookupKey?.let { importContact(Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_VCARD_URI, it)) }
     }
+
+    /**
+     * A card from a phone number picked with the system's number picker, for when Winnow can't
+     * read contacts: the picker's grant covers that one row, its name and number, and nothing more.
+     */
+    fun phoneCard(phoneUri: Uri): OutgoingAttachment? = runCatching {
+        context.contentResolver.query(phoneUri, arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER), null, null, null)
+            ?.use { c -> if (c.moveToFirst()) VCardContact(c.getString(0).orEmpty(), listOfNotNull(c.getString(1)?.takeIf { it.isNotBlank() }), emptyList()) else null }
+    }.onFailure { Log.w(TAG, "Couldn't read the picked number", it) }.getOrNull()
+        ?.takeIf { it.name.isNotEmpty() || it.phones.isNotEmpty() }
+        ?.let { saveCard(VCard.write(it), it) }
 
     /** Copies a vCard without its photo, which would rarely fit in an MMS; named for the contact. */
     private fun importContact(uri: Uri): OutgoingAttachment? {
@@ -62,6 +78,10 @@ class SharedFiles(private val context: Context) {
         val card = VCard.withoutPhotos(text)
         val contact = VCard.parse(card).firstOrNull() ?: return null
         if (card.length > VCard.MAX_BYTES) return null
+        return saveCard(card, contact)
+    }
+
+    private fun saveCard(card: String, contact: VCardContact): OutgoingAttachment {
         val name = contact.name.ifBlank { contact.phones.firstOrNull() ?: "Contact" }
         val file = File(dir, "${UUID.randomUUID()}.vcf")
         file.writeText(card)

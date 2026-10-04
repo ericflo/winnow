@@ -97,6 +97,24 @@ class MmsStore(private val context: Context) {
         resolver.update(uri, values, null, null)
     }
 
+    /**
+     * A placeholder already stored for this announcement, if the carrier is repeating itself.
+     * Matched on the content location, which names one message, else the transaction ID.
+     */
+    fun findNotification(contentLocation: String, transactionId: String): Uri? {
+        val (selection, args) = when {
+            contentLocation.isNotBlank() -> "${Mms.CONTENT_LOCATION} = ?" to arrayOf(contentLocation)
+            transactionId.isNotBlank() -> "${Mms.TRANSACTION_ID} = ?" to arrayOf(transactionId)
+            else -> return null
+        }
+        return resolver.query(Mms.CONTENT_URI, arrayOf(Mms._ID), "${Mms.MESSAGE_TYPE} = $MESSAGE_TYPE_NOTIFICATION_IND AND $selection", args, null)
+            ?.use { c -> if (c.moveToFirst()) android.content.ContentUris.withAppendedId(Mms.CONTENT_URI, c.getLong(0)) else null }
+    }
+
+    /** The placeholder's status column: [STATUS_DEFERRED], [STATUS_DOWNLOAD_FAILED], or null while it downloads. */
+    fun status(uri: Uri): Int? =
+        resolver.query(uri, arrayOf(Mms.STATUS), null, null, null)?.use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getInt(0) else null }
+
     /** Marks a placeholder as waiting for the user to download it. */
     fun markDeferred(uri: Uri) {
         resolver.update(uri, ContentValues().apply { put(Mms.STATUS, STATUS_DEFERRED) }, null, null)

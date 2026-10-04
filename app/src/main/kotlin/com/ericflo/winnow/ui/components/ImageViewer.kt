@@ -73,7 +73,8 @@ fun ImageViewer(
             HorizontalPager(
                 state = pager,
                 userScrollEnabled = !zoomed,
-                key = { images[it].uri },
+                // The index too: the same photo can be attached twice (sample conversations reuse one).
+                key = { "$it:${images[it].uri}" },
                 modifier = Modifier.fillMaxSize(),
             ) { page ->
                 ZoomableImage(

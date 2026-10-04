@@ -26,6 +26,9 @@ import com.ericflo.winnow.mms.RetrieveConf
 import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.coroutines.cancellation.CancellationException
+import com.ericflo.winnow.mms.AcknowledgeInd
+import com.ericflo.winnow.mms.MmsPdu
+import com.ericflo.winnow.mms.MmsStatus
 
 /**
  * Incoming MMS: a WAP push announces a message, the system MMS service downloads it, and the
@@ -48,6 +51,12 @@ class MmsReceiver(
             Log.w(TAG, "Unreadable MMS notification", e)
             null
         } ?: return
+        // Carriers announce again when they think the first went unanswered.
+        store.findNotification(ind.contentLocation, ind.transactionId)?.let { existing ->
+            Log.i(TAG, "Repeated MMS notification ${ind.transactionId}; already have it")
+            if (store.status(existing) == MmsStore.STATUS_DEFERRED) acknowledge(NotifyRespInd(ind.transactionId, status = MmsStatus.DEFERRED), subscriptionId)
+            return
+        }
         val threadId = Telephony.Threads.getOrCreateThreadId(context, setOf(ind.from ?: UNKNOWN_SENDER))
         val placeholder = store.insertNotification(ind, threadId, subscriptionId) ?: run {
             Log.e(TAG, "Couldn't store MMS notification; is Winnow the default SMS app?")
@@ -55,7 +64,9 @@ class MmsReceiver(
         }
         if (!autoDownload(subscriptionId)) {
             store.markDeferred(placeholder)
-            incoming.onMmsDeferred(threadId, ind.from ?: UNKNOWN_SENDER, ind.messageSize)
+            // Tells the carrier it'll be fetched later, so it isn't announced again.
+            acknowledge(NotifyRespInd(ind.transactionId, status = MmsStatus.DEFERRED), subscriptionId)
+            incoming.onMmsDeferred(placeholder, threadId, ind.from ?: UNKNOWN_SENDER, ind.messageSize)
             return
         }
         try {
@@ -75,16 +86,17 @@ class MmsReceiver(
             placeholder, arrayOf(Telephony.Mms.TRANSACTION_ID, Telephony.Mms.SUBSCRIPTION_ID), null, null, null,
         )?.use { c -> if (c.moveToFirst()) c.getString(0).orEmpty() to c.getInt(1) else null }
             ?: ("" to SubscriptionManager.getDefaultSmsSubscriptionId())
+        val deferred = store.status(placeholder) == MmsStore.STATUS_DEFERRED
         context.contentResolver.update(placeholder, ContentValues().apply { putNull(Telephony.Mms.STATUS) }, null, null)
         try {
-            download(placeholder, location, transactionId, subscriptionId)
+            download(placeholder, location, transactionId, subscriptionId, deferred)
         } catch (e: Exception) {
             Log.w(TAG, "Couldn't restart the MMS download", e)
             store.markDownloadFailed(placeholder)
         }
     }
 
-    private fun download(placeholder: Uri, location: String, transactionId: String, subscriptionId: Int) {
+    private fun download(placeholder: Uri, location: String, transactionId: String, subscriptionId: Int, deferred: Boolean = false) {
         val file = files.newFile("retrieve")
         val done = PendingIntent.getBroadcast(
             context, placeholder.lastPathSegment?.toIntOrNull() ?: 0,
@@ -92,7 +104,8 @@ class MmsReceiver(
                 .setData(placeholder)
                 .putExtra(EXTRA_FILE, file.path)
                 .putExtra(EXTRA_TRANSACTION_ID, transactionId)
-                .putExtra(EXTRA_SUBSCRIPTION, subscriptionId),
+                .putExtra(EXTRA_SUBSCRIPTION, subscriptionId)
+                .putExtra(EXTRA_DEFERRED, deferred),
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         smsManager(subscriptionId).downloadMultimediaMessage(context, location, files.uriFor(file), null, done)
@@ -102,7 +115,15 @@ class MmsReceiver(
      * A downloaded m-retrieve-conf. [placeholder] is replaced by the real message; with
      * [acknowledge], the carrier is told the message arrived so it stops re-announcing it.
      */
-    suspend fun onDownloaded(placeholder: Uri?, pdu: ByteArray?, transactionId: String?, subscriptionId: Int, acknowledge: Boolean = true) {
+    suspend fun onDownloaded(
+        placeholder: Uri?,
+        pdu: ByteArray?,
+        transactionId: String?,
+        subscriptionId: Int,
+        acknowledge: Boolean = true,
+        /** Fetched after a deferred notification, which the spec confirms with m-acknowledge-ind instead. */
+        deferred: Boolean = false,
+    ) {
         val conf = pdu?.let {
             try {
                 PduParser.parse(it) as? RetrieveConf
@@ -122,7 +143,9 @@ class MmsReceiver(
             return
         }
         placeholder?.let(store::delete)
-        if (acknowledge) transactionId?.takeIf { it.isNotBlank() }?.let { acknowledge(it, subscriptionId) }
+        if (acknowledge) transactionId?.takeIf { it.isNotBlank() }?.let {
+            acknowledge(if (deferred) AcknowledgeInd(it) else NotifyRespInd(it), subscriptionId)
+        }
         val text = conf.parts.filter { it.contentType == ContentTypes.TEXT_PLAIN }.mapNotNull { it.text }.joinToString("\n")
         // Contacts are text/x-vcard, so "everything but the text and the layout", not "not text/".
         val media = conf.parts.map { it.contentType }.filter { it != ContentTypes.TEXT_PLAIN && it != ContentTypes.SMIL }
@@ -144,10 +167,10 @@ class MmsReceiver(
         return others.ifEmpty { listOfNotNull(conf.from).ifEmpty { listOf(UNKNOWN_SENDER) } }
     }
 
-    private fun acknowledge(transactionId: String, subscriptionId: Int) {
-        val file = files.write("ack", PduComposer.compose(NotifyRespInd(transactionId)))
+    private fun acknowledge(pdu: MmsPdu, subscriptionId: Int) {
+        val file = files.write("ack", PduComposer.compose(pdu))
         runCatching { smsManager(subscriptionId).sendMultimediaMessage(context, files.uriFor(file), null, null, null) }
-            .onFailure { Log.w(TAG, "Couldn't acknowledge MMS $transactionId", it) }
+            .onFailure { Log.w(TAG, "Couldn't acknowledge MMS ${pdu.transactionId}", it) }
     }
 
     private fun smsManager(subscriptionId: Int): SmsManager =
@@ -157,6 +180,7 @@ class MmsReceiver(
         const val EXTRA_FILE = "pdu_file"
         const val EXTRA_TRANSACTION_ID = "transaction_id"
         const val EXTRA_SUBSCRIPTION = "subscription"
+        const val EXTRA_DEFERRED = "deferred"
         private const val UNKNOWN_SENDER = "Unknown"
         private const val TAG = "WinnowMms"
     }
@@ -177,6 +201,7 @@ class MmsDownloadedReceiver : BroadcastReceiver() {
                     pdu = bytes,
                     transactionId = intent.getStringExtra(MmsReceiver.EXTRA_TRANSACTION_ID),
                     subscriptionId = intent.getIntExtra(MmsReceiver.EXTRA_SUBSCRIPTION, -1),
+                    deferred = intent.getBooleanExtra(MmsReceiver.EXTRA_DEFERRED, false),
                 )
             } catch (e: CancellationException) {
                 throw e

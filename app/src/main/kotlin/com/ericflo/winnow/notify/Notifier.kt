@@ -180,10 +180,23 @@ class Notifier(private val context: Context) {
         val system = context.getSystemService(NotificationManager::class.java)
         if (conversationChannel(system, shortcutId) == null) {
             val parent = system.getNotificationChannel(CHANNEL_MESSAGES)
-            system.createNotificationChannel(
-                NotificationChannel("$CHANNEL_MESSAGES:$shortcutId", title, parent?.importance ?: NotificationManager.IMPORTANCE_HIGH)
-                    .apply { setConversationId(CHANNEL_MESSAGES, shortcutId) },
-            )
+            // A copy of Messages as the user has it, since an app can't change a channel's sound
+            // or vibration once it exists; Android's own conversation channels copy it too.
+            val channel = NotificationChannel("$CHANNEL_MESSAGES:$shortcutId", title, parent?.importance ?: NotificationManager.IMPORTANCE_HIGH).apply {
+                setConversationId(CHANNEL_MESSAGES, shortcutId)
+                parent?.let { p ->
+                    description = p.description
+                    setSound(p.sound, p.audioAttributes)
+                    enableVibration(p.shouldVibrate())
+                    vibrationPattern = p.vibrationPattern
+                    enableLights(p.shouldShowLights())
+                    lightColor = p.lightColor
+                    setShowBadge(p.canShowBadge())
+                    lockscreenVisibility = p.lockscreenVisibility
+                    group = p.group
+                }
+            }
+            system.createNotificationChannel(channel)
         }
         return Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
             .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)

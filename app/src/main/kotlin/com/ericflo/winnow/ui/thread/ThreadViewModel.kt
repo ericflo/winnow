@@ -213,6 +213,12 @@ class ThreadViewModel(
     suspend fun shareIntent(attachments: List<Attachment>): android.content.Intent? =
         withContext(Dispatchers.IO) { container.mediaExport.shareIntent(attachments) }
 
+    /** Attaches a card for a number from the phone-number picker. */
+    fun attachPhone(phone: android.net.Uri) = launch {
+        val card = withContext(Dispatchers.IO) { container.sharedFiles.phoneCard(phone) }
+        if (card != null) addAttachment(card) else _notices.emit("Couldn't read that contact")
+    }
+
     /** Attaches a contact from the picker as a vCard. */
     fun attachContact(contact: android.net.Uri) = launch {
         val card = withContext(Dispatchers.IO) { container.sharedFiles.contactCard(contact) }

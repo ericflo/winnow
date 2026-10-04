@@ -72,19 +72,43 @@ object VCard {
     fun withoutPhotos(text: String): String =
         unfold(text).filterNot { line -> split(line)?.first in setOf("PHOTO", "LOGO") }.joinToString("\r\n", postfix = "\r\n")
 
-    /** Logical lines: folded continuations (leading space or tab) and quoted-printable soft breaks rejoined. */
+    /**
+     * Logical lines: folded continuations (leading space or tab) and quoted-printable soft breaks
+     * rejoined. Linear in the input, since a hostile card can fold one line thousands of times.
+     */
     private fun unfold(text: String): List<String> {
-        val lines = mutableListOf<String>()
+        val lines = mutableListOf<StringBuilder>()
+        var quotedPrintable = false
         for (raw in text.replace("\r\n", "\n").replace('\r', '\n').split('\n')) {
             val last = lines.lastOrNull()
             when {
-                last != null && (raw.startsWith(" ") || raw.startsWith("\t")) -> lines[lines.size - 1] = last + raw.substring(1)
-                last != null && isQuotedPrintable(last) && last.endsWith("=") -> lines[lines.size - 1] = last.dropLast(1) + raw
-                raw.isNotBlank() -> lines += raw
+                last != null && (raw.startsWith(" ") || raw.startsWith("\t")) -> last.append(raw, 1, raw.length)
+                last != null && quotedPrintable && last.endsWith('=') -> {
+                    last.setLength(last.length - 1)
+                    last.append(raw)
+                }
+                raw.isNotBlank() -> {
+                    lines += StringBuilder(raw)
+                    // Parameters are on a property's first line, so this is decided once per property.
+                    quotedPrintable = isQuotedPrintable(raw)
+                }
             }
         }
-        return lines
+        return lines.map { it.toString() }
     }
+
+    /** A minimal vCard 3.0 for [contact], for when the Contacts provider's own export isn't readable. */
+    fun write(contact: VCardContact): String = buildString {
+        append("BEGIN:VCARD\r\nVERSION:3.0\r\n")
+        append("FN:").append(escape(contact.name)).append("\r\n")
+        append("N:;").append(escape(contact.name)).append(";;;\r\n")
+        contact.phones.forEach { append("TEL;TYPE=CELL:").append(escape(it)).append("\r\n") }
+        contact.emails.forEach { append("EMAIL;TYPE=INTERNET:").append(escape(it)).append("\r\n") }
+        append("END:VCARD\r\n")
+    }
+
+    private fun escape(value: String) =
+        value.replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
 
     /** `item1.TEL;TYPE=CELL:+1 555` → ("TEL", ["TYPE=CELL"], "+1 555"). */
     private fun split(line: String): Triple<String, List<String>, String>? {

@@ -76,6 +76,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import android.widget.Toast
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.draw.clip
@@ -291,7 +292,7 @@ fun ConversationDetailsScreen(viewModel: ConversationDetailsViewModel, onBack: (
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                     ) {
-                        items(media, key = { it.uri }) { attachment ->
+                        itemsIndexed(media, key = { i, a -> "$i:${a.uri}" }) { _, attachment ->
                             AttachmentThumbnail(
                                 attachment.uri,
                                 attachment.contentType,

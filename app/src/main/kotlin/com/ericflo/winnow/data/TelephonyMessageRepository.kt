@@ -57,6 +57,8 @@ class TelephonyMessageRepository(
         val date: Long,
         val outgoing: Boolean,
         val unread: Boolean,
+        /** An MMS announced but not downloaded: it has no verdict of its own. */
+        val placeholder: Boolean = false,
     ) {
         val key: String get() = ChatMessage.messageKey(kind, id)
     }
@@ -334,7 +336,8 @@ class TelephonyMessageRepository(
                 verdict = null,
                 photoUri = people.singleOrNull()?.let(contacts::photoUri),
             )
-            summary to newest.key.takeIf { !newest.outgoing }
+            // A placeholder has no verdict yet, so the thread keeps its latest one instead of losing it.
+            summary to newest.key.takeIf { !newest.outgoing && !newest.placeholder }
         }.sortedByDescending { it.first.timestamp }
     }
 
@@ -344,14 +347,15 @@ class TelephonyMessageRepository(
         resolver.query(
             MMS_SMS_CONVERSATIONS,
             // No transport_type here: some providers lack the column. An SMS row has a type, an MMS row a msg_box.
-            arrayOf("_id", "thread_id", "normalized_date", Telephony.Sms.TYPE, Telephony.Mms.MESSAGE_BOX),
+            arrayOf("_id", "thread_id", "normalized_date", Telephony.Sms.TYPE, Telephony.Mms.MESSAGE_BOX, Telephony.Mms.MESSAGE_TYPE),
             null, null, null,
         )?.use { c ->
             while (c.moveToNext()) {
                 val threadId = c.getLong(1)
                 val isSms = !c.isNull(3)
                 val incoming = if (isSms) c.getInt(3) == Telephony.Sms.MESSAGE_TYPE_INBOX else c.getInt(4) == Telephony.Mms.MESSAGE_BOX_INBOX
-                val head = Head(if (isSms) Kind.SMS else Kind.MMS, c.getLong(0), threadId, c.getLong(2), outgoing = !incoming, unread = false)
+                val placeholder = !isSms && !c.isNull(5) && c.getInt(5) == MESSAGE_TYPE_NOTIFICATION_IND
+                val head = Head(if (isSms) Kind.SMS else Kind.MMS, c.getLong(0), threadId, c.getLong(2), outgoing = !incoming, unread = false, placeholder = placeholder)
                 // Two messages can share a thread's newest timestamp; keep one.
                 if ((newest[threadId]?.date ?: Long.MIN_VALUE) < head.date) newest[threadId] = head
             }

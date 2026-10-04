@@ -190,7 +190,10 @@ Confidence below `ActionPolicy.minConfidence` (0.7) softens the action one step
   photo doesn't trip it. It fails open if the phone can no longer authenticate (the screen
   lock was removed). The cover is its own `LockActivity` above the task rather than a
   composable, so it also hides dialogs, sheets and viewers that were open when Winnow left
-  the screen; Back from it sends the task home instead of revealing them.
+  the screen; Back from it sends the task home instead of revealing them. A link, share or
+  notification reaching the singleTask `MainActivity` clears LockActivity, so `onResume` and
+  `onNewIntent` open it again while locked, and the app's own content stays covered underneath
+  in the meantime.
   `setRecentsScreenshotEnabled(false)` blanks the recents card on 13+ (`FLAG_SECURE` below).
 - **Theme and text size:** the theme setting goes to `UiModeManager.setApplicationNightMode`
   (Android 12+ keeps a night mode per app), so system bars and dialogs follow it with no

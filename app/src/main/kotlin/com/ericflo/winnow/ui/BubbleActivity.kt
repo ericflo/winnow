@@ -38,7 +38,7 @@ class BubbleActivity : ComponentActivity() {
         setContent {
             WinnowTheme {
                 val lock by container.appLock.state.collectAsStateWithLifecycle()
-                LaunchedEffect(lock) { if (lock == AppLock.State.LOCKED) startActivity(Intent(this@BubbleActivity, LockActivity::class.java)) }
+                LaunchedEffect(lock) { if (lock == AppLock.State.LOCKED) LockActivity.show(this@BubbleActivity) }
                 Box(Modifier.fillMaxSize()) {
                     ThreadScreen(
                         viewModel = viewModel { ThreadViewModel(container, threadId, splitAddresses(recipients), inBubble = true) },
@@ -56,7 +56,9 @@ class BubbleActivity : ComponentActivity() {
                         },
                         onMessageNumber = { number -> openApp(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${Uri.encode(number)}"))) },
                     )
-                    if (lock == AppLock.State.CHECKING) LockScreen(checking = true, onUnlock = {})
+                    if (lock != AppLock.State.UNLOCKED) {
+                        LockScreen(checking = lock == AppLock.State.CHECKING, onUnlock = { container.appLock.authenticate(this@BubbleActivity) })
+                    }
                 }
             }
         }
@@ -70,6 +72,11 @@ class BubbleActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         container.appLock.onStop()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (container.appLock.state.value == AppLock.State.LOCKED) LockActivity.show(this)
     }
 
     private fun openApp(intent: Intent) {

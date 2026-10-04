@@ -65,4 +65,19 @@ class VCardTest {
         assertTrue(VCard.isVCard("TEXT/X-VCARD"))
         assertFalse(VCard.isVCard("text/plain"))
     }
+
+    @Test
+    fun `cards Winnow writes read back the same`() {
+        val contact = VCardContact("Smith, Jr.; Pat", listOf("(415) 555-0100", "+1 415 555 0101"), listOf("pat@example.com"))
+        assertEquals(listOf(contact), VCard.parse(VCard.write(contact)))
+    }
+
+    @Test
+    fun `a card folded thousands of times parses quickly`() {
+        val folded = "BEGIN:VCARD\r\nFN:" + "x".repeat(10) + "\r\n a".repeat(120_000) + "\r\nEND:VCARD\r\n"
+        val started = System.nanoTime()
+        val parsed = VCard.parse(folded).single()
+        assertEquals(10 + 120_000, parsed.name.length)
+        assertTrue("took ${(System.nanoTime() - started) / 1_000_000} ms", System.nanoTime() - started < 2_000_000_000L)
+    }
 }

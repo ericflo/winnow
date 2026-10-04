@@ -41,7 +41,8 @@
         <!-- The app lock, stacked on top of whatever is open. -->
         <activity
             android:name=".ui.lock.LockActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:launchMode="singleTop" />
         <!-- A conversation in a chat bubble. Bubbles need an embeddable, resizable activity. -->
         <activity
             android:name=".ui.BubbleActivity"

@@ -75,7 +75,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             WinnowTheme {
                 val lock by appLock.state.collectAsStateWithLifecycle()
-                LaunchedEffect(lock) { if (lock == AppLock.State.LOCKED) startActivity(Intent(this@MainActivity, LockActivity::class.java)) }
+                LaunchedEffect(lock) { if (lock == AppLock.State.LOCKED) showLock() }
                 Box(Modifier.fillMaxSize()) {
                     WinnowNavHost(
                         container = container,
@@ -83,8 +83,11 @@ class MainActivity : ComponentActivity() {
                         onRouteConsumed = { pendingRoute.value = null },
                         onMakeDefault = ::requestDefaultSmsRole,
                     )
-                    // Until settings say whether the lock is on, cover the app. LockActivity covers it after that.
-                    if (lock == AppLock.State.CHECKING) LockScreen(checking = true, onUnlock = {})
+                    // Covered whenever not unlocked: while settings load, and under LockActivity, so
+                    // nothing shows in the frames before it opens or if something clears it away.
+                    if (lock != AppLock.State.UNLOCKED) {
+                        LockScreen(checking = lock == AppLock.State.CHECKING, onUnlock = { appLock.authenticate(this@MainActivity) })
+                    }
                 }
             }
         }
@@ -103,12 +106,18 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleIntent(intent)
+        // A link, share or notification reaching this singleTask activity clears everything
+        // above it in the task, LockActivity included.
+        if (appLock.state.value == AppLock.State.LOCKED) showLock()
     }
 
     override fun onResume() {
         super.onResume()
         container.refreshAccess()
+        if (appLock.state.value == AppLock.State.LOCKED) showLock()
     }
+
+    private fun showLock() = LockActivity.show(this)
 
     private fun requestDefaultSmsRole() {
         val roles = getSystemService(RoleManager::class.java)

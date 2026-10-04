@@ -79,7 +79,8 @@ class MediaExport(private val context: Context) {
 
     /** A share sheet for [text] as a .txt file named [fileName], for exporting a conversation. */
     fun shareText(fileName: String, text: String): Intent? = runCatching {
-        val safe = fileName.replace(Regex("""[/\\:*?"<>|\u0000-\u001f]"""), " ").trim().ifEmpty { "Conversation" }
+        // Under the filesystem's 255-byte name limit, even for a group of many numbers.
+        val safe = fileName.replace(Regex("""[/\\:*?"<>|\u0000-\u001f]"""), " ").trim().take(100).trim().ifEmpty { "Conversation" }
         val file = File(File(outbox, UUID.randomUUID().toString()).apply { mkdirs() }, "$safe.txt")
         file.writeText(text)
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.mms", file)

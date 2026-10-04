@@ -69,13 +69,22 @@ class IncomingMessageHandler(
 
     /**
      * An MMS left on the carrier's server for the user to fetch. With no content there's
-     * nothing to classify, so only sender rules, mute and the open conversation decide whether
-     * it notifies. Once downloaded, it goes through [onMmsStored] like any other.
+     * nothing to classify, so the sender's rule and the conversation's last verdict stand in:
+     * a filtered conversation stays quietly filtered, a silenced one stays silent. Once
+     * downloaded, it goes through [onMmsStored] like any other.
      */
-    suspend fun onMmsDeferred(threadId: Long, sender: String, sizeBytes: Long) {
-        if (dao.senderRule(normalizeAddress(sender)) == SenderRule.ALWAYS_FILTER.name) return
+    suspend fun onMmsDeferred(uri: Uri, threadId: Long, sender: String, sizeBytes: Long) {
+        val last = dao.latestForThread(threadId)?.let { it.userAction ?: it.action }
+        if (dao.senderRule(normalizeAddress(sender)) == SenderRule.ALWAYS_FILTER.name || last == Action.FILTER.name) {
+            withContext(Dispatchers.IO) { markRead(uri) }
+            return
+        }
         states.unarchive(threadId)
-        if (visibleThread.value == threadId || states.get(threadId).muted) return
+        if (visibleThread.value == threadId) {
+            withContext(Dispatchers.IO) { markRead(uri) }
+            return
+        }
+        if (last == Action.SILENCE.name || states.get(threadId).muted) return
         notifier.showMessage(
             threadId = threadId,
             recipients = listOf(sender),

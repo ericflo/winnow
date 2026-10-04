@@ -227,6 +227,9 @@ interface VerdictDao {
     @Query("UPDATE verdicts SET userAction = :userAction WHERE threadId = :threadId")
     suspend fun setUserAction(threadId: Long, userAction: String?)
 
+    @Query("SELECT * FROM verdicts WHERE threadId = :threadId ORDER BY decidedAt DESC LIMIT 1")
+    suspend fun latestForThread(threadId: Long): VerdictEntity?
+
     @Query("SELECT userAction FROM verdicts WHERE threadId = :threadId AND userAction IS NOT NULL LIMIT 1")
     suspend fun userAction(threadId: Long): String?
 

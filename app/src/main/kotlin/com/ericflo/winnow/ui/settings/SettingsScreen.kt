@@ -279,12 +279,17 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
             section("Security")
             item("app-lock") {
                 val secure = viewModel.deviceIsSecure()
+                // Stays switchable while on, so it can be turned off even after the screen lock is
+                // removed, rather than quietly coming back when one is set again.
                 SwitchRow(
                     "Lock Winnow",
-                    if (secure) "Ask for your fingerprint, face or screen lock to open Winnow after a minute away"
-                    else "Set a screen lock in Android's settings first",
-                    s.appLock && secure,
-                    enabled = secure,
+                    when {
+                        secure -> "Ask for your fingerprint, face or screen lock to open Winnow after a minute away"
+                        s.appLock -> "Paused: set a screen lock in Android's settings to use it"
+                        else -> "Set a screen lock in Android's settings first"
+                    },
+                    s.appLock,
+                    enabled = secure || s.appLock,
                     onChange = viewModel::setAppLock,
                 )
             }
