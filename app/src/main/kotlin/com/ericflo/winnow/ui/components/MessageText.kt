@@ -30,10 +30,11 @@ private const val STREET_TYPES = "St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr
     "Hwy|Highway|Ter|Terrace|Cir|Circle|Sq|Square|Trl|Trail|Plaza"
 // Words as often English as streets: only at the end of the address, before punctuation or a unit.
 private const val AMBIGUOUS_TYPES = "Dr|Way|Loop"
-private const val NOT_STREET_WORDS = "AM|PM|A|An|And|At|By|For|From|In|Is|Its|It's|My|Of|On|Or|Our|The|Then|This|To|With|Your|I|I'll|I'm|We|You"
+private const val NOT_STREET_WORDS = "AM|PM|A|An|And|At|By|Can|Could|For|From|In|Is|Its|It's|My|Near|Of|On|Or|Our|Should|The|Then|This|To|Will|With|Would|" +
+    "Your|I|I'll|I'm|We|You|Mom|Dad"
 private val ADDRESS = Regex(
     """(?<![\w#:/.$])\d{1,6}(?:\s+[NSEW]\.?)?(?:\s+(?!(?:$NOT_STREET_WORDS)\b)(?:[A-Z][A-Za-z'.-]*|\d{1,3}(?:st|nd|rd|th))){1,4}""" +
-        """\s+(?:(?:$STREET_TYPES)\b\.?|(?:$AMBIGUOUS_TYPES)\b\.?(?=\s*$|\s*[,;!?)]|\s+(?:Apt|Suite|Ste|Unit|#)))""" +
+        """\s+(?:(?:$STREET_TYPES)\b\.?|(?:$AMBIGUOUS_TYPES)\b\.?(?=\s*$|\s*[,;!?)\n]|\.(?:\s|$)|\s+(?:Apt|Suite|Ste|Unit|#)))""" +
         """(?:,?\s+(?:Apt|Suite|Ste|Unit|#)\.?\s*[A-Za-z0-9-]{1,6})?""" +
         """(?:,\s*[A-Z][A-Za-z.]*(?:\s+[A-Z][A-Za-z.]*){0,3},\s*[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?)?""",
 )

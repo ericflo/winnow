@@ -63,6 +63,10 @@ class MessageTextTest {
         // The ambiguous ones still work where an address ends.
         assertEquals(listOf("geo:0,0?q=42%20Wallaby%20Way"), links("P. Sherman, 42 Wallaby Way, Sydney"))
         assertEquals(listOf("geo:0,0?q=9%20Elm%20Dr"), links("Party at 9 Elm Dr!"))
+        assertEquals(listOf("geo:0,0?q=42%20Wallaby%20Way"), links("It's 42 Wallaby Way. See you"))
+        assertEquals(listOf("geo:0,0?q=42%20Wallaby%20Way"), links("42 Wallaby Way\nSydney"))
+        assertEquals(emptyList<String>(), links("See you at 5 Mom Will Drive"))
+        assertEquals(emptyList<String>(), links("Top 3 Restaurants Near Times Square"))
     }
 
     @Test

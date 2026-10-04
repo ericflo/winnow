@@ -27,6 +27,9 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
@@ -318,13 +321,19 @@ class ThreadViewModel(
      * Copies the composer's attachments into draft storage, swaps the copies in, and saves the
      * list with the conversation, so the draft survives the app being closed.
      */
-    private suspend fun keepAttachments(id: Long) {
+    private suspend fun keepAttachments(id: Long) = attachmentLock.withLock {
         val now = _attachments.value
         val kept = withContext(Dispatchers.IO) { now.associateWith { drafts.keep(it) ?: it } }
+        kept.forEach { (old, new) -> if (old != new) keptAs[old] = new }
         // Changes made meanwhile stay; only the copied ones are swapped.
         _attachments.value = _attachments.value.map { kept[it] ?: it }
         states.saveDraftAttachments(id, drafts.encode(_attachments.value))
     }
+
+    /** Keeping a draft's attachments and rotating one take turns, so neither undoes the other. */
+    private val attachmentLock = Mutex()
+    /** What each attachment was replaced by (kept as a draft, or turned), so a tap on the old one finds it. Guarded by [attachmentLock]. */
+    private val keptAs = HashMap<OutgoingAttachment, OutgoingAttachment>()
 
     /** A message that failed after an earlier screen for this conversation had gone: back into the composer. */
     private suspend fun takeReturned(id: Long) {
@@ -553,16 +562,25 @@ class ThreadViewModel(
         if (card != null) addAttachment(card) else _notices.emit("Couldn't read that contact")
     }
 
-    /** Turns a photo in the composer a quarter-turn clockwise, in its place. */
+    /**
+     * Turns a photo in the composer a quarter-turn clockwise, in its place. Taps queue: two quick
+     * ones turn it twice, each following the copy the one before (or the draft) left.
+     */
     fun rotateAttachment(attachment: OutgoingAttachment) = launch {
-        val turned = withContext(Dispatchers.IO) { container.sharedFiles.rotated(attachment) }
-        if (turned == null) {
-            _notices.emit("Couldn't rotate that photo")
-            return@launch
+        attachmentLock.withLock {
+            // Replaced since the tap (turned, or kept as a draft): turn what replaced it. Gone (sent, removed): nothing to do.
+            var current = attachment
+            repeat(MAX_KEPT_HOPS) { if (current !in _attachments.value) current = keptAs[current] ?: return@withLock }
+            if (current !in _attachments.value) return@withLock
+            val turned = withContext(Dispatchers.IO) { container.sharedFiles.rotated(current) }
+            if (turned == null) {
+                _notices.emit("Couldn't rotate that photo")
+                return@withLock
+            }
+            keptAs[current] = turned
+            _attachments.value = _attachments.value.map { if (it == current) turned else it }
+            withContext(Dispatchers.IO) { container.sharedFiles.discardCopy(current) }
         }
-        // Gone meanwhile (sent, or removed): the copy isn't wanted.
-        if (attachment !in _attachments.value) return@launch
-        _attachments.value = _attachments.value.map { if (it == attachment) turned else it }
     }
 
     fun removeAttachment(attachment: OutgoingAttachment) {
@@ -847,6 +865,8 @@ class ThreadViewModel(
     }
 
     private companion object {
+        /** How far a tap follows an attachment's replacements (rotations and draft copies). */
+        const val MAX_KEPT_HOPS = 16
         /** Less than this left for a video, and it would be a smudge. */
         const val MIN_VIDEO_ROOM = 150_000L
     }

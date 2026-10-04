@@ -157,7 +157,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun setQuickReplies(value: List<String>) = update { it.copy(quickReplies = value.map(String::trim).filter(String::isNotEmpty).distinct()) }
 
     fun setDailySummary(value: Boolean) {
-        viewModelScope.launch {
+        // The app's scope: leaving Settings straight away mustn't skip arming it.
+        container.appScope.launch {
             container.settings.update { it.copy(dailySummary = value) }
             container.dailySummary.rearm()
         }

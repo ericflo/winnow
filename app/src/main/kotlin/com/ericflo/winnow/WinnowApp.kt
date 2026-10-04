@@ -123,7 +123,7 @@ class AppContainer(private val context: Context) {
     val classifiers by lazy { ClassifierFactory(OkHttpTransport()) { learner.classifier() } }
     val contacts by lazy { ContactLookup(context, appScope) }
     val smartLinks by lazy { com.ericflo.winnow.data.SmartLinks(context) }
-    val dailySummary by lazy { com.ericflo.winnow.notify.DailySummary(context, verdictDao, settings, notifier) }
+    val dailySummary by lazy { com.ericflo.winnow.notify.DailySummary(context, verdictDao, settings, notifier, ::isDefaultSmsApp) }
     val notifier by lazy {
         Notifier(context).also { notifier -> appScope.launch { settings.settings.collect { notifier.quickReplies = it.quickReplies } } }
     }

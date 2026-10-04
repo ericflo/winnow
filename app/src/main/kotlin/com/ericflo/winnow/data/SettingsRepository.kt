@@ -131,6 +131,8 @@ data class WinnowSettings(
     val dailySummary: Boolean = false,
     /** "Not now" on the group conversations' card asking for the Phone numbers permission. This phone's only. */
     val ownNumberCardDismissed: Boolean = false,
+    /** When the last daily summary went out (or had nothing to say); 0 for never. This phone's only. */
+    val dailySummaryLastAt: Long = 0,
     /** Fetch link previews for texts from people you know. Off by default: fetching tells the site your IP. */
     val linkPreviews: Boolean = false,
     /** A folder (SAF tree URI) for weekly automatic backups; this phone's only, never backed up. */
@@ -214,6 +216,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             quickReplies = this[QUICK_REPLIES]?.let { runCatching { Json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrNull() } ?: DEFAULT_QUICK_REPLIES,
             dailySummary = this[DAILY_SUMMARY] ?: false,
             ownNumberCardDismissed = this[OWN_NUMBER_CARD_DISMISSED] ?: false,
+            dailySummaryLastAt = this[DAILY_SUMMARY_LAST_AT] ?: 0,
             filteredPhrases = this[FILTERED_PHRASES]?.let { runCatching { Json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrNull() }.orEmpty(),
             autoBackupFolder = this[AUTO_BACKUP_FOLDER],
             autoBackupLast = this[AUTO_BACKUP_LAST] ?: 0,
@@ -261,6 +264,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[FILTERED_PHRASES] = Json.encodeToString(ListSerializer(String.serializer()), s.filteredPhrases)
         this[DAILY_SUMMARY] = s.dailySummary
         this[OWN_NUMBER_CARD_DISMISSED] = s.ownNumberCardDismissed
+        this[DAILY_SUMMARY_LAST_AT] = s.dailySummaryLastAt
         s.autoBackupFolder?.let { this[AUTO_BACKUP_FOLDER] = it } ?: remove(AUTO_BACKUP_FOLDER)
         this[AUTO_BACKUP_LAST] = s.autoBackupLast
         s.autoBackupError?.let { this[AUTO_BACKUP_ERROR] = it } ?: remove(AUTO_BACKUP_ERROR)
@@ -297,6 +301,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val FILTERED_PHRASES = stringPreferencesKey("filter.phrases")
         val DAILY_SUMMARY = booleanPreferencesKey("filter.daily_summary")
         val OWN_NUMBER_CARD_DISMISSED = booleanPreferencesKey("ui.own_number_card_dismissed")
+        val DAILY_SUMMARY_LAST_AT = longPreferencesKey("filter.daily_summary_last_at")
         val AUTO_SAVE_MEDIA = booleanPreferencesKey("mms.auto_save_media")
         val AUTO_BACKUP_FOLDER = stringPreferencesKey("backup.auto_folder")
         val AUTO_BACKUP_LAST = longPreferencesKey("backup.auto_last")

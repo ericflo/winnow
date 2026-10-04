@@ -121,26 +121,41 @@ class SharedFiles(private val context: Context) {
         val resolver = context.contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0 || bounds.outWidth.toLong() * bounds.outHeight > 100_000_000L) return null
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= ROTATED_EDGE_PX) sample *= 2
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > ROTATED_EDGE_PX) sample *= 2
         val bitmap = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
             ?: return null
         val orientation = resolver.openInputStream(uri)?.use { input ->
-            when (ExifInterface(input).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> 90
-                ExifInterface.ORIENTATION_ROTATE_180 -> 180
-                ExifInterface.ORIENTATION_ROTATE_270 -> 270
-                else -> 0
+            ExifInterface(input).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        } ?: ExifInterface.ORIENTATION_NORMAL
+        // The camera's orientation as the thumbnail shows it (mirrors too), then the quarter-turn.
+        val matrix = Matrix().apply {
+            when (orientation) {
+                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> postScale(-1f, 1f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> postRotate(180f)
+                ExifInterface.ORIENTATION_FLIP_VERTICAL -> postScale(1f, -1f)
+                ExifInterface.ORIENTATION_TRANSPOSE -> { postRotate(90f); postScale(-1f, 1f) }
+                ExifInterface.ORIENTATION_ROTATE_90 -> postRotate(90f)
+                ExifInterface.ORIENTATION_TRANSVERSE -> { postRotate(270f); postScale(-1f, 1f) }
+                ExifInterface.ORIENTATION_ROTATE_270 -> postRotate(270f)
             }
-        } ?: 0
-        val turned = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, Matrix().apply { postRotate((orientation + 90).toFloat()) }, true)
+            postRotate(90f)
+        }
+        val turned = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
         val file = File(dir, "${UUID.randomUUID()}.jpg")
         file.outputStream().use { turned.compress(Bitmap.CompressFormat.JPEG, 92, it) }
         if (turned !== bitmap) turned.recycle()
         bitmap.recycle()
         OutgoingAttachment(Uri.fromFile(file).toString(), "image/jpeg", attachment.name?.substringBeforeLast('.')?.let { "$it.jpg" })
     }.onFailure { Log.w(TAG, "Couldn't rotate a photo", it) }.getOrNull()
+
+    /** Deletes [attachment]'s file if it's one of the copies here (a rotation's, say), now replaced. */
+    fun discardCopy(attachment: OutgoingAttachment) {
+        val path = Uri.parse(attachment.uri).takeIf { it.scheme == "file" }?.path ?: return
+        val file = File(path).canonicalFile
+        if (file.parentFile == dir.canonicalFile) file.delete()
+    }
 
     private fun privateAuthorities() = setOf("${context.packageName}.mms", "mms", "sms", "mms-sms")
 

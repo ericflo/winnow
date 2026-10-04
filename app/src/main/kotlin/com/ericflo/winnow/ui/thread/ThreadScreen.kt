@@ -1102,6 +1102,9 @@ private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter:
 
 private val REPORTABLE = setOf(Category.SPAM, Category.SCAM, Category.PHISHING)
 
+/** Camera photos: the ones a rotation re-encodes without losing anything that matters. */
+private val ROTATABLE = setOf("image/jpeg", "image/jpg", "image/heic", "image/heif")
+
 /** More than this many links, and the rest are copied with the text. */
 private const val MAX_COPY_LINKS = 3
 
@@ -1919,7 +1922,7 @@ private fun Composer(
     onCamera: () -> Unit,
     onContact: () -> Unit,
     onRemoveAttachment: (OutgoingAttachment) -> Unit,
-    /** A photo turned a quarter-turn; GIFs, which would stop moving, aren't offered it. */
+    /** A photo turned a quarter-turn: camera photos only, not stickers or GIFs, which would lose motion or transparency. */
     onRotateAttachment: (OutgoingAttachment) -> Unit = {},
     onVoice: () -> Unit = {},
     onVideo: () -> Unit = {},
@@ -1993,7 +1996,7 @@ private fun Composer(
                                 .clickable(onClickLabel = "Remove attachment") { onRemoveAttachment(attachment) },
                             contentAlignment = Alignment.Center,
                         ) { Icon(Icons.Filled.Close, contentDescription = "Remove attachment", modifier = Modifier.size(16.dp)) }
-                        if (attachment.contentType.startsWith("image/") && attachment.contentType != "image/gif") {
+                        if (attachment.contentType.lowercase() in ROTATABLE) {
                             Box(
                                 Modifier.align(Alignment.BottomStart).padding(4.dp).size(26.dp).clip(CircleShape)
                                     .background(colors.surface.copy(alpha = 0.85f))

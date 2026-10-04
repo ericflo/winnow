@@ -11,7 +11,9 @@ import com.ericflo.winnow.WinnowApp
 import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.SettingsRepository
 import com.ericflo.winnow.data.db.VerdictDao
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -27,26 +29,61 @@ class DailySummary(
     private val verdicts: VerdictDao,
     private val settings: SettingsRepository,
     private val notifier: Notifier,
+    /** Filtering is Winnow's only while it's the SMS app; another app's day isn't Winnow's to report. */
+    private val isDefaultSmsApp: () -> Boolean = { true },
 ) {
     private val alarms = context.getSystemService(AlarmManager::class.java)
 
-    /** Arms (or disarms) the next evening's summary, as the setting says. */
+    /**
+     * Arms (or disarms) the next summary, as the setting says: this evening's, or straight away if
+     * it's past 8 PM and today's hasn't gone out (the app starting late mustn't skip it), else
+     * tomorrow's.
+     */
     suspend fun rearm() {
         val intent = alarmIntent()
-        alarms.cancel(intent)
-        if (!settings.current().dailySummary) return
+        val current = settings.current()
+        if (!current.dailySummary) {
+            alarms.cancel(intent)
+            return
+        }
+        val now = System.currentTimeMillis()
+        val tonight = evening(LocalDate.now(ZoneId.systemDefault()))
+        // Not due if one went out lately (before a time-zone change, say): then tomorrow, or this
+        // would fire, skip and re-arm for "now" again and again.
+        val due = now - current.dailySummaryLastAt >= MIN_GAP_MILLIS
+        val at = when {
+            now < tonight -> tonight
+            due && current.dailySummaryLastAt < tonight -> now
+            else -> evening(LocalDate.now(ZoneId.systemDefault()).plusDays(1))
+        }
         // Not exact: a summary can wait a while, and needs no special permission.
-        alarms.setWindow(AlarmManager.RTC_WAKEUP, nextEvening(), WINDOW_MILLIS, intent)
+        alarms.setWindow(AlarmManager.RTC_WAKEUP, at, WINDOW_MILLIS, intent)
     }
 
-    /** The alarm went off: report on the last day, then arm tomorrow's. */
+    /** The alarm went off: report on what came since the last one (a day at most), then arm the next. */
     suspend fun fire() {
-        try {
-            if (!settings.current().dailySummary) return
-            val (filtered, silenced) = counts(System.currentTimeMillis() - DAY_MILLIS)
-            if (filtered + silenced > 0) notifier.showSummary(filtered, silenced)
-        } finally {
+        val current = settings.current()
+        val now = System.currentTimeMillis()
+        // Off, or twice in one evening (the clock or time zone moved): once is enough.
+        if (!current.dailySummary || now - current.dailySummaryLastAt < MIN_GAP_MILLIS) {
             rearm()
+            return
+        }
+        try {
+            if (isDefaultSmsApp()) {
+                val (filtered, silenced) = counts(maxOf(now - DAY_MILLIS, current.dailySummaryLastAt))
+                if (filtered + silenced > 0) notifier.showSummary(filtered, silenced)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("WinnowSummary", "Couldn't count the day's texts", e)
+        } finally {
+            // Done for today whatever happened, so the re-arm below looks to tomorrow, not "now" again.
+            withContext(NonCancellable) {
+                runCatching { settings.update { it.copy(dailySummaryLastAt = now) } }
+                rearm()
+            }
         }
     }
 
@@ -80,12 +117,7 @@ class DailySummary(
         return filtered to silenced
     }
 
-    private fun nextEvening(): Long {
-        val zone = ZoneId.systemDefault()
-        val today = LocalDate.now(zone).atTime(EVENING).atZone(zone)
-        val at = if (today.toInstant().toEpochMilli() > System.currentTimeMillis()) today else today.plusDays(1)
-        return at.toInstant().toEpochMilli()
-    }
+    private fun evening(day: LocalDate): Long = day.atTime(EVENING).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
     private fun alarmIntent(): PendingIntent = PendingIntent.getBroadcast(
         context, 0, Intent(context, DailySummaryReceiver::class.java),
@@ -96,17 +128,25 @@ class DailySummary(
         val EVENING: LocalTime = LocalTime.of(20, 0)
         const val WINDOW_MILLIS = 30 * 60_000L
         const val DAY_MILLIS = 24 * 60 * 60_000L
+        // Long enough that one evening never gets two; short enough that a late one (Doze) doesn't cost tomorrow's.
+        const val MIN_GAP_MILLIS = 12 * 60 * 60_000L
     }
 }
 
-/** The evening alarm for [DailySummary]. (After a reboot it's re-armed with scheduled sends.) */
+/**
+ * The evening alarm for [DailySummary], and the clock or time zone changing, which moves 8 PM.
+ * (After a reboot it's re-armed with scheduled sends.)
+ */
 class DailySummaryReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val container = (context.applicationContext as WinnowApp).container
         val pending = goAsync()
         container.appScope.launch {
             try {
-                container.dailySummary.fire()
+                when (intent.action) {
+                    Intent.ACTION_TIMEZONE_CHANGED, Intent.ACTION_TIME_CHANGED -> container.dailySummary.rearm()
+                    else -> container.dailySummary.fire()
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
