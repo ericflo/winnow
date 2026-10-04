@@ -131,6 +131,7 @@ class IncomingMessageHandler(
                     code = VerificationCodes.find(text),
                     senderPhotoUri = contacts.photoUri(sender),
                     hideOnLockScreen = settings.current().hideOnLockScreen,
+                    offerSpam = recipients.size == 1 && !contacts.isContact(sender),
                 )
             }
             Action.SILENCE -> Unit

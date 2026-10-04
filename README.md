@@ -89,7 +89,8 @@ messages can't be tapped.
   with them attached.
 - **Notifications:** Android conversation notifications (Conversations section, priority),
   with a sound and vibration of their own per conversation (Details → Sound and vibration),
-  stacked per thread, with inline **Reply**, **Mark as read** and **Copy code**, and **chat
+  stacked per thread, with inline **Reply**, **Mark as read**, **Copy code**, and **Spam** on a
+  stranger's text that got through (it filters the sender and teaches the on-phone model), and **chat
   bubbles** that float a conversation over other apps.
 - **Backup and restore:** messages, photos, Winnow's decisions, conversation state, sender
   rules and settings go into one zip file that you choose where to keep. API keys are never

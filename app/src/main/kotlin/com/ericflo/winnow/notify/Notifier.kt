@@ -49,6 +49,8 @@ class Notifier(private val context: Context) {
         senderPhotoUri: String? = null,
         /** Keep the notification off the lock screen entirely. */
         hideOnLockScreen: Boolean = false,
+        /** Offer "Spam", for a stranger's text the classifier let through. */
+        offerSpam: Boolean = false,
     ) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val id = notificationId(threadId)
@@ -118,6 +120,9 @@ class Notifier(private val context: Context) {
         // Without a stored thread (the store refused the message) there's nothing to reply into.
         if (threadId >= 0) {
             builder.addAction(reply).addAction(markRead)
+            if (offerSpam) {
+                builder.addAction(R.drawable.ic_block, "Spam", actionIntent(NotificationActionReceiver.ACTION_SPAM, threadId, joined, mutable = false))
+            }
             // Lets Android float the conversation as a chat bubble, if the user allows bubbles.
             val bubble = Intent(context, BubbleActivity::class.java)
                 .putExtra(MainActivity.EXTRA_THREAD_ID, threadId)
