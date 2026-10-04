@@ -9,6 +9,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.activity.compose.BackHandler
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import kotlinx.coroutines.launch
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,9 +60,64 @@ fun ConversationListScreen(
     val filtered = mode == ListMode.FILTERED
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // Several at once: long-press starts it, taps add and remove. A spam pile can go in one go.
+    var selected by remember { mutableStateOf(emptySet<Long>()) }
+    LaunchedEffect(state.conversations) { selected = selected.filterTo(HashSet()) { id -> state.conversations.any { it.threadId == id } } }
+    BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val picked = state.conversations.filter { it.threadId in selected }
+    fun toggle(id: Long) {
+        selected = if (id in selected) selected - id else selected + id
+    }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(if (picked.size == 1) "Delete this conversation?" else "Delete ${picked.size} conversations?") },
+            text = { Text("Their messages are removed from this phone. This can't be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.delete(selected)
+                    selected = emptySet()
+                    confirmDelete = false
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        )
+    }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
+            if (selected.isNotEmpty()) {
+                TopAppBar(
+                    title = { Text("${selected.size} selected") },
+                    navigationIcon = {
+                        IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Filled.Close, contentDescription = "Clear selection") }
+                    },
+                    actions = {
+                        // Not spam: only for one-to-one conversations, whose sender can be allowed.
+                        if (filtered && picked.any { !it.isGroup }) {
+                            IconButton(onClick = {
+                                val rescued = picked.filterNot { it.isGroup }
+                                selected = emptySet()
+                                viewModel.allowAll(rescued) { previous ->
+                                    scope.launch {
+                                        val message = if (rescued.size == 1) "${rescued.single().displayName} will always reach your inbox" else "${rescued.size} senders will always reach your inbox"
+                                        if (snackbar.showSnackbar(message, actionLabel = "Undo") == SnackbarResult.ActionPerformed) viewModel.undoAll(previous)
+                                    }
+                                }
+                            }) { Icon(Icons.Filled.CheckCircle, contentDescription = "Not spam") }
+                        }
+                        if (!filtered) {
+                            IconButton(onClick = {
+                                viewModel.setArchived(selected, false)
+                                selected = emptySet()
+                            }) { Icon(painterResource(R.drawable.ic_unarchive), contentDescription = "Unarchive") }
+                        }
+                        IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, contentDescription = "Delete") }
+                    },
+                )
+                return@Scaffold
+            }
             TopAppBar(
                 title = { Text(if (filtered) "Filtered" else "Archived") },
                 navigationIcon = {
@@ -71,7 +134,7 @@ fun ConversationListScreen(
         LazyColumn(contentPadding = padding, modifier = Modifier.fillMaxSize()) {
             item("explainer") {
                 Text(
-                    if (filtered) "Kept out of your inbox without a notification. Open one to see why, or swipe it to mark it as not spam."
+                    if (filtered) "Kept out of your inbox without a notification. Open one to see why, or swipe it to mark it as not spam. Long-press to pick several."
                     else "Archived conversations come back to your inbox when a new message arrives.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -105,11 +168,13 @@ fun ConversationListScreen(
                 }
                 // Either way does the same thing here; both remove the row from this list.
                 val action = swipe?.let { (icon, label, run) -> Swipe(icon, label, removes = true) { run() } }
-                SwipeAction(start = action, end = action) {
+                SwipeAction(start = action.takeIf { selected.isEmpty() }, end = action.takeIf { selected.isEmpty() }) {
                     ConversationRow(
                         conversation,
                         showVerdict = filtered,
-                        onClick = { onOpenThread(conversation.threadId, conversation.recipients) },
+                        selected = conversation.threadId in selected,
+                        onClick = { if (selected.isEmpty()) onOpenThread(conversation.threadId, conversation.recipients) else toggle(conversation.threadId) },
+                        onLongClick = { toggle(conversation.threadId) },
                         leading = {
                             if (filtered) FilteredAvatar(conversation.verdict?.category) else ConversationAvatar(conversation)
                         },

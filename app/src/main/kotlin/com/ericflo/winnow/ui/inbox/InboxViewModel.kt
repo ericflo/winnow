@@ -152,6 +152,13 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         if (!conversation.isGroup) onDone(repo.overrideVerdict(conversation.threadId, conversation.address, Action.ALLOW))
     }
 
+    /** "Not spam" for several filtered 1:1 conversations at once; [onDone] gets what Undo needs. */
+    fun allowAll(conversations: List<ConversationSummary>, onDone: (List<PreviousVerdict>) -> Unit = {}) = launch {
+        onDone(conversations.filterNot { it.isGroup }.map { repo.overrideVerdict(it.threadId, it.address, Action.ALLOW) })
+    }
+
+    fun undoAll(previous: List<PreviousVerdict>) = launch { previous.forEach { repo.restoreVerdict(it) } }
+
     /** Takes back a correction, leaving the conversation as it was before. */
     fun undo(previous: PreviousVerdict) = launch { repo.restoreVerdict(previous) }
 
