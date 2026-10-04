@@ -135,8 +135,7 @@ class MmsStore(private val context: Context) {
     }
 
     /** The placeholder's status column: [STATUS_DEFERRED], [STATUS_DOWNLOAD_FAILED], or null while it downloads. */
-    fun status(uri: Uri): Int? =
-        resolver.query(uri, arrayOf(Mms.STATUS), null, null, null)?.use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getInt(0) else null }
+    fun status(uri: Uri): Int? = statusOf(resolver, uri)
 
     /** Marks a placeholder as waiting for the user to download it. */
     fun markDeferred(uri: Uri) {
@@ -262,6 +261,14 @@ class MmsStore(private val context: Context) {
     private fun MmsPart.isText() = contentType == ContentTypes.TEXT_PLAIN || contentType == ContentTypes.SMIL
 
     companion object {
+        /** [status], for a placeholder that may be gone (null then, or for any message that's downloaded). */
+        fun statusOf(context: Context, uri: Uri): Int? = statusOf(context.contentResolver, uri)
+
+        private fun statusOf(resolver: android.content.ContentResolver, uri: Uri): Int? =
+            resolver.query(uri, arrayOf(Mms.STATUS, Mms.MESSAGE_TYPE), null, null, null)?.use { c ->
+                if (c.moveToFirst() && !c.isNull(0) && c.getInt(1) == MESSAGE_TYPE_NOTIFICATION_IND) c.getInt(0) else null
+            }
+
         /** The subject in [cursor]'s [subject] column, decoded with the charset in [charset] (see MmsCharsets.fromStore). */
         fun subjectAt(cursor: android.database.Cursor, subject: Int, charset: Int): String? {
             val raw = cursor.getString(subject)?.takeIf { it.isNotBlank() } ?: return null

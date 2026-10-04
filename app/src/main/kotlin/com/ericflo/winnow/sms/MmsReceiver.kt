@@ -43,7 +43,15 @@ class MmsReceiver(
     private val incoming: IncomingMessageHandler,
     /** Whether to fetch an announced MMS right away on this SIM: the auto-download settings, and roaming. */
     private val autoDownload: suspend (subscriptionId: Int) -> Boolean = { true },
+    /** Fetches failed downloads again by themselves; null for none. */
+    private val retries: MmsRetries? = null,
 ) {
+    /** [placeholder]'s download failed: say so in the conversation, and try again later. */
+    private fun failed(placeholder: Uri) {
+        store.markDownloadFailed(placeholder)
+        placeholder.lastPathSegment?.toLongOrNull()?.let { retries?.failed(it) }
+    }
+
     /** A WAP push carrying an m-notification-ind. */
     suspend fun onPush(pdu: ByteArray, subscriptionId: Int) {
         val parsed = try {
@@ -80,7 +88,7 @@ class MmsReceiver(
             download(placeholder, ind.contentLocation, ind.transactionId, subscriptionId)
         } catch (e: Exception) {
             Log.w(TAG, "Couldn't start the MMS download", e)
-            store.markDownloadFailed(placeholder)
+            failed(placeholder)
         }
     }
 
@@ -99,7 +107,7 @@ class MmsReceiver(
             download(placeholder, location, transactionId, subscriptionId, deferred)
         } catch (e: Exception) {
             Log.w(TAG, "Couldn't restart the MMS download", e)
-            store.markDownloadFailed(placeholder)
+            failed(placeholder)
         }
     }
 
@@ -140,16 +148,17 @@ class MmsReceiver(
             }
         }
         if (conf == null) {
-            placeholder?.let(store::markDownloadFailed)
+            placeholder?.let(::failed)
             return
         }
         val recipients = participants(conf)
         val threadId = Telephony.Threads.getOrCreateThreadId(context, recipients.toSet())
         val message = store.insertIncoming(conf, threadId, subscriptionId) ?: run {
-            placeholder?.let(store::markDownloadFailed)
+            placeholder?.let(::failed)
             return
         }
         placeholder?.let(store::delete)
+        placeholder?.lastPathSegment?.toLongOrNull()?.let { retries?.done(it) }
         if (acknowledge) transactionId?.takeIf { it.isNotBlank() }?.let {
             acknowledge(if (deferred) AcknowledgeInd(it) else NotifyRespInd(it), subscriptionId)
         }

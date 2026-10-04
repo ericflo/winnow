@@ -45,6 +45,7 @@ import com.ericflo.winnow.sms.CodeCleaner
 import com.ericflo.winnow.sms.MessageScheduler
 import com.ericflo.winnow.sms.MmsFiles
 import com.ericflo.winnow.sms.MmsReceiver
+import com.ericflo.winnow.sms.MmsRetries
 import com.ericflo.winnow.sms.MmsSender
 import com.ericflo.winnow.sms.MmsStore
 import com.ericflo.winnow.sms.SmsSender
@@ -73,6 +74,8 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
         }
         container.appScope.launch { container.trash.purgeExpired() }
         container.appScope.launch { runCatching { container.dailySummary.rearm() } }
+        // A force stop cancels the app's jobs; waiting MMS retries are set again.
+        container.appScope.launch(Dispatchers.IO) { runCatching { container.mmsRetries.rearm() } }
         // A widget on the home screen follows the inbox while the app runs.
         container.widgetUpdates.start()
         // Yesterday's notification photos: their notifications are gone.
@@ -201,14 +204,21 @@ class AppContainer(private val context: Context) {
     val mmsFiles by lazy { MmsFiles(context) }
     val mmsSender by lazy { MmsSender(context, mmsStore, mmsFiles, sims::forSending) { settings.current().deliveryReports } }
     val mmsReceiver by lazy {
-        MmsReceiver(context, mmsStore, mmsFiles, OwnNumbers(context), incoming) { subscriptionId ->
-            val s = settings.current()
-            val roaming = runCatching {
-                context.getSystemService(TelephonyManager::class.java).createForSubscriptionId(subscriptionId).isNetworkRoaming
-            }.getOrDefault(false)
-            if (roaming) s.autoDownloadMms && s.autoDownloadMmsRoaming else s.autoDownloadMms
-        }
+        MmsReceiver(
+            context, mmsStore, mmsFiles, OwnNumbers(context), incoming,
+            autoDownload = { subscriptionId ->
+                val s = settings.current()
+                val roaming = runCatching {
+                    context.getSystemService(TelephonyManager::class.java).createForSubscriptionId(subscriptionId).isNetworkRoaming
+                }.getOrDefault(false)
+                if (roaming) s.autoDownloadMms && s.autoDownloadMmsRoaming else s.autoDownloadMms
+            },
+            retries = mmsRetries,
+        )
     }
+
+    /** Failed MMS downloads, fetched again by themselves (see MmsRetries). */
+    val mmsRetries by lazy { MmsRetries(context, sendReadiness) }
     val conversationStates by lazy { ConversationStateStore(database.conversationStates()) }
     val verdictDao by lazy { database.verdicts() }
     val starredDao by lazy { database.starred() }
