@@ -98,7 +98,9 @@ and opens Filtered; nothing on a quiet day.
   can be restored from there. Opening a conversation marks where its **new messages** begin. Full-text search covers SMS and MMS, and each conversation can be searched on its own,
   with matches highlighted; a search result opens its conversation at that message, and so
   does a starred one. Settings links to Android's blocked-numbers list.
-- **Composing:** New chat with your contacts and Create group, photos from the gallery or the
+- **Composing:** New chat with your contacts (the people you text most at the top) and Create
+  group, **Forward** (photos and voice messages too), **Reply privately** to one person in a
+  group, photos from the gallery or the
   camera (each can be rotated before it goes), drafts that stick (attachments included, even after Android closes the app), an SMS segment counter, **scheduled send** (long-press Send; the menu lists everything scheduled, and each can be sent now, moved to another time, edited or deleted), **send
   separately** in a group (each person gets their own text, so replies come back one to one), and
   optional **undo send** (5 or 10 seconds to take a message back). **Quick replies** ("On my
@@ -107,7 +109,7 @@ and opens Filtered; nothing on a quiet day.
   notification; a stranger's doesn't. Conversations you text with
   show up by name in Android's share sheet and on the app icon's long-press menu; sharing to
   one puts the photo or text straight into it. A text that doesn't go out
-  (no signal, a carrier refusal, a scheduled one that fails) says so in a notification, and a
+  (no signal, a carrier refusal, a scheduled one that fails) says so in the inbox ("Not sent:") and in a notification, and a
   message that fails after you've left its conversation is waiting in the composer when you
   come back.
 - **Dual SIM:** on a phone with two SIMs, a badge in the composer shows which one a text
