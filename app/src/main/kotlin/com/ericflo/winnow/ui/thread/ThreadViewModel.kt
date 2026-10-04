@@ -39,6 +39,7 @@ import com.ericflo.winnow.data.Attachment
 import com.ericflo.winnow.data.LinkPreview
 import com.ericflo.winnow.data.normalizeAddress
 import kotlinx.coroutines.CompletableDeferred
+import com.ericflo.winnow.data.CurrentLocation
 
 data class ThreadUiState(
     val title: String,
@@ -272,6 +273,25 @@ class ThreadViewModel(
     fun cancelRecording() {
         recorder.stopAndDiscard()
         _recording.value = false
+    }
+
+    private val _locating = MutableStateFlow(false)
+    val locating: StateFlow<Boolean> = _locating.asStateFlow()
+
+    /** Adds a map link for where the phone is to the draft; the user sends it (or doesn't). */
+    fun shareLocation() {
+        if (_locating.value) return
+        _locating.value = true
+        launch {
+            val location = runCatching { container.currentLocation.get() }.getOrNull()
+            _locating.value = false
+            if (location == null) {
+                _notices.emit("Couldn't get your location. Is location turned on?")
+            } else {
+                val link = CurrentLocation.mapLink(location)
+                _draft.value = listOf(_draft.value.trimEnd(), link).filter { it.isNotEmpty() }.joinToString(" ")
+            }
+        }
     }
 
     /** Attaches a card for a number from the phone-number picker. */

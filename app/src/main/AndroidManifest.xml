@@ -14,6 +14,9 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- Recording voice messages; asked for the first time the user records one. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Sharing your location in a message, once, when asked; asked for on first use. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Our own number, to leave ourselves out of group MMS participant lists. -->
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />

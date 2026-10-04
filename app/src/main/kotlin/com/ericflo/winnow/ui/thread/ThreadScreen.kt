@@ -191,6 +191,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.LocationOn
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -218,6 +219,11 @@ fun ThreadScreen(
     val recording by viewModel.recording.collectAsStateWithLifecycle()
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) viewModel.startRecording()
+    }
+    val locating by viewModel.locating.collectAsStateWithLifecycle()
+    // Precise or approximate, whichever the user allows; either makes a usable map link.
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        if (grants.values.any { it }) viewModel.shareLocation()
     }
     val linkPreviewSenders by viewModel.linkPreviewSenders.collectAsStateWithLifecycle()
     var confirmBlock by remember { mutableStateOf(false) }
@@ -447,6 +453,13 @@ fun ThreadScreen(
                         micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
                     }
                 },
+                onLocation = {
+                    val granted = listOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                        .any { context.checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }
+                    if (granted) viewModel.shareLocation()
+                    else locationPermission.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+                },
+                locating = locating,
                 recording = recording,
                 recordingElapsed = viewModel::recordingElapsed,
                 onStopRecording = viewModel::stopRecording,
@@ -1358,6 +1371,8 @@ private fun Composer(
     onContact: () -> Unit,
     onRemoveAttachment: (OutgoingAttachment) -> Unit,
     onVoice: () -> Unit = {},
+    onLocation: () -> Unit = {},
+    locating: Boolean = false,
     recording: Boolean = false,
     recordingElapsed: () -> Long = { 0 },
     onStopRecording: () -> Unit = {},
@@ -1373,6 +1388,13 @@ private fun Composer(
         if (recording) {
             RecordingBar(recordingElapsed, onCancel = onCancelRecording, onDone = onStopRecording)
             return@Column
+        }
+        if (locating) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(10.dp))
+                Text("Finding your location…", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+            }
         }
         if (attachments.isNotEmpty()) {
             LazyRow(
@@ -1401,7 +1423,7 @@ private fun Composer(
         Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)) {
             Surface(shape = RoundedCornerShape(28.dp), color = colors.surfaceContainerHigh, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 16.dp)) {
-                    AttachMenu(onGallery = onAttach, onCamera = onCamera, onContact = onContact, onVoice = onVoice)
+                    AttachMenu(onGallery = onAttach, onCamera = onCamera, onContact = onContact, onVoice = onVoice, onLocation = onLocation)
                     Box(Modifier.weight(1f).padding(vertical = 16.dp)) {
                         if (draft.isEmpty()) {
                             val kind = if (isSms) "Text message" else "MMS message"
@@ -1445,7 +1467,7 @@ private fun Composer(
 
 /** The composer's "+": a photo from the gallery, or a new one from the camera. */
 @Composable
-private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit, onContact: () -> Unit, onVoice: () -> Unit) {
+private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit, onContact: () -> Unit, onVoice: () -> Unit, onLocation: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) { Icon(Icons.Outlined.AddCircle, contentDescription = "Attach") }
@@ -1469,6 +1491,11 @@ private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit, onContact: (
                 leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
                 text = { Text("Voice message") },
                 onClick = { open = false; onVoice() },
+            )
+            DropdownMenuItem(
+                leadingIcon = { Icon(Icons.Filled.LocationOn, contentDescription = null) },
+                text = { Text("Location") },
+                onClick = { open = false; onLocation() },
             )
         }
     }
