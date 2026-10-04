@@ -21,6 +21,8 @@ import com.ericflo.winnow.data.db.CorrectionEntity
 import com.ericflo.winnow.data.db.ConversationStateEntity
 import com.ericflo.winnow.data.db.ScheduledMessageDao
 import com.ericflo.winnow.data.db.SenderRuleEntity
+import com.ericflo.winnow.data.db.StarredDao
+import com.ericflo.winnow.data.db.StarredEntity
 import com.ericflo.winnow.data.db.VerdictDao
 import com.ericflo.winnow.data.splitAddresses
 import com.ericflo.winnow.data.threadRecipients
@@ -77,6 +79,7 @@ class BackupManager(
     private val mmsStore: MmsStore,
     private val scheduler: MessageScheduler,
     private val corrections: CorrectionDao,
+    private val starred: StarredDao,
     private val learner: Learner,
     /** Restoring messages writes the SMS store, which only the default SMS app may do. */
     private val canWriteMessages: () -> Boolean,
@@ -158,6 +161,7 @@ class BackupManager(
     private suspend fun readConversations(media: MutableMap<String, Long>): List<ConversationBackup> {
         val recipients = resolver.threadRecipients()
         val verdictsByKey = verdicts.all().associateBy { it.messageKey }
+        val stars = starred.all().mapTo(HashSet()) { it.messageKey }
         val byThread = HashMap<Long, MutableList<MessageBackup>>()
 
         resolver.query(
@@ -185,6 +189,7 @@ class BackupManager(
                     read = !incoming || c.getInt(7) != 0,
                     to = address.takeIf { !incoming && recipients[threadId].orEmpty().size > 1 },
                     verdict = verdictsByKey[ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0))]?.toBackup(),
+                    starred = ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)) in stars,
                 )
             }
         }
@@ -220,6 +225,7 @@ class BackupManager(
                     PartBackup(part.contentType, part.name, file)
                 },
                 verdict = verdictsByKey[ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id)]?.toBackup(),
+                starred = ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id) in stars,
             )
         }
 
@@ -304,6 +310,7 @@ class BackupManager(
             here.forEach { m ->
                 val key = existing.getValue(m.fingerprint)
                 if (key !in classified) restoreVerdict(m, conversation, threadId, key)
+                if (m.starred) starred.star(StarredEntity(key, threadId, System.currentTimeMillis()))
             }
             present += here.size
             done += here.size
@@ -315,6 +322,7 @@ class BackupManager(
                     val id = result.uri?.let(ContentUris::parseId) ?: return@forEach
                     added++
                     restoreVerdict(m, conversation, threadId, ChatMessage.messageKey(ChatMessage.Kind.SMS, id))
+                    if (m.starred) starred.star(StarredEntity(ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId, System.currentTimeMillis()))
                 }
                 done += chunk.size
                 _status.value = BackupStatus.Working("Restoring messages", done, total)
@@ -325,6 +333,7 @@ class BackupManager(
                 if (uri != null) {
                     added++
                     restoreVerdict(m, conversation, threadId, ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)))
+                    if (m.starred) starred.star(StarredEntity(ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)), threadId, System.currentTimeMillis()))
                 }
                 _status.value = BackupStatus.Working("Restoring messages", ++done, total)
             }

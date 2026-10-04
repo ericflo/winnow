@@ -61,6 +61,14 @@ class DemoMessageRepository(private val packageName: String) : MessageRepository
         updateThread(threadId) { it.copy(messages = it.messages + message) }
     }
 
+    override suspend fun messagesByKey(keys: Collection<String>): List<StarredMessage> {
+        val wanted = keys.toSet()
+        return threads.value.flatMap { t ->
+            val name = displayNameFor(t.recipients, ::displayName)
+            t.messages.filter { it.key in wanted }.map { StarredMessage(it.copy(starred = true), t.recipients, name) }
+        }
+    }
+
     override suspend fun retry(message: ChatMessage) = updateThread(message.threadId) { t ->
         t.copy(messages = t.messages.map { if (it.key == message.key) it.copy(status = ChatMessage.Status.SENT) else it })
     }

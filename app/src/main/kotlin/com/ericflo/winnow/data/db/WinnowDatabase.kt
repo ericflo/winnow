@@ -23,11 +23,12 @@ import kotlinx.coroutines.flow.Flow
 @Database(
     entities = [
         VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class, ScheduledMessageEntity::class,
-        CorrectionEntity::class,
+        CorrectionEntity::class, StarredEntity::class,
     ],
-    version = 5,
+    version = 6,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
+        AutoMigration(from = 5, to = 6),
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
@@ -35,6 +36,32 @@ abstract class WinnowDatabase : RoomDatabase() {
     abstract fun conversationStates(): ConversationStateDao
     abstract fun scheduled(): ScheduledMessageDao
     abstract fun corrections(): CorrectionDao
+    abstract fun starred(): StarredDao
+}
+
+/** A message the user starred, by its `sms:<id>` / `mms:<id>` key. */
+@Entity(tableName = "starred")
+data class StarredEntity(@PrimaryKey val messageKey: String, val threadId: Long, val starredAt: Long)
+
+@Dao
+interface StarredDao {
+    @Query("SELECT * FROM starred ORDER BY starredAt DESC")
+    fun observeAll(): Flow<List<StarredEntity>>
+
+    @Query("SELECT messageKey FROM starred WHERE threadId = :threadId")
+    fun observeKeys(threadId: Long): Flow<List<String>>
+
+    @Query("SELECT * FROM starred")
+    suspend fun all(): List<StarredEntity>
+
+    @Upsert
+    suspend fun star(starred: StarredEntity)
+
+    @Query("DELETE FROM starred WHERE messageKey = :messageKey")
+    suspend fun unstar(messageKey: String)
+
+    @Query("DELETE FROM starred WHERE threadId IN (:threadIds)")
+    suspend fun deleteForThreads(threadIds: Collection<Long>)
 }
 
 /**

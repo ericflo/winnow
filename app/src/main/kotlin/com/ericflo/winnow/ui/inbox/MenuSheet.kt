@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -49,6 +50,7 @@ fun MenuSheet(
     onOpenFiltered: () -> Unit,
     onOpenArchived: () -> Unit,
     onOpenActivity: () -> Unit,
+    onOpenStarred: () -> Unit,
     onMarkAllRead: () -> Unit,
     onOpenSettings: () -> Unit,
     onMakeDefault: () -> Unit,
@@ -74,6 +76,8 @@ fun MenuSheet(
                     MenuItem(painterResource(R.drawable.ic_shield), "Filtered", trailing = state.filteredCount.takeIf { it > 0 }?.toString(), onClick = onOpenFiltered)
                     MenuDivider()
                     MenuItem(painterResource(R.drawable.ic_archive), "Archived", trailing = state.archivedCount.takeIf { it > 0 }?.toString(), onClick = onOpenArchived)
+                    MenuDivider()
+                    MenuItem(rememberVectorPainter(Icons.Outlined.Star), "Starred", onClick = onOpenStarred)
                     MenuDivider()
                     MenuItem(rememberVectorPainter(Icons.Outlined.CheckCircle), "Mark all as read", onClick = onMarkAllRead)
                 }

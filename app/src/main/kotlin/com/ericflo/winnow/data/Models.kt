@@ -41,6 +41,7 @@ data class ChatMessage(
     val subject: String? = null,
     /** The SIM it was sent or received on, where the store records one. */
     val subscriptionId: Int? = null,
+    val starred: Boolean = false,
 ) {
     enum class Status { RECEIVED, SENDING, SENT, DELIVERED, FAILED, DOWNLOADING, DOWNLOAD_FAILED }
 
@@ -93,6 +94,9 @@ data class VerdictRecord(
     val costUsd: Double,
     val sender: String,
 )
+
+/** A starred message with enough about its conversation to show it in the Starred list. */
+data class StarredMessage(val message: ChatMessage, val recipients: List<String>, val conversationName: String)
 
 /** A message match from Search. */
 data class SearchHit(

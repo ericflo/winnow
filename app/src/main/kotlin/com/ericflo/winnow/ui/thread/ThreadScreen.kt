@@ -1,5 +1,7 @@
 package com.ericflo.winnow.ui.thread
 
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.filled.Star
 import com.ericflo.winnow.data.SimCard
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -292,6 +294,7 @@ fun ThreadScreen(
             onForward = { onForward(message.body) },
             onDelete = { viewModel.delete(message) },
             onDetails = { detailsFor = message },
+            onStar = { viewModel.toggleStar(message) },
         )
     }
     detailsFor?.let { message -> MessageDetailsDialog(message, state, sims, onDismiss = { detailsFor = null }) }
@@ -693,16 +696,22 @@ private fun MessageBubble(
             }
             else -> if (showTime) timeOfDay(m.timestamp) else null
         }
-        if (status != null) {
+        if (status != null || m.starred) {
             val failed = m.status == ChatMessage.Status.FAILED
-            Text(
-                status,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (failed) colors.error else colors.onSurfaceVariant,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .then(if (failed) Modifier.clickable(onClick = onRetry) else Modifier)
                     .padding(start = if (showAvatarColumn) 56.dp else 8.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
-            )
+            ) {
+                if (m.starred) {
+                    Icon(Icons.Filled.Star, contentDescription = "Starred", tint = colors.tertiary, modifier = Modifier.size(14.dp))
+                    if (status != null) Spacer(Modifier.width(4.dp))
+                }
+                if (status != null) {
+                    Text(status, style = MaterialTheme.typography.labelSmall, color = if (failed) colors.error else colors.onSurfaceVariant)
+                }
+            }
         }
     }
 }
@@ -716,6 +725,7 @@ private fun MessageActionsSheet(
     onForward: () -> Unit,
     onDelete: () -> Unit,
     onDetails: () -> Unit,
+    onStar: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
@@ -735,6 +745,12 @@ private fun MessageActionsSheet(
                     modifier = Modifier.clickable(onClick = act(onForward)),
                 )
             }
+            ListItem(
+                headlineContent = { Text(if (message.starred) "Unstar" else "Star") },
+                leadingContent = { Icon(if (message.starred) Icons.Outlined.Star else Icons.Filled.Star, contentDescription = null) },
+                colors = colors,
+                modifier = Modifier.clickable(onClick = act(onStar)),
+            )
             ListItem(
                 headlineContent = { Text("View details") },
                 leadingContent = { Icon(Icons.Filled.Info, contentDescription = null) },

@@ -30,6 +30,9 @@ interface MessageRepository {
     /** SMS to one recipient without attachments; MMS otherwise. [subscriptionId] picks the SIM; null for the default. */
     suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment> = emptyList(), subscriptionId: Int? = null)
 
+    /** The messages with these keys (`sms:<id>`, `mms:<id>`) that still exist, with their conversations. */
+    suspend fun messagesByKey(keys: Collection<String>): List<StarredMessage> = emptyList()
+
     /** The SIM the thread's newest incoming message arrived on, if the store knows. */
     suspend fun lastIncomingSubscription(threadId: Long): Int? = null
 
@@ -85,6 +88,7 @@ class SwitchingMessageRepository(
     override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int?) =
         current.send(recipients, body, attachments, subscriptionId)
     override suspend fun lastIncomingSubscription(threadId: Long) = current.lastIncomingSubscription(threadId)
+    override suspend fun messagesByKey(keys: Collection<String>) = current.messagesByKey(keys)
     override suspend fun retry(message: ChatMessage) = current.retry(message)
     override suspend fun markRead(threadId: Long) = current.markRead(threadId)
     override suspend fun markUnread(threadId: Long) = current.markUnread(threadId)

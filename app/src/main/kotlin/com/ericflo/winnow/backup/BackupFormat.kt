@@ -86,6 +86,7 @@ data class MessageBackup(
     val to: String? = null,
     val parts: List<PartBackup> = emptyList(),
     val verdict: VerdictBackup? = null,
+    val starred: Boolean = false,
 ) {
     /** Identifies the message across backup, phone and re-import, to skip duplicates. */
     val fingerprint: String get() = fingerprint(kind, date, outgoing, body, parts.size)

@@ -20,6 +20,8 @@ import com.ericflo.winnow.ui.details.ConversationDetailsScreen
 import com.ericflo.winnow.ui.details.ConversationDetailsViewModel
 import com.ericflo.winnow.ui.inbox.ConversationListScreen
 import com.ericflo.winnow.ui.metrics.MetricsScreen
+import com.ericflo.winnow.ui.starred.StarredScreen
+import com.ericflo.winnow.ui.starred.StarredViewModel
 import com.ericflo.winnow.ui.metrics.MetricsViewModel
 import com.ericflo.winnow.ui.inbox.InboxScreen
 import com.ericflo.winnow.ui.inbox.InboxViewModel
@@ -79,6 +81,9 @@ data object ActivityRoute
 @Serializable
 data object MetricsRoute
 
+@Serializable
+data object StarredRoute
+
 /** [draft] carries a forwarded message into the conversation the user picks. */
 @Serializable
 data class NewChatRoute(val draft: String = "", val shared: Boolean = false)
@@ -133,7 +138,11 @@ fun WinnowNavHost(
                 onOpenActivity = { nav.navigate(ActivityRoute) },
                 onOpenSettings = { nav.navigate(SettingsRoute) },
                 onMakeDefault = onMakeDefault,
+                onOpenStarred = { nav.navigate(StarredRoute) },
             )
+        }
+        composable<StarredRoute> {
+            StarredScreen(viewModel = viewModel { StarredViewModel(container) }, onBack = { nav.popBackStack() }, onOpenThread = openThread)
         }
         composable<FilteredRoute> {
             ConversationListScreen(

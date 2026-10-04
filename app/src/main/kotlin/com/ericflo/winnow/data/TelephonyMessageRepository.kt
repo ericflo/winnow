@@ -14,6 +14,7 @@ import com.ericflo.winnow.classifier.message.InboundMessage
 import com.ericflo.winnow.classifier.message.SenderRule
 import com.ericflo.winnow.data.ChatMessage.Kind
 import com.ericflo.winnow.data.db.SenderRuleEntity
+import com.ericflo.winnow.data.db.StarredDao
 import com.ericflo.winnow.data.db.VerdictDao
 import com.ericflo.winnow.sms.MmsSender
 import com.ericflo.winnow.sms.MmsStore
@@ -35,6 +36,7 @@ import kotlinx.coroutines.withContext
 class TelephonyMessageRepository(
     private val context: Context,
     private val dao: VerdictDao,
+    private val starred: StarredDao,
     private val contacts: ContactLookup,
     private val sms: SmsSender,
     private val mms: MmsSender,
@@ -85,6 +87,25 @@ class TelephonyMessageRepository(
         withContext(Dispatchers.IO) {
             if (recipients.size == 1 && attachments.isEmpty()) sms.send(recipients.single(), body, subscriptionId)
             else mms.send(recipients, body, attachments, subscriptionId)
+        }
+    }
+
+    override suspend fun messagesByKey(keys: Collection<String>): List<StarredMessage> = withContext(Dispatchers.IO) {
+        if (keys.isEmpty()) return@withContext emptyList()
+        val threadIds = HashSet<Long>()
+        keys.forEach { key ->
+            val (kind, id) = key.split(':').let { it.getOrNull(0) to it.getOrNull(1)?.toLongOrNull() }
+            id ?: return@forEach
+            val (table, column) = if (kind == "sms") Telephony.Sms.CONTENT_URI to Telephony.Sms.THREAD_ID else Telephony.Mms.CONTENT_URI to Telephony.Mms.THREAD_ID
+            resolver.query(ContentUris.withAppendedId(table, id), arrayOf(column), null, null, null)?.use { c -> if (c.moveToFirst()) threadIds += c.getLong(0) }
+        }
+        // Reading whole threads keeps one code path for SMS, MMS and their parts; starred lists are short.
+        val recipients = resolver.threadRecipients()
+        val wanted = keys.toSet()
+        threadIds.flatMap { threadId ->
+            val people = recipients[threadId].orEmpty()
+            val name = displayNameFor(people, ::displayName)
+            queryThread(threadId).filter { it.key in wanted }.map { StarredMessage(it.copy(starred = true), people, name) }
         }
     }
 
@@ -146,6 +167,7 @@ class TelephonyMessageRepository(
             }
         }
         dao.deleteForThreads(threadIds)
+        starred.deleteForThreads(threadIds)
     }
 
     override suspend fun deleteMessage(message: ChatMessage) {
@@ -154,6 +176,7 @@ class TelephonyMessageRepository(
             runCatching { resolver.delete(ContentUris.withAppendedId(table, message.id), null, null) }
         }
         dao.deleteForMessage(message.key)
+        starred.unstar(message.key)
     }
 
     override suspend fun search(query: String): List<SearchHit> = withContext(Dispatchers.IO) {

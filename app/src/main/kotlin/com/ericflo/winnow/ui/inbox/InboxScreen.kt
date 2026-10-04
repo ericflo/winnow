@@ -102,6 +102,7 @@ fun InboxScreen(
     onOpenActivity: () -> Unit,
     onOpenSettings: () -> Unit,
     onMakeDefault: () -> Unit,
+    onOpenStarred: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
@@ -275,6 +276,10 @@ fun InboxScreen(
             onOpenArchived = {
                 menuOpen = false
                 onOpenArchived()
+            },
+            onOpenStarred = {
+                menuOpen = false
+                onOpenStarred()
             },
             onOpenActivity = {
                 menuOpen = false

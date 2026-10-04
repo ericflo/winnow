@@ -86,6 +86,7 @@ class AppContainer(private val context: Context) {
     val mmsReceiver by lazy { MmsReceiver(context, mmsStore, mmsFiles, OwnNumbers(context), incoming) }
     val conversationStates by lazy { ConversationStateStore(database.conversationStates()) }
     val verdictDao by lazy { database.verdicts() }
+    val starredDao by lazy { database.starred() }
 
     private val access = MutableStateFlow(hasSmsAccess())
 
@@ -95,7 +96,7 @@ class AppContainer(private val context: Context) {
     val messages: MessageRepository by lazy {
         SwitchingMessageRepository(
             live = TelephonyMessageRepository(
-                context, verdictDao, contacts, smsSender, mmsSender,
+                context, verdictDao, database.starred(), contacts, smsSender, mmsSender,
                 retryDownload = { mmsReceiver.retryDownload(it) },
                 onCorrected = { threadId, message, action -> learner.learn(threadId, message, action) },
             ),
@@ -113,7 +114,7 @@ class AppContainer(private val context: Context) {
     val backups by lazy {
         BackupManager(
             context, appScope, verdictDao, database.conversationStates(), database.scheduled(), settings, mmsStore, scheduler,
-            database.corrections(), learner,
+            database.corrections(), starredDao, learner,
         ) { isDefaultSmsApp() }
     }
 

@@ -72,7 +72,9 @@ messages can't be tapped.
   goes out on, and tapping it switches. Each conversation remembers its SIM. Otherwise it
   uses the SIM their last text arrived on, then your default. Replies from notifications and
   scheduled texts use the same SIM, and message details say which SIM a text came in on.
-- **Messages:** copy, forward, delete, details, and "Copy code" for verification codes.
+- **Messages:** copy, forward, star, delete, details, and "Copy code" for verification
+  codes. **Starred** (in the menu) collects starred messages from every conversation, photos
+  included.
 - **Share to Winnow:** text, photos and videos shared from any app open New chat with them
   attached.
 - **Notifications:** Android conversation notifications (Conversations section, priority),
@@ -112,10 +114,12 @@ messages can't be tapped.
   <tr>
     <td><img src="docs/screenshots/backup.png" width="200" alt="Restore a backup"></td>
     <td><img src="docs/screenshots/sim-picker.png" width="200" alt="Choosing a SIM"></td>
+    <td><img src="docs/screenshots/starred.png" width="200" alt="Starred messages"></td>
   </tr>
   <tr>
     <td align="center"><sub>Back up and restore</sub></td>
     <td align="center"><sub>Dual SIM: pick per conversation</sub></td>
+    <td align="center"><sub>Starred messages</sub></td>
   </tr>
 </table>
 

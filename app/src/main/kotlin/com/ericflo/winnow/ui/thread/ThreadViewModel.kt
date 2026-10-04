@@ -10,6 +10,7 @@ import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.data.SimCard
 import com.ericflo.winnow.data.StoredVerdict
 import com.ericflo.winnow.data.db.ScheduledMessageEntity
+import com.ericflo.winnow.data.db.StarredEntity
 import com.ericflo.winnow.data.displayNameFor
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -113,12 +114,13 @@ class ThreadViewModel(
     val state: StateFlow<ThreadUiState> = threadId
         .filter { it >= 0 }
         .flatMapLatest { id ->
-            combine(repo.messages(id), states.observe().map { it[id] }) { messages, s ->
+            combine(repo.messages(id), states.observe().map { it[id] }, container.starredDao.observeKeys(id)) { messages, s, starredKeys ->
+                val stars = starredKeys.toSet()
                 ThreadUiState(
                     title = title,
                     subtitle = subtitle,
                     recipients = recipients,
-                    messages = messages,
+                    messages = if (stars.isEmpty()) messages else messages.map { if (it.key in stars) it.copy(starred = true) else it },
                     verdict = messages.lastOrNull { !it.outgoing }?.verdict,
                     senderNames = messages.mapNotNull { it.sender }.distinct().associateWith(repo::displayName),
                     photos = (recipients + messages.mapNotNull { it.sender }).distinct()
@@ -228,6 +230,14 @@ class ThreadViewModel(
     fun retry(message: ChatMessage) = launch { repo.retry(message) }
 
     fun delete(message: ChatMessage) = launch { repo.deleteMessage(message) }
+
+    fun toggleStar(message: ChatMessage) = launch {
+        if (message.starred) {
+            container.starredDao.unstar(message.key)
+        } else {
+            container.starredDao.star(StarredEntity(message.key, threadId.value, System.currentTimeMillis()))
+        }
+    }
 
     fun allow() = launch { overrideAddress().takeIf { it.isNotBlank() }?.let { repo.overrideVerdict(threadId.value, it, Action.ALLOW) } }
 
