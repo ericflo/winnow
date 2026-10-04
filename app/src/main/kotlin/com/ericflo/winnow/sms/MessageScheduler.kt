@@ -12,6 +12,7 @@ import com.ericflo.winnow.data.db.ScheduledMessageDao
 import com.ericflo.winnow.data.db.ScheduledMessageEntity
 import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.data.splitAddresses
+import com.ericflo.winnow.data.displayNameFor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
@@ -51,6 +52,14 @@ class MessageScheduler(
         val store = messages() ?: throw IllegalStateException("Winnow isn't the default SMS app, so it can't send")
         store.send(splitAddresses(message.recipients), message.body, subscriptionId = message.subscriptionId)
         cancel(id)
+    }
+
+    /** Tells the user a scheduled text didn't go out when its time came. */
+    suspend fun notifyFailed(id: Long) {
+        val message = dao.get(id) ?: return
+        val container = (context.applicationContext as WinnowApp).container
+        val recipients = splitAddresses(message.recipients)
+        container.notifier.showNotSent(message.threadId, recipients, displayNameFor(recipients, container.messages::displayName), message.body, scheduled = true)
     }
 
     /** Alarms don't survive a reboot; this re-arms every pending message (overdue ones fire at once). */
@@ -93,6 +102,8 @@ class ScheduledSendReceiver : BroadcastReceiver() {
                 throw e
             } catch (e: Exception) {
                 Log.e("WinnowSchedule", "Scheduled send failed", e)
+                // It's still scheduled, with Send now in its conversation; the user has to know.
+                runCatching { container.scheduler.notifyFailed(intent.getLongExtra(EXTRA_ID, -1)) }
             } finally {
                 pending.finish()
             }

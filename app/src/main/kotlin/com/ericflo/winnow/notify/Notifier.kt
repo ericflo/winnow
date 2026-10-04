@@ -30,7 +30,43 @@ class Notifier(private val context: Context) {
     init {
         val channel = NotificationChannel(CHANNEL_MESSAGES, context.getString(R.string.channel_messages), NotificationManager.IMPORTANCE_HIGH)
             .apply { description = context.getString(R.string.channel_messages_description) }
-        context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        val notSent = NotificationChannel(CHANNEL_NOT_SENT, context.getString(R.string.channel_not_sent), NotificationManager.IMPORTANCE_HIGH)
+            .apply { description = context.getString(R.string.channel_not_sent_description) }
+        context.getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(channel, notSent))
+    }
+
+    /**
+     * A text that couldn't go out (no signal, airplane mode, a carrier refusal, or a scheduled one
+     * that failed when its time came). Tapping opens the conversation, where it can be retried;
+     * opening the conversation any other way clears it too.
+     */
+    fun showNotSent(threadId: Long, recipients: List<String>, title: String, body: String, scheduled: Boolean = false) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val open = Intent(context, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_OPEN_THREAD)
+            .putExtra(MainActivity.EXTRA_THREAD_ID, threadId)
+            .putExtra(MainActivity.EXTRA_ADDRESS, joinAddresses(recipients))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val heading = if (scheduled) "Scheduled message not sent" else "Message not sent"
+        val line = "To $title: ${body.ifBlank { "your message" }}"
+        val notification = NotificationCompat.Builder(context, CHANNEL_NOT_SENT)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(heading)
+            .setContentText(line)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$line\nOpen the conversation to try again."))
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .setAutoCancel(true)
+            // Its own request code range, so it doesn't replace the conversation notification's intent.
+            .setContentIntent(PendingIntent.getActivity(context, -1 - notificationId(threadId), open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(
+                NotificationCompat.Builder(context, CHANNEL_NOT_SENT)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setContentTitle(heading)
+                    .build(),
+            )
+            .build()
+        manager.notify(TAG_NOT_SENT, notificationId(threadId), notification)
     }
 
     /**
@@ -206,6 +242,7 @@ class Notifier(private val context: Context) {
 
     fun cancel(threadId: Long) {
         manager.cancel(TAG, notificationId(threadId))
+        manager.cancel(TAG_NOT_SENT, notificationId(threadId))
     }
 
     /** Drops notifications and conversation shortcuts for deleted threads. */
@@ -243,6 +280,8 @@ class Notifier(private val context: Context) {
 
     private companion object {
         const val CHANNEL_MESSAGES = "messages"
+        const val CHANNEL_NOT_SENT = "not_sent"
         const val TAG = "thread"
+        const val TAG_NOT_SENT = "not_sent"
     }
 }

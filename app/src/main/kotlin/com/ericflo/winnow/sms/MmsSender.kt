@@ -4,6 +4,10 @@ import android.app.Activity
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.ContentUris
+import android.util.Log
+import com.ericflo.winnow.WinnowApp
+import com.ericflo.winnow.data.displayNameFor
+import kotlinx.coroutines.launch
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -195,7 +199,30 @@ class MmsSentReceiver : BroadcastReceiver() {
         val conf = intent.getByteArrayExtra(SmsManager.EXTRA_MMS_DATA)
             ?.let { runCatching { PduParser.parse(it) }.getOrNull() as? SendConf }
         val ok = resultCode == Activity.RESULT_OK && (conf == null || conf.responseStatus == ResponseStatus.OK)
-        MmsStore(context).setBox(message, if (ok) Telephony.Mms.MESSAGE_BOX_SENT else Telephony.Mms.MESSAGE_BOX_FAILED, conf?.messageId)
+        val store = MmsStore(context)
+        store.setBox(message, if (ok) Telephony.Mms.MESSAGE_BOX_SENT else Telephony.Mms.MESSAGE_BOX_FAILED, conf?.messageId)
+        if (!ok) notifyNotSent(context, store, message)
+    }
+
+    /** Says so, unless the conversation is on screen, where the message already shows "Not sent". */
+    private fun notifyNotSent(context: Context, store: MmsStore, message: Uri) {
+        val container = (context.applicationContext as WinnowApp).container
+        val pending = goAsync()
+        container.appScope.launch {
+            try {
+                val id = ContentUris.parseId(message)
+                val threadId = context.contentResolver.query(message, arrayOf(Telephony.Mms.THREAD_ID), null, null, null)
+                    ?.use { c -> if (c.moveToFirst()) c.getLong(0) else null } ?: return@launch
+                if (container.visibleThread.value == threadId) return@launch
+                val recipients = store.recipients(id)
+                val text = store.parts(id).firstOrNull { it.contentType == "text/plain" }?.data?.toString(Charsets.UTF_8)
+                container.notifier.showNotSent(threadId, recipients, displayNameFor(recipients, container.messages::displayName), text ?: "a picture message")
+            } catch (e: Exception) {
+                Log.w("WinnowMms", "Couldn't say an MMS wasn't sent", e)
+            } finally {
+                pending.finish()
+            }
+        }
     }
 
     companion object {

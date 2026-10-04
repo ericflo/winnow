@@ -11,6 +11,8 @@ import android.provider.Telephony
 import android.telephony.SmsManager
 import android.telephony.SmsMessage
 import android.telephony.SubscriptionManager
+import com.ericflo.winnow.WinnowApp
+import kotlinx.coroutines.launch
 
 class SmsSender(
     private val context: Context,
@@ -114,6 +116,28 @@ class SmsStatusReceiver : BroadcastReceiver() {
                 )
             } else {
                 resolver.update(uri, ContentValues().apply { put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_FAILED) }, null, null)
+                notifyNotSent(context, uri)
+            }
+        }
+    }
+
+    /** Says so, unless the conversation is on screen, where the message already shows "Not sent". */
+    private fun notifyNotSent(context: Context, uri: android.net.Uri) {
+        val container = (context.applicationContext as WinnowApp).container
+        val pending = goAsync()
+        container.appScope.launch {
+            try {
+                context.contentResolver.query(uri, arrayOf(Telephony.Sms.THREAD_ID, Telephony.Sms.ADDRESS, Telephony.Sms.BODY), null, null, null)?.use { c ->
+                    if (!c.moveToFirst()) return@use
+                    val threadId = c.getLong(0)
+                    val address = c.getString(1).orEmpty()
+                    if (container.visibleThread.value == threadId) return@use
+                    container.notifier.showNotSent(threadId, listOf(address), container.messages.displayName(address), c.getString(2).orEmpty())
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("WinnowSms", "Couldn't say a text wasn't sent", e)
+            } finally {
+                pending.finish()
             }
         }
     }
