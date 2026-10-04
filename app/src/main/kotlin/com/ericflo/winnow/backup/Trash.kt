@@ -3,6 +3,7 @@ package com.ericflo.winnow.backup
 import android.content.Context
 import android.provider.Telephony
 import android.util.Log
+import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.ConversationStateStore
 import com.ericflo.winnow.data.MessageRepository
 import com.ericflo.winnow.data.displayNameFor
@@ -23,7 +24,8 @@ import kotlin.coroutines.cancellation.CancellationException
 /**
  * Recently deleted: a conversation the user deletes is kept for [KEEP_DAYS] days first, as a
  * one-conversation Winnow backup (messages, photos, what Winnow decided, stars, pin and draft) in
- * the app's own storage, and can be put back. After that it's gone for good.
+ * the app's own storage, and can be put back. After that it's gone for good. Messages deleted
+ * from a conversation are kept the same way, as a backup of just them.
  */
 class Trash(
     private val context: Context,
@@ -43,6 +45,8 @@ class Trash(
         val messages: Int,
         val deletedAt: Long,
         val snippet: String,
+        /** Some messages deleted from a conversation, not the conversation. */
+        val someMessages: Boolean = false,
     ) {
         val expiresAt: Long get() = deletedAt + KEEP_DAYS * DAY_MILLIS
     }
@@ -107,6 +111,51 @@ class Trash(
                 "Couldn't keep a conversation in Recently deleted, so it wasn't deleted".takeIf { kept.size + skipped.size != threadIds.size },
                 _items.value.filter { it.file in made },
             )
+        }
+    }
+
+    /**
+     * Keeps [messages] (from conversation [threadId]) in Recently deleted, then deletes them from
+     * the phone. None are deleted if they couldn't be kept. One that was never downloaded has
+     * nothing to keep, and is just deleted.
+     */
+    suspend fun deleteMessages(threadId: Long, messages: List<ChatMessage>): Deleted = lock.withLock {
+        if (!canWrite()) return@withLock Deleted("Make Winnow your SMS app to delete messages", emptyList())
+        withContext(Dispatchers.IO) {
+            val file = File(dir, "${System.currentTimeMillis()}-$threadId$SOME_MESSAGES")
+            val partial = File(dir, "${file.name}.part")
+            try {
+                val media = HashMap<String, android.net.Uri>()
+                // Just these messages: the conversation's draft stays in the conversation.
+                val conversation = backups.readConversations(media, only = setOf(threadId), messages = messages.mapTo(HashSet()) { it.key })
+                    .singleOrNull()
+                    ?.copy(draft = null, draftSubject = null, draftAttachments = emptyList())
+                if (conversation == null && messages.any { !it.isPlaceholder }) {
+                    return@withContext Deleted("Couldn't keep those messages in Recently deleted, so they weren't deleted", emptyList())
+                }
+                if (conversation != null) {
+                    partial.outputStream().use { output ->
+                        BackupArchive.write(output, WinnowBackup(createdAt = System.currentTimeMillis(), conversations = listOf(conversation))) { part ->
+                            media[part.file]?.let { from -> runCatching { context.contentResolver.openInputStream(from) }.getOrNull() }
+                        }
+                    }
+                    FileOutputStream(partial, true).use { it.fd.sync() }
+                    if (!partial.renameTo(file)) error("Couldn't name the kept file")
+                }
+            } catch (e: CancellationException) {
+                partial.delete()
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Couldn't keep messages in Recently deleted", e)
+                partial.delete()
+                return@withContext Deleted("Couldn't keep those messages in Recently deleted, so they weren't deleted", emptyList())
+            }
+            try {
+                withContext(NonCancellable) { messages.forEach { repo.deleteMessage(it) } }
+            } finally {
+                withContext(NonCancellable) { reload() }
+            }
+            Deleted(null, _items.value.filter { it.file == file })
         }
     }
 
@@ -263,6 +312,7 @@ class Trash(
             messages = conversation.messages.size,
             deletedAt = at,
             snippet = last?.body?.takeIf { it.isNotBlank() } ?: if (last?.parts?.isNotEmpty() == true) "Photo or attachment" else "",
+            someMessages = file.name.endsWith(SOME_MESSAGES),
         )
     }
 
@@ -270,6 +320,8 @@ class Trash(
 
     companion object {
         const val KEEP_DAYS = 30L
+        /** How a file of some messages from a conversation ends, after its time and conversation. */
+        private const val SOME_MESSAGES = "-messages.zip"
         private const val DAY_MILLIS = 24 * 60 * 60_000L
         private const val ATTEMPTS = 3
         private const val TAG = "WinnowTrash"

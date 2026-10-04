@@ -72,6 +72,9 @@ data class ChatMessage(
 
     companion object {
         fun messageKey(kind: Kind, id: Long) = "${kind.name.lowercase()}:$id"
+
+        /** The row id a [messageKey] names in [kind]'s table; null if it's the other table's. */
+        fun idIn(kind: Kind, key: String): Long? = key.removePrefix("${kind.name.lowercase()}:").takeIf { it != key }?.toLongOrNull()
     }
 }
 

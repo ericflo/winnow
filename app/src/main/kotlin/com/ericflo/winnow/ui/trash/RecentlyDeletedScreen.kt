@@ -123,7 +123,7 @@ fun RecentlyDeletedScreen(viewModel: RecentlyDeletedViewModel, onBack: () -> Uni
         LazyColumn(contentPadding = padding, modifier = Modifier.fillMaxSize()) {
             item("explainer") {
                 Text(
-                    "Deleted conversations stay here for ${Trash.KEEP_DAYS} days, photos and all, then they're gone for good.",
+                    "Deleted conversations and messages stay here for ${Trash.KEEP_DAYS} days, photos and all, then they're gone for good.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -140,7 +140,7 @@ fun RecentlyDeletedScreen(viewModel: RecentlyDeletedViewModel, onBack: () -> Uni
                         Column {
                             if (item.snippet.isNotEmpty()) Text(item.snippet, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                "${if (item.messages == 1) "1 message" else "${item.messages} messages"} · " +
+                                "${if (item.messages == 1) "1 message" else "${item.messages} messages"}${if (item.someMessages) " from this conversation" else ""} · " +
                                     if (daysLeft <= 1) "gone tomorrow" else "gone in $daysLeft days",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -168,7 +168,7 @@ fun RecentlyDeletedScreen(viewModel: RecentlyDeletedViewModel, onBack: () -> Uni
             if (items.isEmpty()) {
                 item("empty") {
                     Text(
-                        "Nothing here. Deleted conversations wait here for ${Trash.KEEP_DAYS} days.",
+                        "Nothing here. Deleted conversations and messages wait here for ${Trash.KEEP_DAYS} days.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,

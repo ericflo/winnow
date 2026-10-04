@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Star
+import com.ericflo.winnow.backup.Trash
 import com.ericflo.winnow.data.SimpleCharacters
 import com.ericflo.winnow.sms.measureSms
 import com.ericflo.winnow.data.SimCard
@@ -303,6 +304,19 @@ fun ThreadScreen(
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(viewModel) { viewModel.notices.collect { snackbar.showSnackbar(it) } }
+    // Deleted messages sit in Recently deleted; Undo puts them straight back.
+    LaunchedEffect(viewModel) {
+        viewModel.deleted.collect { items ->
+            val n = items.sumOf { it.messages }
+            val message = if (n == 1) "Message moved to Recently deleted" else "$n messages moved to Recently deleted"
+            snackbar.currentSnackbarData?.dismiss()
+            launch {
+                if (snackbar.showSnackbar(message, actionLabel = "Undo", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
+                    viewModel.undoDelete(items)
+                }
+            }
+        }
+    }
     // Leaving the conversation, or the app, stops the microphone; the clip waits in the composer.
     LifecycleStartEffect(viewModel) { onStopOrDispose { viewModel.finishRecording() } }
     LifecycleResumeEffect(viewModel) {
@@ -824,7 +838,7 @@ fun ThreadScreen(
         AlertDialog(
             onDismissRequest = { confirmDeleteOne = null },
             title = { Text("Delete this message?") },
-            text = { Text("It's removed from this phone. This can't be undone.") },
+            text = { Text("It stays in Recently deleted for ${Trash.KEEP_DAYS} days, in case you want it back.") },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(message)
@@ -839,7 +853,7 @@ fun ThreadScreen(
         AlertDialog(
             onDismissRequest = { confirmDeleteSelected = false },
             title = { Text(if (n == 1) "Delete this message?" else "Delete $n messages?") },
-            text = { Text("${if (n == 1) "It's" else "They're"} removed from this phone. This can't be undone.") },
+            text = { Text("${if (n == 1) "It stays" else "They stay"} in Recently deleted for ${Trash.KEEP_DAYS} days, in case you want ${if (n == 1) "it" else "them"} back.") },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteMessages(selectedMessages)

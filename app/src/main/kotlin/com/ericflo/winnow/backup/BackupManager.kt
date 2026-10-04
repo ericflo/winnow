@@ -368,10 +368,16 @@ class BackupManager(
     }
 
     /**
-     * [only], when given, limits it to those conversations (Recently deleted keeps one at a time).
+     * [only], when given, limits it to those conversations (Recently deleted keeps one at a time),
+     * and [messages] to those messages, by [ChatMessage.key] (Recently deleted keeping some).
      */
-    internal suspend fun readConversations(media: MutableMap<String, Uri>, only: Set<Long>? = null): List<ConversationBackup> {
-        val inThreads = only?.let { ids -> " AND ${Sms.THREAD_ID} IN (${ids.joinToString(",")})" }.orEmpty()
+    internal suspend fun readConversations(media: MutableMap<String, Uri>, only: Set<Long>? = null, messages: Set<String>? = null): List<ConversationBackup> {
+        // The rows of one table [messages] names: "AND 0" for none of them.
+        fun picked(kind: ChatMessage.Kind, column: String): String = messages?.let { keys ->
+            val ids = keys.mapNotNull { ChatMessage.idIn(kind, it) }
+            if (ids.isEmpty()) " AND 0" else " AND $column IN (${ids.joinToString(",")})"
+        }.orEmpty()
+        val inThreads = only?.let { ids -> " AND ${Sms.THREAD_ID} IN (${ids.joinToString(",")})" }.orEmpty() + picked(ChatMessage.Kind.SMS, Sms._ID)
         val recipients = resolver.threadRecipients()
         val verdictsByKey = verdicts.all().associateBy { it.messageKey }
         val stars = starred.all().mapTo(HashSet()) { it.messageKey }
@@ -418,7 +424,7 @@ class BackupManager(
             Mms.CONTENT_URI,
             arrayOf(Mms._ID, Mms.THREAD_ID, Mms.DATE, Mms.MESSAGE_BOX, Mms.SUBJECT, Mms.READ, Mms.SUBJECT_CHARSET),
             "${Mms.MESSAGE_BOX} != ${Mms.MESSAGE_BOX_DRAFTS} AND ${Mms.MESSAGE_TYPE} != ${MmsStore.MESSAGE_TYPE_NOTIFICATION_IND}" +
-                only?.let { ids -> " AND ${Mms.THREAD_ID} IN (${ids.joinToString(",")})" }.orEmpty(),
+                only?.let { ids -> " AND ${Mms.THREAD_ID} IN (${ids.joinToString(",")})" }.orEmpty() + picked(ChatMessage.Kind.MMS, Mms._ID),
             null, null,
         )?.use { c ->
             while (c.moveToNext()) {
@@ -427,7 +433,7 @@ class BackupManager(
         }
         val parts = when {
             rows.isEmpty() -> emptyMap()
-            only == null -> mmsParts(null)
+            only == null && messages == null -> mmsParts(null)
             else -> mmsParts("${Mms.Part.MSG_ID} IN (${rows.joinToString(",") { it.id.toString() }})")
         }
         for (row in rows) {

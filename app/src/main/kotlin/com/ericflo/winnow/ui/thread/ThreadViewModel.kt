@@ -8,6 +8,7 @@ import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.data.SimCard
+import com.ericflo.winnow.backup.Trash
 import com.ericflo.winnow.data.PhotoCrop
 import com.ericflo.winnow.data.Tapback
 import com.ericflo.winnow.data.StoredVerdict
@@ -18,6 +19,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -966,11 +968,7 @@ class ThreadViewModel(
 
     fun retry(message: ChatMessage) = launch { repo.retry(message) }
 
-    fun delete(message: ChatMessage) = launch {
-        repo.deleteMessage(message)
-        // Nothing to come back to.
-        container.reminders.cancel(message.key)
-    }
+    fun delete(message: ChatMessage) = deleteMessages(listOf(message))
 
     /** Sends a reaction as text (`Loved “…”`), which iPhones show as a tapback and Winnow folds onto [message]. */
     fun react(message: ChatMessage, emoji: String) = launch {
@@ -979,11 +977,30 @@ class ThreadViewModel(
         repo.send(recipients, text, subscriptionId = _selectedSim.value)
     }
 
+    private val _deleted = MutableSharedFlow<List<Trash.Item>>(extraBufferCapacity = 4)
+    /** Messages just moved to Recently deleted, for an Undo. */
+    val deleted: SharedFlow<List<Trash.Item>> = _deleted
+
+    /** Moves [messages] to Recently deleted (in the app's scope: leaving doesn't stop it halfway). */
     fun deleteMessages(messages: List<ChatMessage>) = launch {
-        messages.forEach {
-            repo.deleteMessage(it)
-            container.reminders.cancel(it.key)
+        val kept = mutableListOf<Trash.Item>()
+        for ((thread, some) in messages.groupBy { it.threadId }) {
+            val result = container.appScope.async { container.trash.deleteMessages(thread, some) }.await()
+            result.problem?.let {
+                _notices.emit(it)
+                return@launch
+            }
+            kept += result.items
+            // Their reminders are kept with them, and come back if they do.
+            some.forEach { container.reminders.cancel(it.key) }
         }
+        if (kept.isNotEmpty()) _deleted.emit(kept)
+    }
+
+    /** Undo: what [deleteMessages] moved to Recently deleted, back in the conversation. */
+    fun undoDelete(items: List<Trash.Item>) = launch {
+        val back = container.appScope.async { items.map { container.trash.restore(it) } }.await()
+        if (back.any { it?.complete == false }) _notices.emit("Some of it couldn't be put back; it's still in Recently deleted")
     }
 
     /** Stars all of [messages], or unstars them all when they already are. */

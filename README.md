@@ -99,7 +99,7 @@ and opens Filtered; nothing on a quiet day.
   mark read/unread, pin, or nothing), to mark not spam in Filtered, or to unarchive in
   Archived. Archiving and "not spam" can be undone, and deleting asks first. A deleted conversation waits
   in **Recently deleted** (in the menu) for 30 days, photos and Winnow's decisions included, and
-  can be restored from there. Opening a conversation marks where its **new messages** begin. Full-text search covers SMS and MMS, and each conversation can be searched on its own,
+  can be restored from there; so do messages deleted from a conversation, with an Undo right away. Opening a conversation marks where its **new messages** begin. Full-text search covers SMS and MMS, and each conversation can be searched on its own,
   with matches highlighted; a search result opens its conversation at that message, and so
   does a starred one. Settings links to Android's blocked-numbers list.
 - **Composing:** New chat with your contacts (the people you've texted lately at the top) and Create
