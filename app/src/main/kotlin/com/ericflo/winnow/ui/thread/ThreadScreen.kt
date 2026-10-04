@@ -769,6 +769,7 @@ private fun MessageList(
                         MessageBubble(
                             item = item,
                             senderName = item.message.sender?.let { state.senderNames[it] }?.takeIf { state.isGroup },
+                            speaker = if (item.message.outgoing) "You" else item.message.sender?.let { state.senderNames[it] } ?: state.title,
                             senderPhoto = item.message.sender?.let { state.photos[it] },
                             showTime = revealed == item.key,
                             isLatestOutgoing = item.key == latestOutgoing,
@@ -845,8 +846,19 @@ private fun MessageBubble(
     focused: Boolean = false,
     onMessageNumber: (String) -> Unit = {},
     textScale: Float = 1f,
+    /** Who said it, for screen readers, which can't see which side a bubble is on. */
+    speaker: String = "",
 ) {
     val m = item.message
+    val spoken = buildString {
+        append(speaker.ifEmpty { if (m.outgoing) "You" else "Them" }).append(": ").append(m.body).append(", ").append(timeOfDay(m.timestamp))
+        if (m.outgoing) when (m.status) {
+            ChatMessage.Status.SENDING -> append(", sending")
+            ChatMessage.Status.FAILED -> append(", not sent")
+            ChatMessage.Status.DELIVERED -> append(", delivered")
+            else -> Unit
+        }
+    }
     val colors = MaterialTheme.colorScheme
     val big = 22.dp
     val small = 6.dp
@@ -892,7 +904,7 @@ private fun MessageBubble(
                         var ratio by remember(attachment.uri) { mutableFloatStateOf(photoRatios[attachment.uri] ?: (4f / 3f)) }
                         AsyncImage(
                             model = attachment.uri,
-                            contentDescription = attachment.name ?: "Image",
+                            contentDescription = if (m.outgoing) "Photo you sent" else "Photo from ${speaker.ifEmpty { "them" }}",
                             contentScale = ContentScale.Crop,
                             onSuccess = { loaded ->
                                 val image = loaded.result.image
@@ -957,7 +969,7 @@ private fun MessageBubble(
                     isEmojiOnly(m.body) -> Text(
                         m.body,
                         fontSize = 44.sp * textScale,
-                        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
+                        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick).semantics { contentDescription = spoken },
                     )
                     else -> Text(
                         linkify(m.body, links = !fraud, linkColor = if (m.outgoing) colors.onPrimaryContainer else colors.primary)
@@ -967,7 +979,8 @@ private fun MessageBubble(
                         modifier = Modifier
                             .clip(shape)
                             .background(if (m.outgoing) colors.primaryContainer else colors.surfaceContainerHigh)
-                            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                            .combinedClickable(onClickLabel = "Show time", onClick = onClick, onLongClickLabel = "More options", onLongClick = onLongClick)
+                            .semantics { contentDescription = spoken }
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                     )
                 }
@@ -1416,7 +1429,9 @@ private fun SegmentCounter(text: String) {
         "$remaining / $segments",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 8.dp),
+        modifier = Modifier.padding(start = 8.dp).semantics {
+            contentDescription = "$remaining characters left in this text, ${if (segments == 1) "1 text" else "$segments texts"}"
+        },
     )
 }
 

@@ -52,7 +52,8 @@ fun Avatar(name: String, seed: String, size: Dp = 52.dp, modifier: Modifier = Mo
     } else {
         MaterialTheme.colorScheme.surfaceContainerHighest to MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Box(modifier = modifier.size(size).background(container, CircleShape), contentAlignment = Alignment.Center) {
+    // Decorative: the name is always written beside it, and a lone "P" read aloud is noise.
+    Box(modifier = modifier.size(size).background(container, CircleShape).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
         if (named) {
             Text(name.first().uppercase(), color = content, fontSize = (size.value * 0.42f).sp, style = MaterialTheme.typography.titleMedium)
         } else {

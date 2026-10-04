@@ -79,6 +79,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.material.icons.filled.Check
 import com.ericflo.winnow.data.SwipeChoice
+import androidx.compose.foundation.selection.toggleable
 
 private val Action.label: String
     get() = when (this) {
@@ -387,13 +388,16 @@ private fun ProviderFields(kind: ProviderKind, saved: ProviderSettings, onSave: 
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { zeroRetention = !zeroRetention }) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.toggleable(value = zeroRetention, role = Role.Switch) { zeroRetention = it },
+        ) {
             Text(
                 "This provider keeps no message data (zero retention)",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
-            Switch(checked = zeroRetention, onCheckedChange = { zeroRetention = it })
+            Switch(checked = zeroRetention, onCheckedChange = null)
         }
         Button(onClick = { onSave(edited) }, enabled = edited != saved) { Text("Save") }
     }
@@ -535,11 +539,12 @@ private fun LazyListScope.privacyItems(s: WinnowSettings, vm: SettingsViewModel)
 
 @Composable
 private fun SwitchRow(title: String, subtitle: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+    // One control: TalkBack reads "title, subtitle, switch, on" instead of stopping twice.
     ListItem(
         headlineContent = { Text(title) },
         supportingContent = { Text(subtitle) },
-        trailingContent = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) },
-        modifier = Modifier.clickable(enabled = enabled) { onChange(!checked) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
+        modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
     )
 }
 

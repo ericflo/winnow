@@ -84,6 +84,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.ericflo.winnow.ui.components.AttachmentThumbnail
 import com.ericflo.winnow.ui.components.ImageViewer
 import com.ericflo.winnow.ui.components.VideoViewer
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
 
 data class DetailsUiState(
     val title: String,
@@ -409,8 +412,8 @@ private fun Toggle(title: String, subtitle: String?, checked: Boolean, onChange:
     ListItem(
         headlineContent = { Text(title) },
         supportingContent = subtitle?.let { { Text(it) } },
-        trailingContent = { Switch(checked = checked, onCheckedChange = onChange) },
-        modifier = Modifier.clickable { onChange(!checked) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = null) },
+        modifier = Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
     )
 }
 
@@ -420,7 +423,7 @@ private fun RuleRow(title: String, subtitle: String, selected: Boolean, onSelect
         leadingContent = { RadioButton(selected = selected, onClick = null) },
         headlineContent = { Text(title) },
         supportingContent = { Text(subtitle) },
-        modifier = Modifier.clickable(onClick = onSelect),
+        modifier = Modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onSelect),
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
     )
 }

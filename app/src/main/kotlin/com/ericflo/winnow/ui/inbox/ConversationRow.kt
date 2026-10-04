@@ -36,6 +36,8 @@ import com.ericflo.winnow.ui.components.Avatar
 import com.ericflo.winnow.ui.components.UnreadCountBadge
 import com.ericflo.winnow.ui.components.VerdictBadge
 import com.ericflo.winnow.ui.components.shortTimestamp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 
 /** One conversation, laid out like Messages: avatar, name over a one-line snippet, time over an unread count. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -58,7 +60,8 @@ fun ConversationRow(
         modifier = modifier
             .fillMaxWidth()
             .background(if (selected) colors.secondaryContainer else colors.surface)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(onClick = onClick, onLongClickLabel = if (onLongClick != null) "Select" else null, onLongClick = onLongClick)
+            .semantics { if (selected) stateDescription = "Selected" }
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
         if (selected) SelectedAvatar() else leading()
@@ -96,8 +99,8 @@ fun ConversationRow(
             modifier = if (badge != null) Modifier.align(Alignment.Top).padding(top = 4.dp) else Modifier,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (conversation.muted) StatusIcon(R.drawable.ic_muted)
-                if (conversation.pinned) StatusIcon(R.drawable.ic_pin)
+                if (conversation.muted) StatusIcon(R.drawable.ic_muted, "Muted")
+                if (conversation.pinned) StatusIcon(R.drawable.ic_pin, "Pinned")
                 Text(
                     shortTimestamp(conversation.timestamp),
                     style = MaterialTheme.typography.labelMedium,
@@ -115,10 +118,10 @@ fun ConversationRow(
 }
 
 @Composable
-private fun StatusIcon(icon: Int) {
+private fun StatusIcon(icon: Int, description: String) {
     Icon(
         painterResource(icon),
-        contentDescription = null,
+        contentDescription = description,
         tint = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(end = 4.dp).size(16.dp),
     )

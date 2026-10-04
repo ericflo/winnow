@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -96,8 +98,8 @@ private fun AutoBackupRow(viewModel: SettingsViewModel) {
                 color = if (on && s.autoBackupError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
-        trailingContent = { Switch(checked = on, onCheckedChange = { toggle() }) },
-        modifier = Modifier.clickable { toggle() },
+        trailingContent = { Switch(checked = on, onCheckedChange = null) },
+        modifier = Modifier.toggleable(value = on, role = Role.Switch) { toggle() },
     )
     if (on) {
         TextButton(onClick = viewModel::backUpNow, enabled = !running, modifier = Modifier.padding(start = 8.dp)) {
@@ -171,8 +173,11 @@ private fun RestoreDialog(summary: BackupSummary, isDefault: Boolean, onRestore:
                     )
                 }
                 if (summary.hasSettings) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { includeSettings = !includeSettings }) {
-                        Checkbox(checked = includeSettings, onCheckedChange = { includeSettings = it })
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.toggleable(value = includeSettings, role = Role.Checkbox) { includeSettings = it },
+                    ) {
+                        Checkbox(checked = includeSettings, onCheckedChange = null)
                         Text("Also replace my settings (API keys aren't in backups)")
                     }
                 }
