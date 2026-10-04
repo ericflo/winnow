@@ -137,6 +137,12 @@ class ThreadViewModel(
     val quickReplies: StateFlow<List<String>> = container.settings.settings.map { it.quickReplies }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /** Whether the user said "Not now" to the card asking for their own number; true until known, so it doesn't flash. */
+    val ownNumberCardDismissed: StateFlow<Boolean> = container.settings.settings.map { it.ownNumberCardDismissed }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun dismissOwnNumberCard() = launch { container.settings.update { it.copy(ownNumberCardDismissed = true) } }
+
     /** A quick reply into the composer, after whatever's typed. */
     fun insertQuickReply(text: String) {
         setDraft(listOf(currentDraft().trimEnd(), text).filter { it.isNotEmpty() }.joinToString(" "))

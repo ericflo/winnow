@@ -629,11 +629,11 @@ fun ThreadScreen(
             state.verdict?.takeIf { verdictShown }?.let { verdict ->
                 VerdictBanner(verdict, onAllow = viewModel::allow, onFilter = viewModel::filter, onReport = { confirmReport = true })
             }
-            var ownNumberDismissed by rememberSaveable { mutableStateOf(false) }
+            val ownNumberDismissed by viewModel.ownNumberCardDismissed.collectAsStateWithLifecycle()
             if (state.isGroup && !phoneNumbersAllowed && !ownNumberDismissed) {
                 OwnNumberBanner(
                     onAllow = { phoneNumbersPermission.launch(android.Manifest.permission.READ_PHONE_NUMBERS) },
-                    onDismiss = { ownNumberDismissed = true },
+                    onDismiss = viewModel::dismissOwnNumberCard,
                 )
             }
             // Someone new, not yet answered: who is this? (Gone once they're added, or replied to.)
