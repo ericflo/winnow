@@ -490,11 +490,13 @@ class TelephonyMessageRepository(
 
         return newestByThread.mapNotNull { (threadId, newest) ->
             val people = recipients[threadId]?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            val text = when (newest.kind) {
-                Kind.SMS -> Tapback.summarize(snippets[threadId].orEmpty())
+            val raw = when (newest.kind) {
+                Kind.SMS -> snippets[threadId].orEmpty()
                 // No parts yet means an announced message still waiting to download.
                 Kind.MMS -> mmsText[newest.id] ?: "MMS message"
             }
+            val reaction = Tapback.parse(raw) != null
+            val text = if (newest.kind == Kind.SMS) Tapback.summarize(raw) else raw
             val summary = ConversationSummary(
                 threadId = threadId,
                 recipients = people,
@@ -505,6 +507,8 @@ class TelephonyMessageRepository(
                 verdict = null,
                 photoUri = people.singleOrNull()?.let(contacts::photoUri),
                 notSent = newest.failed,
+                lastFromMe = newest.outgoing,
+                lastAsks = !reaction && !newest.placeholder && Nudge.asks(raw),
                 members = if (people.size > 1) groupFaces(people.take(GROUP_FACE_CANDIDATES).map { Member(it, displayName(it), contacts.photoUri(it)) }) else emptyList(),
             )
             // A placeholder has no verdict yet, so the thread keeps its latest one instead of losing it.

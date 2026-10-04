@@ -10,6 +10,7 @@ import com.ericflo.winnow.classify.ReviewStatus
 import com.ericflo.winnow.data.ConversationSummary
 import com.ericflo.winnow.data.ProviderKind
 import com.ericflo.winnow.data.SearchHit
+import com.ericflo.winnow.data.Nudge
 import com.ericflo.winnow.data.withState
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -87,6 +88,8 @@ data class InboxUiState(
     val kinds: List<InboxFilter> = emptyList(),
     /** Conversations in this list with unread messages, whatever the filter. */
     val unreadConversations: Int = 0,
+    /** Reply reminders, by conversation: these sort to the top, after pinned ones. */
+    val nudges: Map<Long, Nudge.Kind> = emptyMap(),
 )
 
 /** Backs the inbox and the Filtered and Archived lists. */
@@ -119,13 +122,15 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         if (s.reviewPromptDismissed) ReviewStatus.Unknown else status
     }
 
+    private val nudgeInputs = combine(container.settings.settings.map { it.nudges }.distinctUntilChanged(), container.dismissedNudges.keys, ::Pair)
+
     val state: StateFlow<InboxUiState> = combine(
         combine(all, hits, ::Pair),
         combine(container.isLive, isDefault, ::Pair),
         combine(query, filter, ::Pair),
-        classifier,
-        review,
-    ) { (all, hits), (live, isDefault), (query, filter), classifier, review ->
+        combine(classifier, review, ::Pair),
+        nudgeInputs,
+    ) { (all, hits), (live, isDefault), (query, filter), (classifier, review), (nudgesOn, dismissed) ->
         val shown = all.filter { c ->
             when (mode) {
                 ListMode.INBOX -> !c.isFiltered && !c.archived
@@ -144,12 +149,24 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         val kinds = listOf(InboxFilter.UPDATES, InboxFilter.OFFERS).filter { it in present }
             .let { if (it.isEmpty()) it else listOf(InboxFilter.PERSONAL) + it }
         val matching = if (query.isBlank()) filtered else filtered.filter { it.matches(query) }
+        // Only in the plain inbox: a search or a chip asked for something else.
+        val now = System.currentTimeMillis()
+        val nudges = if (!nudgesOn || mode != ListMode.INBOX || query.isNotBlank() || filter !in setOf(InboxFilter.ALL, InboxFilter.PERSONAL)) {
+            emptyMap()
+        } else {
+            matching.mapNotNull { c ->
+                if (Nudge.key(c) in dismissed) return@mapNotNull null
+                Nudge.of(c, now, isContact = repo.contactName(c.address) != null)?.let { c.threadId to it }
+            }.toMap()
+        }
+        // Pinned first, then reminders, then the rest, each by recency as before.
+        val ordered = if (nudges.isEmpty()) matching else matching.sortedWith(compareByDescending<ConversationSummary> { it.pinned }.thenByDescending { it.threadId in nudges })
         InboxUiState(
             loading = false,
             live = live,
             isDefault = isDefault,
             query = query,
-            conversations = matching,
+            conversations = ordered,
             messageHits = hits,
             filteredThreads = all.filter { it.isFiltered }.mapTo(HashSet()) { it.threadId },
             filteredCount = all.count { it.isFiltered },
@@ -160,8 +177,12 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
             filter = filter,
             kinds = kinds,
             unreadConversations = unread.size,
+            nudges = nudges,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxUiState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxUiState())
+
+    /** "Not now" on a reply reminder: it doesn't come back for that message. */
+    fun dismissNudge(conversation: ConversationSummary) = container.dismissedNudges.dismiss(Nudge.key(conversation))
 
     fun refresh() {
         isDefault.value = container.isDefaultSmsApp()

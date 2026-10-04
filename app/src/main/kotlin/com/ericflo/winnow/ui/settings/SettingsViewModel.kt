@@ -183,6 +183,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setDeliveryReports(value: Boolean) = update { it.copy(deliveryReports = value) }
     fun setSimpleCharacters(value: Boolean) = update { it.copy(simpleCharacters = value) }
+    fun setNudges(value: Boolean) = update { it.copy(nudges = value) }
 
     fun setAutoDownloadMms(value: Boolean) = update { it.copy(autoDownloadMms = value) }
 

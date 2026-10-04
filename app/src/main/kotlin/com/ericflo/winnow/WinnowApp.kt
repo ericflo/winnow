@@ -250,6 +250,9 @@ class AppContainer(private val context: Context) {
     /** Hardware keyboard shortcuts the screen on show takes up (see MainActivity.onKeyShortcut). */
     val keyShortcuts = kotlinx.coroutines.flow.MutableSharedFlow<KeyShortcut>(extraBufferCapacity = 1)
 
+    /** Reply reminders the user said "not now" to. */
+    val dismissedNudges by lazy { com.ericflo.winnow.data.DismissedNudges(context) }
+
     /** Keeps the home-screen widget current while Winnow runs. */
     val widgetUpdates by lazy { com.ericflo.winnow.widget.WidgetUpdates(context, appScope) }
 

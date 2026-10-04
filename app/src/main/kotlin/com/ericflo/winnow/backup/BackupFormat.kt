@@ -71,6 +71,8 @@ data class SettingsBackup(
     val filteredPhrases: List<String>? = null,
     val dailySummary: Boolean = false,
     val simpleCharacters: Boolean = false,
+    /** Null in backups made before reply reminders existed: the phone keeps its own. */
+    val nudges: Boolean? = null,
 )
 
 /** A provider's non-secret settings. The API key stays on the phone it was entered on. */

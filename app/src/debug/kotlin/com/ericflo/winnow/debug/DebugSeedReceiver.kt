@@ -63,12 +63,15 @@ class DebugSeedReceiver : BroadcastReceiver() {
                     return@launch
                 }
                 if (from != null) {
+                    // --el ago <ms> backdates it (read, as an old one would be); --ez outgoing true makes it the user's.
+                    val ago = intent.getLongExtra("ago", 0)
+                    val outgoing = intent.getBooleanExtra("outgoing", false)
                     val values = ContentValues().apply {
                         put(Telephony.Sms.ADDRESS, from)
                         put(Telephony.Sms.BODY, intent.getStringExtra("text") ?: "Hello")
-                        put(Telephony.Sms.DATE, System.currentTimeMillis())
-                        put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_INBOX)
-                        put(Telephony.Sms.READ, 0)
+                        put(Telephony.Sms.DATE, System.currentTimeMillis() - ago)
+                        put(Telephony.Sms.TYPE, if (outgoing) Telephony.Sms.MESSAGE_TYPE_SENT else Telephony.Sms.MESSAGE_TYPE_INBOX)
+                        put(Telephony.Sms.READ, if (ago > 0 || outgoing) 1 else 0)
                     }
                     Log.i(TAG, "Seeded one unclassified text: ${context.contentResolver.insert(Telephony.Sms.CONTENT_URI, values)}")
                     return@launch

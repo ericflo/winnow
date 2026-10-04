@@ -306,6 +306,14 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     onChange = viewModel::setDeliveryReports,
                 )
             }
+            item("nudges") {
+                SwitchRow(
+                    "Reply reminders",
+                    "A contact's question you haven't answered in two days, or yours they haven't, comes back to the top of your inbox",
+                    s.nudges,
+                    onChange = viewModel::setNudges,
+                )
+            }
             item("simple-characters") {
                 SwitchRow(
                     "Simple characters",

@@ -119,6 +119,8 @@ data class WinnowSettings(
     val deliveryReports: Boolean = false,
     /** Send plain stand-ins for characters that would make a text take more parts (see SimpleCharacters). */
     val simpleCharacters: Boolean = false,
+    /** Reply reminders: unanswered questions back at the top of the inbox (see Nudge). On by default, as in Messages. */
+    val nudges: Boolean = true,
     /** Fetch picture messages as they arrive; otherwise they wait for a tap. */
     val autoDownloadMms: Boolean = true,
     /** The same while roaming, where data can cost extra. Off by default, as in Messages. */
@@ -216,6 +218,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             clearOldFiltered = this[CLEAR_OLD_FILTERED] ?: false,
             deliveryReports = this[DELIVERY_REPORTS] ?: false,
             simpleCharacters = this[SIMPLE_CHARACTERS] ?: false,
+            nudges = this[NUDGES] ?: true,
             autoDownloadMms = this[AUTO_DOWNLOAD_MMS] ?: true,
             autoDownloadMmsRoaming = this[AUTO_DOWNLOAD_MMS_ROAMING] ?: false,
             linkPreviews = this[LINK_PREVIEWS] ?: false,
@@ -266,6 +269,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[CLEAR_OLD_FILTERED] = s.clearOldFiltered
         this[DELIVERY_REPORTS] = s.deliveryReports
         this[SIMPLE_CHARACTERS] = s.simpleCharacters
+        this[NUDGES] = s.nudges
         this[AUTO_DOWNLOAD_MMS] = s.autoDownloadMms
         this[AUTO_DOWNLOAD_MMS_ROAMING] = s.autoDownloadMmsRoaming
         this[LINK_PREVIEWS] = s.linkPreviews
@@ -307,6 +311,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val CLEAR_OLD_FILTERED = booleanPreferencesKey("filter.clear_old")
         val DELIVERY_REPORTS = booleanPreferencesKey("sms.delivery_reports")
         val SIMPLE_CHARACTERS = booleanPreferencesKey("sms.simple_characters")
+        val NUDGES = booleanPreferencesKey("inbox.nudges")
         val AUTO_DOWNLOAD_MMS = booleanPreferencesKey("mms.auto_download")
         val AUTO_DOWNLOAD_MMS_ROAMING = booleanPreferencesKey("mms.auto_download_roaming")
         val LINK_PREVIEWS = booleanPreferencesKey("messages.link_previews")

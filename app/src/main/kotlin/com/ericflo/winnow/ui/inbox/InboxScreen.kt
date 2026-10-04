@@ -343,6 +343,8 @@ fun InboxScreen(
                                 highlighted = conversation.threadId == openThreadId,
                                 onClick = { if (selected.isEmpty()) open() else toggle(conversation.threadId) },
                                 onLongClick = { toggle(conversation.threadId) },
+                                nudge = state.nudges[conversation.threadId],
+                                onDismissNudge = { viewModel.dismissNudge(conversation) },
                             )
                         }
                     }

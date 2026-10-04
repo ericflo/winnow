@@ -2,6 +2,7 @@ package com.ericflo.winnow.ui.inbox
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,12 +17,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
@@ -33,6 +36,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ericflo.winnow.R
 import com.ericflo.winnow.data.ConversationSummary
+import com.ericflo.winnow.data.Nudge
 import com.ericflo.winnow.ui.components.Avatar
 import com.ericflo.winnow.ui.components.GroupAvatar
 import com.ericflo.winnow.ui.components.UnreadCountBadge
@@ -53,6 +57,9 @@ fun ConversationRow(
     /** The conversation open in the other pane of a two-pane layout. */
     highlighted: Boolean = false,
     onLongClick: (() -> Unit)? = null,
+    /** A reply reminder on it (see Nudge), with "Not now". */
+    nudge: Nudge.Kind? = null,
+    onDismissNudge: () -> Unit = {},
     // A group's front face is ringed in the row's own color: a highlighted row's isn't the surface.
     leading: @Composable () -> Unit = {
         ConversationAvatar(conversation, ring = if (highlighted) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surface)
@@ -108,6 +115,7 @@ fun ConversationRow(
                 overflow = TextOverflow.Ellipsis,
             )
             if (badge != null) VerdictBadge(badge, modifier = Modifier.padding(top = 4.dp))
+            if (nudge != null) NudgeLine(nudge, conversation.timestamp, onDismissNudge)
         }
         Spacer(Modifier.width(12.dp))
         // Pin the time beside the name, as Messages does, even when a verdict badge adds a third line.
@@ -131,6 +139,37 @@ fun ConversationRow(
             }
         }
         trailing?.invoke()
+    }
+}
+
+/** "Asked 3 days ago · Reply?", with a small "Not now". */
+@Composable
+private fun NudgeLine(kind: Nudge.Kind, at: Long, onDismiss: () -> Unit) {
+    val days = ((System.currentTimeMillis() - at) / (24 * 60 * 60_000L)).coerceAtLeast(1)
+    val ago = if (days == 1L) "yesterday" else "$days days ago"
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+        Text(
+            when (kind) {
+                Nudge.Kind.REPLY -> "Asked $ago · Reply?"
+                Nudge.Kind.FOLLOW_UP -> "You asked $ago · Follow up?"
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.tertiary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Icon(
+            Icons.Filled.Close,
+            contentDescription = "Dismiss reminder",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .padding(start = 4.dp)
+                .size(28.dp)
+                .clip(CircleShape)
+                .clickable(onClickLabel = "Dismiss reminder", onClick = onDismiss)
+                .padding(6.dp),
+        )
     }
 }
 

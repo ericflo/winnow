@@ -23,6 +23,10 @@ data class ConversationSummary(
     val members: List<Member> = emptyList(),
     /** The contact's photo, for 1:1 conversations with a contact who has one. */
     val photoUri: String? = null,
+    /** The newest message is the user's. */
+    val lastFromMe: Boolean = false,
+    /** The newest message asks something (see Nudge.asks); a reaction never does. */
+    val lastAsks: Boolean = false,
 ) {
     /** The single address of a 1:1 conversation, or the first participant of a group. */
     val address: String get() = recipients.firstOrNull().orEmpty()
