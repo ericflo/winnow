@@ -101,7 +101,7 @@ and opens Filtered; nothing on a quiet day.
   in **Recently deleted** (in the menu) for 30 days, photos and Winnow's decisions included, and
   can be restored from there; so do messages deleted from a conversation, with an Undo right away. Opening a conversation marks where its **new messages** begin. Full-text search covers SMS and MMS, and each conversation can be searched on its own,
   with matches highlighted; a search result opens its conversation at that message, and so
-  does a starred one. Settings links to Android's blocked-numbers list.
+  does a starred one. **Go to date** (in a conversation's menu) jumps to any day that has messages. Settings links to Android's blocked-numbers list.
 - **Composing:** New chat with your contacts (the people you've texted lately at the top) and Create
   group, **Forward** (photos and voice messages too), **Reply privately** to one person in a
   group, photos from the gallery or the

@@ -419,6 +419,7 @@ fun ThreadScreen(
     val searchRequest by viewModel.searchRequest.collectAsStateWithLifecycle()
     var pendingMatch by remember { mutableStateOf<String?>(null) }
     var jumpTo by remember { mutableStateOf<String?>(null) }
+    var pickingDate by remember { mutableStateOf(false) }
     LaunchedEffect(searchRequest) {
         val request = searchRequest ?: return@LaunchedEffect
         viewModel.searchRequestHandled()
@@ -530,6 +531,13 @@ fun ThreadScreen(
                                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                                 onClick = { menuOpen = false; searching = true },
                             )
+                            if (state.messages.size > 1) {
+                                DropdownMenuItem(
+                                    text = { Text("Go to date") },
+                                    leadingIcon = { Icon(Icons.Filled.DateRange, contentDescription = null) },
+                                    onClick = { menuOpen = false; pickingDate = true },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Details") },
                                 leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
@@ -801,6 +809,14 @@ fun ThreadScreen(
         )
     }
     selectingText?.let { text -> SelectTextDialog(text, onDismiss = { selectingText = null }) }
+    if (pickingDate) {
+        GoToDateDialog(
+            messages = state.messages,
+            // Shown and highlighted for a moment, like a starred message opened.
+            onPick = { message -> pickingDate = false; jumpTo = message.key },
+            onDismiss = { pickingDate = false },
+        )
+    }
     cropping?.let { photo ->
         var size by remember(photo) { mutableStateOf<Pair<Int, Int>?>(null) }
         LaunchedEffect(photo) {
