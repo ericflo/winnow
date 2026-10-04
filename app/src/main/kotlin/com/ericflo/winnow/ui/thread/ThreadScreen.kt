@@ -178,6 +178,10 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.Edit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -214,6 +218,7 @@ fun ThreadScreen(
     }
     var menuOpen by remember { mutableStateOf(false) }
     var choosingMute by remember { mutableStateOf(false) }
+    var selectingText by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var actionsFor by remember { mutableStateOf<ChatMessage?>(null) }
     var detailsFor by remember { mutableStateOf<ChatMessage?>(null) }
@@ -481,8 +486,14 @@ fun ThreadScreen(
             onSave = { save(message.attachments) },
             onShare = { share(message.attachments) },
             onSelect = { selected = setOf(message.key) },
+            onSelectText = { selectingText = message.body },
+            onShareText = {
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, message.body)
+                runCatching { context.startActivity(Intent.createChooser(send, null)) }
+            },
         )
     }
+    selectingText?.let { text -> SelectTextDialog(text, onDismiss = { selectingText = null }) }
     if (choosingMute) {
         MuteDialog(
             onMute = { until -> viewModel.setMuted(true, until); choosingMute = false },
@@ -1167,6 +1178,8 @@ private fun MessageActionsSheet(
     onSave: () -> Unit,
     onShare: () -> Unit,
     onSelect: () -> Unit,
+    onSelectText: () -> Unit,
+    onShareText: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
@@ -1198,11 +1211,27 @@ private fun MessageActionsSheet(
                     modifier = Modifier.clickable(onClick = act(onCopy)),
                 )
                 ListItem(
+                    headlineContent = { Text("Select text") },
+                    supportingContent = { Text("Copy just part of it") },
+                    leadingContent = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                    colors = colors,
+                    modifier = Modifier.clickable(onClick = act(onSelectText)),
+                )
+                ListItem(
                     headlineContent = { Text("Forward") },
                     leadingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null) },
                     colors = colors,
                     modifier = Modifier.clickable(onClick = act(onForward)),
                 )
+                // Attachments have their own Share below; a text-only message shares its text.
+                if (message.attachments.isEmpty()) {
+                    ListItem(
+                        headlineContent = { Text("Share") },
+                        leadingContent = { Icon(Icons.Filled.Share, contentDescription = null) },
+                        colors = colors,
+                        modifier = Modifier.clickable(onClick = act(onShareText)),
+                    )
+                }
             }
             // Downloaded attachments only; a placeholder has nothing to save yet.
             if (message.attachments.isNotEmpty() && !message.isPlaceholder) {
@@ -1552,6 +1581,21 @@ private fun SegmentCounter(text: String) {
         modifier = Modifier.padding(start = 8.dp).semantics {
             contentDescription = "$remaining characters left in this text, ${if (segments == 1) "1 text" else "$segments texts"}"
         },
+    )
+}
+
+/** A message's text, selectable, for copying part of it. */
+@Composable
+private fun SelectTextDialog(text: String, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Select text") },
+        text = {
+            SelectionContainer(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                Text(text, style = MaterialTheme.typography.bodyLarge)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
 }
 
