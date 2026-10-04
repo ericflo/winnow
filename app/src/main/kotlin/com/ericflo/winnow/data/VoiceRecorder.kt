@@ -70,6 +70,14 @@ class VoiceRecorder(private val context: Context) {
         return OutgoingAttachment(Uri.fromFile(f).toString(), "audio/mp4", "Voice message.m4a")
     }
 
+    /** Deletes [attachment] if it's one of these recordings; anything else is left alone. */
+    fun discard(attachment: OutgoingAttachment) {
+        val uri = Uri.parse(attachment.uri)
+        if (uri.scheme != "file") return
+        val f = File(uri.path ?: return)
+        if (f.parentFile?.canonicalPath == File(context.cacheDir, "voice").canonicalPath) f.delete()
+    }
+
     fun stopAndDiscard() {
         val r = recorder ?: return
         recorder = null

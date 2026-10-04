@@ -210,6 +210,8 @@ class ThreadViewModel(
     /** Leaving within the debounce window would drop the last keystrokes; save whatever is there. */
     override fun onCleared() {
         recorder.stopAndDiscard()
+        // Recordings that never went out; anything sent or still in its undo window isn't in here.
+        _attachments.value.forEach(recorder::discard)
         val id = threadId.value
         if (id >= 0) {
             val draft = _draft.value
@@ -265,9 +267,21 @@ class ThreadViewModel(
 
     /** Keeps the recording as an attachment, ready to send. */
     fun stopRecording() {
+        // Done tapped just as the time or size limit stopped it: nothing left to stop.
+        if (!_recording.value) return
         _recording.value = false
         val voice = recorder.stop()
         if (voice != null) addAttachment(voice) else _notices.tryEmit("Too short to send")
+    }
+
+    /**
+     * The conversation went off screen (the app was left, or another screen opened): the
+     * microphone stops, and what was recorded waits in the composer.
+     */
+    fun finishRecording() {
+        if (!_recording.value) return
+        _recording.value = false
+        recorder.stop()?.let(::addAttachment)
     }
 
     fun cancelRecording() {
@@ -308,6 +322,19 @@ class ThreadViewModel(
 
     fun removeAttachment(attachment: OutgoingAttachment) {
         _attachments.value = _attachments.value - attachment
+        recorder.discard(attachment)
+    }
+
+    private val _sendSeparately = MutableStateFlow(false)
+    /**
+     * The composer holds a "send separately" message that came back (Undo, or every send
+     * failed); Send sends it separately again instead of as one group text.
+     */
+    val sendSeparately: StateFlow<Boolean> = _sendSeparately.asStateFlow()
+
+    /** Send the message back in the composer to the group after all. */
+    fun clearSendSeparately() {
+        _sendSeparately.value = false
     }
 
     /** A sent message waiting out the undo window; null when nothing is pending. */
@@ -322,29 +349,32 @@ class ThreadViewModel(
 
     private val _pending = MutableStateFlow<PendingSend?>(null)
     val pending: StateFlow<PendingSend?> = _pending.asStateFlow()
-    private var pendingJob: Job? = null
+    @Volatile private var pendingJob: Job? = null
 
     /** [separately]: in a group, each person gets their own text and replies come back one to one. */
     fun send(separately: Boolean = false) {
         val text = _draft.value.trim()
         val files = _attachments.value
         if (text.isEmpty() && files.isEmpty() || _pending.value != null) return
+        val apart = (separately || _sendSeparately.value) && recipients.size > 1
         // Replying means the new messages have been read; the divider has done its job.
         _unreadOnOpen.value = emptyList()
         _draft.value = ""
         _attachments.value = emptyList()
+        _sendSeparately.value = false
         val sim = _selectedSim.value
-        viewModelScope.launch {
+        // The app scope, not this ViewModel's: leaving the conversation, mid-countdown or halfway
+        // through sending to each person, must not lose the message.
+        container.appScope.launch {
             states.saveDraft(threadId.value, "")
             val window = container.settings.current().undoSendSeconds * 1000L
-            if (window <= 0) return@launch deliver(text, files, sim, separately)
-            _pending.value = PendingSend(text, files, System.currentTimeMillis() + window, window, separately)
-            // The app scope, not this ViewModel's: leaving the conversation must not lose the message.
-            pendingJob = container.appScope.launch {
+            if (window > 0) {
+                _pending.value = PendingSend(text, files, System.currentTimeMillis() + window, window, apart)
+                pendingJob = coroutineContext[Job]
                 delay(window)
                 _pending.value = null
-                deliver(text, files, sim, separately)
             }
+            deliver(text, files, sim, apart)
         }
     }
 
@@ -354,20 +384,29 @@ class ThreadViewModel(
         if (pendingJob?.isActive != true) return
         pendingJob?.cancel()
         _pending.value = null
-        _draft.value = pending.text
-        _attachments.value = pending.attachments
+        putBack(pending.text, pending.attachments, pending.separately)
+    }
+
+    /** A message that didn't go out goes back in the composer, saved as the draft in case this screen is gone. */
+    private fun putBack(text: String, files: List<OutgoingAttachment>, separately: Boolean) {
+        _draft.value = text
+        _attachments.value = files
+        _sendSeparately.value = separately
+        val id = threadId.value
+        if (id >= 0) container.appScope.launch { states.saveDraft(id, text) }
     }
 
     private suspend fun deliver(text: String, files: List<OutgoingAttachment>, sim: Int?, separately: Boolean = false) {
         if (separately && recipients.size > 1) return deliverSeparately(text, files, sim)
         try {
             repo.send(recipients, text, files, sim)
+            // Sent: the message holds its own copy of any recording now.
+            files.forEach(recorder::discard)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             // Put the message back so nothing typed is lost.
-            _draft.value = text
-            _attachments.value = files
+            putBack(text, files, separately = false)
             _notices.emit("Couldn't send: ${e.message ?: "unknown error"}")
         }
     }
@@ -385,10 +424,10 @@ class ThreadViewModel(
             }
         }
         if (failed.size == recipients.size) {
-            _draft.value = text
-            _attachments.value = files
+            putBack(text, files, separately = true)
             _notices.emit("Couldn't send")
         } else {
+            files.forEach(recorder::discard)
             val sent = recipients.size - failed.size
             _notices.emit(
                 if (failed.isEmpty()) "Sent separately to $sent people. Replies come back one to one."
@@ -474,12 +513,21 @@ class ThreadViewModel(
 
     fun setArchived(archived: Boolean) = launch { states.setArchived(setOf(threadId.value), archived) }
 
-    fun deleteConversation(onDone: () -> Unit) = launch {
+    /** In the app scope: deleting closes a conversation pane, and clears this ViewModel with it. */
+    fun deleteConversation(onDone: () -> Unit) {
         val id = threadId.value
-        repo.deleteThreads(setOf(id))
-        states.forget(setOf(id))
-        container.notifier.forget(setOf(id))
-        onDone()
+        container.appScope.launch {
+            try {
+                repo.deleteThreads(setOf(id))
+                states.forget(setOf(id))
+                container.notifier.forget(setOf(id))
+                withContext(Dispatchers.Main) { onDone() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _notices.emit("Couldn't delete: ${e.message ?: e::class.simpleName}")
+            }
+        }
     }
 
     /** The sender a correction applies to: the newest incoming sender, or the first recipient. */

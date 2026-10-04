@@ -192,6 +192,11 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.foundation.layout.wrapContentWidth
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -217,20 +222,25 @@ fun ThreadScreen(
     val unreadOnOpen by viewModel.unreadOnOpen.collectAsStateWithLifecycle()
     val enterToSend by viewModel.enterToSend.collectAsStateWithLifecycle()
     val recording by viewModel.recording.collectAsStateWithLifecycle()
+    val sendSeparately by viewModel.sendSeparately.collectAsStateWithLifecycle()
+    // A permission was refused, maybe for good (then asking again shows nothing): say what it's for.
+    var refused by remember { mutableStateOf<String?>(null) }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) viewModel.startRecording()
+        if (granted) viewModel.startRecording() else refused = "Voice messages need the microphone"
     }
     val locating by viewModel.locating.collectAsStateWithLifecycle()
     // Precise or approximate, whichever the user allows; either makes a usable map link.
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-        if (grants.values.any { it }) viewModel.shareLocation()
+        if (grants.values.any { it }) viewModel.shareLocation() else refused = "Sharing your location needs location access"
     }
     val linkPreviewSenders by viewModel.linkPreviewSenders.collectAsStateWithLifecycle()
     var confirmBlock by remember { mutableStateOf(false) }
     var confirmReport by remember { mutableStateOf(false) }
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(Unit) { viewModel.notices.collect { snackbar.showSnackbar(it) } }
+    LaunchedEffect(viewModel) { viewModel.notices.collect { snackbar.showSnackbar(it) } }
+    // Leaving the conversation, or the app, stops the microphone; the clip waits in the composer.
+    LifecycleStartEffect(viewModel) { onStopOrDispose { viewModel.finishRecording() } }
     LifecycleResumeEffect(viewModel) {
         viewModel.setVisible(true)
         onPauseOrDispose { viewModel.setVisible(false) }
@@ -249,6 +259,15 @@ fun ThreadScreen(
     DisposableEffect(audio) { onDispose { audio.release() } }
     LifecycleStartEffect(audio) { onStopOrDispose { audio.pause() } }
     val context = LocalContext.current
+    LaunchedEffect(refused) {
+        val message = refused ?: return@LaunchedEffect
+        val result = snackbar.showSnackbar(message, actionLabel = "Settings", duration = SnackbarDuration.Long)
+        if (result == SnackbarResult.ActionPerformed) {
+            val appSettings = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", context.packageName, null))
+            runCatching { context.startActivity(appSettings) }
+        }
+        refused = null
+    }
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     // Results show as a toast from the full-screen viewers, which cover the snackbar.
@@ -469,10 +488,13 @@ fun ThreadScreen(
                     runCatching { if (canReadContacts) contactPicker.launch(null) else phonePicker.launch(null) }
                 },
                 onRemoveAttachment = viewModel::removeAttachment,
-                isSms = single != null && attachments.isEmpty(),
+                // Sent separately, each person gets a plain text.
+                isSms = (single != null || sendSeparately) && attachments.isEmpty(),
                 onSend = viewModel::send,
                 enterToSend = enterToSend,
-                onSendSeparately = if (state.isGroup) ({ viewModel.send(separately = true) }) else null,
+                onSendSeparately = if (state.isGroup && !sendSeparately) ({ viewModel.send(separately = true) }) else null,
+                sendSeparately = sendSeparately,
+                onClearSendSeparately = viewModel::clearSendSeparately,
                 onSchedule = viewModel::schedule,
             )
             }
@@ -1044,7 +1066,10 @@ private fun MessageBubble(
                 horizontalAlignment = if (m.outgoing) Alignment.End else Alignment.Start,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 // Most of a phone's width, but not a tablet pane's: long lines get hard to read.
-                modifier = Modifier.fillMaxWidth(if (showAvatarColumn) 0.85f else 0.8f).widthIn(max = 560.dp),
+                // (wrapContentWidth first, or fillMaxWidth's fixed width would override the cap.)
+                modifier = Modifier.fillMaxWidth(if (showAvatarColumn) 0.85f else 0.8f)
+                    .wrapContentWidth(if (m.outgoing) Alignment.End else Alignment.Start)
+                    .widthIn(max = 560.dp),
             ) {
                 m.attachments.forEach { attachment ->
                     if (VCard.isVCard(attachment.contentType)) {
@@ -1382,6 +1407,9 @@ private fun Composer(
     onSchedule: (at: Long, label: String) -> Unit,
     enterToSend: Boolean = false,
     onSendSeparately: (() -> Unit)? = null,
+    /** Send goes to each person separately: a message that came back from "Send separately". */
+    sendSeparately: Boolean = false,
+    onClearSendSeparately: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().background(colors.surface).navigationBarsPadding().imePadding()) {
@@ -1395,6 +1423,15 @@ private fun Composer(
                 Spacer(Modifier.width(10.dp))
                 Text("Finding your location…", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
             }
+        }
+        if (sendSeparately) {
+            InputChip(
+                selected = true,
+                onClick = onClearSendSeparately,
+                label = { Text("Sending to each person separately") },
+                trailingIcon = { Icon(Icons.Filled.Close, contentDescription = "Send to the group instead", Modifier.size(InputChipDefaults.IconSize)) },
+                modifier = Modifier.padding(start = 16.dp, top = 6.dp),
+            )
         }
         if (attachments.isNotEmpty()) {
             LazyRow(

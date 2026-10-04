@@ -45,6 +45,8 @@ class CurrentLocation(private val context: Context) {
                         }
                     }.onFailure { answered++ }
                 }
+                // Every provider refused at once (the callbacks come later, on the main thread).
+                if (answered == providers.size && continuation.isActive) continuation.resume(null)
             }
         }
     }

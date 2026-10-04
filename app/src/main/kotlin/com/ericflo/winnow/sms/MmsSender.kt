@@ -38,7 +38,7 @@ class MmsSender(
 
     fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int? = null) {
         val sub = forSending(subscriptionId)
-        val media = attachments.mapIndexedNotNull { i, attachment -> readAttachment(attachment, i + 1, attachments.size) }
+        val media = readAttachments(attachments)
         val content = media + listOfNotNull(body.takeIf { it.isNotBlank() }?.let { MmsPart.plainText(it) })
         require(content.isNotEmpty()) { "nothing to send" }
         val parts = listOf(Smil.forParts(content)) + content
@@ -77,13 +77,34 @@ class MmsSender(
     }
 
     /**
-     * Reads an attachment, shrinking photos so the whole message fits carrier limits (~1 MB).
-     * Anything else (videos, GIFs, audio) can't be shrunk here, so one over the budget is refused
-     * before it's read, rather than read whole into memory and sent to certain failure.
+     * Reads the attachments so the whole message fits carrier limits (~1 MB). Videos, GIFs, audio
+     * and cards can't be shrunk here, so they count at their real size, and the photos, which can,
+     * share whatever is left: a voice message and a photo fit together.
      */
-    private fun readAttachment(attachment: OutgoingAttachment, index: Int, count: Int): MmsPart? {
-        val budget = MESSAGE_BUDGET_BYTES / count
-        val isPhoto = attachment.contentType.startsWith("image/") && attachment.contentType != "image/gif"
+    private fun readAttachments(attachments: List<OutgoingAttachment>): List<MmsPart> {
+        val parts = arrayOfNulls<MmsPart>(attachments.size)
+        var left = MESSAGE_BUDGET_BYTES
+        attachments.forEachIndexed { i, attachment ->
+            if (!isPhoto(attachment)) parts[i] = readAttachment(attachment, i + 1, left).also { left -= it.data.size }
+        }
+        val photos = attachments.count(::isPhoto)
+        if (photos > 0) {
+            val each = left / photos
+            require(each >= MIN_PHOTO_BYTES) { "That's too much for one MMS. Try sending the photos in a separate message." }
+            attachments.forEachIndexed { i, attachment -> if (isPhoto(attachment)) parts[i] = readAttachment(attachment, i + 1, each) }
+        }
+        return parts.filterNotNull()
+    }
+
+    private fun isPhoto(attachment: OutgoingAttachment) =
+        attachment.contentType.startsWith("image/") && attachment.contentType != "image/gif"
+
+    /**
+     * Reads one attachment within [budget] bytes, shrinking a photo to fit. Anything else over the
+     * budget is refused before it's read, rather than read whole into memory and sent to certain failure.
+     */
+    private fun readAttachment(attachment: OutgoingAttachment, index: Int, budget: Int): MmsPart {
+        val isPhoto = isPhoto(attachment)
         val raw = readAtMost(Uri.parse(attachment.uri), if (isPhoto) MAX_PHOTO_BYTES else budget) ?: run {
             val what = when {
                 attachment.contentType.startsWith("video/") -> "That video is"
@@ -154,6 +175,8 @@ class MmsSender(
 
     private companion object {
         const val MESSAGE_BUDGET_BYTES = 900_000
+        /** Below this a shrunk photo is a smudge; better to say it doesn't fit. */
+        const val MIN_PHOTO_BYTES = 40_000
         const val MAX_EDGE_PX = 1600
         /** Photos get shrunk, but one bigger than this isn't worth decoding on a phone. */
         const val MAX_PHOTO_BYTES = 40_000_000

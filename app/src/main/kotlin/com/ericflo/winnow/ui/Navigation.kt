@@ -52,11 +52,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -64,6 +60,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.key
+import androidx.lifecycle.createSavedStateHandle
+import androidx.navigation.NavHostController
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 /** Where US carriers collect forwarded spam ("SPAM" on a keypad). */
 const val CARRIER_SPAM_SHORT_CODE = "7726"
@@ -144,9 +146,11 @@ fun WinnowNavHost(
     // Wait for settings so a returning user never sees onboarding flash by.
     val onboarded = settings?.onboarded ?: return
     val pending by pendingRoute.collectAsStateWithLifecycle()
+    val pane = viewModel { ConversationPane(createSavedStateHandle(), container.messages.deletedThreads()) }
+    val twoPane = LocalConfiguration.current.screenWidthDp >= TWO_PANE_MIN_WIDTH_DP
     LaunchedEffect(pending) {
         pending?.let {
-            nav.navigate(it) { launchSingleTop = true }
+            if (!(twoPane && it is ThreadRoute && openInPane(it, nav, pane, container))) nav.navigate(it) { launchSingleTop = true }
             onRouteConsumed()
         }
     }
@@ -177,13 +181,13 @@ fun WinnowNavHost(
         composable<InboxRoute> {
             // A tablet, an unfolded foldable or a wide window: the list and a conversation side by side.
             val twoPane = LocalConfiguration.current.screenWidthDp >= TWO_PANE_MIN_WIDTH_DP
-            var openId by rememberSaveable { mutableStateOf<Long?>(null) }
-            var openRecipients by rememberSaveable { mutableStateOf("") }
+            val opened by pane.open.collectAsStateWithLifecycle()
+            BackHandler(enabled = opened != null) { pane.close() }
             val inbox = @Composable { modifier: Modifier ->
                 Box(modifier) {
                     InboxScreen(
                         viewModel = viewModel { InboxViewModel(container, ListMode.INBOX) },
-                        onOpenThread = if (twoPane) { id, recipients -> openId = id; openRecipients = joinAddresses(recipients) } else openThread,
+                        onOpenThread = if (twoPane) { id, recipients -> pane.open(id, joinAddresses(recipients)) } else openThread,
                         onNewChat = { nav.navigate(NewChatRoute()) },
                         onOpenFiltered = { nav.navigate(FilteredRoute) },
                         onOpenArchived = { nav.navigate(ArchivedRoute) },
@@ -192,33 +196,39 @@ fun WinnowNavHost(
                         onMakeDefault = onMakeDefault,
                         onOpenStarred = { nav.navigate(StarredRoute) },
                         onOpenScheduled = { nav.navigate(ScheduledRoute) },
-                        openThreadId = openId.takeIf { twoPane },
+                        openThreadId = opened?.threadId.takeIf { twoPane },
                     )
                 }
             }
-            if (!twoPane) {
-                inbox(Modifier.fillMaxSize())
-            } else {
-                Row(Modifier.fillMaxSize()) {
-                    inbox(Modifier.width(LIST_PANE_WIDTH).fillMaxHeight())
-                    VerticalDivider()
+            // Wide: the list and the open conversation side by side. Narrow: the list, or full size the
+            // conversation that was open beside it when the window narrowed (a tablet turned to
+            // portrait). The conversation keeps its place in the tree either way, so a photo being
+            // taken or a permission being asked for across the change still arrives.
+            Row(Modifier.fillMaxSize()) {
+                if (twoPane || opened == null) {
+                    inbox(if (twoPane) Modifier.width(LIST_PANE_WIDTH).fillMaxHeight() else Modifier.fillMaxSize())
+                }
+                if (twoPane) VerticalDivider()
+                if (twoPane || opened != null) {
                     Box(Modifier.weight(1f).fillMaxHeight()) {
-                        val id = openId
-                        if (id == null) {
+                        val open = opened
+                        if (open == null) {
                             EmptyConversationPane()
                         } else {
-                            // Each conversation gets its own ViewModel store, cleared when another
-                            // is opened, so switching doesn't pile up conversations in memory.
-                            ScopedViewModelStore(key = "$id:$openRecipients") {
-                                ThreadScreen(
-                                    viewModel = viewModel { ThreadViewModel(container, id, splitAddresses(openRecipients)) },
-                                    onBack = { openId = null },
-                                    onForward = { text -> nav.navigate(NewChatRoute(draft = text)) },
-                                    onReportSpam = { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
-                                    onOpenDetails = { threadId -> nav.navigate(DetailsRoute(threadId, openRecipients)) },
-                                    onMessageNumber = { number -> nav.navigate(ThreadRoute(-1, number)) },
-                                    showBack = false,
-                                )
+                            // Keyed, so nothing remembered on screen (scroll, search, a playing voice
+                            // message) carries over from the last conversation.
+                            key(open) {
+                                ProvideViewModelStore(remember(open) { pane.storeFor(open) }) {
+                                    ThreadScreen(
+                                        viewModel = viewModel { ThreadViewModel(container, open.threadId, splitAddresses(open.recipients)) },
+                                        onBack = pane::close,
+                                        onForward = whenResumed { text -> nav.navigate(NewChatRoute(draft = text)) },
+                                        onReportSpam = whenResumed { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
+                                        onOpenDetails = whenResumed { threadId -> nav.navigate(DetailsRoute(threadId, open.recipients)) },
+                                        onMessageNumber = whenResumed { number -> nav.navigate(ThreadRoute(-1, number)) },
+                                        showBack = !twoPane,
+                                    )
+                                }
                             }
                         }
                     }
@@ -262,6 +272,8 @@ fun WinnowNavHost(
         }
         composable<ThreadRoute> { entry ->
             val route = entry.toRoute<ThreadRoute>()
+            // A notification for another conversation replaces this one in place: start over on screen too.
+            key(route.threadId, route.recipients) {
             ThreadScreen(
                 // Keyed by conversation: a notification or SENDTO intent for another thread reuses this
                 // entry (launchSingleTop), and must not get the previous thread's ViewModel back.
@@ -272,11 +284,12 @@ fun WinnowNavHost(
                     }
                 },
                 onBack = dropUnlessResumed { nav.popBackStack() },
-                onForward = { text -> nav.navigate(NewChatRoute(draft = text)) },
-                onReportSpam = { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
-                onOpenDetails = { threadId -> nav.navigate(DetailsRoute(threadId, route.recipients)) },
-                onMessageNumber = { number -> nav.navigate(ThreadRoute(-1, number)) },
+                onForward = whenResumed { text -> nav.navigate(NewChatRoute(draft = text)) },
+                onReportSpam = whenResumed { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
+                onOpenDetails = whenResumed { threadId -> nav.navigate(DetailsRoute(threadId, route.recipients)) },
+                onMessageNumber = whenResumed { number -> nav.navigate(ThreadRoute(-1, number)) },
             )
+            }
         }
         composable<DetailsRoute> { entry ->
             val route = entry.toRoute<DetailsRoute>()
@@ -321,11 +334,32 @@ private fun EmptyConversationPane() {
     }
 }
 
-/** Gives [content] its own ViewModelStore for [key], cleared when the key changes or this leaves. */
+/** [navigate], but only while this screen is resumed: a double tap doesn't open the next screen twice. */
 @Composable
-private fun ScopedViewModelStore(key: String, content: @Composable () -> Unit) {
-    val store = remember(key) { ViewModelStore() }
-    DisposableEffect(store) { onDispose { store.clear() } }
+private fun <T> whenResumed(navigate: (T) -> Unit): (T) -> Unit {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    return { if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) navigate(it) }
+}
+
+/** ViewModels inside [content] come from [store]. */
+@Composable
+private fun ProvideViewModelStore(store: ViewModelStore, content: @Composable () -> Unit) {
     val owner = remember(store) { object : ViewModelStoreOwner { override val viewModelStore = store } }
     CompositionLocalProvider(LocalViewModelStoreOwner provides owner) { content() }
+}
+
+/**
+ * On a wide screen, a conversation opened from a notification or another app goes beside the
+ * list rather than over it. False when it can't: it brings a draft or attachments along, or the
+ * list isn't in the back stack (onboarding).
+ */
+private suspend fun openInPane(route: ThreadRoute, nav: NavHostController, pane: ConversationPane, container: AppContainer): Boolean {
+    if (route.draft.isNotEmpty() || route.attachments.isNotEmpty()) return false
+    if (runCatching { nav.getBackStackEntry<InboxRoute>() }.isFailure) return false
+    val threadId = route.threadId.takeIf { it >= 0 }
+        ?: runCatching { container.messages.threadIdFor(splitAddresses(route.recipients)) }.getOrNull()?.takeIf { it >= 0 }
+        ?: return false
+    nav.popBackStack<InboxRoute>(inclusive = false)
+    pane.open(threadId, route.recipients)
+    return true
 }

@@ -18,6 +18,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlin.coroutines.cancellation.CancellationException
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -55,7 +61,20 @@ class ScheduledViewModel(private val container: AppContainer) : ViewModel() {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    fun sendNow(id: Long) = viewModelScope.launch { container.scheduler.sendNow(id) }
+    private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    /** One-off messages for a snackbar. */
+    val notices: SharedFlow<String> = _notices
+
+    fun sendNow(id: Long) = viewModelScope.launch {
+        try {
+            container.scheduler.sendNow(id)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // It stays scheduled; nothing was lost.
+            _notices.emit("Couldn't send: ${e.message ?: e::class.simpleName}")
+        }
+    }
 
     fun cancel(id: Long) = viewModelScope.launch { container.scheduler.cancel(id) }
 }
@@ -65,7 +84,10 @@ class ScheduledViewModel(private val container: AppContainer) : ViewModel() {
 @Composable
 fun ScheduledScreen(viewModel: ScheduledViewModel, onBack: () -> Unit, onOpenThread: (Long, List<String>) -> Unit) {
     val items by viewModel.items.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(viewModel) { viewModel.notices.collect { snackbar.showSnackbar(it) } }
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text("Scheduled") },

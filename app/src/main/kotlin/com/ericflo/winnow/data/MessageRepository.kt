@@ -3,6 +3,8 @@ package com.ericflo.winnow.data
 import com.ericflo.winnow.classifier.message.Action
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 
@@ -52,6 +54,9 @@ interface MessageRepository {
     suspend fun markAllRead()
 
     suspend fun deleteThreads(threadIds: Collection<Long>)
+
+    /** Conversations as they're deleted, from whichever screen: one open beside the list closes. */
+    fun deletedThreads(): Flow<Set<Long>> = emptyFlow()
 
     suspend fun deleteMessage(message: ChatMessage)
 
@@ -103,7 +108,12 @@ class SwitchingMessageRepository(
     override suspend fun unreadIncoming(threadId: Long) = current.unreadIncoming(threadId)
     override suspend fun markUnread(threadId: Long) = current.markUnread(threadId)
     override suspend fun markAllRead() = current.markAllRead()
-    override suspend fun deleteThreads(threadIds: Collection<Long>) = current.deleteThreads(threadIds)
+    private val deleted = MutableSharedFlow<Set<Long>>(extraBufferCapacity = 8)
+    override fun deletedThreads(): Flow<Set<Long>> = deleted
+    override suspend fun deleteThreads(threadIds: Collection<Long>) {
+        current.deleteThreads(threadIds)
+        deleted.emit(threadIds.toSet())
+    }
     override suspend fun deleteMessage(message: ChatMessage) = current.deleteMessage(message)
     override suspend fun search(query: String) = current.search(query)
     override suspend fun overrideVerdict(threadId: Long, address: String, action: Action) =
