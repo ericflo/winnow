@@ -435,7 +435,12 @@ class ThreadViewModel(
     private suspend fun keepAttachments(id: Long) = attachmentLock.withLock {
         val now = _attachments.value
         val kept = withContext(Dispatchers.IO) { now.associateWith { drafts.keep(it) ?: it } }
-        kept.forEach { (old, new) -> if (old != new) keptAs[old] = new }
+        kept.forEach { (old, new) ->
+            if (old != new) {
+                keptAs[old] = new
+                draftCopies[old] = new
+            }
+        }
         // Changes made meanwhile stay; only the copied ones are swapped.
         _attachments.value = _attachments.value.map { kept[it] ?: it }
         states.saveDraftAttachments(id, drafts.encode(_attachments.value))
@@ -445,6 +450,21 @@ class ThreadViewModel(
     private val attachmentLock = Mutex()
     /** What each attachment was replaced by (kept as a draft, or turned), so a tap on the old one finds it. Guarded by [attachmentLock]. */
     private val keptAs = HashMap<OutgoingAttachment, OutgoingAttachment>()
+    /** Just the draft copies among those: the same picture, under another name. Read without the lock (by the crop editor). */
+    private val draftCopies = java.util.concurrent.ConcurrentHashMap<OutgoingAttachment, OutgoingAttachment>()
+
+    /**
+     * [attachment] as the composer holds it now: itself, or its draft copy (the same picture).
+     * Null once it's gone (sent, removed) or been edited since, so it's no longer what was shown.
+     */
+    fun sameAs(attachment: OutgoingAttachment): OutgoingAttachment? {
+        var current = attachment
+        repeat(MAX_KEPT_HOPS) {
+            if (current in _attachments.value) return current
+            current = draftCopies[current] ?: return null
+        }
+        return current.takeIf { it in _attachments.value }
+    }
 
     /** A message that failed after an earlier screen for this conversation had gone: back into the composer. */
     private suspend fun takeReturned(id: Long) {
@@ -682,21 +702,38 @@ class ThreadViewModel(
      * ones turn it twice, each following the copy the one before (or the draft) left.
      */
     fun rotateAttachment(attachment: OutgoingAttachment) =
-        editAttachment(attachment, "Couldn't rotate that photo") { container.sharedFiles.rotated(it) }
+        editAttachment(attachment, "Couldn't rotate that photo", afterEdits = true) { container.sharedFiles.rotated(it) }
 
-    /** Cuts a photo in the composer to [box] (see PhotoCrop), in its place. */
+    /**
+     * Cuts a photo in the composer to [box] (see PhotoCrop), in its place. The box was drawn on
+     * that picture, so it follows only a draft copy: a photo turned meanwhile isn't cut.
+     */
     fun cropAttachment(attachment: OutgoingAttachment, box: PhotoCrop.Box) =
-        editAttachment(attachment, "Couldn't crop that photo") { container.sharedFiles.cropped(it, box) }
+        editAttachment(attachment, "Couldn't crop that photo", afterEdits = false) { container.sharedFiles.cropped(it, box) }
 
     /**
      * Replaces a photo in the composer with [edit]'s copy of it. Edits queue: each follows the
      * copy the one before (or the draft) left.
      */
-    private fun editAttachment(attachment: OutgoingAttachment, failure: String, edit: (OutgoingAttachment) -> OutgoingAttachment?) = launch {
+    private fun editAttachment(
+        attachment: OutgoingAttachment,
+        failure: String,
+        /** Whether an edit made since counts as the same photo (a turn does; a crop's box doesn't). */
+        afterEdits: Boolean,
+        edit: (OutgoingAttachment) -> OutgoingAttachment?,
+    ) = launch {
         attachmentLock.withLock {
             // Replaced since the tap (edited, or kept as a draft): edit what replaced it. Gone (sent, removed): nothing to do.
             var current = attachment
-            repeat(MAX_KEPT_HOPS) { if (current !in _attachments.value) current = keptAs[current] ?: return@withLock }
+            val hops = if (afterEdits) keptAs else draftCopies
+            repeat(MAX_KEPT_HOPS) {
+                if (current !in _attachments.value) {
+                    current = hops[current] ?: run {
+                        if (!afterEdits && current in keptAs) _notices.emit("That photo changed before it was cropped. Crop it again.")
+                        return@withLock
+                    }
+                }
+            }
             if (current !in _attachments.value) return@withLock
             val edited = withContext(Dispatchers.IO) { edit(current) }
             if (edited == null) {
@@ -714,9 +751,10 @@ class ThreadViewModel(
         }
     }
 
-    /** A photo's upright width and height, for the crop editor; null if it can't be read. */
+    /** A photo's upright width and height, for the crop editor; null (and says so) if it can't be read. */
     suspend fun photoSize(attachment: OutgoingAttachment): Pair<Int, Int>? =
         withContext(Dispatchers.IO) { container.sharedFiles.uprightSize(attachment.uri) }
+            .also { if (it == null) _notices.emit("Couldn't open that photo") }
 
     fun removeAttachment(attachment: OutgoingAttachment) {
         _attachments.value = _attachments.value - attachment

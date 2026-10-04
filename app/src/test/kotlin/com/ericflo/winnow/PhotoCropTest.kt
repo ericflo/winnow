@@ -80,6 +80,43 @@ class PhotoCropTest {
     }
 
     @Test
+    fun `no run of drags, squares and moves breaks the box`() {
+        val random = kotlin.random.Random(7)
+        repeat(20_000) {
+            val min = random.nextFloat() * 0.4f + 0.01f
+            val aspect = random.nextFloat() * 1.5f + 0.5f
+            var square = false
+            var box = Box.FULL
+            repeat(12) {
+                when (random.nextInt(5)) {
+                    0 -> { square = true; box = PhotoCrop.fit(box, aspect) }
+                    1 -> square = false
+                    else -> {
+                        val handle = Handle.entries[random.nextInt(Handle.entries.size)]
+                        val dx = (random.nextFloat() - 0.5f) * 2.4f
+                        val dy = (random.nextFloat() - 0.5f) * 2.4f
+                        box = PhotoCrop.drag(box, handle, dx, dy, min, if (square) aspect else null)
+                    }
+                }
+                val ok = box.left >= -1e-5f && box.top >= -1e-5f && box.right <= 1f + 1e-5f && box.bottom <= 1f + 1e-5f &&
+                    box.left <= box.right && box.top <= box.bottom
+                assertTrue("$box", ok)
+            }
+        }
+    }
+
+    @Test
+    fun `a box under the minimum can grow but not shrink`() {
+        val small = Box(0.4f, 0.4f, 0.45f, 0.45f)
+        assertBox(small, PhotoCrop.drag(small, Handle.LEFT, 0.02f, 0f, min = 0.1f))
+        assertBox(Box(0.3f, 0.4f, 0.45f, 0.45f), PhotoCrop.drag(small, Handle.LEFT, -0.1f, 0f, min = 0.1f))
+        // And one a hair past the photo's edge (rounding) still moves and resizes.
+        val over = Box(0f, 0f, 1.0000001f, 0.5f)
+        PhotoCrop.drag(over, Handle.MOVE, -0.1f, 0.1f, min = 0.1f)
+        PhotoCrop.drag(over, Handle.LEFT, 0.2f, 0f, min = 0.1f)
+    }
+
+    @Test
     fun `touches find the handle nearest them`() {
         val box = Box(0.2f, 0.2f, 0.8f, 0.8f)
         assertEquals(Handle.TOP_LEFT, PhotoCrop.handleAt(box, 0.21f, 0.19f, 0.05f, 0.05f))

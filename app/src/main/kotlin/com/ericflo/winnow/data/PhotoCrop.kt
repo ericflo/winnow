@@ -62,7 +62,9 @@ object PhotoCrop {
      * it each way. With [aspect] (width over height, in these fractions), corners keep the
      * shape and edges don't move.
      */
-    fun drag(box: Box, handle: Handle, dx: Float, dy: Float, min: Float, aspect: Float? = null): Box {
+    fun drag(start: Box, handle: Handle, dx: Float, dy: Float, min: Float, aspect: Float? = null): Box {
+        // On the photo and the right way round, whatever rounding did: every range below is then non-empty.
+        val box = start.onPhoto()
         if (handle == Handle.MOVE) {
             val x = dx.coerceIn(-box.left, 1 - box.right)
             val y = dy.coerceIn(-box.top, 1 - box.bottom)
@@ -87,15 +89,24 @@ object PhotoCrop {
             return Box(left, top, left + w, top + h)
         }
         var (left, top, right, bottom) = box
-        if (handle.left) left = (left + dx).coerceIn(0f, right - min)
-        if (handle.right) right = (right + dx).coerceIn(left + min, 1f)
-        if (handle.top) top = (top + dy).coerceIn(0f, bottom - min)
-        if (handle.bottom) bottom = (bottom + dy).coerceIn(top + min, 1f)
+        // A box already under the minimum (made square, say) can grow but not shrink.
+        if (handle.left) left = (left + dx).coerceIn(0f, maxOf(left, right - min))
+        if (handle.right) right = (right + dx).coerceIn(minOf(right, left + min), 1f)
+        if (handle.top) top = (top + dy).coerceIn(0f, maxOf(top, bottom - min))
+        if (handle.bottom) bottom = (bottom + dy).coerceIn(minOf(bottom, top + min), 1f)
         return Box(left, top, right, bottom)
     }
 
+    /** [this] clamped onto the photo, its edges in order. */
+    private fun Box.onPhoto(): Box {
+        val l = left.coerceIn(0f, 1f)
+        val t = top.coerceIn(0f, 1f)
+        return Box(l, t, right.coerceIn(l, 1f), bottom.coerceIn(t, 1f))
+    }
+
     /** The biggest box of [aspect] (width over height, in these fractions) centered on [box]'s center, on the photo. */
-    fun fit(box: Box, aspect: Float): Box {
+    fun fit(start: Box, aspect: Float): Box {
+        val box = start.onPhoto()
         val cx = (box.left + box.right) / 2
         val cy = (box.top + box.bottom) / 2
         // As big as the current box allows its shorter side, then pulled in to stay on the photo.

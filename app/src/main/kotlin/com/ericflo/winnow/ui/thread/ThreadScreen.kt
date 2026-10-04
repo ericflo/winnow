@@ -821,14 +821,12 @@ fun ThreadScreen(
         var size by remember(photo) { mutableStateOf<Pair<Int, Int>?>(null) }
         LaunchedEffect(photo) {
             size = viewModel.photoSize(photo)
-            if (size == null) {
-                cropping = null
-                snackbar.showSnackbar("Couldn't open that photo")
-            }
+            if (size == null) cropping = null
         }
-        // Gone from the composer (sent, removed): nothing left to crop.
-        LaunchedEffect(photo, attachments) { if (photo !in attachments) cropping = null }
-        size?.takeIf { photo in attachments }?.let { (width, height) ->
+        // Gone from the composer (sent, removed, edited): nothing left to crop. Kept as a draft
+        // copy (moments after it's attached or edited) it's still the same picture.
+        LaunchedEffect(photo, attachments) { if (viewModel.sameAs(photo) == null) cropping = null }
+        size?.let { (width, height) ->
             CropEditor(
                 uri = photo.uri,
                 width = width,
