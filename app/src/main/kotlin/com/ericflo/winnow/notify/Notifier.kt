@@ -20,13 +20,14 @@ import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import com.ericflo.winnow.R
+import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.Member
 import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.data.showsInitial
 import com.ericflo.winnow.data.splitAddresses
 import com.ericflo.winnow.ui.BubbleActivity
 import com.ericflo.winnow.ui.MainActivity
-import com.ericflo.winnow.ui.theme.avatarHue
+import com.ericflo.winnow.ui.theme.avatarColorInts
 import android.provider.Settings
 import java.io.File
 
@@ -147,9 +148,7 @@ class Notifier(
         val choices = quickReplies ?: this.quickReplies
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val id = notificationId(threadId)
-        val photo = senderPhotoUri?.let { uri ->
-            runCatching { context.contentResolver.openInputStream(Uri.parse(uri))?.use(BitmapFactory::decodeStream) }.getOrNull()
-        }
+        val photo = contactPhoto(senderPhotoUri)
         val sender = Person.Builder().setName(senderName).setKey(senderName).apply {
             photo?.let { setIcon(IconCompat.createWithBitmap(it)) }
         }.build()
@@ -346,24 +345,25 @@ class Notifier(
         val size = 432
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(bitmap)
-        canvas.drawColor(GROUP_BACKGROUND)
+        // The shade's own light or dark, which the app's theme setting doesn't change.
+        val dark = systemDark()
+        val background = context.getColor(if (dark) android.R.color.system_neutral1_800 else android.R.color.system_neutral1_100)
+        canvas.drawColor(background)
         // Launchers and the shade show the middle two thirds; both faces fit inside that circle.
         val radius = size * 0.18f
         val offset = size * 0.085f
         val center = size / 2f
-        drawFace(canvas, faces[1], center + offset, center + offset, radius)
-        val ring = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = GROUP_BACKGROUND }
+        drawFace(canvas, faces[1], center + offset, center + offset, radius, dark)
+        val ring = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = background }
         canvas.drawCircle(center - offset, center - offset, radius + size * 0.012f, ring)
-        drawFace(canvas, faces[0], center - offset, center - offset, radius)
+        drawFace(canvas, faces[0], center - offset, center - offset, radius, dark)
         return IconCompat.createWithAdaptiveBitmap(bitmap)
     }
 
     /** One face: the contact's photo, else their initial on their color, else a person glyph. */
-    private fun drawFace(canvas: android.graphics.Canvas, member: Member, cx: Float, cy: Float, radius: Float) {
-        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-        val photo = member.photoUri?.let { uri ->
-            runCatching { context.contentResolver.openInputStream(Uri.parse(uri))?.use(BitmapFactory::decodeStream) }.getOrNull()
-        }
+    private fun drawFace(canvas: android.graphics.Canvas, member: Member, cx: Float, cy: Float, radius: Float, dark: Boolean) {
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+        val photo = contactPhoto(member.photoUri)
         if (photo != null) {
             // Center-cropped into the circle.
             val scale = 2 * radius / minOf(photo.width, photo.height)
@@ -378,38 +378,63 @@ class Notifier(
             return
         }
         if (showsInitial(member.name)) {
-            val hue = avatarHue(member.address)
-            paint.color = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.30f, 0.90f))
+            val (container, content) = avatarColorInts(member.address, dark)
+            paint.color = container
             canvas.drawCircle(cx, cy, radius, paint)
-            paint.color = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.70f, 0.35f))
+            paint.color = content
             paint.textSize = radius * 0.95f
             paint.textAlign = android.graphics.Paint.Align.CENTER
             paint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
             canvas.drawText(member.name.first().uppercase(), cx, cy - (paint.descent() + paint.ascent()) / 2f, paint)
             return
         }
-        paint.color = GROUP_GLYPH_BACKGROUND
+        paint.color = context.getColor(if (dark) android.R.color.system_neutral2_700 else android.R.color.system_neutral2_200)
         canvas.drawCircle(cx, cy, radius, paint)
         androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_person)?.mutate()?.let { glyph ->
-            glyph.setTint(GROUP_GLYPH)
+            glyph.setTint(context.getColor(if (dark) android.R.color.system_neutral2_200 else android.R.color.system_neutral2_700))
             val half = radius * 0.55f
             glyph.setBounds((cx - half).toInt(), (cy - half).toInt(), (cx + half).toInt(), (cy + half).toInt())
             glyph.draw(canvas)
         }
     }
 
+    /**
+     * Whether the system (the notification shade, the launcher) is dark. Not the app's own
+     * configuration: Settings → Theme overrides that for Winnow alone.
+     */
+    private fun systemDark(): Boolean =
+        android.content.res.Resources.getSystem().configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+
+    /**
+     * A contact's photo, sharp enough for an icon: the full-size display photo where there is one
+     * (the usual photo URI is a 96-pixel thumbnail, soft once drawn larger), else the thumbnail,
+     * at most [PHOTO_EDGE_PX] across.
+     */
+    private fun contactPhoto(thumbnail: String?): Bitmap? =
+        listOfNotNull(ContactLookup.displayPhoto(thumbnail), thumbnail).firstNotNullOfOrNull { decodeAtMost(Uri.parse(it), PHOTO_EDGE_PX) }
+
+    private fun decodeAtMost(uri: Uri, edge: Int): Bitmap? = runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= edge) sample *= 2
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
+    }.getOrNull()
+
     /** The conversation's first letter on its avatar color, as in the inbox; the app icon for a bare number. */
     private fun letterIcon(title: String, seed: String): IconCompat {
         val letter = title.firstOrNull()?.takeIf { it.isLetter() } ?: return IconCompat.createWithResource(context, R.mipmap.ic_launcher)
-        // The inbox avatar's hue, for the same conversation.
-        val hue = avatarHue(seed)
+        // The inbox avatar's colors for the same conversation, light or dark as the shade is.
+        val (container, content) = avatarColorInts(seed, systemDark())
         // An adaptive icon: full bleed, with the letter inside the middle two thirds launchers keep.
         val size = 432
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(bitmap)
-        canvas.drawColor(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.30f, 0.90f)))
+        canvas.drawColor(container)
         val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.70f, 0.35f))
+            color = content
             textSize = size * 0.30f
             textAlign = android.graphics.Paint.Align.CENTER
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
@@ -425,9 +450,7 @@ class Notifier(
      */
     fun pinToHomeScreen(threadId: Long, recipients: List<String>, title: String, photoUri: String?): Boolean {
         if (threadId < 0 || !ShortcutManagerCompat.isRequestPinShortcutSupported(context)) return false
-        val photo = photoUri?.let { uri ->
-            runCatching { context.contentResolver.openInputStream(Uri.parse(uri))?.use(BitmapFactory::decodeStream) }.getOrNull()
-        }
+        val photo = contactPhoto(photoUri)
         val joined = joinAddresses(recipients)
         val person = Person.Builder().setName(title).setKey(joined).apply { photo?.let { setIcon(IconCompat.createWithBitmap(it)) } }.build()
         val info = shortcut(threadId, joined, title, person, photo)
@@ -442,9 +465,7 @@ class Notifier(
      */
     fun conversationSettings(threadId: Long, recipients: List<String>, title: String, photoUri: String? = null): Intent {
         // The same shortcut as the conversation's own (its photo too), or this would replace it.
-        val photo = photoUri?.let { uri ->
-            runCatching { context.contentResolver.openInputStream(Uri.parse(uri))?.use(BitmapFactory::decodeStream) }.getOrNull()
-        }
+        val photo = contactPhoto(photoUri)
         val joined = joinAddresses(recipients)
         val person = Person.Builder().setName(title).setKey(joined).apply { photo?.let { setIcon(IconCompat.createWithBitmap(it)) } }.build()
         val shortcutId = pushShortcut(threadId, joined, title, person, photo)
@@ -484,9 +505,7 @@ class Notifier(
      */
     fun publishConversation(threadId: Long, recipients: List<String>, title: String, photoUri: String?) {
         if (threadId < 0) return
-        val photo = photoUri?.let { uri ->
-            runCatching { context.contentResolver.openInputStream(Uri.parse(uri))?.use(BitmapFactory::decodeStream) }.getOrNull()
-        }
+        val photo = contactPhoto(photoUri)
         val person = Person.Builder().setName(title).setKey(joinAddresses(recipients)).apply {
             photo?.let { setIcon(IconCompat.createWithBitmap(it)) }
         }.build()
@@ -547,11 +566,8 @@ class Notifier(
     private fun notificationId(threadId: Long) = threadId.toInt()
 
     private companion object {
-        /** A group icon's ground, and the ring around its front face. */
-        const val GROUP_BACKGROUND = 0xFFE8EAF0.toInt()
-        /** A face with no name to show: a person glyph, as in the app. */
-        const val GROUP_GLYPH_BACKGROUND = 0xFFC9CDD6.toInt()
-        const val GROUP_GLYPH = 0xFF5A5F6B.toInt()
+        /** A contact photo's size for icons: an adaptive icon is 432 pixels across. */
+        const val PHOTO_EDGE_PX = 432
         const val CHANNEL_MESSAGES = "messages"
         const val SHARE_CATEGORY = "com.ericflo.winnow.category.SHARE_TARGET"
         const val CHANNEL_NOT_SENT = "not_sent"

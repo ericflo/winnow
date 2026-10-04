@@ -8,6 +8,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.graphics.ColorUtils
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.data.normalizeAddress
 import com.ericflo.winnow.data.splitAddresses
@@ -37,13 +38,14 @@ private val AVATAR_HUES = floatArrayOf(4f, 28f, 48f, 96f, 150f, 188f, 214f, 262f
 
 /** Stable avatar colors for an address: see [avatarHue]. */
 @Composable
-fun avatarColors(seed: String): Pair<Color, Color> {
+fun avatarColors(seed: String): Pair<Color, Color> =
+    avatarColorInts(seed, isSystemInDarkTheme()).let { (container, content) -> Color(container) to Color(content) }
+
+/** [avatarColors] as ARGB, for what's drawn outside Compose (shortcut and notification icons). */
+fun avatarColorInts(seed: String, dark: Boolean): Pair<Int, Int> {
     val hue = avatarHue(seed)
-    return if (isSystemInDarkTheme()) {
-        Color.hsl(hue, 0.35f, 0.30f) to Color.hsl(hue, 0.70f, 0.88f)
-    } else {
-        Color.hsl(hue, 0.60f, 0.86f) to Color.hsl(hue, 0.55f, 0.25f)
-    }
+    fun hsl(s: Float, l: Float) = ColorUtils.HSLToColor(floatArrayOf(hue, s, l))
+    return if (dark) hsl(0.35f, 0.30f) to hsl(0.70f, 0.88f) else hsl(0.60f, 0.86f) to hsl(0.55f, 0.25f)
 }
 
 /** Container and content colors for a category badge. */

@@ -34,4 +34,16 @@ class ContactLookupTest {
         assertEquals(null, ContactLookup.nationalForm("+14155550177", "GB"))
         assertEquals(null, ContactLookup.nationalForm("72975", "US"))
     }
+
+    @Test
+    fun `a contact's full photo is found from its thumbnail`() {
+        assertEquals(
+            "content://com.android.contacts/contacts/42/display_photo",
+            ContactLookup.displayPhoto("content://com.android.contacts/contacts/42/photo"),
+        )
+        // Anything else has no known full-size counterpart.
+        assertEquals(null, ContactLookup.displayPhoto("content://com.android.contacts/display_photo/7"))
+        assertEquals(null, ContactLookup.displayPhoto("content://media/external/images/1"))
+        assertEquals(null, ContactLookup.displayPhoto(null))
+    }
 }

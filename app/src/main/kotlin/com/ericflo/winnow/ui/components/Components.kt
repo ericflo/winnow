@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.ericflo.winnow.R
+import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.Member
 import com.ericflo.winnow.data.showsInitial
 import androidx.compose.ui.graphics.Color
@@ -95,9 +96,24 @@ fun Avatar(name: String, seed: String, size: Dp = 52.dp, modifier: Modifier = Mo
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(size).clip(CircleShape),
             )
+            // The thumbnail is 96 pixels, soft at this size: the full photo over it, where the
+            // contact has one (one that doesn't just leaves the thumbnail showing).
+            if (size >= SHARP_PHOTO_SIZE) {
+                ContactLookup.displayPhoto(photoUri)?.let { large ->
+                    AsyncImage(
+                        model = large,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(size).clip(CircleShape),
+                    )
+                }
+            }
         }
     }
 }
+
+/** At this size and up, an avatar shows the contact's full photo rather than its thumbnail. */
+private val SHARP_PHOTO_SIZE = 44.dp
 
 /** The Spam & blocked list's leading icon: a red "!" for fraud, a block sign for everything else filtered. */
 @Composable

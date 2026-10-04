@@ -169,6 +169,16 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
             }
         }
 
+        /**
+         * The full-size photo for a contact's [thumbnail] (the 96-pixel PHOTO_THUMBNAIL_URI,
+         * content://com.android.contacts/contacts/<id>/photo): its display_photo, which a contact
+         * whose photo is only a thumbnail doesn't have, so callers fall back to [thumbnail].
+         */
+        fun displayPhoto(thumbnail: String?): String? =
+            thumbnail?.let(THUMBNAIL::matchEntire)?.let { "content://com.android.contacts/contacts/${it.groupValues[1]}/display_photo" }
+
+        private val THUMBNAIL = Regex("""content://com\.android\.contacts/contacts/(\d+)/photo""")
+
         /** A full phone number (7+ digits), not a short code, email or alphanumeric sender. */
         fun isPersonalNumber(address: String): Boolean = numberKey(address)?.startsWith("short:") == false
 
