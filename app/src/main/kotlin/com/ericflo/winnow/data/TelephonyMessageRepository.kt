@@ -223,7 +223,7 @@ class TelephonyMessageRepository(
         if (mmsText.isNotEmpty()) {
             resolver.query(
                 Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.THREAD_ID, Telephony.Mms.DATE),
-                "${Telephony.Mms._ID} IN (${mmsText.keys.joinToString(",")})", null, null,
+                "${Telephony.Mms._ID} IN (${mmsText.keys.joinToString(",")}) AND ${Telephony.Mms.MESSAGE_BOX} != ${Telephony.Mms.MESSAGE_BOX_DRAFTS}", null, null,
             )?.use { c ->
                 while (c.moveToNext()) hits += hit(c.getLong(1), recipients, mmsText[c.getLong(0)].orEmpty(), c.getLong(2) * 1000, ChatMessage.messageKey(Kind.MMS, c.getLong(0)))
             }
@@ -263,7 +263,8 @@ class TelephonyMessageRepository(
 
     override suspend fun textsWithLinks(limit: Int): List<SearchHit> = withContext(Dispatchers.IO) {
         // A rough cut in SQL; the caller picks the actual links out.
-        val looksLinked = listOf("%http%", "%www.%", "%.com%", "%.org%", "%.net%", "%.io%", "%.ly/%")
+        // The same endings MessageText's link finder knows, so a text it would link isn't missed here.
+        val looksLinked = listOf("%http%", "%www.%") + LINK_TLDS.map { "%.$it%" }
         val recipients = resolver.threadRecipients()
         val hits = mutableListOf<SearchHit>()
         resolver.query(
@@ -606,6 +607,8 @@ class TelephonyMessageRepository(
         private const val TAG = "WinnowStore"
 
         /** Drafts other SMS apps left in the store aren't messages. */
+        /** Endings a bare domain in a text can have; matches MessageText's link finder. */
+        private val LINK_TLDS = listOf("com", "net", "org", "io", "co", "me", "us", "app", "dev", "info", "biz", "top", "vip", "xyz", "ly", "gl", "gov", "edu", "shop", "click", "link")
         private const val NOT_SMS_DRAFT = "${Telephony.Sms.TYPE} != ${Telephony.Sms.MESSAGE_TYPE_DRAFT}"
     }
 }

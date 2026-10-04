@@ -7,6 +7,8 @@ import coil3.compose.AsyncImage
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import android.net.Uri
@@ -177,11 +179,16 @@ fun AudioAttachment(uri: String, player: AudioPlayer, outgoing: Boolean) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = "Play voice message")
                 }
             }
-            // Tap along the bar to jump there, once the clip is loaded.
+            // Tap along the bar to jump there, once the clip is loaded. (It fills from the right in
+            // right-to-left languages.)
+            val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.weight(1f).height(32.dp).pointerInput(uri, mine) {
-                    detectTapGestures { offset -> if (mine) player.seekTo(uri, offset.x / size.width) }
+                modifier = Modifier.weight(1f).height(32.dp).pointerInput(uri, mine, rtl) {
+                    detectTapGestures { offset ->
+                        val fraction = offset.x / size.width
+                        if (mine) player.seekTo(uri, if (rtl) 1f - fraction else fraction)
+                    }
                 },
             ) {
                 LinearProgressIndicator(

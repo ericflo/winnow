@@ -936,7 +936,7 @@ private fun MessageList(
         if (newestKey == null || focusKey != null) return@LaunchedEffect
         if (previous == null || listState.layoutInfo.visibleItemsInfo.any { it.key == previous }) {
             listState.animateScrollToItem(0)
-        } else if (state.messages.lastOrNull()?.outgoing == false) {
+        } else if (state.messages.lastOrNull()?.outgoing == false && listState.firstVisibleItemIndex > 2) {
             missed++
         }
     }

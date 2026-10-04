@@ -21,6 +21,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.shareIn
 import com.ericflo.winnow.data.MediaHit
 import com.ericflo.winnow.ui.components.allWebLinks
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -43,10 +46,12 @@ enum class InboxFilter(val label: String) {
 }
 
 /** Which kind chip a conversation falls under, if any. */
-fun ConversationSummary.kind(): InboxFilter? = when (verdict?.category) {
-    null, Category.PERSONAL -> InboxFilter.PERSONAL
-    Category.TRANSACTIONAL -> InboxFilter.UPDATES
-    Category.MARKETING -> InboxFilter.OFFERS
+fun ConversationSummary.kind(): InboxFilter? = when {
+    verdict == null || verdict.category == Category.PERSONAL -> InboxFilter.PERSONAL
+    verdict.category == Category.TRANSACTIONAL -> InboxFilter.UPDATES
+    verdict.category == Category.MARKETING -> InboxFilter.OFFERS
+    // Rescued by the user ("Not spam"): someone they want to hear from.
+    verdict.userAction == Action.ALLOW -> InboxFilter.PERSONAL
     else -> null
 }
 
@@ -96,7 +101,9 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         }
     }
 
+    // Shared: the list and the photo/link browser read the same conversations, loaded once.
     private val all = combine(repo.conversations(), states.observeTimed()) { list, s -> list.withState(s) }
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
     private val hits = query.debounce(250).distinctUntilChanged().mapLatest { q -> if (q.length < 2) emptyList() else repo.search(q) }
 
@@ -194,7 +201,7 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
                     )
                 },
             )
-        }
+        }.flowOn(Dispatchers.Default)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BrowseResults())
 
     fun browse(kind: Browse?) {

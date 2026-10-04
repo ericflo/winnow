@@ -229,9 +229,12 @@ fun InboxScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
                                 ) {
-                                    val chips = listOf(InboxFilter.ALL) +
-                                        listOfNotNull(InboxFilter.UNREAD.takeIf { state.unreadConversations > 0 || state.filter == InboxFilter.UNREAD }) +
-                                        state.kinds
+                                    // The one that's on stays, even once nothing's left under it, so it can be turned off.
+                                    val chips = (
+                                        listOf(InboxFilter.ALL) +
+                                            listOfNotNull(InboxFilter.UNREAD.takeIf { state.unreadConversations > 0 || state.filter == InboxFilter.UNREAD }) +
+                                            state.kinds + state.filter
+                                        ).distinct()
                                     chips.forEach { chip ->
                                         FilterChip(
                                             selected = state.filter == chip,
@@ -300,14 +303,19 @@ fun InboxScreen(
                     }
                     if (searching && state.messageHits.isNotEmpty()) {
                         item("h-messages") { SectionHeader("Messages") }
-                        items(state.messageHits, key = { "hit-${it.threadId}-${it.timestamp}" }) { hit ->
+                        // By message: two picture messages in one thread can share a second.
+                        items(state.messageHits, key = { "hit-${it.key ?: "${it.threadId}-${it.timestamp}"}" }) { hit ->
                             SearchHitRow(hit, onClick = { onOpenSearchHit(hit, state.query.trim()) })
                         }
                     }
                     if (state.conversations.isEmpty() && state.messageHits.isEmpty() && !(searching && typed.isBlank() && browsing != null)) {
                         item("empty") {
                             Text(
-                                if (state.query.isNotBlank()) "Nothing matches \"${state.query}\"" else "No conversations yet",
+                                when {
+                                    state.query.isNotBlank() -> "Nothing matches \"${state.query}\""
+                                    state.filter != InboxFilter.ALL -> "Nothing under ${state.filter.label} right now"
+                                    else -> "No conversations yet"
+                                },
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,

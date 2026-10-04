@@ -8,6 +8,7 @@ import android.content.Intent
 import android.util.Log
 import androidx.core.app.RemoteInput
 import com.ericflo.winnow.WinnowApp
+import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.ReturnedMessages
 import com.ericflo.winnow.data.splitAddresses
 import kotlinx.coroutines.launch
@@ -58,8 +59,24 @@ class NotificationActionReceiver : BroadcastReceiver() {
                         container.scheduler.forgetFailure(scheduled)
                         // A second failure says so again.
                         runCatching { container.scheduler.sendNow(scheduled) }.onFailure { container.scheduler.notifyFailed(scheduled) }
-                    } else {
-                        container.messages.messagesByKey(listOf(key)).firstOrNull()?.let { container.messages.retry(it.message) }
+                    } else if (retrying.add(key)) {
+                        try {
+                            val found = container.messages.messagesByKey(listOf(key)).firstOrNull()
+                            // Once: a second tap (or a notice from before it went out) finds it no longer failed.
+                            // And only as the SMS app, or Android keeps a second copy of the text.
+                            if (found != null && found.message.status == ChatMessage.Status.FAILED && container.isDefaultSmsApp()) {
+                                try {
+                                    container.messages.retry(found.message)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Trying again failed", e)
+                                    container.notifier.showNotSent(threadId, recipients, found.conversationName, found.message.body, retryKey = key)
+                                }
+                            }
+                        } finally {
+                            retrying.remove(key)
+                        }
                     }
                     return@launch
                 }
@@ -85,6 +102,9 @@ class NotificationActionReceiver : BroadcastReceiver() {
     }
 
     companion object {
+        /** Messages being tried again right now, so a double tap sends once. */
+        private val retrying = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
         const val ACTION_REPLY = "com.ericflo.winnow.REPLY"
         const val ACTION_MARK_READ = "com.ericflo.winnow.MARK_READ"
         const val ACTION_COPY_CODE = "com.ericflo.winnow.COPY_CODE"

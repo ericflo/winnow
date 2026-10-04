@@ -69,7 +69,7 @@ interface MessageRepository {
     suspend fun recentMedia(limit: Int = 240): List<MediaHit> = emptyList()
 
     /** The newest texts that look like they carry a link, across every conversation. */
-    suspend fun textsWithLinks(limit: Int = 300): List<SearchHit> = emptyList()
+    suspend fun textsWithLinks(limit: Int = 500): List<SearchHit> = emptyList()
 
     /** Records the user's correction for a thread and remembers it for the sender. */
     suspend fun overrideVerdict(threadId: Long, address: String, action: Action): PreviousVerdict
