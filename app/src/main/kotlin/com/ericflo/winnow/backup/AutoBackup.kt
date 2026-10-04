@@ -17,6 +17,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Weekly backups into a folder the user picked once, written while the phone charges. The folder
@@ -28,6 +33,9 @@ class AutoBackup(
     private val backups: BackupManager,
 ) {
     private val jobs get() = context.getSystemService(JobScheduler::class.java)
+
+    // The weekly job and "Back up now" can overlap; one backup at a time.
+    private val running = Mutex()
 
     /** Keeps the folder (with lasting permission to write there) and schedules the weekly job. */
     suspend fun enable(folder: Uri) {
@@ -64,22 +72,28 @@ class AutoBackup(
     }
 
     /** Writes a backup into the folder now and prunes old ones. Returns what happened, for the log or the user. */
-    suspend fun runNow(): String = withContext(Dispatchers.IO) {
-        val folder = settings.current().autoBackupFolder?.let(Uri::parse) ?: return@withContext "Automatic backup is off"
-        try {
+    suspend fun runNow(): String = running.withLock { withContext(Dispatchers.IO) { backUp() } }
+
+    private suspend fun backUp(): String {
+        val folder = settings.current().autoBackupFolder?.let(Uri::parse) ?: return "Automatic backup is off"
+        return try {
             val parent = DocumentsContract.buildDocumentUriUsingTree(folder, DocumentsContract.getTreeDocumentId(folder))
             val name = "$PREFIX${LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HHmmss"))}.zip"
             val file = DocumentsContract.createDocument(context.contentResolver, parent, "application/zip", name)
                 ?: error("The folder refused a new file")
             val summary = try {
                 backups.exportQuietly(file)
-            } catch (e: Exception) {
-                runCatching { DocumentsContract.deleteDocument(context.contentResolver, file) }
+            } catch (e: Throwable) {
+                // Cancelled (JobScheduler stopped the job) or failed: a half-written zip mustn't
+                // count as one of the backups kept, so it goes, even mid-cancellation.
+                withContext(NonCancellable) { runCatching { DocumentsContract.deleteDocument(context.contentResolver, file) } }
                 throw e
             }
             prune(folder)
             settings.update { it.copy(autoBackupLast = System.currentTimeMillis(), autoBackupError = null) }
             summary
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Automatic backup failed", e)
             val reason = if (e is SecurityException) "Winnow can no longer write to that folder; choose it again" else e.message ?: "Backup failed"
@@ -129,14 +143,27 @@ class AutoBackup(
 
 /** The weekly job; JobScheduler runs it while charging and reschedules a failure with backoff. */
 class AutoBackupJob : JobService() {
+    private var work: Job? = null
+
     override fun onStartJob(params: JobParameters): Boolean {
         val container = (application as WinnowApp).container
-        container.appScope.launch {
-            val ok = runCatching { container.autoBackup.runNow() }.isSuccess
+        work = container.appScope.launch {
+            val ok = try {
+                container.autoBackup.runNow()
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                false
+            }
             jobFinished(params, !ok)
         }
         return true
     }
 
-    override fun onStopJob(params: JobParameters): Boolean = true
+    /** Unplugged, or out of time: stop writing (the partial file is deleted) and try again later. */
+    override fun onStopJob(params: JobParameters): Boolean {
+        work?.cancel()
+        return true
+    }
 }

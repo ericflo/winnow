@@ -6,12 +6,28 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 
 /** Pinned, archived, muted and draft state per thread, merged into [ConversationSummary]s. */
 class ConversationStateStore(private val dao: ConversationStateDao) {
     private val lock = Mutex()
 
     fun observe(): Flow<Map<Long, ConversationStateEntity>> = dao.observeAll().map { rows -> rows.associateBy { it.threadId } }
+
+    /**
+     * [observe], re-emitted every minute, for screens that show whether a conversation is muted:
+     * a timed mute ends by the clock, with nothing in the database changing.
+     */
+    fun observeTimed(): Flow<Map<Long, ConversationStateEntity>> = combine(observe(), minuteTicks()) { states, _ -> states }
+
+    private fun minuteTicks(): Flow<Unit> = flow {
+        while (true) {
+            emit(Unit)
+            delay(60_000)
+        }
+    }
 
     suspend fun get(threadId: Long): ConversationStateEntity = dao.get(threadId) ?: ConversationStateEntity(threadId)
 

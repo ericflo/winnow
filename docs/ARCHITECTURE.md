@@ -262,12 +262,19 @@ don't announce themselves. Outbox and queued texts come back as failed, ready to
   `SmsManager.sendMultimediaMessage`. The m-send-conf moves the message to sent or failed.
   Photos are downscaled so the whole message fits about 900 KB.
 - **Link previews** (`data/LinkPreviews`, opt-in): fetching a link tells its site your IP
-  address and that the text was read, which is exactly what a spammer wants. So a preview loads
-  only when the setting is on and the conversation is with a contact or someone the user has
-  texted. Even then it loads only for the user's own messages, or ones whose verdict is
-  "allow" and not fraud. One GET for the page (512 KB cap, Open Graph tags or `<title>`), one
-  for its image (2 MB cap, saved to the cache because Coil here has no network loader). There
-  are no cookies or referrer. Results, failures included, are cached for a week.
+  address and that the text was read, which is exactly what a spammer wants. So a message loads
+  a preview only when the setting is on and either the user sent it, or its sender is trusted
+  and its verdict is a plain "allow". A trusted sender is a contact, or the other person in a
+  one-to-one conversation the user has texted; in groups only contacts count. A message with
+  no verdict yet doesn't qualify.
+
+  Each preview is one GET for the page (512 KB cap; Open Graph tags or `<title>` from the
+  first 64 KB of `<head>`) and one for its image (2 MB cap, saved to the cache because Coil here
+  has no network loader). There are no cookies or referrer, redirects are followed by hand (at
+  most 5), and nothing goes to a private, loopback, link-local or CGNAT address. Private IP
+  literals are refused before connecting, a DNS filter covers names, and a network interceptor
+  checks every connection. The card always shows the real host, never the page's own site
+  name. Definite answers are cached for a week; possibly temporary failures aren't.
 - **Saving and sharing attachments** (`data/MediaExport`): parts live in the message store,
   which only the default SMS app can read, so Save copies into MediaStore (Pictures, Movies,
   Recordings or Download, in a Winnow folder; no permission needed) and Share copies into a

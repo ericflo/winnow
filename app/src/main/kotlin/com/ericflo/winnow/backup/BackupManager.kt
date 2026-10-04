@@ -41,6 +41,8 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.text.NumberFormat
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 
 sealed interface BackupStatus {
     data object Idle : BackupStatus
@@ -138,6 +140,9 @@ class BackupManager(
     // --- Export ----------------------------------------------------------------------------
 
     private suspend fun exportTo(uri: Uri, report: (BackupStatus) -> Unit = { _status.value = it }) {
+        // The archive is written with blocking calls; checking this between files lets a stopped
+        // automatic backup actually stop.
+        val job = coroutineContext
         report(BackupStatus.Working("Gathering messages"))
         val media = HashMap<String, Long>()
         val backup = WinnowBackup(
@@ -154,6 +159,7 @@ class BackupManager(
         report(BackupStatus.Working("Saving the backup", 0, media.size))
         (resolver.openOutputStream(uri, "wt") ?: error("The file couldn't be opened")).use { output ->
             BackupArchive.write(output, backup) { part ->
+                job.ensureActive()
                 val partId = media[part.file] ?: return@write null
                 report(BackupStatus.Working("Saving photos and videos", ++saved, media.size))
                 runCatching { resolver.openInputStream(ContentUris.withAppendedId(Mms.Part.CONTENT_URI, partId)) }.getOrNull()

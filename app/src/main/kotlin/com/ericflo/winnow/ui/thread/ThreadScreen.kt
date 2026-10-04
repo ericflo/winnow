@@ -168,6 +168,7 @@ import androidx.compose.material3.HorizontalDivider
 import com.ericflo.winnow.data.LinkPreview
 import com.ericflo.winnow.ui.components.LinkPreviewCard
 import com.ericflo.winnow.ui.components.firstWebLink
+import com.ericflo.winnow.data.normalizeAddress
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -189,7 +190,7 @@ fun ThreadScreen(
     val scheduled by viewModel.scheduled.collectAsStateWithLifecycle()
     val textScale by viewModel.textScale.collectAsStateWithLifecycle()
     val unreadOnOpen by viewModel.unreadOnOpen.collectAsStateWithLifecycle()
-    val linkPreviews by viewModel.linkPreviews.collectAsStateWithLifecycle()
+    val linkPreviewSenders by viewModel.linkPreviewSenders.collectAsStateWithLifecycle()
     var confirmBlock by remember { mutableStateOf(false) }
     var confirmReport by remember { mutableStateOf(false) }
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
@@ -443,7 +444,7 @@ fun ThreadScreen(
                 focusKey = focusKey.takeIf { searching },
                 onMessageNumber = onMessageNumber,
                 unreadOnOpen = unreadOnOpen,
-                linkPreviews = linkPreviews,
+                linkPreviewSenders = linkPreviewSenders,
                 loadPreview = viewModel::preview,
                 selected = selected,
                 onToggleSelected = { m -> selected = if (m.key in selected) selected - m.key else selected + m.key },
@@ -703,12 +704,15 @@ private fun buildItems(transport: String, messages: List<ChatMessage>, unreadOnO
             !newBlock(a, b) && b.timestamp - a.timestamp < GROUP_GAP_MILLIS
 
     val (shown, reactions) = foldTapbacks(messages)
+    // The first unread message still shown: a reaction folded onto an older bubble isn't one.
+    val unread = unreadOnOpen.toHashSet()
+    val firstNew = shown.firstOrNull { it.key in unread }?.key
     val items = mutableListOf<ListItem>(ListItem.Transport(transport))
     shown.forEachIndexed { i, m ->
         val prev = shown.getOrNull(i - 1)
         val next = shown.getOrNull(i + 1)
         // Above the first message that was unread on opening, and above its time header if it has one.
-        if (m.key == unreadOnOpen.firstOrNull()) items += ListItem.NewMessages(unreadOnOpen.size)
+        if (m.key == firstNew) items += ListItem.NewMessages(unreadOnOpen.size)
         if (newBlock(prev, m)) items += ListItem.Header(headerLabel(m.timestamp), "h-${m.key}")
         items += ListItem.Bubble(m, firstInGroup = !grouped(prev, m), lastInGroup = !grouped(m, next), reactions = reactions[m.key].orEmpty())
     }
@@ -732,7 +736,7 @@ private fun MessageList(
     focusKey: String? = null,
     onMessageNumber: (String) -> Unit = {},
     unreadOnOpen: List<String> = emptyList(),
-    linkPreviews: Boolean = false,
+    linkPreviewSenders: Set<String>? = null,
     loadPreview: suspend (String) -> LinkPreview? = { null },
     selected: Set<String> = emptySet(),
     onToggleSelected: (ChatMessage) -> Unit = {},
@@ -832,7 +836,8 @@ private fun MessageList(
                             focused = item.key == focusKey,
                             onMessageNumber = onMessageNumber,
                             textScale = liveScale,
-                            linkPreviews = linkPreviews,
+                            // Whether this message may load a preview, decided here where the sender is known.
+                            linkPreviews = linkPreviewSenders != null && previewAllowed(item.message, state.recipients, linkPreviewSenders),
                             loadPreview = loadPreview,
                             onPreviewClick = if (selecting) toggle else null,
                         )
@@ -880,6 +885,20 @@ private fun NewMessagesDivider(count: Int) {
         )
         HorizontalDivider(Modifier.weight(1f), color = color.copy(alpha = 0.5f))
     }
+}
+
+/**
+ * A message may load a link preview when the user sent it, or when its sender is trusted (see
+ * ThreadViewModel.linkPreviewSenders) and its verdict is a plain "allow". No verdict yet (still
+ * being classified, or classification failed) counts as no: an unjudged text never makes
+ * Winnow fetch anything.
+ */
+private fun previewAllowed(m: ChatMessage, recipients: List<String>, trusted: Set<String>): Boolean {
+    if (m.outgoing) return true
+    val verdict = m.verdict ?: return false
+    if (verdict.effectiveAction != Action.ALLOW || verdict.isFraud) return false
+    val sender = m.sender ?: recipients.singleOrNull() ?: return false
+    return normalizeAddress(sender) in trusted
 }
 
 /** At least this many new messages on opening, and the conversation starts at the first of them. */
@@ -1056,11 +1075,7 @@ private fun MessageBubble(
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                     )
                 }
-                // Only for the user's own links or ones whose text was let through: a filtered or
-                // silenced text never makes Winnow fetch anything.
-                val verdict = m.verdict
-                val trusted = m.outgoing || verdict == null || (verdict.effectiveAction == Action.ALLOW && !verdict.isFraud)
-                if (linkPreviews && trusted && !m.isPlaceholder) {
+                if (linkPreviews && !m.isPlaceholder) {
                     firstWebLink(m.body)?.let { url -> LinkPreviewCard(url, m.outgoing, loadPreview, onClick = onPreviewClick, onLongClick = onLongClick) }
                 }
                 if (item.reactions.isNotEmpty()) {

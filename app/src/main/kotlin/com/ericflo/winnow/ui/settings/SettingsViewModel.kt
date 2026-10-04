@@ -101,7 +101,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun backUpNow() {
         if (_autoBackupRunning.value) return
         _autoBackupRunning.value = true
-        viewModelScope.launch {
+        // The app's scope: leaving Settings mustn't cancel a backup halfway.
+        container.appScope.launch {
             _autoBackupNotice.value = runCatching { container.autoBackup.runNow() }.getOrElse { "Couldn't back up: ${it.message ?: "unknown error"}" }
             _autoBackupRunning.value = false
         }

@@ -37,6 +37,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import com.ericflo.winnow.data.Attachment
 import com.ericflo.winnow.data.LinkPreview
+import com.ericflo.winnow.data.normalizeAddress
+import kotlinx.coroutines.CompletableDeferred
 
 data class ThreadUiState(
     val title: String,
@@ -108,6 +110,8 @@ class ThreadViewModel(
     }
 
     private val _unreadOnOpen = MutableStateFlow<List<String>>(emptyList())
+    // setVisible marks the thread read too, possibly before init has looked at what was unread.
+    private val unreadCaptured = CompletableDeferred<Unit>()
     /** The messages that were unread when the conversation opened, oldest first. */
     val unreadOnOpen: StateFlow<List<String>> = _unreadOnOpen.asStateFlow()
 
@@ -132,6 +136,7 @@ class ThreadViewModel(
             val id = threadId.value
             // Read before marking read: where this visit's "new messages" begin.
             if (id >= 0) _unreadOnOpen.value = runCatching { repo.unreadIncoming(id) }.getOrDefault(emptyList())
+            unreadCaptured.complete(Unit)
             repo.markRead(id)
             if (!inBubble) container.notifier.cancel(id)
             _sims.value = container.sims.available().takeIf { it.size >= 2 }.orEmpty()
@@ -144,7 +149,7 @@ class ThreadViewModel(
     val state: StateFlow<ThreadUiState> = threadId
         .filter { it >= 0 }
         .flatMapLatest { id ->
-            combine(repo.messages(id), states.observe().map { it[id] }, container.starredDao.observeKeys(id)) { messages, s, starredKeys ->
+            combine(repo.messages(id), states.observeTimed().map { it[id] }, container.starredDao.observeKeys(id)) { messages, s, starredKeys ->
                 val stars = starredKeys.toSet()
                 ThreadUiState(
                     title = s?.title ?: title,
@@ -164,12 +169,16 @@ class ThreadViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThreadUiState(title, subtitle, recipients))
 
     /**
-     * Link previews here at all: the setting is on, and this is someone the user knows (a contact)
-     * or has texted. Each message is then checked too: its own verdict must be "allow".
+     * Whose links may be previewed here (normalized addresses), or null when the setting is off.
+     * A sender counts when they're a contact, or this is a one-to-one conversation the user has
+     * texted in. In a group one contact doesn't vouch for strangers, so only contacts count.
+     * Each message is checked too: see ThreadScreen.
      */
-    val linkPreviews: StateFlow<Boolean> = combine(container.settings.settings.map { it.linkPreviews }, state) { on, s ->
-        on && (s.messages.any { it.outgoing } || s.recipients.any(container.contacts::isContact))
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val linkPreviewSenders: StateFlow<Set<String>?> = combine(container.settings.settings.map { it.linkPreviews }, state) { on, s ->
+        if (!on) return@combine null
+        val texted = s.recipients.size == 1 && s.messages.any { it.outgoing }
+        s.recipients.filter { texted || container.contacts.isContact(it) }.map(::normalizeAddress).toSet()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     suspend fun preview(url: String): LinkPreview? = container.linkPreviews.get(url)
 
@@ -185,6 +194,7 @@ class ThreadViewModel(
         if (visible) {
             container.visibleThread.value = id.takeIf { it >= 0 }
             if (id >= 0) launch {
+                unreadCaptured.await()
                 repo.markRead(id)
                 if (!inBubble) container.notifier.cancel(id)
             }

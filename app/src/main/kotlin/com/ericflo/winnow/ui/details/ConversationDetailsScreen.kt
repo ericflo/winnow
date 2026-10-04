@@ -149,7 +149,7 @@ class ConversationDetailsViewModel(
     suspend fun shareIntent(attachment: Attachment): Intent? = withContext(Dispatchers.IO) { container.mediaExport.shareIntent(listOf(attachment)) }
 
     val state: StateFlow<DetailsUiState> = combine(
-        container.conversationStates.observe().map { it[threadId] },
+        container.conversationStates.observeTimed().map { it[threadId] },
         rule,
         blocked,
     ) { s, rule, blocked ->

@@ -62,7 +62,7 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         }
     }
 
-    private val all = combine(repo.conversations(), states.observe()) { list, s -> list.withState(s) }
+    private val all = combine(repo.conversations(), states.observeTimed()) { list, s -> list.withState(s) }
 
     private val hits = query.debounce(250).distinctUntilChanged().mapLatest { q -> if (q.length < 2) emptyList() else repo.search(q) }
 
