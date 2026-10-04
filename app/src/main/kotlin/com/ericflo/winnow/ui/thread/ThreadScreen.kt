@@ -237,6 +237,9 @@ import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -378,8 +381,14 @@ fun ThreadScreen(
 
     // Search within the conversation: matches newest first, and which one is in view.
     var searching by rememberSaveable { mutableStateOf(false) }
-    // Ctrl+F: find in this conversation.
-    LaunchedEffect(Unit) { viewModel.keyShortcuts.collect { if (it == com.ericflo.winnow.KeyShortcut.FIND) searching = true } }
+    // Ctrl+F: find in this conversation, while it's the screen in front (not a chat bubble's
+    // copy behind the app, or the other way round).
+    val shortcutLifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(shortcutLifecycle) {
+        shortcutLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            viewModel.keyShortcuts.collect { if (it == com.ericflo.winnow.KeyShortcut.FIND) searching = true }
+        }
+    }
     var query by rememberSaveable { mutableStateOf("") }
     val matches = remember(query, state.messages) {
         if (query.trim().length < 2) emptyList()

@@ -337,6 +337,10 @@ interface VerdictDao {
     @Query("SELECT messageKey FROM verdicts WHERE threadId = :threadId")
     suspend fun keysForThread(threadId: Long): List<String>
 
+    /** [threadId]'s messages whose verdict, as it stands (the user's correction, else Winnow's), is to filter. */
+    @Query("SELECT messageKey FROM verdicts WHERE threadId = :threadId AND COALESCE(userAction, action) = 'FILTER'")
+    suspend fun filteredKeysForThread(threadId: Long): List<String>
+
     @Query("SELECT * FROM verdicts WHERE messageKey = :messageKey")
     suspend fun forKey(messageKey: String): VerdictEntity?
 

@@ -136,14 +136,20 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun setUndoSend(seconds: Int) = update { it.copy(undoSendSeconds = seconds) }
 
     fun setClearOldFiltered(value: Boolean) {
-        update { it.copy(clearOldFiltered = value) }
-        if (value) viewModelScope.launch { container.filteredCleaner.clean(force = true) }
+        // Saved, then run (which reads the setting); in the app's scope, so leaving Settings
+        // doesn't stop a first long run partway.
+        container.appScope.launch {
+            container.settings.update { it.copy(clearOldFiltered = value) }
+            if (value) runCatching { container.filteredCleaner.clean(force = true) }
+        }
     }
 
     fun setDeleteOldCodes(value: Boolean) {
-        update { it.copy(deleteOldCodes = value) }
-        // Tidy up right away rather than waiting for the next launch.
-        if (value) viewModelScope.launch { container.codeCleaner.clean() }
+        // Saved, then tidied right away rather than at the next launch (the cleaner reads the setting).
+        container.appScope.launch {
+            container.settings.update { it.copy(deleteOldCodes = value) }
+            if (value) runCatching { container.codeCleaner.clean() }
+        }
     }
 
     /** App lock needs a screen lock to check against. */

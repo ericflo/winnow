@@ -239,7 +239,10 @@ class AppContainer(private val context: Context) {
 
     /** Settings → Clear out old filtered texts. */
     val filteredCleaner by lazy {
-        com.ericflo.winnow.backup.FilteredCleaner(context, messages, conversationStates, starredDao, trash) {
+        com.ericflo.winnow.backup.FilteredCleaner(
+            context, messages, conversationStates, starredDao, verdictDao, trash,
+            busyThreads = { reminders.all().values.mapTo(HashSet()) { it.threadId } + database.scheduled().all().map { it.threadId } },
+        ) {
             isDefaultSmsApp() && settings.current().clearOldFiltered
         }
     }
@@ -263,10 +266,12 @@ class AppContainer(private val context: Context) {
                     "mms" -> android.provider.Telephony.Mms.CONTENT_URI
                     else -> null
                 }
-                val date = if (uri == null || id == null) null else runCatching {
-                    context.contentResolver.query(android.content.ContentUris.withAppendedId(uri, id), arrayOf("date"), null, null, null)
-                        ?.use { c -> if (c.moveToFirst()) c.getLong(0) * (if (kind == "mms") 1000 else 1) else null }
-                }.getOrNull()
+                val date = if (uri == null || id == null) null else kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.query(android.content.ContentUris.withAppendedId(uri, id), arrayOf("date"), null, null, null)
+                            ?.use { c -> if (c.moveToFirst()) c.getLong(0) * (if (kind == "mms") 1000 else 1) else null }
+                    }.getOrNull()
+                }
                 date != null && (at == 0L || date == at)
             },
         )

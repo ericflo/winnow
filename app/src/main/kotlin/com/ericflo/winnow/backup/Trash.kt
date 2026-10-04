@@ -62,7 +62,7 @@ class Trash(
      * Keeps [threadIds] in Recently deleted, deleting each from the phone as soon as it's kept. A
      * conversation that couldn't be kept (say, the storage is full) isn't deleted.
      */
-    suspend fun delete(threadIds: Set<Long>): Deleted = lock.withLock {
+    suspend fun delete(threadIds: Set<Long>, unlessNewerThan: Long? = null): Deleted = lock.withLock {
         // Not the SMS app: Android would quietly refuse the delete, leaving a copy here too.
         if (!canWrite()) return@withLock Deleted("Make Winnow your SMS app to delete conversations", emptyList())
         withContext(Dispatchers.IO) {
@@ -70,9 +70,16 @@ class Trash(
             val kept = mutableSetOf<Long>()
             // Kept and deleted, and no new text arrived meanwhile to keep the conversation going.
             val gone = mutableSetOf<Long>()
+            // Left alone: something newer than [unlessNewerThan] is in it (a clean-up's decision is stale).
+            val skipped = mutableSetOf<Long>()
             try {
                 threadIds.forEach { threadId ->
                     val result = keep(threadId) ?: return@forEach
+                    if (unlessNewerThan != null && newestDate(threadId) > unlessNewerThan) {
+                        result.file?.delete()
+                        skipped += threadId
+                        return@forEach
+                    }
                     result.file?.let(made::add)
                     try {
                         // Exactly what was kept: a text that arrived since has a newer id, and stays.
@@ -97,7 +104,7 @@ class Trash(
                 }
             }
             Deleted(
-                "Couldn't keep a conversation in Recently deleted, so it wasn't deleted".takeIf { kept.size != threadIds.size },
+                "Couldn't keep a conversation in Recently deleted, so it wasn't deleted".takeIf { kept.size + skipped.size != threadIds.size },
                 _items.value.filter { it.file in made },
             )
         }
@@ -155,6 +162,17 @@ class Trash(
     private data class Snapshot(val sms: List<Long>, val mms: List<Long>, val keepable: Int) {
         val newestSms: Long get() = sms.maxOrNull() ?: 0
         val newestMms: Long get() = mms.maxOrNull() ?: 0
+    }
+
+    /** When [threadId]'s newest message (of any kind) was sent or received; 0 for none. */
+    private fun newestDate(threadId: Long): Long {
+        val resolver = context.contentResolver
+        val args = arrayOf(threadId.toString())
+        val sms = resolver.query(Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.DATE), "${Telephony.Sms.THREAD_ID} = ?", args, "${Telephony.Sms.DATE} DESC LIMIT 1")
+            ?.use { c -> if (c.moveToFirst()) c.getLong(0) else 0 } ?: 0
+        val mms = resolver.query(Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms.DATE), "${Telephony.Mms.THREAD_ID} = ?", args, "${Telephony.Mms.DATE} DESC LIMIT 1")
+            ?.use { c -> if (c.moveToFirst()) c.getLong(0) * 1000 else 0 } ?: 0
+        return maxOf(sms, mms)
     }
 
     private fun snapshot(threadId: Long): Snapshot {

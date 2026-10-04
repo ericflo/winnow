@@ -54,6 +54,9 @@ class MainActivity : ComponentActivity() {
 
     private val appLock get() = container.appLock
 
+    /** First-run setup is done (see onKeyShortcut). */
+    @Volatile private var onboarded = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -71,6 +74,7 @@ class MainActivity : ComponentActivity() {
         }
         // With app lock on, recents shows a blank card instead of the conversation list. Android 12
         // has no per-app switch for that, so there it's FLAG_SECURE (which also blocks screenshots).
+        lifecycleScope.launch { container.settings.settings.collect { onboarded = it.onboarded } }
         lifecycleScope.launch {
             appLock.enabled.collect { on ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -118,7 +122,8 @@ class MainActivity : ComponentActivity() {
      * or within a conversation), Ctrl+, opens Settings. Only while unlocked.
      */
     override fun onKeyShortcut(keyCode: Int, event: KeyEvent): Boolean {
-        if (!event.isCtrlPressed || appLock.state.value != AppLock.State.UNLOCKED) return super.onKeyShortcut(keyCode, event)
+        // Not over the lock, and not during first-run setup, which has its own way through.
+        if (!event.isCtrlPressed || appLock.state.value != AppLock.State.UNLOCKED || !onboarded) return super.onKeyShortcut(keyCode, event)
         when (keyCode) {
             KeyEvent.KEYCODE_N -> pendingRoute.value = NewChatRoute()
             KeyEvent.KEYCODE_F -> container.keyShortcuts.tryEmit(KeyShortcut.FIND)

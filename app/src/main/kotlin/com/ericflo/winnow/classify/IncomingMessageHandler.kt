@@ -25,6 +25,7 @@ import com.ericflo.winnow.notify.Notifier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.cancellation.CancellationException
@@ -116,7 +117,33 @@ class IncomingMessageHandler(
         )
     }
 
+    /**
+     * Conversations with a text being classified right now: not yet filtered or let through, so
+     * nothing outside the app (the home-screen widget) should show it yet.
+     */
+    val classifying: kotlinx.coroutines.flow.StateFlow<Set<Long>> get() = _classifying
+    private val _classifying = kotlinx.coroutines.flow.MutableStateFlow<Set<Long>>(emptySet())
+
     private suspend fun route(
+        uri: Uri,
+        kind: ChatMessage.Kind,
+        threadId: Long,
+        sender: String,
+        recipients: List<String>,
+        text: String,
+        preview: String,
+        caption: String? = null,
+        codeIn: List<String> = listOf(text),
+    ): Action {
+        _classifying.update { it + threadId }
+        return try {
+            routeNow(uri, kind, threadId, sender, recipients, text, preview, caption, codeIn)
+        } finally {
+            _classifying.update { it - threadId }
+        }
+    }
+
+    private suspend fun routeNow(
         uri: Uri,
         kind: ChatMessage.Kind,
         threadId: Long,

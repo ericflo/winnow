@@ -62,12 +62,10 @@ import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.onStart
-import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.runtime.collectAsState
@@ -106,14 +104,13 @@ class ConversationsWidget : GlanceAppWidget() {
         val settings = container.settings.current()
         if (settings.appLock) return Content.Locked
         if (!container.isLive.value) return Content.NotSetUp
-        val now = System.currentTimeMillis()
+        val classifying = container.incoming.classifying.value
         val conversations = container.messages.conversations().first()
             .withState(container.conversationStates.all().associateBy { it.threadId })
             .filter { !it.isFiltered && !it.archived }
-            // A text that just landed is still being classified (its notification waits too): a
-            // scam mustn't sit on the home screen until it's filtered. Shown once it's decided,
-            // or after the classifier's budget if it never is.
-            .filterNot { it.verdict == null && it.unread && now - it.timestamp in 0 until CLASSIFYING_MILLIS }
+            // A text being classified right now (its notification waits too): a scam mustn't sit
+            // on the home screen until it's filtered. Shown once it's decided.
+            .filterNot { it.threadId in classifying }
             .take(MAX_ROWS)
         return Content.Rows(conversations)
     }
@@ -204,8 +201,6 @@ class ConversationsWidget : GlanceAppWidget() {
     companion object {
         /** A widget shows a handful; the app is a tap away for the rest. */
         private const val MAX_ROWS = 12
-        /** How long a new text can take to be classified (IncomingMessageHandler's budget, and some). */
-        const val CLASSIFYING_MILLIS = 10_000L
 
         private fun openApp() = Intent(Intent.ACTION_MAIN).setClassName("com.ericflo.winnow", MainActivity::class.java.name)
             .addCategory(Intent.CATEGORY_LAUNCHER)
@@ -250,11 +245,10 @@ class WidgetUpdates(private val context: Context, private val scope: CoroutineSc
         scope.launch {
             merge(
                 // Only once Winnow may read texts (an observer before that is refused, quietly);
-                // and the widget's own "make it your SMS app" note goes when it can. A new text is
-                // looked at again once the classifier's had its time (see CLASSIFYING_MILLIS).
-                container.isLive.flatMapLatest { live ->
-                    if (live) messageStoreChanges().onStart { emit(Unit) }.transformLatest { emit(Unit); delay(ConversationsWidget.CLASSIFYING_MILLIS + 1_000); emit(Unit) } else flowOf(Unit)
-                },
+                // and the widget's own "make it your SMS app" note goes when it can.
+                container.isLive.flatMapLatest { live -> if (live) messageStoreChanges().onStart { emit(Unit) } else flowOf(Unit) },
+                // A text's classification finishing brings it in.
+                container.incoming.classifying.map { },
                 roomChanges(container),
                 container.contacts.changes(),
                 container.settings.settings.map { it.appLock }.distinctUntilChanged(),

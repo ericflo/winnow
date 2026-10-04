@@ -15,6 +15,8 @@ import com.ericflo.winnow.data.splitAddresses
 import com.ericflo.winnow.data.displayNameFor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.Mutex
 import kotlin.coroutines.cancellation.CancellationException
 
 private const val TOLD = "told"
@@ -55,6 +57,7 @@ class MessageScheduler(
 
     suspend fun cancel(id: Long) {
         alarms.cancel(alarmIntent(id))
+        alarms.cancel(alarmIntent(id, idle = true))
         dao.delete(id)
         forgetFailure(id)
     }
@@ -63,12 +66,16 @@ class MessageScheduler(
      * Sends a scheduled message now, whether its time has come or the user asked. It's only
      * removed once the send has been handed off; on failure it stays, to go out on the next try.
      */
-    suspend fun sendNow(id: Long) {
-        val message = dao.get(id) ?: return
+    suspend fun sendNow(id: Long) = sending.withLock {
+        // One at a time, and looked up again inside: its two alarms (see arm), or an alarm and
+        // Send now, can't both find it and send it twice.
+        val message = dao.get(id) ?: return@withLock
         val store = messages() ?: throw IllegalStateException("Winnow isn't the default SMS app, so it can't send")
         store.send(splitAddresses(message.recipients), message.body, subscriptionId = message.subscriptionId)
         cancel(id)
     }
+
+    private val sending = Mutex()
 
     /**
      * Tells the user a scheduled text didn't go out when its time came: once, though an overdue
@@ -104,18 +111,23 @@ class MessageScheduler(
 
     private fun arm(id: Long, at: Long) {
         val intent = alarmIntent(id)
-        // Exact timing needs the user's "Alarms & reminders" grant; otherwise within ten minutes
-        // (an inexact idle alarm can be an hour late, and a second alarm could send it twice).
+        // Exact timing needs the user's "Alarms & reminders" grant. Without it, two: a ten-minute
+        // window (an inexact idle alarm alone can be an hour late while the phone's in use), and
+        // one that still goes off while it's idle (a window waits for Doze's maintenance windows).
+        // Whichever comes first sends it; the other finds it gone (see sendNow).
         if (alarms.canScheduleExactAlarms()) {
             alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, intent)
         } else {
             alarms.setWindow(AlarmManager.RTC_WAKEUP, at, 10 * 60_000L, intent)
+            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, alarmIntent(id, idle = true))
         }
     }
 
-    private fun alarmIntent(id: Long): PendingIntent = PendingIntent.getBroadcast(
+    private fun alarmIntent(id: Long, idle: Boolean = false): PendingIntent = PendingIntent.getBroadcast(
         context, id.toInt(),
-        Intent(context, ScheduledSendReceiver::class.java).putExtra(ScheduledSendReceiver.EXTRA_ID, id),
+        Intent(context, ScheduledSendReceiver::class.java).putExtra(ScheduledSendReceiver.EXTRA_ID, id)
+            // The idle alarm's own intent (an action, since request codes are the message's id).
+            .apply { if (idle) action = ScheduledSendReceiver.ACTION_IDLE },
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 }
@@ -151,5 +163,6 @@ class ScheduledSendReceiver : BroadcastReceiver() {
 
     companion object {
         const val EXTRA_ID = "scheduled_id"
+        const val ACTION_IDLE = "com.ericflo.winnow.SCHEDULED_IDLE"
     }
 }

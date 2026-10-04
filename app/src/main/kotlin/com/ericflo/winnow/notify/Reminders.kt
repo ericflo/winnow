@@ -28,6 +28,8 @@ import com.ericflo.winnow.ui.MainActivity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.Mutex
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -141,18 +143,21 @@ class Reminders(
     }
 
     /** The alarm went off: the notification, and the reminder is done with. */
-    suspend fun fire(key: String) {
-        val reminder = dao.get(key) ?: return
+    suspend fun fire(key: String) = firing.withLock {
+        // One at a time: its two alarms (see arm) come together, and mustn't both show it.
+        val reminder = dao.get(key) ?: return@withLock
         // Moved later since the alarm was set (a race with "Remind me" again): not yet.
-        if (reminder.remindAt > System.currentTimeMillis() + EARLY_TOLERANCE_MILLIS) return arm(key, reminder.remindAt)
+        if (reminder.remindAt > System.currentTimeMillis() + EARLY_TOLERANCE_MILLIS) return@withLock arm(key, reminder.remindAt)
         dao.delete(key)
         // Its message gone (deleted, or its id now someone else's): the reminder still shows, from
         // what it saved, but opens the conversation rather than a message that isn't it.
         show(reminder, focus = messageExists(key, reminder.messageAt))
     }
 
+    private val firing = Mutex()
+
     /** "In an hour" on the notification. */
-    suspend fun snooze(reminder: ReminderEntity) {
+    suspend fun snooze(reminder: ReminderEntity) = firing.withLock {
         val at = System.currentTimeMillis() + SNOOZE_MILLIS
         dao.upsert(reminder.copy(remindAt = at))
         arm(reminder.messageKey, at)

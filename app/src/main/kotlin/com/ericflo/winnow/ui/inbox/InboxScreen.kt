@@ -117,6 +117,9 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import com.ericflo.winnow.data.searchSnippet
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 
 @Composable
 fun InboxScreen(
@@ -148,9 +151,12 @@ fun InboxScreen(
     val snackbar = remember { SnackbarHostState() }
     var searching by rememberSaveable { mutableStateOf(false) }
     // Ctrl+F: search, unless a conversation beside the list (a wide screen) has the keyboard's attention.
-    LaunchedEffect(openThreadId) {
+    val shortcutLifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(openThreadId, shortcutLifecycle) {
         if (openThreadId != null) return@LaunchedEffect
-        viewModel.keyShortcuts.collect { if (it == com.ericflo.winnow.KeyShortcut.FIND) searching = true }
+        shortcutLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            viewModel.keyShortcuts.collect { if (it == com.ericflo.winnow.KeyShortcut.FIND) searching = true }
+        }
     }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<Long>()) }
