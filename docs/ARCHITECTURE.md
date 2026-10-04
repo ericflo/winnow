@@ -83,15 +83,36 @@ so nothing is ever lost.
 Confidence below `ActionPolicy.minConfidence` (0.7) softens the action one step
 (Filter → Silence → Notify).
 
-## Messages
+## App structure
 
-Messages live in the system Telephony provider, as Android expects of a default SMS app.
-Winnow stores only what it adds, in Room: one verdict per message (`sms:<id>`), plus
-per-sender rules from "Not spam" / "Filter sender".
-
-`MessageRepository` hides the transport. `TelephonyMessageRepository` is the real one;
-`DemoMessageRepository` serves sample threads until SMS access is granted, which also
-makes the UI developable on an emulator.
+- **Messages** live in the system Telephony provider. `TelephonyMessageRepository` reads
+  threads from `content://mms-sms/conversations?simple=true` plus canonical addresses (so
+  groups have every participant), merges SMS and MMS, and writes as the default SMS app.
+  `DemoMessageRepository` serves the sample conversations until SMS access is granted.
+  `SwitchingMessageRepository` picks between them.
+- **Winnow's own state** is in Room (`WinnowDatabase`, auto-migrated):
+  - `verdicts`: one row per message key (`sms:<id>` / `mms:<id>`), with the user's correction
+  - `sender_rules`: always allow or always filter, per sender
+  - `conversation_state`: pinned, archived, muted, draft
+  - `scheduled_messages`
+- **Settings** are in DataStore. API keys are sealed with an Android Keystore AES-GCM key
+  (`SecretBox`).
+- **Incoming:** `SmsDeliverReceiver` / `MmsWapPushReceiver` hand off to
+  `IncomingMessageHandler`, which stores the message, classifies it within a 7-second budget
+  (failing open), records the verdict, unarchives the thread, and then notifies, silences or
+  filters. A conversation that's open on screen never notifies itself.
+- **Notifications** (`Notifier`) are MessagingStyle conversations backed by long-lived
+  shortcuts, with Reply, Mark as read and Copy-code actions (`NotificationActionReceiver`).
+- **Scheduled send** (`MessageScheduler`) keeps texts in Room and sends them from AlarmManager
+  alarms. They're exact when the user allows it and otherwise within a 10-minute window, and
+  they're re-armed at boot, at app start and on exact-alarm permission changes. A message is
+  deleted only after its send has been handed off.
+- **Older conversations** (`HistoryReviewer`): only on request, classifies each thread's
+  newest incoming message that has no verdict, under the same privacy gate. It never notifies.
+- **Activity** summarizes the verdict table: actions, categories, and who decided (on the
+  phone or a classifier service).
+- **Tapbacks:** iPhone and Google Messages reaction texts (`Tapback.parse`) are folded into
+  reaction pills on the message they quote.
 
 ## MMS
 
