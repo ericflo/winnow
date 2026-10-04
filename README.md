@@ -157,7 +157,7 @@ up as another ("sunpass.com-tollpay.vip"), a stranger introducing themselves "wi
 a donation "match", a deadline, a "reply STOP" opt-out, and letters from another alphabet
 posing as English. The weights are 230 KB. It classifies a text in about 50 µs on a laptop
 JVM (not yet measured on a phone), and it says why it decided ("Decided on this phone:
-“confirm”, “package”, “fee”"). It's trained from 1,349 labeled texts in
+“confirm”, “package”, “fee”"). It's trained from 1,369 labeled texts in
 `classifier/training/`, balanced across all seven categories.
 `./gradlew :classifier:trainLocalModel` rebuilds it, and a test fails if the shipped model or
 its metrics don't match the corpus.
