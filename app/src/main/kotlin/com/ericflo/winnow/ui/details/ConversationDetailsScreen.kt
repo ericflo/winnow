@@ -104,7 +104,9 @@ class ConversationDetailsViewModel(
             title = displayNameFor(recipients, repo::displayName),
             people = recipients.map { address ->
                 val name = repo.displayName(address)
-                DetailsUiState.Person(address, name, ContactLookup.formatAddress(address), repo.photoUri(address), container.contacts.isContact(address))
+                val number = ContactLookup.formatAddress(address)
+                // A known name means a contact, for real contacts and sample conversations alike.
+                DetailsUiState.Person(address, name, number, repo.photoUri(address), isContact = name != number)
             },
             muted = s?.muted == true,
             pinned = s?.pinned == true,

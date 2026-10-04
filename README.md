@@ -1,67 +1,150 @@
 # Winnow
 
-An Android SMS app that classifies every incoming text before it can buzz your phone.
-Personal and expected messages come through. Phishing, scams, spam and political blasts go
-to Filtered without a notification, and marketing arrives silently. Nothing is deleted. One
-tap fixes a wrong call and teaches Winnow about that sender.
+**An Android SMS/MMS app that reads every incoming text before it can buzz your phone.**
+Messages from people come through. Phishing, scams, spam and political blasts go to
+Filtered, with no notification. Marketing arrives quietly. Nothing is deleted, and one tap
+fixes a wrong call.
 
-Winnow uses a pluggable classifier. Jev by TypeSafe is the first provider, but the app depends only on a small decision interface, so any
-compatible service, a general-purpose LLM, or an on-device model can replace it. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+<table>
+  <tr>
+    <td><img src="docs/screenshots/inbox.png" width="200" alt="Inbox"></td>
+    <td><img src="docs/screenshots/filtered.png" width="200" alt="Filtered"></td>
+    <td><img src="docs/screenshots/thread-filtered.png" width="200" alt="A phishing text, filtered"></td>
+    <td><img src="docs/screenshots/group.png" width="200" alt="Group MMS with a photo and a reaction"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Inbox</sub></td>
+    <td align="center"><sub>Filtered (spam &amp; blocked)</sub></td>
+    <td align="center"><sub>Why it was filtered, with links disabled</sub></td>
+    <td align="center"><sub>Group MMS, photos, reactions</sub></td>
+  </tr>
+</table>
 
-## Status
+Google Messages lets too much through. Winnow is a full replacement: it becomes your
+default SMS app, so it sees each text first and decides whether it deserves your attention.
+The decision comes from a pluggable classifier. Jev by TypeSafe is the first supported
+provider, but Winnow depends only on a small decision interface. You can switch to another
+service, your own server, any OpenAI-compatible model, or rules that run entirely on the
+phone.
 
-A working SMS/MMS app, developed and verified on the Android emulator only. It hasn't run on a phone yet.
+> Screenshots use Winnow's built-in sample conversations. Every name and number is fictional
+> (555-01xx), and the "Classified by Jev" verdicts in them are part of that sample data.
 
-- **Messaging:** SMS and MMS send/receive as the default SMS app; group MMS (participants
-  threaded correctly, sender names and avatars); photos in and out (downscaled to carrier
-  limits) with a full-screen viewer; iPhone tapbacks and SMS reactions drawn on the message
-  they react to; retry for failed sends and MMS downloads; opt-in delivery reports;
-  scheduled send; drafts; SMS segment counter.
+## What it does
+
+### Filtering that explains itself
+
+Every incoming SMS and MMS gets one of seven categories: personal, transactional,
+marketing, political, phishing, likely scam or spam. Each category maps to an action, which
+you can change: **notify**, **silence** (inbox, no notification) or **filter** (Filtered,
+no notification). A filtered conversation carries a banner saying what Winnow decided and
+who decided it, with **Not spam**, **Filter sender** and **Report**. Report forwards the
+text to your carrier's 7726 spam service, after you confirm. Links in phishing and scam
+messages can't be tapped.
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/activity.png" width="200" alt="Activity"></td>
+    <td><img src="docs/screenshots/try-it.png" width="200" alt="Try the classifier"></td>
+    <td><img src="docs/screenshots/details.png" width="200" alt="Conversation details"></td>
+    <td><img src="docs/screenshots/menu.png" width="200" alt="Menu"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Activity: what Winnow did</sub></td>
+    <td align="center"><sub>Try it, and see exactly what leaves the phone</sub></td>
+    <td align="center"><sub>Per-sender decisions, block, mute</sub></td>
+    <td align="center"><sub>Menu</sub></td>
+  </tr>
+</table>
+
+### A complete messaging app
+
+- **SMS and MMS:** group conversations threaded correctly, photos in and out (downscaled to
+  carrier limits), and a full-screen viewer. iPhone tapbacks and SMS reactions are drawn on
+  the message they react to. Failed sends and MMS downloads can be retried. SMS delivery
+  reports are opt-in.
 - **Conversations:** pin, archive, mute, mark read/unread, delete, block (Android's system
-  block list), multi-select; swipe to archive (inbox), to mark not spam (Filtered), or to
-  unarchive (Archived); a details screen with participants and per-sender decisions;
-  full-text search across SMS and MMS; New chat with contacts and Create group; contact
-  photos throughout.
-- **Messages:** copy, forward, delete, details; tappable links, emails and numbers, except
-  in phishing/scam verdicts, where links are disabled; "Copy code" for verification codes.
-- **Notifications:** Android conversation notifications (shortcuts, Conversations section,
-  priority), stacked per thread, with inline Reply, Mark as read and Copy code.
-- **Classification:** every incoming SMS and MMS goes through the provider-agnostic classifier
-  (Jev, any System One server, any OpenAI-compatible LLM, or on-device rules) with a privacy
-  gate and redaction. Filtered conversations go to a "Spam & blocked"-style list, and each
-  carries a banner saying why, with "Not spam" and "Report" (to the carrier's 7726). Older
-  conversations from before Winnow can be reviewed on request.
-- **First run:** onboarding explains the RCS trade-off before asking to become the SMS app,
-  then offers a choice of classifier.
-- **UI:** modeled on Google Messages: large-title inbox on a rounded sheet, avatar menu,
-  timestamped conversation blocks, Material You colors, dark mode.
+  block list), and multi-select. Swipe to archive in the inbox, to mark not spam in Filtered,
+  or to unarchive in Archived. Full-text search covers SMS and MMS.
+- **Composing:** New chat with your contacts and Create group, drafts that stick, an SMS
+  segment counter, and **scheduled send** (long-press Send).
+- **Messages:** copy, forward, delete, details, and "Copy code" for verification codes.
+- **Notifications:** Android conversation notifications (Conversations section, priority),
+  stacked per thread, with inline **Reply**, **Mark as read** and **Copy code**.
+- **Getting started:** onboarding explains the RCS trade-off before it asks to become your
+  SMS app. Once Winnow is in charge, it can review older conversations for spam.
 
-Not yet: RCS (see below), backup/import, an on-device model, multi-SIM choice.
+<table>
+  <tr>
+    <td><img src="docs/screenshots/notification.png" width="200" alt="Conversation notification"></td>
+    <td><img src="docs/screenshots/schedule.png" width="200" alt="Schedule send"></td>
+    <td><img src="docs/screenshots/new-chat.png" width="200" alt="New chat"></td>
+    <td><img src="docs/screenshots/message-actions.png" width="200" alt="Message actions"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Reply from the notification</sub></td>
+    <td align="center"><sub>Schedule send</sub></td>
+    <td align="center"><sub>New chat and groups</sub></td>
+    <td align="center"><sub>Message actions</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/onboarding-rcs.png" width="200" alt="Onboarding: RCS"></td>
+    <td><img src="docs/screenshots/settings.png" width="200" alt="Settings"></td>
+    <td><img src="docs/screenshots/search.png" width="200" alt="Search"></td>
+    <td><img src="docs/screenshots/inbox-light.png" width="200" alt="Light theme"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Onboarding, with the RCS trade-off</sub></td>
+    <td align="center"><sub>Choose a classifier</sub></td>
+    <td align="center"><sub>Search messages</sub></td>
+    <td align="center"><sub>Light theme</sub></td>
+  </tr>
+</table>
 
-## Categories
+The UI follows Google Messages: a large-title inbox on a rounded sheet, an avatar menu,
+timestamped conversation blocks, Material You colors and dark mode.
 
-Personal, Transactional and Marketing (silenced) reach the inbox. Political, Phishing, Likely
-scam and Spam are filtered. Each category's action can be changed in Settings. A verdict
-below 70% confidence is softened one step: Filter becomes Silence, Silence becomes Notify.
+## Privacy
 
-To check the live classifier, run the opt-in test. It uses `OPENROUTER_API_KEY` and/or `TYPESAFE_API_KEY`:
+What a classifier service sees is deliberately small. Settings → **Try it** shows the exact
+payload for any message.
 
-```sh
-WINNOW_LIVE_TESTS=1 ./gradlew :classifier:test --tests '*LiveProviderTest*' --rerun
+- Texts from saved contacts, from people you've texted, and verification codes are decided
+  on the phone and never sent anywhere.
+- Runs of 4+ digits become `####`, email addresses become `[email]`, and links are sent as
+  their domain only.
+- The sender's number isn't shared unless you turn that on.
+- **Zero-retention only** mode skips any provider you haven't marked as keeping no data.
+- API keys are encrypted with the Android Keystore.
+- If no provider answers in time, the message is delivered with a notification. On-phone
+  keyword rules can silence a message but never hide it.
+
+## Classification is provider-agnostic
+
 ```
+incoming text → local rules (contacts, codes, sender rules)
+              → privacy gate + redaction
+              → DecisionProvider: Jev (TypeSafe / OpenRouter) · any System One server
+                                  · any OpenAI-compatible LLM
+              → on-phone keyword fallback if nothing answers
+```
+
+The app only depends on `DecisionProvider`: a state plus typed multiple-choice questions,
+answered with probabilities. Jev speaks that shape natively. Anything else can implement it.
+Details, including how to add a provider: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## RCS
 
-Android has no public RCS API. Only Google Messages (and formerly Samsung Messages) can
-use it, so a third-party default SMS app gets SMS/MMS only. Making Winnow the default
-means RCS chats fall back to SMS/MMS. The transport is isolated behind `MessageRepository`
-so an RCS transport can be added if Google ever opens one. Details and alternatives are in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#rcs).
+Android has no public RCS API: only Google Messages can use it. As your default SMS app,
+Winnow sends and receives **SMS and MMS**. Group chats and photos work, but typing
+indicators, read receipts and end-to-end encryption don't. Message transport sits behind
+one interface, so RCS can be added if Google ever opens it. You can switch back to Google
+Messages at any time.
 
-## Build
+## Build and run
 
-Needs JDK 17+ (21 recommended) and an Android SDK with API 37.
+You need JDK 17+ (21 recommended) and an Android SDK with API 37. The minimum supported
+version is Android 12 (API 31).
 
 ```sh
 export JAVA_HOME=~/.local/opt/jdk-21          # wherever your JDK lives
@@ -71,28 +154,52 @@ echo "sdk.dir=$HOME/Android/Sdk" > local.properties
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-On an emulator, `adb emu sms send 4155550123 "hello"` delivers an SMS. Debug builds also
-accept fake MMS through the real receive path (emulators have no MMS server):
+Open Winnow, follow onboarding, and pick a classifier. Until a provider is configured,
+Winnow runs on the phone only.
+
+### Trying it on an emulator
+
+```sh
+scripts/emulator-smoke.sh
+```
+
+The smoke script installs the app, takes the SMS role, and feeds it sample traffic: SMS
+through the emulator's virtual modem, a tapback, a group MMS with a photo, and an MMS whose
+download fails. It refuses to run unless exactly one device is attached and that device is
+an emulator. Every number is fictional and nothing leaves the machine.
+
+You can also do it by hand. `adb emu sms send 4155550123 "hello"` delivers an SMS. Debug
+builds accept fake MMS through the real receive path, since emulators have no MMS server:
 
 ```sh
 adb shell am broadcast -n com.ericflo.winnow/.debug.DebugMmsReceiver \
     --es from +14155550181 --es to "+15551234567,+14155550182" --es text "hi" --ez photo true
 ```
 
-Use fictional 555-01xx numbers when testing. `scripts/emulator-smoke.sh` does all of the above
-in one go (install, SMS role, sample SMS, a tapback, group MMS and a failed MMS download), and
-refuses to run unless exactly one device is attached and that device is an emulator.
+`DebugSeedReceiver` writes thousands of synthetic messages, for testing at scale.
 
-Then open Winnow, tap **Set as default**, and pick a provider in Settings. Until a
-provider is configured, Winnow runs on-device only: keyword rules can silence messages
-but never hide them.
+### Live classifier test (opt-in)
 
-## Layout
+This runs the real pipeline against Jev and needs your own key. It never runs in CI.
+
+```sh
+WINNOW_LIVE_TESTS=1 ./gradlew :classifier:test --tests '*LiveProviderTest*' --rerun
+```
+
+It uses `OPENROUTER_API_KEY` and/or `TYPESAFE_API_KEY`.
+
+## Project layout
 
 ```
-classifier/   Pure Kotlin/JVM. Decision interface, providers, message taxonomy, privacy, tests.
-mms/          Pure Kotlin/JVM. MMS PDU encoder/decoder (OMA-MMS-ENC over WSP), tests.
-app/          Android app. Compose + Material 3; Room for verdicts, conversation state and
+classifier/   Pure Kotlin/JVM: decision interface, providers, taxonomy, privacy, redaction, tests.
+mms/          Pure Kotlin/JVM: MMS PDU encoder/decoder (OMA-MMS-ENC over WSP), tests.
+app/          The Android app: Compose + Material 3; Room for verdicts, conversation state and
               scheduled sends; DataStore for settings; the system SMS/MMS store for messages.
-docs/         Architecture and decisions.
+docs/         Architecture notes and screenshots.
+scripts/      Emulator smoke test.
 ```
+
+## Status
+
+Developed and verified on the Android emulator, and not yet run on a phone. Not built yet:
+RCS (see above), backup/import, an on-device model, multi-SIM choice when sending.
