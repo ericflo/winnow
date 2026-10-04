@@ -100,6 +100,15 @@ class SharedFiles(private val context: Context) {
         return file to FileProvider.getUriForFile(context, "${context.packageName}.mms", file)
     }
 
+    /** How many bytes an attachment is, if its file or provider says. */
+    fun sizeOf(uri: String): Long? = runCatching {
+        val parsed = Uri.parse(uri)
+        if (parsed.scheme == "file") return@runCatching parsed.path?.let { File(it).length() }
+        context.contentResolver.query(parsed, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else null
+        }
+    }.getOrNull()
+
     /** Drops shares the user never sent, and copies handed to other apps a day ago. */
     fun cleanUp(olderThanMillis: Long = 24 * 60 * 60_000L) {
         val cutoff = System.currentTimeMillis() - olderThanMillis

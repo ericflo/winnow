@@ -96,8 +96,7 @@ class MmsSender(
         return parts.filterNotNull()
     }
 
-    private fun isPhoto(attachment: OutgoingAttachment) =
-        attachment.contentType.startsWith("image/") && attachment.contentType != "image/gif"
+    private fun isPhoto(attachment: OutgoingAttachment) = canShrink(attachment.contentType)
 
     /**
      * Reads one attachment within [budget] bytes, shrinking a photo to fit. Anything else over the
@@ -173,13 +172,18 @@ class MmsSender(
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
-    private companion object {
+    companion object {
+        /** About what carriers accept for one MMS, all parts together. */
         const val MESSAGE_BUDGET_BYTES = 900_000
+
+        /** Photos are shrunk to fit; GIFs (which would lose their animation), video and audio go as they are. */
+        fun canShrink(contentType: String) = contentType.startsWith("image/") && contentType != "image/gif"
+
         /** Below this a shrunk photo is a smudge; better to say it doesn't fit. */
-        const val MIN_PHOTO_BYTES = 40_000
-        const val MAX_EDGE_PX = 1600
+        private const val MIN_PHOTO_BYTES = 40_000
+        private const val MAX_EDGE_PX = 1600
         /** Photos get shrunk, but one bigger than this isn't worth decoding on a phone. */
-        const val MAX_PHOTO_BYTES = 40_000_000
+        private const val MAX_PHOTO_BYTES = 40_000_000
     }
 }
 

@@ -41,6 +41,7 @@ import com.ericflo.winnow.data.normalizeAddress
 import kotlinx.coroutines.CompletableDeferred
 import com.ericflo.winnow.data.CurrentLocation
 import com.ericflo.winnow.data.ReturnedMessages
+import com.ericflo.winnow.sms.MmsSender
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
@@ -275,8 +276,29 @@ class ThreadViewModel(
         if (attachment != null) addAttachment(attachment) else _notices.emit("Couldn't attach that")
     }
 
+    /**
+     * Photos are always taken (they're shrunk to fit when sent). A GIF, video or recording too big
+     * for any MMS is turned away now, rather than failing once the message is on its way.
+     */
     fun addAttachment(attachment: OutgoingAttachment) {
-        _attachments.value = _attachments.value + attachment
+        if (MmsSender.canShrink(attachment.contentType)) {
+            _attachments.value = _attachments.value + attachment
+            return
+        }
+        launch {
+            val size = withContext(Dispatchers.IO) { container.sharedFiles.sizeOf(attachment.uri) }
+            if (size != null && size > MmsSender.MESSAGE_BUDGET_BYTES) {
+                val what = when {
+                    attachment.contentType == "image/gif" -> "That GIF is"
+                    attachment.contentType.startsWith("video/") -> "That video is"
+                    attachment.contentType.startsWith("audio/") -> "That recording is"
+                    else -> "That attachment is"
+                }
+                _notices.emit("$what too big to send by MMS (${size / 1000} KB; about ${MmsSender.MESSAGE_BUDGET_BYTES / 1000} KB fits)")
+            } else {
+                _attachments.value = _attachments.value + attachment
+            }
+        }
     }
 
     fun newCameraPhoto() = container.sharedFiles.newCameraPhoto()
