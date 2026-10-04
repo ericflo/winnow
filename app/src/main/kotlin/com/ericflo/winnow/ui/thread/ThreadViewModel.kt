@@ -208,6 +208,7 @@ class ThreadViewModel(
 
     /** Leaving within the debounce window would drop the last keystrokes; save whatever is there. */
     override fun onCleared() {
+        recorder.stopAndDiscard()
         val id = threadId.value
         if (id >= 0) {
             val draft = _draft.value
@@ -245,6 +246,33 @@ class ThreadViewModel(
     /** A share sheet for attachments, or null if they couldn't be copied out. */
     suspend fun shareIntent(attachments: List<Attachment>): android.content.Intent? =
         withContext(Dispatchers.IO) { container.mediaExport.shareIntent(attachments) }
+
+    private val recorder = container.newVoiceRecorder()
+    private val _recording = MutableStateFlow(false)
+    /** A voice message is being recorded. */
+    val recording: StateFlow<Boolean> = _recording.asStateFlow()
+
+    fun recordingElapsed(): Long = recorder.elapsed()
+
+    fun startRecording() {
+        if (recorder.start(onLimit = { viewModelScope.launch { stopRecording() } })) {
+            _recording.value = true
+        } else {
+            _notices.tryEmit("Couldn't use the microphone")
+        }
+    }
+
+    /** Keeps the recording as an attachment, ready to send. */
+    fun stopRecording() {
+        _recording.value = false
+        val voice = recorder.stop()
+        if (voice != null) addAttachment(voice) else _notices.tryEmit("Too short to send")
+    }
+
+    fun cancelRecording() {
+        recorder.stopAndDiscard()
+        _recording.value = false
+    }
 
     /** Attaches a card for a number from the phone-number picker. */
     fun attachPhone(phone: android.net.Uri) = launch {

@@ -182,6 +182,15 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.material.icons.filled.PlayArrow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -206,6 +215,10 @@ fun ThreadScreen(
     val textScale by viewModel.textScale.collectAsStateWithLifecycle()
     val unreadOnOpen by viewModel.unreadOnOpen.collectAsStateWithLifecycle()
     val enterToSend by viewModel.enterToSend.collectAsStateWithLifecycle()
+    val recording by viewModel.recording.collectAsStateWithLifecycle()
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) viewModel.startRecording()
+    }
     val linkPreviewSenders by viewModel.linkPreviewSenders.collectAsStateWithLifecycle()
     var confirmBlock by remember { mutableStateOf(false) }
     var confirmReport by remember { mutableStateOf(false) }
@@ -427,6 +440,17 @@ fun ThreadScreen(
                     cameraTarget = android.net.Uri.fromFile(file).toString()
                     runCatching { camera.launch(uri) }.onFailure { cameraTarget = null }
                 },
+                onVoice = {
+                    if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        viewModel.startRecording()
+                    } else {
+                        micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                recording = recording,
+                recordingElapsed = viewModel::recordingElapsed,
+                onStopRecording = viewModel::stopRecording,
+                onCancelRecording = viewModel::cancelRecording,
                 onContact = {
                     val canReadContacts = context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED
                     runCatching { if (canReadContacts) contactPicker.launch(null) else phonePicker.launch(null) }
@@ -1333,6 +1357,11 @@ private fun Composer(
     onCamera: () -> Unit,
     onContact: () -> Unit,
     onRemoveAttachment: (OutgoingAttachment) -> Unit,
+    onVoice: () -> Unit = {},
+    recording: Boolean = false,
+    recordingElapsed: () -> Long = { 0 },
+    onStopRecording: () -> Unit = {},
+    onCancelRecording: () -> Unit = {},
     isSms: Boolean,
     onSend: () -> Unit,
     onSchedule: (at: Long, label: String) -> Unit,
@@ -1341,6 +1370,10 @@ private fun Composer(
 ) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().background(colors.surface).navigationBarsPadding().imePadding()) {
+        if (recording) {
+            RecordingBar(recordingElapsed, onCancel = onCancelRecording, onDone = onStopRecording)
+            return@Column
+        }
         if (attachments.isNotEmpty()) {
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1368,7 +1401,7 @@ private fun Composer(
         Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)) {
             Surface(shape = RoundedCornerShape(28.dp), color = colors.surfaceContainerHigh, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 16.dp)) {
-                    AttachMenu(onGallery = onAttach, onCamera = onCamera, onContact = onContact)
+                    AttachMenu(onGallery = onAttach, onCamera = onCamera, onContact = onContact, onVoice = onVoice)
                     Box(Modifier.weight(1f).padding(vertical = 16.dp)) {
                         if (draft.isEmpty()) {
                             val kind = if (isSms) "Text message" else "MMS message"
@@ -1412,7 +1445,7 @@ private fun Composer(
 
 /** The composer's "+": a photo from the gallery, or a new one from the camera. */
 @Composable
-private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit, onContact: () -> Unit) {
+private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit, onContact: () -> Unit, onVoice: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) { Icon(Icons.Outlined.AddCircle, contentDescription = "Attach") }
@@ -1431,6 +1464,11 @@ private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit, onContact: (
                 leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
                 text = { Text("Contact") },
                 onClick = { open = false; onContact() },
+            )
+            DropdownMenuItem(
+                leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                text = { Text("Voice message") },
+                onClick = { open = false; onVoice() },
             )
         }
     }
@@ -1584,6 +1622,37 @@ private fun SegmentCounter(text: String) {
             contentDescription = "$remaining characters left in this text, ${if (segments == 1) "1 text" else "$segments texts"}"
         },
     )
+}
+
+/** Replaces the composer while recording: a pulsing dot, the time, discard and done. */
+@Composable
+private fun RecordingBar(elapsed: () -> Long, onCancel: () -> Unit, onDone: () -> Unit) {
+    var millis by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            millis = elapsed()
+            delay(200)
+        }
+    }
+    val pulse by rememberInfiniteTransition(label = "recording").animateFloat(
+        initialValue = 1f, targetValue = 0.3f, animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "dot",
+    )
+    val colors = MaterialTheme.colorScheme
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
+        IconButton(onClick = onCancel) { Icon(Icons.Filled.Delete, contentDescription = "Discard recording") }
+        Box(Modifier.size(12.dp).graphicsLayer { alpha = pulse }.background(colors.error, CircleShape))
+        Spacer(Modifier.width(12.dp))
+        val seconds = millis / 1000
+        Text(
+            "Recording %d:%02d".format(seconds / 60, seconds % 60),
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+        )
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(56.dp).clip(CircleShape).background(colors.primary).clickable(onClickLabel = "Done recording", onClick = onDone),
+        ) { Icon(Icons.Filled.Check, contentDescription = "Done recording", tint = colors.onPrimary) }
+    }
 }
 
 /** A message's text, selectable, for copying part of it. */

@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.RECEIVE_MMS" />
     <uses-permission android:name="android.permission.RECEIVE_WAP_PUSH" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Recording voice messages; asked for the first time the user records one. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Our own number, to leave ourselves out of group MMS participant lists. -->
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
