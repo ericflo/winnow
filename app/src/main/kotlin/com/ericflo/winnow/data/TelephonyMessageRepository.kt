@@ -4,7 +4,6 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.database.ContentObserver
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.Telephony
@@ -149,7 +148,7 @@ class TelephonyMessageRepository(
     override suspend fun search(query: String): List<SearchHit> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
         val like = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-        val recipients = threadRecipients()
+        val recipients = resolver.threadRecipients()
         val hits = mutableListOf<SearchHit>()
         resolver.query(
             Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.THREAD_ID, Telephony.Sms.BODY, Telephony.Sms.DATE),
@@ -218,7 +217,7 @@ class TelephonyMessageRepository(
 
     /** Each thread's summary paired with the key of its newest incoming message (for its verdict). */
     private fun queryConversations(): List<Pair<ConversationSummary, String?>> {
-        val recipients = threadRecipients()
+        val recipients = resolver.threadRecipients()
         val byThread = heads(null, null).groupBy { it.threadId }
         val snippets = HashMap<Long, String>()
         resolver.query(THREADS_SIMPLE, arrayOf(Telephony.Threads._ID, Telephony.Threads.SNIPPET), null, null, null)?.use { c ->
@@ -273,22 +272,6 @@ class TelephonyMessageRepository(
             }
         }
         return heads.sortedByDescending { it.date }
-    }
-
-    /** thread id → participant addresses, from the threads table and canonical addresses. */
-    private fun threadRecipients(): Map<Long, List<String>> {
-        val canonical = HashMap<Long, String>()
-        resolver.query(CANONICAL_ADDRESSES, arrayOf("_id", "address"), null, null, null)?.use { c ->
-            while (c.moveToNext()) canonical[c.getLong(0)] = c.getString(1).orEmpty()
-        }
-        val result = HashMap<Long, List<String>>()
-        resolver.query(THREADS_SIMPLE, arrayOf(Telephony.Threads._ID, Telephony.Threads.RECIPIENT_IDS), null, null, null)?.use { c ->
-            while (c.moveToNext()) {
-                val ids = c.getString(1).orEmpty().split(' ').mapNotNull { it.toLongOrNull() }
-                result[c.getLong(0)] = ids.mapNotNull(canonical::get).filter { it.isNotBlank() }
-            }
-        }
-        return result
     }
 
     // --- One conversation ----------------------------------------------------------------
@@ -404,8 +387,6 @@ class TelephonyMessageRepository(
     }
 
     companion object {
-        private val THREADS_SIMPLE: Uri = Telephony.Threads.CONTENT_URI.buildUpon().appendQueryParameter("simple", "true").build()
-        private val CANONICAL_ADDRESSES: Uri = Uri.parse("content://mms-sms/canonical-addresses")
 
         /** PduHeaders.MESSAGE_TYPE_NOTIFICATION_IND: an MMS announced but not yet downloaded. */
         const val MESSAGE_TYPE_NOTIFICATION_IND = 0x82

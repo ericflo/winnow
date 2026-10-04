@@ -71,6 +71,10 @@ messages can't be tapped.
 - **Messages:** copy, forward, delete, details, and "Copy code" for verification codes.
 - **Notifications:** Android conversation notifications (Conversations section, priority),
   stacked per thread, with inline **Reply**, **Mark as read** and **Copy code**.
+- **Backup and restore:** messages, photos, Winnow's decisions, conversation state, sender
+  rules and settings go into one zip file that you choose where to keep. API keys are never
+  included. Restoring onto a new phone, or the same one, only adds what's missing, so
+  restoring twice is harmless.
 - **Getting started:** onboarding explains the RCS trade-off before it asks to become your
   SMS app. Once Winnow is in charge, it can review older conversations for spam.
 
@@ -98,6 +102,12 @@ messages can't be tapped.
     <td align="center"><sub>Choose a classifier</sub></td>
     <td align="center"><sub>Search messages</sub></td>
     <td align="center"><sub>Light theme</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/backup.png" width="200" alt="Restore a backup"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Back up and restore</sub></td>
   </tr>
 </table>
 
@@ -202,4 +212,4 @@ scripts/      Emulator smoke test.
 ## Status
 
 Developed and verified on the Android emulator, and not yet run on a phone. Not built yet:
-RCS (see above), backup/import, an on-device model, multi-SIM choice when sending.
+RCS (see above), an on-device model, multi-SIM choice when sending.

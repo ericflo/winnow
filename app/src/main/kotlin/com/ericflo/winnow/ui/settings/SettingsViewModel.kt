@@ -1,5 +1,6 @@
 package com.ericflo.winnow.ui.settings
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ericflo.winnow.AppContainer
@@ -43,10 +44,24 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     /** Reviewing older, never-classified conversations. */
     val review = container.historyReviewer.status
 
+    val backup = container.backups.status
+
+    private val _canBackUpMessages = MutableStateFlow(container.backups.canReadMessages())
+    val canBackUpMessages: StateFlow<Boolean> = _canBackUpMessages.asStateFlow()
+
     fun refresh() {
         _isDefault.value = container.isDefaultSmsApp()
+        _canBackUpMessages.value = container.backups.canReadMessages()
         container.historyReviewer.refresh()
     }
+
+    fun exportBackup(uri: Uri) = container.backups.export(uri)
+
+    fun openBackup(uri: Uri) = container.backups.open(uri)
+
+    fun restoreBackup(uri: Uri, includeSettings: Boolean) = container.backups.restore(uri, includeSettings)
+
+    fun dismissBackup() = container.backups.dismiss()
 
     fun startReview() = container.historyReviewer.start()
 

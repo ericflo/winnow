@@ -74,6 +74,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
     val isDefault by viewModel.isDefault.collectAsStateWithLifecycle()
     val trial by viewModel.trial.collectAsStateWithLifecycle()
     val review by viewModel.review.collectAsStateWithLifecycle()
+    val backup by viewModel.backup.collectAsStateWithLifecycle()
+    val canBackUpMessages by viewModel.canBackUpMessages.collectAsStateWithLifecycle()
     val context = LocalContext.current
     LifecycleResumeEffect(Unit) {
         viewModel.refresh()
@@ -163,6 +165,9 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     viewModel::setDeliveryReports,
                 )
             }
+
+            section("Backup")
+            item("backup") { BackupSection(backup, isDefault, canBackUpMessages, viewModel) }
 
             section("What happens to each kind of message")
             Category.entries.forEach { category ->

@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.provider.Telephony.Mms
+import android.telephony.SubscriptionManager
 import com.ericflo.winnow.mms.ContentTypes
 import com.ericflo.winnow.mms.MmsCharsets
 import com.ericflo.winnow.mms.MmsPart
@@ -63,6 +64,27 @@ class MmsStore(private val context: Context) {
         val uri = resolver.insert(Mms.Outbox.CONTENT_URI, values) ?: return null
         insertAddress(uri, INSERT_ADDRESS_TOKEN, ADDR_FROM)
         recipients.forEach { insertAddress(uri, it, ADDR_TO) }
+        insertParts(uri, parts)
+        return uri
+    }
+
+    /**
+     * A message from a backup: received ([from] is the sender) or sent ([from] null), in the
+     * box it was in. Restored messages count as seen, so they don't light up as new.
+     */
+    fun insertRestored(threadId: Long, box: Int, dateSeconds: Long, read: Boolean, subject: String?, from: String?, to: List<String>, parts: List<MmsPart>): Uri? {
+        val type = if (box == Mms.MESSAGE_BOX_INBOX) MESSAGE_TYPE_RETRIEVE_CONF else MESSAGE_TYPE_SEND_REQ
+        val values = baseValues(threadId, box, type, dateSeconds, read, SubscriptionManager.INVALID_SUBSCRIPTION_ID).apply {
+            put(Mms.SEEN, 1)
+            put(Mms.DATE_SENT, dateSeconds)
+            put(Mms.CONTENT_TYPE, ContentTypes.MULTIPART_RELATED)
+            put(Mms.MESSAGE_CLASS, "personal")
+            put(Mms.TEXT_ONLY, if (parts.all { it.isText() }) 1 else 0)
+            subject?.let { put(Mms.SUBJECT, it); put(Mms.SUBJECT_CHARSET, MmsCharsets.UTF_8) }
+        }
+        val uri = resolver.insert(Mms.CONTENT_URI, values) ?: return null
+        insertAddress(uri, from ?: INSERT_ADDRESS_TOKEN, ADDR_FROM)
+        to.forEach { insertAddress(uri, it, ADDR_TO) }
         insertParts(uri, parts)
         return uri
     }

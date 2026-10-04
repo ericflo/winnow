@@ -138,6 +138,12 @@ interface VerdictDao {
     @Query("SELECT * FROM verdicts")
     fun observeAll(): Flow<List<VerdictEntity>>
 
+    @Query("SELECT * FROM verdicts")
+    suspend fun all(): List<VerdictEntity>
+
+    @Query("SELECT * FROM sender_rules")
+    suspend fun allSenderRules(): List<SenderRuleEntity>
+
     @Upsert
     suspend fun upsert(verdict: VerdictEntity)
 
@@ -171,6 +177,9 @@ interface VerdictDao {
 interface ConversationStateDao {
     @Query("SELECT * FROM conversation_state")
     fun observeAll(): Flow<List<ConversationStateEntity>>
+
+    @Query("SELECT * FROM conversation_state")
+    suspend fun all(): List<ConversationStateEntity>
 
     @Query("SELECT * FROM conversation_state WHERE threadId = :threadId")
     suspend fun get(threadId: Long): ConversationStateEntity?

@@ -114,6 +114,30 @@ Confidence below `ActionPolicy.minConfidence` (0.7) softens the action one step
 - **Tapbacks:** iPhone and Google Messages reaction texts (`Tapback.parse`) are folded into
   reaction pills on the message they quote.
 
+## Backup and restore
+
+`backup/` writes one zip, through a file the user picks with the system file picker:
+
+- `winnow-backup.json`, written first: every SMS and MMS, grouped by conversation with each
+  message's verdict; per-conversation state; sender rules; scheduled texts; and settings.
+  API keys, onboarding and other per-phone flags are left out.
+- `media/<part id>.<ext>`: MMS photos, video and audio, streamed from the MMS store.
+
+Conversations are keyed by their participants, not thread ids, so a backup restores onto
+another phone. `BackupArchive` is pure JVM and unit-tested; it reads media as streams, which
+the restore spools to cache and deletes afterward, so large backups don't have to fit in
+memory. It only accepts flat media names, so an entry can't climb out of the spool folder.
+
+Restore only adds. Each message has a fingerprint (kind, time, direction, text and media
+count). Messages already in the target thread are skipped, and if they have no verdict yet
+(after a reinstall, say) they get the backed-up one. Missing SMS go in through `applyBatch`.
+Missing MMS are rebuilt with a fresh SMIL part and inserted like a received or sent message.
+Conversation state, sender rules and scheduled texts are only filled in where the phone has
+none, and scheduled texts only when their send time is still ahead. Settings are replaced
+only if the user ticks the box, and keys already on the phone are kept. Messages can only be
+restored while Winnow is the default SMS app. Restored messages are marked seen, so they
+don't announce themselves. Outbox and queued texts come back as failed, ready to retry.
+
 ## MMS
 
 `mms/` is a standalone PDU codec. The app uses it like this:
