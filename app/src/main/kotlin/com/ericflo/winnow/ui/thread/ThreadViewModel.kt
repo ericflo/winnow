@@ -176,8 +176,14 @@ class ThreadViewModel(
             if (!inBubble) container.notifier.cancel(id)
             _sims.value = container.sims.available().takeIf { it.size >= 2 }.orEmpty()
             _selectedSim.value = container.simFor(id)
-            states.get(id).draft?.let { saved -> if (currentDraft().isEmpty()) setDraft(saved) }
+            val saved = states.get(id)
+            saved.draft?.let { text -> if (currentDraft().isEmpty()) setDraft(text) }
+            if (_attachments.value.isEmpty()) {
+                val kept = withContext(Dispatchers.IO) { drafts.decode(saved.draftAttachments) }
+                if (kept.isNotEmpty()) _attachments.value = kept
+            }
             takeReturned(id)
+            launch { _attachments.drop(1).debounce(400).collect { keepAttachments(id) } }
             launch { container.returnedMessages.arrived.filter { it == id }.collect { takeReturned(id) } }
             draft.drop(1).debounce(400).collect { states.saveDraft(id, it) }
         }
@@ -240,6 +246,20 @@ class ThreadViewModel(
         }
     }
 
+    private val drafts = container.draftAttachments
+
+    /**
+     * Copies the composer's attachments into draft storage, swaps the copies in, and saves the
+     * list with the conversation, so the draft survives the app being closed.
+     */
+    private suspend fun keepAttachments(id: Long) {
+        val now = _attachments.value
+        val kept = withContext(Dispatchers.IO) { now.associateWith { drafts.keep(it) ?: it } }
+        // Changes made meanwhile stay; only the copied ones are swapped.
+        _attachments.value = _attachments.value.map { kept[it] ?: it }
+        states.saveDraftAttachments(id, drafts.encode(_attachments.value))
+    }
+
     /** A message that failed after an earlier screen for this conversation had gone: back into the composer. */
     private suspend fun takeReturned(id: Long) {
         val returned = container.returnedMessages.take(id) ?: return
@@ -256,12 +276,19 @@ class ThreadViewModel(
     override fun onCleared() {
         cleared = true
         recorder.stopAndDiscard()
-        // Recordings that never went out; anything sent or still in its undo window isn't in here.
-        _attachments.value.forEach(recorder::discard)
         val id = threadId.value
+        val left = _attachments.value
         if (id >= 0) {
             val draft = currentDraft()
-            container.appScope.launch { states.saveDraft(id, draft) }
+            // What's in the composer stays with the draft, kept where it outlives the app.
+            container.appScope.launch {
+                states.saveDraft(id, draft)
+                val kept = left.mapNotNull { drafts.keep(it) }
+                states.saveDraftAttachments(id, drafts.encode(kept))
+                left.forEach(recorder::discard)
+            }
+        } else {
+            left.forEach(recorder::discard)
         }
         if (container.visibleThread.value == id) container.visibleThread.value = null
     }
@@ -420,6 +447,7 @@ class ThreadViewModel(
     fun removeAttachment(attachment: OutgoingAttachment) {
         _attachments.value = _attachments.value - attachment
         recorder.discard(attachment)
+        drafts.release(attachment)
     }
 
     private val _sendSeparately = MutableStateFlow(false)
@@ -515,7 +543,7 @@ class ThreadViewModel(
         try {
             repo.send(recipients, text, files, sim)
             // Sent: the message holds its own copy of any recording now (sample conversations don't).
-            if (container.isLive.value) files.forEach(recorder::discard)
+            if (container.isLive.value) files.forEach { recorder.discard(it); drafts.release(it) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -542,7 +570,7 @@ class ThreadViewModel(
             putBack(text, files, separately = true)
             _notices.emit("Couldn't send")
         } else {
-            if (container.isLive.value) files.forEach(recorder::discard)
+            if (container.isLive.value) files.forEach { recorder.discard(it); drafts.release(it) }
             val sent = recipients.size - failed.size
             _notices.emit(
                 if (failed.isEmpty()) "Sent separately to $sent people. Replies come back one to one."

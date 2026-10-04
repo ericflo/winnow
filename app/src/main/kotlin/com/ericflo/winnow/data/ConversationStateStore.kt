@@ -31,6 +31,8 @@ class ConversationStateStore(private val dao: ConversationStateDao) {
 
     suspend fun get(threadId: Long): ConversationStateEntity = dao.get(threadId) ?: ConversationStateEntity(threadId)
 
+    suspend fun all(): List<ConversationStateEntity> = dao.all()
+
     suspend fun setPinned(threadIds: Collection<Long>, pinned: Boolean) = updateAll(threadIds) { it.copy(pinned = pinned) }
 
     suspend fun setArchived(threadIds: Collection<Long>, archived: Boolean) =
@@ -48,6 +50,9 @@ class ConversationStateStore(private val dao: ConversationStateDao) {
     suspend fun saveDraft(threadId: Long, draft: String) =
         updateAll(listOf(threadId)) { it.copy(draft = draft.takeIf(String::isNotBlank)) }
 
+    suspend fun saveDraftAttachments(threadId: Long, encoded: String?) =
+        updateAll(listOf(threadId)) { it.copy(draftAttachments = encoded) }
+
     suspend fun setTitle(threadId: Long, title: String?) =
         updateAll(listOf(threadId)) { it.copy(title = title?.trim()?.takeIf(String::isNotEmpty)) }
 
@@ -64,5 +69,6 @@ class ConversationStateStore(private val dao: ConversationStateDao) {
 fun List<ConversationSummary>.withState(states: Map<Long, ConversationStateEntity>): List<ConversationSummary> =
     map { c ->
         val s = states[c.threadId] ?: return@map c
-        c.copy(pinned = s.pinned, archived = s.archived, muted = s.isMuted(), draft = s.draft, displayName = s.title ?: c.displayName)
+        val draft = s.draft ?: com.ericflo.winnow.data.DraftAttachments.summary(s.draftAttachments)
+        c.copy(pinned = s.pinned, archived = s.archived, muted = s.isMuted(), draft = draft, displayName = s.title ?: c.displayName)
     }.sortedWith(compareByDescending<ConversationSummary> { it.pinned }.thenByDescending { it.timestamp })
