@@ -68,6 +68,10 @@ data class BinaryMetrics(
     val thresholds: List<ThresholdRow>,
     /** Where Winnow actually operates with its default policy. */
     val operatingPoint: ThresholdRow,
+    /** Unwanted texts that never buzzed the phone: filtered, or silenced when the model was less sure. */
+    val unwantedQuieted: Double = 0.0,
+    /** Personal and transactional texts that lost their notification (silenced or filtered). */
+    val importantMuted: Double = 0.0,
 )
 
 @Serializable
@@ -96,8 +100,8 @@ data class CoveragePoint(val threshold: Double, val coverage: Double, val accura
 @Serializable
 data class EvaluationSummary(val examples: Int, val accuracy: Double, val macroF1: Double, val kappa: Double, val mcc: Double, val auc: Double)
 
-/** One prediction: the true class index and the predicted probabilities. */
-class Scored(val label: Int, val probabilities: DoubleArray) {
+/** One prediction: the true class index, the predicted probabilities, and whether the text has a hook. */
+class Scored(val label: Int, val probabilities: DoubleArray, val hasHook: Boolean = true) {
     val predicted: Int get() = probabilities.indices.maxBy { probabilities[it] }
     val confidence: Double get() = probabilities[predicted]
 }
@@ -106,6 +110,7 @@ object MetricsCalculator {
     /**
      * @param unwanted class indices that count as "should be filtered".
      * @param filterAt the top-category confidence Winnow needs before it filters on its own.
+     * @param hookless classes Winnow won't filter without a hook (see [Featurizer.hasHook]).
      */
     fun compute(
         model: String,
@@ -115,6 +120,9 @@ object MetricsCalculator {
         unwanted: Set<Int>,
         filterAt: Double,
         evaluation: EvaluationSummary? = null,
+        hookless: Set<Int> = emptySet(),
+        /** Classes whose texts arrive without a notification by default (filtered or silenced). */
+        quiet: Set<Int> = unwanted,
     ): ClassifierMetrics {
         val k = classes.size
         val confusion = confusion(rows, k)
@@ -146,7 +154,13 @@ object MetricsCalculator {
             logLoss = rows.sumOf { -ln(it.probabilities[it.label].coerceAtLeast(1e-12)) } / n,
             brier = rows.sumOf { r -> r.probabilities.indices.sumOf { c -> val y = if (c == r.label) 1.0 else 0.0; (r.probabilities[c] - y) * (r.probabilities[c] - y) } } / n,
             ece = calibration.sumOf { it.count / n * abs(it.accuracy - it.confidence) },
-            unwanted = binary(rows, unwanted, filterAt),
+            unwanted = binary(rows, unwanted, filterAt, hookless).let { b ->
+                val important = rows.filter { it.label !in quiet }
+                b.copy(
+                    unwantedQuieted = rows.filter { it.label in unwanted }.let { u -> if (u.isEmpty()) 0.0 else u.count { it.predicted in quiet }.toDouble() / u.size },
+                    importantMuted = if (important.isEmpty()) 0.0 else important.count { it.predicted in quiet }.toDouble() / important.size,
+                )
+            },
             perCategory = perCategory,
             calibration = calibration,
             coverage = listOf(0.5, 0.7, 0.85, 0.9, 0.95).map { t ->
@@ -166,7 +180,7 @@ object MetricsCalculator {
         return EvaluationSummary(rows.size, accuracy(rows), f1s.average(), kappa(confusion), mcc(confusion), auc(unwantedScores(rows, unwanted)))
     }
 
-    private fun binary(rows: List<Scored>, unwanted: Set<Int>, filterAt: Double): BinaryMetrics {
+    private fun binary(rows: List<Scored>, unwanted: Set<Int>, filterAt: Double, hookless: Set<Int>): BinaryMetrics {
         val scored = unwantedScores(rows, unwanted)
         val positives = scored.count { it.second }
         val negatives = scored.size - positives
@@ -187,8 +201,12 @@ object MetricsCalculator {
             return ThresholdRow(label, (tp + fp).toDouble() / scored.size, precision, recall, ratio(fp, fp + tn), f1(precision, recall), mcc(matrix), kappa(matrix))
         }
         val thresholds = listOf(0.3, 0.5, 0.7, 0.85, 0.95).map { t -> row("≥ ${(t * 100).toInt()}%") { scored[it].first >= t } }
-        // Winnow's actual rule: the top category is a filtered one, and it's at least filterAt sure.
-        val operating = row("Winnow's rule") { rows[it].predicted in unwanted && rows[it].confidence >= filterAt }
+        // Winnow's actual rule: the top category is a filtered one, it's at least filterAt sure,
+        // and a scam or phishing text has a hook.
+        val operating = row("Winnow's rule") {
+            val r = rows[it]
+            r.predicted in unwanted && r.confidence >= filterAt && (r.predicted !in hookless || r.hasHook)
+        }
         return BinaryMetrics(positives, negatives, auc(scored), averagePrecision(scored), downsample(roc(scored)), downsample(pr(scored)), thresholds, operating)
     }
 

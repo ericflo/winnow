@@ -11,6 +11,8 @@ data class LocalPrediction(
     /** Human-readable reasons, strongest first: "a link to an unusual domain", "“toll”". */
     val reasons: List<String>,
     val model: String,
+    /** The message has something a fraudster could use: see [Featurizer.hasHook]. */
+    val hasHook: Boolean = true,
 )
 
 /**
@@ -34,6 +36,7 @@ class OnDeviceClassifier(
             distribution = model.classes.withIndex().mapNotNull { (i, key) -> Category.fromKey(key)?.let { it to p[i] } }.toMap(),
             reasons = model.explain(features, best, adjustments = adjustments),
             model = name,
+            hasHook = Featurizer.hasHook(features),
         )
     }
 

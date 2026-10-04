@@ -81,8 +81,20 @@ reads the unredacted message: nothing leaves the phone, so there's nothing to re
   redundant ones dropped ("pay now" makes "pay" redundant). They're stored with the verdict
   and shown in the banner.
 - **Policy:** an on-device verdict needs 85% confidence to take its category's full action
-  (`ActionPolicy.onDeviceMinConfidence`); below that it's softened a step. Deciding without
-  the provider needs 95%.
+  (`ActionPolicy.onDeviceMinConfidence`); below that it's softened a step. A scam or
+  phishing verdict also needs a hook (`Featurizer.hasHook`) before it can filter. A hook is
+  a link off the company's real domain, money, a phone number, an email address, or payment,
+  code, PIN, job, prize or crypto words. Without one the text is only silenced: bare
+  wrong-number openers are indistinguishable from real people on new numbers, and an alert
+  with no foreign link has nothing to phish with. That rule took cross-validated wanted
+  texts filtered from 1.1% to 0.1% while unwanted texts kept quiet rose to 96%. Deciding
+  without the provider needs 95%.
+- **Bagging:** the shipped model is the average of 5 models trained on bootstrap resamples.
+  For a linear model that equals averaging their scores, so the ensemble costs nothing at
+  run time; it improved recall and calibration (ECE 0.015 → 0.009).
+- **Deeper models:** a wide-and-deep network (the linear model plus a 16–64-unit hidden
+  layer) did worse in cross-validation on every measure, so it doesn't ship.
+  `DeepExperiment` keeps it reproducible; it's worth revisiting once there's much more data.
 
 - **Learning from corrections** (`Personalizer`, app `Learner`): overriding a verdict
   stores the newest incoming message's feature buckets, never its text, in Room

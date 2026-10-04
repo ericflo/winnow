@@ -182,7 +182,11 @@ fun WinnowNavHost(
             )
         }
         composable<ActivityRoute> {
-            ActivityScreen(viewModel = viewModel { ActivityViewModel(container) }, onBack = { nav.popBackStack() })
+            ActivityScreen(
+                viewModel = viewModel { ActivityViewModel(container) },
+                onBack = { nav.popBackStack() },
+                onOpenMetrics = { nav.navigate(MetricsRoute) },
+            )
         }
         composable<MetricsRoute> {
             MetricsScreen(viewModel = viewModel { MetricsViewModel(container) }, onBack = { nav.popBackStack() })

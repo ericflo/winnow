@@ -58,3 +58,18 @@ tasks.register<JavaExec>("tuneLocalModel") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("com.ericflo.winnow.classifier.local.TuneLocalModelKt")
 }
+
+tasks.register<JavaExec>("filterPolicyExperiment") {
+    group = "winnow"
+    description = "Compares filtering rules and model variants by false positives and recall."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.ericflo.winnow.classifier.local.FilterPolicyExperimentKt")
+}
+
+tasks.register<JavaExec>("deepExperiment") {
+    group = "winnow"
+    description = "Cross-validates a wide & deep variant against the linear model."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.ericflo.winnow.classifier.local.DeepExperimentKt")
+    maxHeapSize = "2g"
+}

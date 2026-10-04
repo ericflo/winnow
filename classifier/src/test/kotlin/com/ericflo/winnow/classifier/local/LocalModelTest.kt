@@ -62,7 +62,8 @@ class LocalModelTest {
     @Test
     fun `Winnow's own rule rarely filters a wanted text`() {
         val rule = build.metrics.unwanted.operatingPoint
-        assertTrue("false positive rate ${rule.falsePositiveRate}", rule.falsePositiveRate <= 0.02)
+        assertTrue("false positive rate ${rule.falsePositiveRate}", rule.falsePositiveRate <= 0.005)
+        assertTrue("unwanted kept quiet ${build.metrics.unwanted.unwantedQuieted}", build.metrics.unwanted.unwantedQuieted >= 0.93)
     }
 
     @Test
@@ -95,6 +96,17 @@ class LocalModelTest {
 
         val shortened = Featurizer.features(Featurizer.Input("38822", "Track it: bit.ly/abc"))
         assertTrue(shortened.containsAll(listOf("__shortener__", "__url_path__", "__sender_short_code__")))
+    }
+
+    @Test
+    fun `a hook is anything a fraudster could use, but not the company's real website`() {
+        fun hook(sender: String, body: String) = Featurizer.hasHook(Featurizer.features(Featurizer.Input(sender, body)))
+        assertTrue(hook("+13105550142", "Your package is on hold: usps-parcel.top/c"))
+        assertTrue(hook("+13105550142", "Your account is locked. Call 555-0193 now"))
+        assertTrue(hook("+13105550142", "I sent $200 by mistake on Cash App, please send it back"))
+        assertTrue(hook("+13105550142", "Reply with the 6-digit code we just sent"))
+        assertTrue(!hook("72975", "Netflix: Your password was changed. If you didn't do this, visit netflix.com/security"))
+        assertTrue(!hook("+14155550199", "Hi, is this David? This is Amy from yoga"))
     }
 
     @Test

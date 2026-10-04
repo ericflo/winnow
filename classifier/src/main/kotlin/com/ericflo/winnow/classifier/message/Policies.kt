@@ -25,6 +25,9 @@ data class RedactionPolicy(
     val stripUrlPaths: Boolean = true,
 )
 
+/** Categories the on-device model only filters when the text has a hook (see [ActionPolicy.resolve]). */
+val NEEDS_HOOK = setOf(Category.SCAM, Category.PHISHING)
+
 /** Who classified a message, which decides how much benefit of the doubt the sender gets. */
 enum class Origin { PROVIDER, ON_DEVICE, HEURISTIC }
 
@@ -39,10 +42,16 @@ data class ActionPolicy(
 ) {
     fun forCategory(category: Category): Action = byCategory[category] ?: category.defaultAction
 
-    fun resolve(category: Category, confidence: Double, origin: Origin = Origin.PROVIDER): Action {
+    /**
+     * @param hasHook for on-device verdicts: whether the text carries anything a fraudster could
+     *   use. A hookless "scam" reads like a real person on a new number, and a hookless
+     *   "phishing" text has nothing to phish with, so the model silences those instead of hiding them.
+     */
+    fun resolve(category: Category, confidence: Double, origin: Origin = Origin.PROVIDER, hasHook: Boolean = true): Action {
         var action = forCategory(category)
         if (confidence < if (origin == Origin.ON_DEVICE) onDeviceMinConfidence else minConfidence) action = action.softened()
         if (origin == Origin.HEURISTIC && action > heuristicCeiling) action = heuristicCeiling
+        if (origin == Origin.ON_DEVICE && category in NEEDS_HOOK && !hasHook && action > Action.SILENCE) action = Action.SILENCE
         return action
     }
 }

@@ -19,13 +19,31 @@ class LocalModelTrainer(
     private val learningRate: Double = 0.2,
     private val l2: Double = 1e-5,
     private val seed: Int = 42,
+    /** Extra weight per class on top of balancing, e.g. to make some mistakes costlier than others. */
+    private val costs: DoubleArray? = null,
+    /** Train on a bootstrap resample (drawn with this seed) instead of the examples as given. */
+    private val bootstrap: Int? = null,
+    /**
+     * Train this many models on bootstrap resamples and average their weights. For a linear
+     * model that's exactly the average of their scores, so the ensemble ships as one model.
+     */
+    private val bags: Int = 1,
 ) {
     fun train(examples: List<Example>): LocalModel {
+        if (bags <= 1) return trainOne(examples)
+        val models = (1..bags).map { b -> LocalModelTrainer(classes, buckets, epochs, learningRate, l2, seed, costs, bootstrap = seed * 1000 + b).trainOne(examples) }
+        val weights = FloatArray(models[0].weights.size) { i -> models.sumOf { it.weights[i].toDouble() }.toFloat() / bags }
+        val bias = FloatArray(classes.size) { c -> models.sumOf { it.bias[c].toDouble() }.toFloat() / bags }
+        return LocalModel(classes, buckets, weights, bias)
+    }
+
+    private fun trainOne(examples: List<Example>): LocalModel {
         val k = classes.size
         val shape = LocalModel(classes, buckets, FloatArray(buckets * k), FloatArray(k))
-        val encoded = examples.map { shape.indices(it.features) to it.label }
-        val counts = IntArray(k).also { c -> examples.forEach { c[it.label]++ } }
-        val classWeight = DoubleArray(k) { if (counts[it] == 0) 0.0 else examples.size.toDouble() / (k * counts[it]) }
+        val sample = bootstrap?.let { b -> Random(b).let { r -> List(examples.size) { examples[r.nextInt(examples.size)] } } } ?: examples
+        val encoded = sample.map { shape.indices(it.features) to it.label }
+        val counts = IntArray(k).also { c -> sample.forEach { c[it.label]++ } }
+        val classWeight = DoubleArray(k) { if (counts[it] == 0) 0.0 else sample.size.toDouble() / (k * counts[it]) * (costs?.get(it) ?: 1.0) }
 
         val w = DoubleArray(buckets * k)
         val b = DoubleArray(k)

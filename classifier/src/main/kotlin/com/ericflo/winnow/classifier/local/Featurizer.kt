@@ -93,6 +93,20 @@ object Featurizer {
         }
     }
 
+    /**
+     * Whether a message carries a hook a fraudster could use: a link to anywhere but the
+     * company's real website, money, a number to call, an email address, or talk of payment
+     * apps, codes, PINs, jobs, prizes or crypto. A "scam" without one is a bare opener ("hi, is
+     * this David?") that reads exactly like a real person on a new number. A "phishing" text
+     * without one ("your password was changed") has nothing to phish with. Winnow silences
+     * those rather than hiding them.
+     */
+    fun hasHook(features: List<String>): Boolean {
+        // One __url__ per link and one __official_domain__ per link to a real company site.
+        val foreignLinks = features.count { it == URL_FEATURE } - features.count { it == OFFICIAL_DOMAIN }
+        return foreignLinks > 0 || features.any { it in LURE_FEATURES || it in LURE_WORDS }
+    }
+
     /** Named features, for explaining a verdict in words. Null for ones not worth mentioning. */
     fun describe(feature: String): String? = when {
         feature.startsWith("w:") -> feature.removePrefix("w:").takeIf(::meaningful)?.let { "“$it”" }
@@ -209,6 +223,13 @@ object Featurizer {
     )
     private val RISKY_TLDS = setOf(
         "top", "xyz", "vip", "icu", "click", "info", "cc", "win", "club", "help", "online", "site", "live", "shop", "buzz", "rest", "cyou", "sbs",
+    )
+    private val LURE_FEATURES = setOf(MONEY_FEATURE, PHONE_FEATURE, "__email__")
+    private val LURE_WORDS = setOf(
+        "w:zelle", "w:venmo", "w:paypal", "w:cashapp", "b:cash app", "w:telegram", "w:whatsapp", "w:crypto", "w:bitcoin", "w:invest",
+        "w:investment", "w:investing", "w:job", "w:hiring", "w:recruiter", "w:wire", "w:deposit", "w:gift", "w:prize", "w:winner", "w:won",
+        "w:claim", "w:loan", "w:refund", "w:bail", "w:shipping", "w:fee", "w:code", "w:paid", "w:pay", "w:earn", "w:profit", "w:returns",
+        "w:pin", "w:ssn", "b:card number", "b:bank details", "b:account number", "b:press 1",
     )
     private val STOPWORDS = setOf(
         "the", "and", "you", "your", "for", "are", "this", "that", "with", "was", "have", "has", "our", "but", "not", "can", "its",

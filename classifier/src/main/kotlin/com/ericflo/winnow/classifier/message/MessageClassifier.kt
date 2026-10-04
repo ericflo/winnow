@@ -83,7 +83,7 @@ class MessageClassifier(
     private fun onDeviceVerdict(p: LocalPrediction, fallbackReason: String?) = Verdict(
         category = p.category,
         confidence = p.confidence,
-        action = actions.resolve(p.category, p.confidence, Origin.ON_DEVICE),
+        action = actions.resolve(p.category, p.confidence, Origin.ON_DEVICE, p.hasHook),
         source = VerdictSource.OnDevice(p.model, p.reasons, fallbackReason),
         distribution = p.distribution,
     )

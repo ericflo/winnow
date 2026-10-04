@@ -141,6 +141,20 @@ class MessageClassifierTest {
     }
 
     @Test
+    fun `the on-device model silences scams and phishing that have nothing to hook you with`() = runTest {
+        val policy = ActionPolicy()
+        assertEquals(Action.SILENCE, policy.resolve(Category.SCAM, 0.99, Origin.ON_DEVICE, hasHook = false))
+        assertEquals(Action.SILENCE, policy.resolve(Category.PHISHING, 0.99, Origin.ON_DEVICE, hasHook = false))
+        assertEquals(Action.FILTER, policy.resolve(Category.SCAM, 0.99, Origin.ON_DEVICE, hasHook = true))
+        assertEquals(Action.FILTER, policy.resolve(Category.SPAM, 0.99, Origin.ON_DEVICE, hasHook = false))
+        // Providers are judged as they are.
+        assertEquals(Action.FILTER, policy.resolve(Category.SCAM, 0.99, Origin.PROVIDER, hasHook = false))
+
+        val opener = MessageClassifier(emptyList(), onDevice = model).classify(InboundMessage("+14155550199", "Hi, is this David? This is Amy from yoga"))
+        assertTrue(opener.action <= Action.SILENCE, "$opener")
+    }
+
+    @Test
     fun `the on-device model must be surer than a provider to filter`() {
         val policy = ActionPolicy()
         assertEquals(Action.FILTER, policy.resolve(Category.PHISHING, 0.8, Origin.PROVIDER))

@@ -13,5 +13,9 @@
             android:name=".debug.DebugSeedReceiver"
             android:exported="true"
             android:permission="android.permission.DUMP" />
+        <receiver
+            android:name=".debug.DebugTrafficReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
     </application>
 </manifest>

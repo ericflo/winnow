@@ -180,7 +180,8 @@ private fun Hero(m: ClassifierMetrics) {
                 ScoreGauge(m.unwanted.auc, "ROC AUC", size = 140.dp)
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
                     BigNumber(pct(m.accuracy), "of ${count(m.examples)} texts sorted into the right one of 7 categories")
-                    BigNumber(pct(m.unwanted.operatingPoint.falsePositiveRate), "of wanted texts filtered by Winnow's rule")
+                    BigNumber(pct(m.unwanted.operatingPoint.falsePositiveRate), "of wanted texts filtered")
+                    BigNumber(pct(m.unwanted.unwantedQuieted), "of unwanted texts never buzz your phone")
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -297,9 +298,11 @@ private fun ThresholdExplorer(b: BinaryMetrics, threshold: Double, onThreshold: 
         MetricRow(listOf("MCC" to f2(mcc), "Cohen's κ" to f2(kappa), "False positives" to pct(point.x)))
         val rule = b.operatingPoint
         Note(
-            "Winnow's own rule is stricter than any single threshold: it filters only when the top category is an unwanted one and it's at least 85% sure. " +
-                "That catches ${pct(rule.recall)} of unwanted texts with ${pct(rule.precision)} precision and flags ${pct(rule.falsePositiveRate)} of wanted ones (F1 ${f2(rule.f1)}, MCC ${f2(rule.mcc)}, κ ${f2(rule.kappa)}). " +
-                "Less certain texts are silenced, not filtered.",
+            "Winnow's own rule is stricter than any single threshold: it filters only when the top category is an unwanted one and it's at least 85% sure, " +
+                "and never filters a scam or phishing text with no hook (no link off the company's real site, money, number to call, or payment or code talk): " +
+                "a bare “hi, is this David?” reads exactly like a real person on a new number, and “your password was changed” has nothing to phish with. " +
+                "That filters ${pct(rule.recall)} of unwanted texts with ${pct(rule.precision)} precision and ${pct(rule.falsePositiveRate)} of wanted ones (F1 ${f2(rule.f1)}, MCC ${f2(rule.mcc)}, κ ${f2(rule.kappa)}). " +
+                "The rest are silenced rather than filtered: ${pct(b.unwantedQuieted)} of unwanted texts never buzz your phone.",
         )
     }
 }
