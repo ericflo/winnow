@@ -109,6 +109,8 @@ data class WinnowSettings(
     val appLock: Boolean = false,
     /** Delete one-time codes from services a day after they arrive. Off unless the user turns it on. */
     val deleteOldCodes: Boolean = false,
+    /** Move filtered conversations untouched for a month to Recently deleted (see FilteredCleaner). */
+    val clearOldFiltered: Boolean = false,
     /** Seconds to hold a sent message so it can be undone; 0 sends at once. */
     val undoSendSeconds: Int = 0,
     /** Keep new-message notifications off the lock screen. */
@@ -209,6 +211,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             hideOnLockScreen = this[HIDE_ON_LOCK_SCREEN] ?: false,
             undoSendSeconds = this[UNDO_SEND_SECONDS] ?: 0,
             deleteOldCodes = this[DELETE_OLD_CODES] ?: false,
+            clearOldFiltered = this[CLEAR_OLD_FILTERED] ?: false,
             deliveryReports = this[DELIVERY_REPORTS] ?: false,
             autoDownloadMms = this[AUTO_DOWNLOAD_MMS] ?: true,
             autoDownloadMmsRoaming = this[AUTO_DOWNLOAD_MMS_ROAMING] ?: false,
@@ -257,6 +260,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[HIDE_ON_LOCK_SCREEN] = s.hideOnLockScreen
         this[UNDO_SEND_SECONDS] = s.undoSendSeconds
         this[DELETE_OLD_CODES] = s.deleteOldCodes
+        this[CLEAR_OLD_FILTERED] = s.clearOldFiltered
         this[DELIVERY_REPORTS] = s.deliveryReports
         this[AUTO_DOWNLOAD_MMS] = s.autoDownloadMms
         this[AUTO_DOWNLOAD_MMS_ROAMING] = s.autoDownloadMmsRoaming
@@ -296,6 +300,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val HIDE_ON_LOCK_SCREEN = booleanPreferencesKey("security.hide_on_lock_screen")
         val UNDO_SEND_SECONDS = intPreferencesKey("compose.undo_send_seconds")
         val DELETE_OLD_CODES = booleanPreferencesKey("messages.delete_old_codes")
+        val CLEAR_OLD_FILTERED = booleanPreferencesKey("filter.clear_old")
         val DELIVERY_REPORTS = booleanPreferencesKey("sms.delivery_reports")
         val AUTO_DOWNLOAD_MMS = booleanPreferencesKey("mms.auto_download")
         val AUTO_DOWNLOAD_MMS_ROAMING = booleanPreferencesKey("mms.auto_download_roaming")

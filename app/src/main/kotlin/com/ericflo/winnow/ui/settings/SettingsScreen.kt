@@ -203,6 +203,14 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                 )
             }
             item("filtered-phrases") { FilteredPhrasesRow(s.filteredPhrases, viewModel::setFilteredPhrases) }
+            item("clear-old-filtered") {
+                SwitchRow(
+                    "Clear out old filtered texts",
+                    "Filtered conversations untouched for a month go to Recently deleted, where they can still be restored for 30 days. Never one you've written in, pinned or starred.",
+                    s.clearOldFiltered,
+                    onChange = viewModel::setClearOldFiltered,
+                )
+            }
             item("daily-summary") {
                 SwitchRow(
                     "Daily summary",

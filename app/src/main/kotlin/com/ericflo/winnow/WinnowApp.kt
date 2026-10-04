@@ -237,6 +237,13 @@ class AppContainer(private val context: Context) {
     // Scheduled texts only ever go out through the real store, never the sample conversations.
     val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages.takeIf { isDefaultSmsApp() } } }
 
+    /** Settings → Clear out old filtered texts. */
+    val filteredCleaner by lazy {
+        com.ericflo.winnow.backup.FilteredCleaner(context, messages, conversationStates, starredDao, trash) {
+            isDefaultSmsApp() && settings.current().clearOldFiltered
+        }
+    }
+
     /** Hardware keyboard shortcuts the screen on show takes up (see MainActivity.onKeyShortcut). */
     val keyShortcuts = kotlinx.coroutines.flow.MutableSharedFlow<KeyShortcut>(extraBufferCapacity = 1)
 

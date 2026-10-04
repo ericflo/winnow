@@ -135,6 +135,11 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setUndoSend(seconds: Int) = update { it.copy(undoSendSeconds = seconds) }
 
+    fun setClearOldFiltered(value: Boolean) {
+        update { it.copy(clearOldFiltered = value) }
+        if (value) viewModelScope.launch { container.filteredCleaner.clean() }
+    }
+
     fun setDeleteOldCodes(value: Boolean) {
         update { it.copy(deleteOldCodes = value) }
         // Tidy up right away rather than waiting for the next launch.

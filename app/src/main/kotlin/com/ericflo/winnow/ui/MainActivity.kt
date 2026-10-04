@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
             container.mmsFiles.cleanUp()
             container.sharedFiles.cleanUp()
             container.codeCleaner.clean()
+            runCatching { container.filteredCleaner.clean() }
             // A force-stop cancels alarms without a reboot to re-arm them. Each on its own: one
             // failing mustn't leave the others unarmed.
             runCatching { container.scheduler.rearmAll() }

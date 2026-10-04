@@ -26,6 +26,9 @@ import kotlin.random.Random
  * Or `--ez summary true` posts the daily summary now (whatever the setting or the last one), with
  * the last day's counts, without touching the real evening schedule.
  *
+ * Or `--ei clean_filtered_ahead_days 40` runs Settings → Clear out old filtered texts as if that many
+ * days had passed (it still needs the setting on).
+ *
  * Or `--el remind_in 5000` makes every pending message reminder due that many milliseconds from now.
  *
  * Or `--ez onboarding true` shows onboarding again on the next launch (force-stop the app first),
@@ -44,6 +47,11 @@ class DebugSeedReceiver : BroadcastReceiver() {
             try {
                 if (intent.getBooleanExtra("summary", false)) {
                     container.dailySummary.fire(force = true)
+                    return@launch
+                }
+                if (intent.hasExtra("clean_filtered_ahead_days")) {
+                    val days = intent.getIntExtra("clean_filtered_ahead_days", 40)
+                    Log.i(TAG, "Filtered cleaner, as if $days days on: ${container.filteredCleaner.clean(System.currentTimeMillis() + days * 86_400_000L)} moved")
                     return@launch
                 }
                 if (intent.hasExtra("remind_in")) {

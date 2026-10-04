@@ -51,6 +51,7 @@ data class SettingsBackup(
     val hideOnLockScreen: Boolean = false,
     val undoSendSeconds: Int = 0,
     val deleteOldCodes: Boolean = false,
+    val clearOldFiltered: Boolean = false,
     val deliveryReports: Boolean,
     val categoryActions: Map<String, String> = emptyMap(),
     val theme: String = "SYSTEM",
