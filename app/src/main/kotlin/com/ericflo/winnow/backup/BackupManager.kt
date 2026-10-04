@@ -64,6 +64,9 @@ sealed interface BackupStatus {
     /** A backup file was opened and is waiting for the user to confirm the restore. */
     data class Ready(val uri: Uri, val summary: BackupSummary) : BackupStatus
 
+    /** A password-protected backup, made with another password (or on another phone): what's its password? [wrong] after a try that didn't open it. */
+    data class NeedsPassword(val uri: Uri, val wrong: Boolean = false) : BackupStatus
+
     data class Done(val message: String) : BackupStatus
     data class Failed(val message: String) : BackupStatus
 }
@@ -102,7 +105,34 @@ class BackupManager(
     private val drafts: DraftAttachments? = null,
     /** "Remind me"s, kept with their messages; null leaves them out. */
     private val reminders: com.ericflo.winnow.notify.Reminders? = null,
+    /** Settings → Backup password: when set, new backups are protected with it. */
+    private val password: BackupPassword? = null,
 ) {
+    /** Keys for protected files the user gave the password of, while they're being restored. */
+    private val unlocked = java.util.concurrent.ConcurrentHashMap<Uri, BackupCrypto.Key>()
+
+    /** A protected backup with no key at hand (see [BackupStatus.NeedsPassword]). */
+    private class PasswordNeeded : Exception()
+
+    /**
+     * [uri]'s backup to read: the zip itself, or (password-protected) what it opens to, with this
+     * phone's password if that's what it was made with, else the one the user gave for it.
+     */
+    private fun openArchive(uri: Uri): java.io.InputStream {
+        val raw = (resolver.openInputStream(uri) ?: error("The file couldn't be opened")).buffered()
+        raw.mark(BackupCrypto.HEAD_BYTES)
+        val head = ByteArray(BackupCrypto.HEAD_BYTES).also { buf -> var n = 0; while (n < buf.size) { val r = raw.read(buf, n, buf.size - n); if (r < 0) break; n += r } }
+        raw.reset()
+        if (!BackupCrypto.isProtected(head)) return raw
+        try {
+            val params = BackupCrypto.readParams(raw)
+            val key = unlocked[uri] ?: password?.keyFor(params) ?: throw PasswordNeeded()
+            return BackupCrypto.decrypting(raw, key)
+        } catch (e: Throwable) {
+            raw.close()
+            throw e
+        }
+    }
     private val resolver = context.contentResolver
     private val _status = MutableStateFlow<BackupStatus>(BackupStatus.Idle)
     val status: StateFlow<BackupStatus> = _status.asStateFlow()
@@ -112,6 +142,9 @@ class BackupManager(
         context.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
 
     fun export(uri: Uri) = start("Couldn't back up") { exportTo(uri) }
+
+    /** Whether backups made now are password-protected (see BackupPassword). */
+    fun protectsBackups(): Boolean = password?.isSet?.value == true
 
     /**
      * A backup written without touching [status], for automatic backups that run while nobody's
@@ -126,7 +159,32 @@ class BackupManager(
     /** Reads a backup's summary so the user can confirm before anything is written. */
     fun open(uri: Uri) = start("Couldn't read that file") {
         _status.value = BackupStatus.Working("Reading backup")
-        val backup = (resolver.openInputStream(uri) ?: error("The file couldn't be opened")).use(BackupArchive::peek)
+        val backup = try {
+            openArchive(uri).use(BackupArchive::peek)
+        } catch (_: PasswordNeeded) {
+            _status.value = BackupStatus.NeedsPassword(uri)
+            return@start
+        }
+        _status.value = BackupStatus.Ready(
+            uri,
+            BackupSummary(backup.createdAt, backup.conversations.size, backup.messageCount, backup.senderRules.size, backup.settings != null),
+        )
+    }
+
+    /** The password for a protected backup [open] asked about: on to the summary, or asked again. */
+    fun unlock(uri: Uri, typed: CharArray) = start("Couldn't read that file") {
+        _status.value = BackupStatus.Working("Checking the password")
+        val params = (resolver.openInputStream(uri) ?: error("The file couldn't be opened")).buffered().use(BackupCrypto::readParams)
+        val key = BackupCrypto.deriveKey(typed, params)
+        typed.fill(' ')
+        unlocked[uri] = key
+        val backup = try {
+            openArchive(uri).use(BackupArchive::peek)
+        } catch (_: BackupCrypto.WrongPasswordException) {
+            unlocked.remove(uri)
+            _status.value = BackupStatus.NeedsPassword(uri, wrong = true)
+            return@start
+        }
         _status.value = BackupStatus.Ready(
             uri,
             BackupSummary(backup.createdAt, backup.conversations.size, backup.messageCount, backup.senderRules.size, backup.settings != null),
@@ -217,6 +275,7 @@ class BackupManager(
     }
 
     fun dismiss() {
+        unlocked.clear()
         if (job?.isActive != true) _status.value = BackupStatus.Idle
     }
 
@@ -258,7 +317,10 @@ class BackupManager(
         )
         var saved = 0
         report(BackupStatus.Working("Saving the backup", 0, media.size))
-        (resolver.openOutputStream(uri, "wt") ?: error("The file couldn't be opened")).use { output ->
+        // With a backup password, everything in the file is sealed with it (see BackupCrypto).
+        val key = password?.takeIf { it.isSet.value }?.let { it.key() ?: error("The backup password can't be read on this phone; set it again in Settings") }
+        val file = resolver.openOutputStream(uri, "wt") ?: error("The file couldn't be opened")
+        (key?.let { BackupCrypto.encrypting(file, it) } ?: file).use { output ->
             BackupArchive.write(output, backup) { part ->
                 job.ensureActive()
                 val from = media[part.file] ?: return@write null
@@ -271,7 +333,7 @@ class BackupManager(
                 "Backed up settings and ${plural(backup.senderRules.size, "sender rule")}. Messages weren't included because Winnow can't read them yet."
             } else {
                 "Backed up ${plural(backup.messageCount, "message")} in ${plural(backup.conversations.size, "conversation")}."
-            },
+            } + if (key != null) " It's protected with your backup password." else "",
         ))
     }
 
@@ -397,12 +459,12 @@ class BackupManager(
             val restored = mutableListOf<String>()
             // Settings first, from the manifest alone: anything the user changes while the
             // media is copied (picking a classifier during onboarding, say) then wins.
-            val manifest = (resolver.openInputStream(uri) ?: error("The file couldn't be opened")).use(BackupArchive::peek)
+            val manifest = openArchive(uri).use(BackupArchive::peek)
             if (includeSettings && manifest.settings != null) {
                 settings.update { it.restoring(manifest.settings) }
                 restored += "your settings"
             }
-            val backup = (resolver.openInputStream(uri) ?: error("The file couldn't be opened")).use { input ->
+            val backup = openArchive(uri).use { input ->
                 BackupArchive.read(input) { name, stream -> File(spool, name).outputStream().use { stream.copyTo(it) } }
             }
 

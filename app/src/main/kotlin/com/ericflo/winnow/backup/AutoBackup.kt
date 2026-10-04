@@ -78,8 +78,10 @@ class AutoBackup(
         val folder = settings.current().autoBackupFolder?.let(Uri::parse) ?: return "Automatic backup is off"
         return try {
             val parent = DocumentsContract.buildDocumentUriUsingTree(folder, DocumentsContract.getTreeDocumentId(folder))
-            val name = "$PREFIX${LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HHmmss"))}.zip"
-            val file = DocumentsContract.createDocument(context.contentResolver, parent, "application/zip", name)
+            // A protected backup isn't a zip anyone could open: named and typed as what it is.
+            val protected = backups.protectsBackups()
+            val name = "$PREFIX${LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HHmmss"))}${if (protected) PROTECTED_EXTENSION else ".zip"}"
+            val file = DocumentsContract.createDocument(context.contentResolver, parent, if (protected) "application/octet-stream" else "application/zip", name)
                 ?: error("The folder refused a new file")
             val summary = try {
                 backups.exportQuietly(file)
@@ -114,7 +116,7 @@ class AutoBackup(
         )?.use { c ->
             while (c.moveToNext()) {
                 val name = c.getString(1) ?: continue
-                if (name.startsWith(PREFIX) && name.endsWith(".zip")) ours += Backup(c.getString(0), name, if (c.isNull(2)) 0 else c.getLong(2))
+                if (name.startsWith(PREFIX) && (name.endsWith(".zip") || name.endsWith(PROTECTED_EXTENSION))) ours += Backup(c.getString(0), name, if (c.isNull(2)) 0 else c.getLong(2))
             }
         }
         // Newest first by the file's own time; the dated name breaks ties.
@@ -132,6 +134,8 @@ class AutoBackup(
     }.getOrNull()
 
     companion object {
+        /** A password-protected backup's file name ending (see BackupCrypto). */
+        const val PROTECTED_EXTENSION = ".winnowbackup"
         const val JOB_ID = 4201
         const val PREFIX = "winnow-auto-backup-"
         const val KEEP = 4

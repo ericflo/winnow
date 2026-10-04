@@ -29,6 +29,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.remember
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import com.ericflo.winnow.backup.BackupStatus
 import com.ericflo.winnow.backup.BackupSummary
 import java.text.NumberFormat
@@ -45,6 +52,11 @@ fun BackupSection(status: BackupStatus, isDefault: Boolean, canBackUpMessages: B
     val create = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         uri?.let(viewModel::exportBackup)
     }
+    // A protected backup isn't a zip anyone could open: named and typed as what it is.
+    val createProtected = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        uri?.let(viewModel::exportBackup)
+    }
+    val protectedBackups by viewModel.backupPasswordSet.collectAsStateWithLifecycle()
     val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::openBackup)
     }
@@ -64,9 +76,13 @@ fun BackupSection(status: BackupStatus, isDefault: Boolean, canBackUpMessages: B
                     else "Settings and sender rules only, until Winnow can read your messages.",
                 )
             },
-            modifier = Modifier.clickable(enabled = !busy) { create.launch("winnow-backup-${LocalDate.now()}.zip") },
+            modifier = Modifier.clickable(enabled = !busy) {
+                if (protectedBackups) createProtected.launch("winnow-backup-${LocalDate.now()}${AutoBackup.PROTECTED_EXTENSION}")
+                else create.launch("winnow-backup-${LocalDate.now()}.zip")
+            },
         )
         AutoBackupRow(viewModel)
+        BackupPasswordRow(viewModel)
         ListItem(
             headlineContent = { Text("Restore from a file") },
             supportingContent = { Text("Adds whatever is missing from a Winnow backup. Nothing on this phone is deleted.") },
@@ -92,6 +108,7 @@ fun BackupSection(status: BackupStatus, isDefault: Boolean, canBackUpMessages: B
             isDefault,
             onRestore = viewModel::restoreBackup,
             onDismiss = viewModel::dismissBackup,
+            onUnlock = viewModel::unlockBackup,
         )
     }
 }
@@ -136,7 +153,13 @@ private fun dateTime(millis: Long): String =
 
 /** Progress, the outcome, or the confirm dialog for a backup or restore in flight. Shared with onboarding. */
 @Composable
-fun BackupProgress(status: BackupStatus, isDefault: Boolean, onRestore: (Uri, includeSettings: Boolean) -> Unit, onDismiss: () -> Unit) {
+fun BackupProgress(
+    status: BackupStatus,
+    isDefault: Boolean,
+    onRestore: (Uri, includeSettings: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+    onUnlock: (Uri, CharArray) -> Unit = { _, _ -> },
+) {
     Column {
         when (status) {
             is BackupStatus.Working -> Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -156,6 +179,7 @@ fun BackupProgress(status: BackupStatus, isDefault: Boolean, onRestore: (Uri, in
                 onRestore = { includeSettings -> onRestore(status.uri, includeSettings) },
                 onDismiss = onDismiss,
             )
+            is BackupStatus.NeedsPassword -> UnlockDialog(wrong = status.wrong, onUnlock = { onUnlock(status.uri, it) }, onDismiss = onDismiss)
             BackupStatus.Idle -> Unit
         }
     }
@@ -209,6 +233,121 @@ private fun RestoreDialog(summary: BackupSummary, isDefault: Boolean, onRestore:
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/** A protected backup's password, to restore it. */
+@Composable
+private fun UnlockDialog(wrong: Boolean, onUnlock: (CharArray) -> Unit, onDismiss: () -> Unit) {
+    var typed by remember { mutableStateOf("") }
+    // The verdict was on the last try: it goes once typing starts again.
+    var showWrong by remember { mutableStateOf(wrong) }
+    val open = { if (typed.isNotEmpty()) onUnlock(typed.toCharArray()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("This backup has a password") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("It was protected with a backup password. Enter it to restore.")
+                PasswordField(
+                    typed,
+                    { typed = it; showWrong = false },
+                    "Backup password",
+                    error = if (showWrong) "That isn't its password" else null,
+                    onDone = open,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = open, enabled = typed.isNotEmpty()) { Text("Open") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Settings → Backup password: protects backups (made by hand or automatically) from anyone without it. */
+@Composable
+private fun BackupPasswordRow(viewModel: SettingsViewModel) {
+    val isSet by viewModel.backupPasswordSet.collectAsStateWithLifecycle()
+    var editing by remember { mutableStateOf(false) }
+    ListItem(
+        headlineContent = { Text("Backup password") },
+        supportingContent = {
+            Text(
+                if (isSet) "On: backup files open only with it, wherever they're kept. Recently deleted and exports for other apps aren't covered."
+                else "Off: anyone with a backup file can read your messages in it. Set one if backups go to a shared or cloud folder.",
+            )
+        },
+        modifier = Modifier.clickable { editing = true },
+    )
+    if (editing) {
+        BackupPasswordDialog(
+            isSet = isSet,
+            onSet = { viewModel.setBackupPassword(it); editing = false },
+            onRemove = { viewModel.removeBackupPassword(); editing = false },
+            onDismiss = { editing = false },
+        )
+    }
+}
+
+@Composable
+private fun BackupPasswordDialog(isSet: Boolean, onSet: (CharArray) -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit) {
+    var first by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
+    val tooShort = first.isNotEmpty() && first.length < MIN_PASSWORD
+    val mismatch = again.isNotEmpty() && again != first
+    val valid = first.length >= MIN_PASSWORD && again == first
+    val set = { if (valid) onSet(first.toCharArray()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (isSet) "Change backup password" else "Set a backup password") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "New backups, including automatic ones, will need it to be restored. Winnow can't recover it: " +
+                        "without it, a backup made with it can't be opened, on any phone.",
+                )
+                PasswordField(first, { first = it }, "New password", error = if (tooShort) "At least $MIN_PASSWORD characters" else null)
+                PasswordField(again, { again = it }, "Again", error = if (mismatch) "The two don't match" else null, onDone = set)
+                if (isSet) {
+                    Text(
+                        "Backups already made keep the password they were made with.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = set, enabled = valid) { Text(if (isSet) "Change" else "Set") }
+        },
+        dismissButton = {
+            Row {
+                if (isSet) TextButton(onClick = onRemove) { Text("Turn off") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun PasswordField(value: String, onChange: (String) -> Unit, label: String, error: String? = null, onDone: (() -> Unit)? = null) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text(label) },
+        singleLine = true,
+        isError = error != null,
+        supportingText = error?.let { { Text(it) } },
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Password,
+            autoCorrectEnabled = false,
+            imeAction = if (onDone != null) ImeAction.Done else ImeAction.Next,
+        ),
+        keyboardActions = KeyboardActions(onDone = onDone?.let { { it() } }),
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+/** A backup password's least length: long enough that guessing at a stolen file takes a while. */
+private const val MIN_PASSWORD = 8
 
 private fun count(n: Int): String = NumberFormat.getIntegerInstance().format(n)
 

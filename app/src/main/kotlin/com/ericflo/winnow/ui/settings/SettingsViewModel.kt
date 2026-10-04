@@ -77,6 +77,23 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun dismissBackup() = container.backups.dismiss()
 
+    fun unlockBackup(uri: Uri, password: CharArray) = container.backups.unlock(uri, password)
+
+    val backupPasswordSet: StateFlow<Boolean> = container.backupPassword.isSet
+
+    /** Slow (about a second), so off the main thread; in the app's scope, so leaving Settings doesn't stop it. */
+    fun setBackupPassword(password: CharArray) {
+        container.appScope.launch {
+            try {
+                container.backupPassword.set(password)
+            } finally {
+                password.fill(' ')
+            }
+        }
+    }
+
+    fun removeBackupPassword() = container.backupPassword.clear()
+
     fun importSmsBackupRestore(uri: Uri) = container.backups.importSmsBackupRestore(uri)
 
     fun exportSmsBackupRestore(uri: Uri) = container.backups.exportSmsBackupRestore(uri)

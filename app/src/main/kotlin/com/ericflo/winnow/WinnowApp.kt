@@ -287,6 +287,9 @@ class AppContainer(private val context: Context) {
         )
     }
 
+    /** Settings → Backup password. */
+    val backupPassword by lazy { com.ericflo.winnow.backup.BackupPassword(context) }
+
     val backups by lazy {
         BackupManager(
             context, appScope, verdictDao, database.conversationStates(), database.scheduled(), settings, mmsStore, scheduler,
@@ -295,6 +298,7 @@ class AppContainer(private val context: Context) {
             ownNumbers = { OwnNumbers(context).all() },
             drafts = draftAttachments,
             reminders = reminders,
+            password = backupPassword,
         )
     }
 

@@ -176,7 +176,7 @@ private fun RestoreCard(backups: BackupManager) {
             if (status == BackupStatus.Idle) {
                 OutlinedButton(onClick = { open.launch(arrayOf("application/zip", "application/octet-stream")) }) { Text("Restore from a file") }
             }
-            BackupProgress(status, isDefault = true, onRestore = backups::restore, onDismiss = backups::dismiss)
+            BackupProgress(status, isDefault = true, onRestore = backups::restore, onDismiss = backups::dismiss, onUnlock = backups::unlock)
         }
     }
 }

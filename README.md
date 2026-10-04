@@ -150,7 +150,10 @@ and opens Filtered; nothing on a quiet day.
   once, such as one your cloud drive syncs. It keeps the newest four. Coming from another
   app? **Import from SMS Backup & Restore** reads that app's .xml backup, texts and picture
   messages included, and adds whatever isn't on the phone yet. Leaving? **Export for other
-  apps** writes the same format, which most texting apps can import.
+  apps** writes the same format, which most texting apps can import. A **backup password**
+  locks backup files, automatic ones included, with AES-256: another phone needs the password
+  to restore one, while this phone opens those made with its current password without
+  asking. Winnow can't recover a forgotten one.
 - **Big screens:** on a tablet, an unfolded foldable or a big window, the conversation list
   and the open conversation sit side by side, and the open one rides out rotation and resizing
   (narrowed, it carries on full size). A phone on its side keeps one pane. **Enter sends**
