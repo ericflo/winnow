@@ -53,6 +53,8 @@ data class SettingsBackup(
     val deleteOldCodes: Boolean = false,
     val deliveryReports: Boolean,
     val categoryActions: Map<String, String> = emptyMap(),
+    val theme: String = "SYSTEM",
+    val textScale: Float = 1f,
 )
 
 /** A provider's non-secret settings. The API key stays on the phone it was entered on. */

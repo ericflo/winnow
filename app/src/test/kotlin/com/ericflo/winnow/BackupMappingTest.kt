@@ -10,6 +10,8 @@ import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.data.ProviderKind
 import com.ericflo.winnow.data.ProviderSettings
+import com.ericflo.winnow.data.TextScale
+import com.ericflo.winnow.data.ThemeMode
 import com.ericflo.winnow.data.WinnowSettings
 import com.ericflo.winnow.data.db.VerdictEntity
 import org.junit.Assert.assertEquals
@@ -30,6 +32,8 @@ class BackupMappingTest {
         zdrOnly = true,
         deliveryReports = true,
         onboarded = true,
+        theme = ThemeMode.DARK,
+        textScale = 1.3f,
         categoryActions = Category.entries.associateWith { it.defaultAction } + (Category.MARKETING to Action.FILTER),
     ).let { it.copy(privacy = it.privacy.copy(shareSenderAddress = true, redaction = it.privacy.redaction.copy(maskEmails = false))) }
 
@@ -53,6 +57,8 @@ class BackupMappingTest {
         assertEquals(configured.privacy, restored.privacy)
         assertTrue(restored.zdrOnly && restored.deliveryReports)
         assertEquals(configured.categoryActions, restored.categoryActions)
+        assertEquals(ThemeMode.DARK, restored.theme)
+        assertEquals(1.3f, restored.textScale)
         assertFalse(restored.onboarded)
     }
 
@@ -82,5 +88,14 @@ class BackupMappingTest {
             costUsd = 0.0001, decidedAt = 1_790_000_000_000, userAction = "ALLOW",
         )
         assertEquals(entity.copy(messageKey = "sms:9001", threadId = 3), entity.toBackup().toEntity("sms:9001", 3, "+13185550182"))
+    }
+
+    @Test
+    fun `text size from a backup is kept in range, and snaps to the default when close`() {
+        assertEquals(TextScale.MAX, WinnowSettings().restoring(configured.toBackup().copy(textScale = 9f)).textScale)
+        assertEquals(1f, WinnowSettings().restoring(configured.toBackup().copy(textScale = Float.NaN)).textScale)
+        assertEquals(ThemeMode.SYSTEM, WinnowSettings().restoring(configured.toBackup().copy(theme = "SEPIA")).theme)
+        assertEquals(1f, TextScale.settle(1.03f))
+        assertEquals(1.2f, TextScale.settle(1.2f))
     }
 }

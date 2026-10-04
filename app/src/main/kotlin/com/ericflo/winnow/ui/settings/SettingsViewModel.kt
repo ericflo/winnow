@@ -12,6 +12,8 @@ import com.ericflo.winnow.classifier.message.PrivacyPolicy
 import com.ericflo.winnow.classifier.message.Verdict
 import com.ericflo.winnow.data.ProviderKind
 import com.ericflo.winnow.data.ProviderSettings
+import com.ericflo.winnow.data.TextScale
+import com.ericflo.winnow.data.ThemeMode
 import com.ericflo.winnow.data.WinnowSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -97,6 +99,10 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun deviceIsSecure(): Boolean = container.deviceIsSecure()
 
     fun setDeliveryReports(value: Boolean) = update { it.copy(deliveryReports = value) }
+
+    fun setTheme(value: ThemeMode) = update { it.copy(theme = value) }
+
+    fun setTextScale(value: Float) = update { it.copy(textScale = TextScale.clamp(value)) }
 
     fun setAction(category: Category, action: Action) = update { it.copy(categoryActions = it.categoryActions + (category to action)) }
 

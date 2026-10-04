@@ -192,6 +192,11 @@ Confidence below `ActionPolicy.minConfidence` (0.7) softens the action one step
   composable, so it also hides dialogs, sheets and viewers that were open when Winnow left
   the screen; Back from it sends the task home instead of revealing them.
   `setRecentsScreenshotEnabled(false)` blanks the recents card on 13+ (`FLAG_SECURE` below).
+- **Theme and text size:** the theme setting goes to `UiModeManager.setApplicationNightMode`
+  (Android 12+ keeps a night mode per app), so system bars, dialogs and the notification
+  shade's app surfaces follow it with no AppCompat. Message text size multiplies the body style.
+  A pinch on the conversation, read in the `Initial` pointer pass and only with two fingers
+  down, so one finger still scrolls, changes it live and saves it when the fingers lift.
 - **Chat bubbles:** message notifications carry `BubbleMetadata` that opens `BubbleActivity`
   (embedded, resizable, one document per conversation) with the same `ThreadScreen`. Reading
   in a bubble marks the conversation read but leaves its notification alone: a bubble lives

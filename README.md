@@ -90,6 +90,8 @@ messages can't be tapped.
   rules and settings go into one zip file that you choose where to keep. API keys are never
   included. Restoring onto a new phone, or the same one, only adds what's missing, so
   restoring twice is harmless. A new phone can restore right from onboarding.
+- **Display:** light, dark or the system theme, and a message text size. Pinch a
+  conversation to zoom its text; it snaps back to normal near 100%.
 - **Getting started:** onboarding explains the RCS trade-off before it asks to become your
   SMS app. Once Winnow is in charge, it can review older conversations for spam.
 

@@ -142,6 +142,15 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import com.ericflo.winnow.data.TextScale
+import com.ericflo.winnow.ui.components.scaled
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -159,6 +168,7 @@ fun ThreadScreen(
     val selectedSim by viewModel.selectedSim.collectAsStateWithLifecycle()
     val blocked by viewModel.blocked.collectAsStateWithLifecycle()
     val scheduled by viewModel.scheduled.collectAsStateWithLifecycle()
+    val textScale by viewModel.textScale.collectAsStateWithLifecycle()
     var confirmBlock by remember { mutableStateOf(false) }
     var confirmReport by remember { mutableStateOf(false) }
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
@@ -352,6 +362,8 @@ fun ThreadScreen(
                 onCopyCode = { copy(it, "Code copied") },
                 highlight = query.trim().takeIf { searching && it.length >= 2 },
                 focusKey = focusKey.takeIf { searching },
+                textScale = textScale,
+                onTextScale = viewModel::setTextScale,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -572,8 +584,14 @@ private fun MessageList(
     onCopyCode: (String) -> Unit,
     highlight: String? = null,
     focusKey: String? = null,
+    textScale: Float = 1f,
+    onTextScale: (Float) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Follows the pinch live; saved when the fingers lift.
+    var liveScale by remember { mutableFloatStateOf(textScale) }
+    LaunchedEffect(textScale) { liveScale = textScale }
+    val saveScale by rememberUpdatedState(onTextScale)
     val transport = if (state.isGroup) "Group texting with ${state.recipients.size} people (MMS)"
     else "Texting with ${ContactLookup.formatAddress(state.recipients.firstOrNull().orEmpty())} (SMS/MMS)"
     val items = remember(transport, state.messages) { buildItems(transport, state.messages) }
@@ -588,7 +606,13 @@ private fun MessageList(
     LazyColumn(
         state = listState,
         reverseLayout = true,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().pinchToZoom(
+            onZoom = { liveScale = TextScale.clamp(liveScale * it) },
+            onEnd = {
+                liveScale = TextScale.settle(liveScale)
+                saveScale(liveScale)
+            },
+        ),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
     ) {
         // Reversed list: scheduled messages sit below everything already sent, latest last.
@@ -619,9 +643,34 @@ private fun MessageList(
                     onViewVideo = onViewVideo,
                     highlight = highlight,
                     focused = item.key == focusKey,
+                    textScale = liveScale,
                 )
             }
         }
+    }
+}
+
+/**
+ * Reports two-finger pinches as zoom factors. One finger passes straight through, so the list
+ * underneath still scrolls and bubbles still take taps and long presses.
+ */
+private fun Modifier.pinchToZoom(onZoom: (Float) -> Unit, onEnd: () -> Unit): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        var zoomed = false
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            if (event.changes.none { it.pressed }) break
+            if (event.changes.count { it.pressed } >= 2) {
+                val zoom = event.calculateZoom()
+                if (zoom != 1f) {
+                    onZoom(zoom)
+                    zoomed = true
+                }
+                event.changes.forEach { it.consume() }
+            }
+        }
+        if (zoomed) onEnd()
     }
 }
 
@@ -653,6 +702,7 @@ private fun MessageBubble(
     onViewVideo: (String) -> Unit,
     highlight: String? = null,
     focused: Boolean = false,
+    textScale: Float = 1f,
 ) {
     val m = item.message
     val colors = MaterialTheme.colorScheme
@@ -737,13 +787,13 @@ private fun MessageBubble(
                     m.body.isBlank() -> Unit
                     isEmojiOnly(m.body) -> Text(
                         m.body,
-                        fontSize = 44.sp,
+                        fontSize = 44.sp * textScale,
                         modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
                     )
                     else -> Text(
                         linkify(m.body, links = !fraud, linkColor = if (m.outgoing) colors.onPrimaryContainer else colors.primary)
                             .highlighted(highlight, if (focused) colors.tertiary.copy(alpha = 0.7f) else colors.tertiary.copy(alpha = 0.35f)),
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodyLarge.scaled(textScale),
                         color = if (m.outgoing) colors.onPrimaryContainer else colors.onSurface,
                         modifier = Modifier
                             .clip(shape)

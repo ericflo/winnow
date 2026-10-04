@@ -3,6 +3,7 @@ package com.ericflo.winnow
 import android.Manifest
 import android.app.Application
 import android.app.KeyguardManager
+import android.app.UiModeManager
 import android.app.role.RoleManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -29,6 +30,7 @@ import com.ericflo.winnow.data.SimCards
 import com.ericflo.winnow.data.SimChoice
 import com.ericflo.winnow.data.SwitchingMessageRepository
 import com.ericflo.winnow.data.TelephonyMessageRepository
+import com.ericflo.winnow.data.ThemeMode
 import com.ericflo.winnow.data.db.WinnowDatabase
 import com.ericflo.winnow.notify.Notifier
 import com.ericflo.winnow.sms.CodeCleaner
@@ -45,6 +47,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class WinnowApp : Application() {
@@ -84,6 +88,21 @@ class AppContainer(private val context: Context) {
     val appLock = AppLock().also { lock ->
         // Watched here, not in an activity, so a bubble or notification in a fresh process sees it too.
         appScope.launch { settings.settings.collect { lock.update(it.appLock && deviceIsSecure()) } }
+    }
+
+    init {
+        // Android keeps a per-app night mode (12+), which recolors system bars and dialogs too.
+        appScope.launch {
+            settings.settings.map { it.theme }.distinctUntilChanged().collect { theme ->
+                context.getSystemService(UiModeManager::class.java)?.setApplicationNightMode(
+                    when (theme) {
+                        ThemeMode.SYSTEM -> UiModeManager.MODE_NIGHT_AUTO
+                        ThemeMode.LIGHT -> UiModeManager.MODE_NIGHT_NO
+                        ThemeMode.DARK -> UiModeManager.MODE_NIGHT_YES
+                    },
+                )
+            }
+        }
     }
 
     /**

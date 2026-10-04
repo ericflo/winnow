@@ -32,6 +32,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
+import com.ericflo.winnow.data.TextScale
 
 data class ThreadUiState(
     val title: String,
@@ -90,6 +91,15 @@ class ThreadViewModel(
         .filter { it >= 0 }
         .flatMapLatest { scheduler.observe(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Message text size; see [TextScale]. Pinching the conversation changes it. */
+    val textScale: StateFlow<Float> = container.settings.settings
+        .map { it.textScale }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 1f)
+
+    fun setTextScale(value: Float) {
+        viewModelScope.launch { container.settings.update { it.copy(textScale = TextScale.clamp(value)) } }
+    }
 
     private val _sims = MutableStateFlow<List<SimCard>>(emptyList())
     /** The phone's SIMs when there are two or more to choose from; empty otherwise. */

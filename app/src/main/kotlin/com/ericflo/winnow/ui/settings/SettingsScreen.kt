@@ -61,6 +61,18 @@ import com.ericflo.winnow.data.ProviderKind
 import com.ericflo.winnow.data.ProviderSettings
 import com.ericflo.winnow.data.WinnowSettings
 import com.ericflo.winnow.ui.review.ReviewSettingsRow
+import androidx.compose.material3.Slider
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
+import com.ericflo.winnow.data.TextScale
+import com.ericflo.winnow.data.ThemeMode
+import com.ericflo.winnow.ui.components.scaled
+import kotlin.math.roundToInt
 
 private val Action.label: String
     get() = when (this) {
@@ -162,6 +174,25 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                 section("Older conversations")
                 item("review") { ReviewSettingsRow(review, s.provider.label, onStart = viewModel::startReview) }
             }
+
+            section("Display")
+            item("theme") {
+                ListItem(
+                    headlineContent = { Text("Theme") },
+                    supportingContent = {
+                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            listOf(ThemeMode.SYSTEM to "System", ThemeMode.LIGHT to "Light", ThemeMode.DARK to "Dark").forEachIndexed { i, (mode, label) ->
+                                SegmentedButton(
+                                    selected = s.theme == mode,
+                                    onClick = { viewModel.setTheme(mode) },
+                                    shape = SegmentedButtonDefaults.itemShape(i, 3),
+                                ) { Text(label) }
+                            }
+                        }
+                    },
+                )
+            }
+            item("text-size") { TextSizeRow(s.textScale, viewModel::setTextScale) }
 
             section("Messages")
             item("notifications") {
@@ -497,4 +528,46 @@ private fun CategoryActionRow(category: Category, action: Action, onSelect: (Act
             }
         }
     }
+}
+
+/** A slider for message text size, with a sample bubble drawn at the chosen size. */
+@Composable
+private fun TextSizeRow(scale: Float, onChange: (Float) -> Unit) {
+    var value by remember(scale) { mutableFloatStateOf(scale) }
+    val colors = MaterialTheme.colorScheme
+    ListItem(
+        headlineContent = { Text("Message text size") },
+        supportingContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("You can also pinch a conversation to zoom")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("A", style = MaterialTheme.typography.labelMedium)
+                    Slider(
+                        value = value,
+                        // Snaps back to the default near the middle, so it's easy to return to.
+                        onValueChange = { value = TextScale.settle(it) },
+                        onValueChangeFinished = { onChange(value) },
+                        valueRange = TextScale.MIN..TextScale.MAX,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 12.dp)
+                            .semantics {
+                                contentDescription = "Message text size"
+                                stateDescription = "${(value * 100).roundToInt()}%"
+                            },
+                    )
+                    Text("A", style = MaterialTheme.typography.titleLarge)
+                }
+                Text(
+                    "See you at 7! I'll bring snacks.",
+                    style = MaterialTheme.typography.bodyLarge.scaled(value),
+                    color = colors.onSurface,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(colors.surfaceContainerHigh)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                )
+            }
+        },
+    )
 }

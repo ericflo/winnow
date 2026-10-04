@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -67,6 +68,19 @@ data class ProviderSettings(
     val zeroRetention: Boolean = false,
 )
 
+/** Light or dark, or whatever the phone is set to. */
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
+/** Message text size: a multiplier on the default, set in Settings or by pinching a conversation. */
+object TextScale {
+    const val MIN = 0.8f
+    const val MAX = 1.8f
+    fun clamp(value: Float): Float = if (value.isNaN()) 1f else value.coerceIn(MIN, MAX)
+
+    /** [clamp], snapping to the default when it's close, so the default is easy to get back to. */
+    fun settle(value: Float): Float = clamp(value).let { if (kotlin.math.abs(it - 1f) < 0.05f) 1f else it }
+}
+
 data class WinnowSettings(
     val provider: ProviderKind = ProviderKind.ON_DEVICE,
     val providers: Map<ProviderKind, ProviderSettings> = emptyMap(),
@@ -85,6 +99,9 @@ data class WinnowSettings(
     val hideOnLockScreen: Boolean = false,
     /** Ask the carrier to confirm delivery of each SMS. Off by default, as in Messages. */
     val deliveryReports: Boolean = false,
+    val theme: ThemeMode = ThemeMode.SYSTEM,
+    /** See [TextScale]. */
+    val textScale: Float = 1f,
     /** The user said "Not now" to reviewing older conversations. */
     val reviewPromptDismissed: Boolean = false,
     /** First-run onboarding finished or skipped. */
@@ -147,6 +164,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             undoSendSeconds = this[UNDO_SEND_SECONDS] ?: 0,
             deleteOldCodes = this[DELETE_OLD_CODES] ?: false,
             deliveryReports = this[DELIVERY_REPORTS] ?: false,
+            theme = this[THEME]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: defaults.theme,
+            textScale = TextScale.clamp(this[TEXT_SCALE] ?: 1f),
             reviewPromptDismissed = this[REVIEW_DISMISSED] ?: false,
             onboarded = this[ONBOARDED] ?: false,
             categoryActions = Category.entries.associateWith { c ->
@@ -177,6 +196,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[UNDO_SEND_SECONDS] = s.undoSendSeconds
         this[DELETE_OLD_CODES] = s.deleteOldCodes
         this[DELIVERY_REPORTS] = s.deliveryReports
+        this[THEME] = s.theme.name
+        this[TEXT_SCALE] = TextScale.clamp(s.textScale)
         this[REVIEW_DISMISSED] = s.reviewPromptDismissed
         this[ONBOARDED] = s.onboarded
         s.categoryActions.forEach { (c, a) -> this[actionKey(c)] = a.name }
@@ -198,6 +219,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val UNDO_SEND_SECONDS = intPreferencesKey("compose.undo_send_seconds")
         val DELETE_OLD_CODES = booleanPreferencesKey("messages.delete_old_codes")
         val DELIVERY_REPORTS = booleanPreferencesKey("sms.delivery_reports")
+        val THEME = stringPreferencesKey("display.theme")
+        val TEXT_SCALE = floatPreferencesKey("display.text_scale")
         val REVIEW_DISMISSED = booleanPreferencesKey("review.prompt_dismissed")
         val ONBOARDED = booleanPreferencesKey("onboarding.done")
 

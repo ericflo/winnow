@@ -38,6 +38,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.time.temporal.ChronoUnit
+import androidx.compose.ui.text.TextStyle
 
 /**
  * The contact's photo when there is one; otherwise a colored initial for named senders and a
@@ -156,6 +157,10 @@ fun headerLabel(epochMillis: Long, today: LocalDate = LocalDate.now()): String {
     }
     return "$day • ${at.format(timeFormat)}"
 }
+
+/** This style at [scale] times its size: message text under the user's text-size setting. */
+fun TextStyle.scaled(scale: Float): TextStyle =
+    if (scale == 1f) this else copy(fontSize = fontSize * scale, lineHeight = lineHeight * scale)
 
 fun timeOfDay(epochMillis: Long): String =
     Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).format(timeFormat)

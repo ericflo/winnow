@@ -4,6 +4,8 @@ import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classifier.message.RedactionPolicy
 import com.ericflo.winnow.data.ProviderKind
+import com.ericflo.winnow.data.TextScale
+import com.ericflo.winnow.data.ThemeMode
 import com.ericflo.winnow.data.WinnowSettings
 import com.ericflo.winnow.data.db.VerdictEntity
 
@@ -27,6 +29,8 @@ fun WinnowSettings.toBackup() = SettingsBackup(
     deleteOldCodes = deleteOldCodes,
     deliveryReports = deliveryReports,
     categoryActions = categoryActions.entries.associate { (c, a) -> c.key to a.name },
+    theme = theme.name,
+    textScale = textScale,
 )
 
 /** These settings with [backup]'s applied. API keys already on this phone are kept. */
@@ -49,6 +53,8 @@ fun WinnowSettings.restoring(backup: SettingsBackup) = copy(
     undoSendSeconds = backup.undoSendSeconds.coerceIn(0, 30),
     deleteOldCodes = backup.deleteOldCodes,
     deliveryReports = backup.deliveryReports,
+    theme = ThemeMode.entries.firstOrNull { it.name == backup.theme } ?: theme,
+    textScale = TextScale.clamp(backup.textScale),
     categoryActions = categoryActions + backup.categoryActions.mapNotNull { (key, action) ->
         val category = Category.fromKey(key) ?: return@mapNotNull null
         Action.entries.firstOrNull { it.name == action }?.let { category to it }
