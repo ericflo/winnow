@@ -156,4 +156,24 @@ class SmsBackupRestoreXmlTest {
     }
 
     private val photoBytes = byteArrayOf(-1, -40, -1, -31, 9, 8, 7)
+
+    @Test
+    fun `characters XML can't carry are cleaned up, emoji kept`() {
+        val emoji = "\uD83C\uDF89"
+        assertEquals("ok $emoji \uFFFD\uFFFD tab\there", SmsBackupRestoreXml.xmlSafe("ok $emoji \uD83C\uFFFF\u0001 tab\there"))
+        assertEquals("\uFFFD", SmsBackupRestoreXml.xmlSafe("\uDF89"))
+    }
+
+    @Test
+    fun `outbox and queued texts come back as not sent, and a text saying null is kept`() {
+        val file = """<smses count="3">
+            <sms address="+14155550192" date="1791000000000" type="4" body="stuck in outbox" read="1" status="-1" />
+            <sms address="+14155550192" date="1791000001000" type="6" body="queued" read="1" status="-1" />
+            <sms address="+14155550192" date="1791000002000" type="1" body="null" read="1" status="-1" />
+            </smses>"""
+        val messages = SmsBackupRestoreXml.read(KXmlParser().apply { setInput(StringReader(file)) }, temp.newFolder("boxes"), emptySet())
+            .backup.conversations.single().messages
+        assertEquals(listOf("failed", "failed", null), messages.map { it.status })
+        assertEquals("null", messages[2].body)
+    }
 }

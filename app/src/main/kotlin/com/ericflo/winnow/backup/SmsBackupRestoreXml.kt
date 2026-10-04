@@ -23,11 +23,14 @@ object SmsBackupRestoreXml {
     // SMS types: 1 inbox, 2 sent, 3 draft, 4 outbox, 5 failed, 6 queued.
     private const val SMS_INBOX = 1
     private const val SMS_SENT = 2
+    private const val SMS_OUTBOX = 4
+    private const val SMS_QUEUED = 6
     private const val SMS_DRAFT = 3
     private const val SMS_FAILED = 5
     // MMS boxes: 1 inbox, 2 sent, 3 drafts, 4 outbox, 5 failed.
     private const val MMS_INBOX = 1
     private const val MMS_SENT = 2
+    private const val MMS_OUTBOX = 4
     // PDU message types: m-send-req for sent messages, m-retrieve-conf for received ones.
     private const val M_SEND_REQ = 128
     private const val M_RETRIEVE_CONF = 132
@@ -75,10 +78,12 @@ object SmsBackupRestoreXml {
                                 date = date,
                                 outgoing = !incoming,
                                 sender = address.takeIf { incoming },
-                                body = parser.attr("body").orEmpty(),
+                                // Raw: a text that just says "null" is still a text.
+                                body = parser.getAttributeValue(null, "body").orEmpty(),
                                 subject = parser.attr("subject"),
                                 status = when {
-                                    type == SMS_FAILED -> STATUS_FAILED
+                                    // Outbox and queued never went out either.
+                                    type == SMS_FAILED || type == SMS_OUTBOX || type == SMS_QUEUED -> STATUS_FAILED
                                     !incoming && parser.attr("status") == "0" -> "delivered"
                                     else -> null
                                 },
@@ -109,7 +114,7 @@ object SmsBackupRestoreXml {
                             "part" -> {
                                 val type = parser.attr("ct")?.lowercase().orEmpty()
                                 when {
-                                    type == "text/plain" -> parser.attr("text")?.let(texts::add)
+                                    type == "text/plain" -> parser.getAttributeValue(null, "text")?.let(texts::add)
                                     type == "application/smil" || type.isEmpty() -> Unit
                                     else -> parser.attr("data")?.let { data ->
                                         val bytes = runCatching { Base64.getMimeDecoder().decode(data) }.getOrNull() ?: return@let
@@ -145,7 +150,7 @@ object SmsBackupRestoreXml {
                                 sender = sender.takeIf { incoming },
                                 body = texts.joinToString("\n"),
                                 subject = subject,
-                                status = if (box == MMS_FAILED) STATUS_FAILED else null,
+                                status = if (box == MMS_FAILED || box == MMS_OUTBOX) STATUS_FAILED else null,
                                 read = wasRead,
                                 parts = parts,
                             ),
@@ -276,10 +281,33 @@ object SmsBackupRestoreXml {
         endTag(null, "addr")
     }
 
-    /** Missing values are written as the format's literal "null"; control characters XML can't carry are dropped. */
+    /** Missing values are written as the format's literal "null". */
     private fun XmlSerializer.attr(name: String, value: Any?) {
-        val text = value?.toString()?.filter { it >= ' ' || it == '\n' || it == '\r' || it == '\t' } ?: "null"
-        attribute(null, name, text)
+        attribute(null, name, value?.toString()?.let(::xmlSafe) ?: "null")
+    }
+
+    /**
+     * [text] as XML can carry it: control characters other than tab and newlines dropped, and a
+     * lone half of a surrogate pair or U+FFFE/U+FFFF replaced with U+FFFD. (Android's serializer
+     * throws on those, which would end the whole export over one odd message.)
+     */
+    internal fun xmlSafe(text: String): String {
+        val out = StringBuilder(text.length)
+        var i = 0
+        while (i < text.length) {
+            val c = text[i]
+            when {
+                c.isHighSurrogate() && i + 1 < text.length && text[i + 1].isLowSurrogate() -> {
+                    out.append(c).append(text[i + 1])
+                    i++
+                }
+                c.isSurrogate() || c == '\uFFFE' || c == '\uFFFF' -> out.append('\uFFFD')
+                c < ' ' && c != '\n' && c != '\r' && c != '\t' -> Unit
+                else -> out.append(c)
+            }
+            i++
+        }
+        return out.toString()
     }
 
     /** The attribute, with SMS Backup & Restore's literal "null" read as missing. */

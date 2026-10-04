@@ -89,6 +89,13 @@ class AppContainer(private val context: Context) {
         SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, e -> Log.e("Winnow", "Background task failed", e) },
     )
 
+    val returnedMessages = com.ericflo.winnow.data.ReturnedMessages()
+
+    /** A short message over whatever is on screen, for news with no screen of its own to show it. */
+    fun toast(message: String) {
+        appScope.launch(Dispatchers.Main) { android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show() }
+    }
+
     private val database by lazy {
         Room.databaseBuilder(context, WinnowDatabase::class.java, "winnow.db").build()
     }

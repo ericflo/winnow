@@ -237,8 +237,8 @@ fun WinnowNavHost(
                         } else {
                             // Keyed, so nothing remembered on screen (scroll, search, a playing voice
                             // message) carries over from the last conversation.
-                            key(open) {
-                                ProvideViewModelStore(remember(open) { pane.storeFor(open) }) {
+                            key(open.threadId) {
+                                ProvideViewModelStore(remember(open.threadId) { pane.storeFor(open) }) {
                                     val thread = viewModel { ThreadViewModel(container, open.threadId, splitAddresses(open.recipients)) }
                                     val searchRequest by pane.searchRequest.collectAsStateWithLifecycle()
                                     LaunchedEffect(searchRequest) {
@@ -371,16 +371,18 @@ private fun <T> whenResumed(navigate: (T) -> Unit): (T) -> Unit {
 
 /**
  * A conversation from a notification or another app. The one already open is left alone (its
- * composer keeps what's in it) unless the route brings a draft or attachments; any other
- * conversation replaces it, ViewModels and all, rather than sharing its back stack entry.
+ * composer keeps what's in it) unless the route brings a draft or attachments; any other opens
+ * on top, in its own back stack entry, so Back returns to the one before, half-written message
+ * and all.
  */
 private fun openThreadRoute(route: ThreadRoute, nav: NavHostController) {
     val top = nav.currentBackStackEntry
-    if (top?.destination?.hasRoute<ThreadRoute>() != true) return nav.navigate(route)
-    val open = top.toRoute<ThreadRoute>()
-    val same = splitAddresses(open.recipients).map(::normalizeAddress).toSet() == splitAddresses(route.recipients).map(::normalizeAddress).toSet()
-    if (same && route.draft.isEmpty() && route.attachments.isEmpty()) return
-    nav.navigate(route) { popUpTo<ThreadRoute> { inclusive = true } }
+    if (top?.destination?.hasRoute<ThreadRoute>() == true) {
+        val open = top.toRoute<ThreadRoute>()
+        val same = splitAddresses(open.recipients).map(::normalizeAddress).toSet() == splitAddresses(route.recipients).map(::normalizeAddress).toSet()
+        if (same && route.draft.isEmpty() && route.attachments.isEmpty()) return
+    }
+    nav.navigate(route)
 }
 
 /** ViewModels inside [content] come from [store]. */
@@ -398,6 +400,9 @@ private fun ProvideViewModelStore(store: ViewModelStore, content: @Composable ()
 private suspend fun openInPane(route: ThreadRoute, nav: NavHostController, pane: ConversationPane, container: AppContainer): Boolean {
     if (route.draft.isNotEmpty() || route.attachments.isNotEmpty()) return false
     if (runCatching { nav.getBackStackEntry<InboxRoute>() }.isFailure) return false
+    // Going back to the list (always the bottom of the stack) would close a full-screen
+    // conversation or new chat on the way.
+    if (runCatching { nav.getBackStackEntry<ThreadRoute>() }.isSuccess || runCatching { nav.getBackStackEntry<NewChatRoute>() }.isSuccess) return false
     val threadId = route.threadId.takeIf { it >= 0 }
         ?: runCatching { container.messages.threadIdFor(splitAddresses(route.recipients)) }.getOrNull()?.takeIf { it >= 0 }
         ?: return false

@@ -12,6 +12,8 @@ import android.provider.Telephony.Mms
 import android.provider.Telephony.Sms
 import android.util.Log
 import android.util.Xml
+import android.provider.DocumentsContract
+import org.xmlpull.v1.XmlPullParser
 import android.webkit.MimeTypeMap
 import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.SettingsRepository
@@ -131,7 +133,11 @@ class BackupManager(
         val spool = File(context.cacheDir, "import").apply { deleteRecursively(); mkdirs() }
         try {
             val (backup, skipped) = (resolver.openInputStream(uri) ?: error("The file couldn't be opened")).use { input ->
-                val parser = Xml.newPullParser().apply { setInput(input, null) }
+                val parser = Xml.newPullParser().apply {
+                    // Real backups have no DTD; not processing one means no entity expansion ("billion laughs").
+                    runCatching { setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, false) }
+                    setInput(input, null)
+                }
                 SmsBackupRestoreXml.read(parser, spool, ownNumbers()) { done, total ->
                     if (done % 200 == 0) _status.value = BackupStatus.Working("Reading messages", done, maxOf(total, done))
                 }
@@ -166,6 +172,20 @@ class BackupManager(
         val media = HashMap<String, Long>()
         val conversations = readConversations(media)
         val total = conversations.sumOf { it.messages.size }
+        try {
+            writeSmsBackupRestore(uri, conversations, media, job)
+        } catch (e: Throwable) {
+            // No half-written file left behind looking like a backup.
+            runCatching { DocumentsContract.deleteDocument(resolver, uri) }
+            throw e
+        }
+        _status.value = BackupStatus.Done(
+            "Exported ${plural(total, "message")} in ${plural(conversations.size, "conversation")}. " +
+                "SMS Backup & Restore and most texting apps can import the file.",
+        )
+    }
+
+    private fun writeSmsBackupRestore(uri: Uri, conversations: List<ConversationBackup>, media: Map<String, Long>, job: kotlin.coroutines.CoroutineContext) {
         (resolver.openOutputStream(uri, "wt") ?: error("The file couldn't be opened")).buffered().use { output ->
             val serializer = Xml.newSerializer().apply { setOutput(output, "UTF-8") }
             SmsBackupRestoreXml.write(
@@ -182,10 +202,6 @@ class BackupManager(
                 if (done % 100 == 0) _status.value = BackupStatus.Working("Exporting messages", done, all)
             }
         }
-        _status.value = BackupStatus.Done(
-            "Exported ${plural(total, "message")} in ${plural(conversations.size, "conversation")}. " +
-                "SMS Backup & Restore and most texting apps can import the file.",
-        )
     }
 
     fun dismiss() {
@@ -199,6 +215,10 @@ class BackupManager(
                 block()
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: OutOfMemoryError) {
+                // A huge attachment or a hostile file; the screen mustn't stay stuck on "Working".
+                Log.w(TAG, failure, e)
+                _status.value = BackupStatus.Failed("$failure: it needs more memory than this phone can give it")
             } catch (e: Exception) {
                 Log.w(TAG, failure, e)
                 _status.value = BackupStatus.Failed(listOfNotNull(failure, e.message).joinToString(": "))
@@ -394,15 +414,30 @@ class BackupManager(
         var done = 0
         var added = 0
         var present = 0
+        // Texts anywhere on the phone, not just in the matching conversation: a text sent to a
+        // group one person at a time sits in the group's thread here but one person's elsewhere.
+        val textsEverywhere = existingTextsEverywhere()
         for (conversation in backup.conversations) {
+            val knownTexts = conversation.messages.filter { it.kind == KIND_SMS && it.fingerprint in textsEverywhere }
+            if (knownTexts.size == conversation.messages.size) {
+                // All already here: nothing to add, and no empty conversation to create for them.
+                knownTexts.forEach { m ->
+                    val (key, inThread) = textsEverywhere.getValue(m.fingerprint)
+                    if (key !in classified) restoreVerdict(m, conversation, inThread, key)
+                    if (m.starred) starred.star(StarredEntity(key, inThread, System.currentTimeMillis()))
+                }
+                present += knownTexts.size
+                done += knownTexts.size
+                continue
+            }
             val threadId = Telephony.Threads.getOrCreateThreadId(context, conversation.recipients.toSet())
             val existing = existingMessages(threadId)
-            val (here, missing) = conversation.messages.partition { it.fingerprint in existing }
+            val (here, missing) = conversation.messages.partition { it.fingerprint in existing || (it.kind == KIND_SMS && it.fingerprint in textsEverywhere) }
 
             here.forEach { m ->
-                val key = existing.getValue(m.fingerprint)
-                if (key !in classified) restoreVerdict(m, conversation, threadId, key)
-                if (m.starred) starred.star(StarredEntity(key, threadId, System.currentTimeMillis()))
+                val (key, inThread) = existing[m.fingerprint]?.let { it to threadId } ?: textsEverywhere.getValue(m.fingerprint)
+                if (key !in classified) restoreVerdict(m, conversation, inThread, key)
+                if (m.starred) starred.star(StarredEntity(key, inThread, System.currentTimeMillis()))
             }
             present += here.size
             done += here.size
@@ -495,6 +530,21 @@ class BackupManager(
     }
 
     /** What's already in a thread: [MessageBackup.fingerprint] → message key. */
+    /** Every text on the phone by fingerprint: its message key and thread. */
+    private fun existingTextsEverywhere(): Map<String, Pair<String, Long>> {
+        val found = HashMap<String, Pair<String, Long>>()
+        resolver.query(
+            Sms.CONTENT_URI, arrayOf(Sms._ID, Sms.DATE, Sms.TYPE, Sms.BODY, Sms.THREAD_ID),
+            "${Sms.TYPE} != ${Sms.MESSAGE_TYPE_DRAFT}", null, null,
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val print = MessageBackup.fingerprint(KIND_SMS, c.getLong(1), c.getInt(2) != Sms.MESSAGE_TYPE_INBOX, c.getString(3).orEmpty(), 0)
+                found[print] = ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)) to c.getLong(4)
+            }
+        }
+        return found
+    }
+
     private fun existingMessages(threadId: Long): Map<String, String> {
         val found = HashMap<String, String>()
         val args = arrayOf(threadId.toString())

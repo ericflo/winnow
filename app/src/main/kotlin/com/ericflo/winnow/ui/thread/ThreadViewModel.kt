@@ -40,6 +40,7 @@ import com.ericflo.winnow.data.LinkPreview
 import com.ericflo.winnow.data.normalizeAddress
 import kotlinx.coroutines.CompletableDeferred
 import com.ericflo.winnow.data.CurrentLocation
+import com.ericflo.winnow.data.ReturnedMessages
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
@@ -175,6 +176,8 @@ class ThreadViewModel(
             _sims.value = container.sims.available().takeIf { it.size >= 2 }.orEmpty()
             _selectedSim.value = container.simFor(id)
             states.get(id).draft?.let { saved -> if (currentDraft().isEmpty()) setDraft(saved) }
+            takeReturned(id)
+            launch { container.returnedMessages.arrived.filter { it == id }.collect { takeReturned(id) } }
             draft.drop(1).debounce(400).collect { states.saveDraft(id, it) }
         }
     }
@@ -236,8 +239,21 @@ class ThreadViewModel(
         }
     }
 
+    /** A message that failed after an earlier screen for this conversation had gone: back into the composer. */
+    private suspend fun takeReturned(id: Long) {
+        val returned = container.returnedMessages.take(id) ?: return
+        // Its text was saved as the draft too, which this screen may have restored already.
+        if (!currentDraft().contains(returned.text)) setDraft(listOf(currentDraft(), returned.text).filter { it.isNotBlank() }.joinToString("\n"))
+        _attachments.value = _attachments.value + returned.attachments
+        if (returned.separately) _sendSeparately.value = true
+        _notices.emit("A message that couldn't be sent is back in the composer")
+    }
+
+    @Volatile private var cleared = false
+
     /** Leaving within the debounce window would drop the last keystrokes; save whatever is there. */
     override fun onCleared() {
+        cleared = true
         recorder.stopAndDiscard()
         // Recordings that never went out; anything sent or still in its undo window isn't in here.
         _attachments.value.forEach(recorder::discard)
@@ -404,10 +420,12 @@ class ThreadViewModel(
             states.saveDraft(threadId.value, "")
             val window = container.settings.current().undoSendSeconds * 1000L
             if (window > 0) {
-                _pending.value = PendingSend(text, files, System.currentTimeMillis() + window, window, apart)
+                val waiting = PendingSend(text, files, System.currentTimeMillis() + window, window, apart)
                 pendingJob = coroutineContext[Job]
+                _pending.value = waiting
                 delay(window)
-                _pending.value = null
+                // Undo and the end of the countdown race for it; whichever takes it, the other does nothing.
+                if (!_pending.compareAndSet(waiting, null)) return@launch
             }
             deliver(text, files, sim, apart)
         }
@@ -416,35 +434,49 @@ class ThreadViewModel(
     /** Cancels a message still inside its undo window and puts it back in the composer. */
     fun undoSend() {
         val pending = _pending.value ?: return
-        if (pendingJob?.isActive != true) return
+        if (!_pending.compareAndSet(pending, null)) return
         pendingJob?.cancel()
-        _pending.value = null
         putBack(pending.text, pending.attachments, pending.separately)
     }
 
-    /** A message that didn't go out goes back in the composer, saved as the draft in case this screen is gone. */
-    private fun putBack(text: String, files: List<OutgoingAttachment>, separately: Boolean) {
-        container.appScope.launch(Dispatchers.Main.immediate) {
-            setDraft(text)
-            _attachments.value = files
-            _sendSeparately.value = separately
-        }
+    /**
+     * A message that didn't go out goes back in the composer, alongside anything typed or attached
+     * since. If this screen is gone, it waits for the conversation to open again (and the text is
+     * saved as the draft, in case that's after the app has closed).
+     */
+    private fun putBack(text: String, files: List<OutgoingAttachment>, separately: Boolean, reason: String? = null) {
         val id = threadId.value
-        if (id >= 0) container.appScope.launch { states.saveDraft(id, text) }
+        if (cleared) {
+            container.appScope.launch {
+                if (id >= 0) {
+                    val saved = states.get(id).draft.orEmpty()
+                    if (!saved.contains(text)) states.saveDraft(id, listOf(saved, text).filter { it.isNotBlank() }.joinToString("\n"))
+                    container.returnedMessages.put(id, ReturnedMessages.Returned(text, files, separately))
+                }
+                container.toast("Couldn't send${reason?.let { ": $it" }.orEmpty()}. It's back in the conversation's composer.")
+            }
+            return
+        }
+        container.appScope.launch(Dispatchers.Main.immediate) {
+            setDraft(listOf(text, currentDraft()).filter { it.isNotBlank() }.joinToString("\n"))
+            _attachments.value = files + _attachments.value
+            if (separately) _sendSeparately.value = true
+        }
     }
 
     private suspend fun deliver(text: String, files: List<OutgoingAttachment>, sim: Int?, separately: Boolean = false) {
         if (separately && recipients.size > 1) return deliverSeparately(text, files, sim)
         try {
             repo.send(recipients, text, files, sim)
-            // Sent: the message holds its own copy of any recording now.
-            files.forEach(recorder::discard)
+            // Sent: the message holds its own copy of any recording now (sample conversations don't).
+            if (container.isLive.value) files.forEach(recorder::discard)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             // Put the message back so nothing typed is lost.
-            putBack(text, files, separately = false)
-            _notices.emit("Couldn't send: ${e.message ?: "unknown error"}")
+            val reason = e.message ?: "unknown error"
+            putBack(text, files, separately = false, reason = reason)
+            _notices.emit("Couldn't send: $reason")
         }
     }
 
@@ -464,7 +496,7 @@ class ThreadViewModel(
             putBack(text, files, separately = true)
             _notices.emit("Couldn't send")
         } else {
-            files.forEach(recorder::discard)
+            if (container.isLive.value) files.forEach(recorder::discard)
             val sent = recipients.size - failed.size
             _notices.emit(
                 if (failed.isEmpty()) "Sent separately to $sent people. Replies come back one to one."
@@ -482,10 +514,18 @@ class ThreadViewModel(
         }
         if (text.isEmpty()) return
         draftField.clearText()
+        // "Separately" holds for scheduled texts too: one per person, in their own conversations.
+        val apart = _sendSeparately.value && recipients.size > 1
+        _sendSeparately.value = false
         viewModelScope.launch {
             states.saveDraft(threadId.value, "")
-            scheduler.schedule(threadId.value, recipients, text, sendAt, _selectedSim.value)
-            _notices.emit("Scheduled for $label")
+            if (apart) {
+                recipients.forEach { person -> scheduler.schedule(repo.threadIdFor(listOf(person)), listOf(person), text, sendAt, _selectedSim.value) }
+                _notices.emit("Scheduled for $label, to each person separately")
+            } else {
+                scheduler.schedule(threadId.value, recipients, text, sendAt, _selectedSim.value)
+                _notices.emit("Scheduled for $label")
+            }
         }
     }
 

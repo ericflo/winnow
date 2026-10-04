@@ -32,7 +32,13 @@ class ConversationPane(private val saved: SavedStateHandle, deletedThreads: Flow
         }
     }
 
-    fun open(threadId: Long, recipients: String) = set(Open(threadId, recipients))
+    /**
+     * Opens a conversation beside the list. One that's already open stays exactly as it is: a
+     * notification spells its addresses its own way ("4155550100", members in another order).
+     */
+    fun open(threadId: Long, recipients: String) {
+        if (_open.value?.threadId != threadId) set(Open(threadId, recipients))
+    }
 
     private val _searchRequest = MutableStateFlow<ThreadViewModel.SearchRequest?>(null)
     /** For the conversation being opened: a message to show, handed to its ViewModel once it exists. */
@@ -59,7 +65,7 @@ class ConversationPane(private val saved: SavedStateHandle, deletedThreads: Flow
 
     /** The ViewModels of [open]: the same ones for as long as it stays open, fresh ones for another conversation. */
     fun storeFor(open: Open): ViewModelStore {
-        if (open != storeFor) clearStore()
+        if (open.threadId != storeFor?.threadId) clearStore()
         storeFor = open
         return store ?: ViewModelStore().also { store = it }
     }
