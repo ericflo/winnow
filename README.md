@@ -341,6 +341,11 @@ indicators, read receipts and end-to-end encryption don't. Message transport sit
 one interface, so RCS can be added if Google ever opens it. You can switch back to Google
 Messages at any time.
 
+**Before you switch**, turn RCS off in Google Messages (Settings → RCS chats). While it's on,
+other phones keep sending you RCS, which only Google Messages can receive, and it can take a
+while after you switch for them to fall back to texts. Onboarding says so too, with a button
+to open Google Messages.
+
 ## Build and run
 
 You need JDK 17+ (21 recommended) and an Android SDK with API 37. The minimum supported

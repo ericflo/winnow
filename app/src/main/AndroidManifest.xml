@@ -38,6 +38,11 @@
       No platform backup or device transfer: API keys are sealed to this phone's Keystore.
       Settings → Backup moves messages and decisions to a new phone instead.
     -->
+    <!-- Onboarding offers to open Google Messages, to turn RCS off before switching. -->
+    <queries>
+        <package android:name="com.google.android.apps.messaging" />
+    </queries>
+
     <application
         android:name=".WinnowApp"
         android:allowBackup="false"

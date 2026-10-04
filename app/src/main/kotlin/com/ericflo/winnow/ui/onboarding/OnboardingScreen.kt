@@ -45,6 +45,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -146,6 +149,21 @@ private fun BeDefault(isDefault: Boolean, onMakeDefault: () -> Unit, backups: Ba
                         "encryption don't. You can switch back to Google Messages any time.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                // Until RCS is off, other phones keep sending RCS, which only Google Messages receives;
+                // turned off first, people's messages arrive as texts, here, right away.
+                Text(
+                    "Before you switch: in Google Messages, open Settings, then RCS chats, and turn RCS off. " +
+                        "Otherwise messages people send you over RCS keep going to Google Messages for a while.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                val context = LocalContext.current
+                val messages = remember { context.packageManager.getLaunchIntentForPackage(GOOGLE_MESSAGES) }
+                if (messages != null && !isDefault) {
+                    TextButton(onClick = { runCatching { context.startActivity(messages) } }, contentPadding = PaddingValues(0.dp)) {
+                        Text("Open Google Messages")
+                    }
+                }
             }
         }
         if (isDefault) {
@@ -244,3 +262,6 @@ private fun StepDots(step: Int) {
         }
     }
 }
+
+/** Google Messages, the only app Android lets use RCS. */
+private const val GOOGLE_MESSAGES = "com.google.android.apps.messaging"
