@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.database.ContentObserver
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.Telephony
@@ -65,8 +66,11 @@ class TelephonyMessageRepository(
             val started = System.nanoTime()
             queryConversations().also { Log.d(TAG, "Loaded ${it.size} conversations in ${(System.nanoTime() - started) / 1_000_000} ms") }
         }.flowOn(Dispatchers.IO)
-        return combine(threads, verdictsByKey()) { list, verdicts ->
-            list.map { (summary, incomingKey) -> summary.copy(verdict = incomingKey?.let(verdicts::get)) }
+        return combine(threads, verdictsForList()) { list, verdicts ->
+            list.map { (summary, incomingKey) ->
+                // The newest message's verdict when it's incoming; after a reply, the thread's latest verdict.
+                summary.copy(verdict = incomingKey?.let(verdicts.byKey::get) ?: verdicts.latestByThread[summary.threadId].takeIf { incomingKey == null })
+            }
         }
     }
 
@@ -287,21 +291,34 @@ class TelephonyMessageRepository(
     private fun verdictsByKey(): Flow<Map<String, StoredVerdict>> =
         dao.observeAll().map { rows -> rows.associate { it.messageKey to it.toStored(ProviderKind::labelFor) } }
 
+    private class ListVerdicts(val byKey: Map<String, StoredVerdict>, val latestByThread: Map<Long, StoredVerdict>)
+
+    private fun verdictsForList(): Flow<ListVerdicts> = dao.observeAll().map { rows ->
+        ListVerdicts(
+            byKey = rows.associate { it.messageKey to it.toStored(ProviderKind::labelFor) },
+            latestByThread = rows.groupBy { it.threadId }.mapValues { (_, r) -> r.maxBy { it.decidedAt }.toStored(ProviderKind::labelFor) },
+        )
+    }
+
     // --- Conversation list ---------------------------------------------------------------
 
-    /** Each thread's summary paired with the key of its newest incoming message (for its verdict). */
+    /**
+     * Each thread's summary, paired with the key of its newest message when that message is
+     * incoming (for its verdict). Reads one row per thread and the unread rows, not every
+     * message: with tens of thousands of texts, reading them all took most of a second.
+     */
     private fun queryConversations(): List<Pair<ConversationSummary, String?>> {
         val recipients = resolver.threadRecipients()
-        val byThread = heads(null, null).groupBy { it.threadId }
+        val newestByThread = newestPerThread()
+        val unread = unreadCounts()
         val snippets = HashMap<Long, String>()
         resolver.query(THREADS_SIMPLE, arrayOf(Telephony.Threads._ID, Telephony.Threads.SNIPPET), null, null, null)?.use { c ->
             while (c.moveToNext()) snippets[c.getLong(0)] = c.getString(1).orEmpty()
         }
-        val mmsText = mmsSnippets(byThread.values.mapNotNull { list -> list.first().takeIf { it.kind == Kind.MMS }?.id })
+        val mmsText = mmsSnippets(newestByThread.values.filter { it.kind == Kind.MMS }.map { it.id })
 
-        return byThread.mapNotNull { (threadId, list) ->
+        return newestByThread.mapNotNull { (threadId, newest) ->
             val people = recipients[threadId]?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            val newest = list.first()
             val text = when (newest.kind) {
                 Kind.SMS -> Tapback.summarize(snippets[threadId].orEmpty())
                 // No parts yet means an announced message still waiting to download.
@@ -313,12 +330,46 @@ class TelephonyMessageRepository(
                 displayName = displayNameFor(people, ::displayName),
                 snippet = if (newest.outgoing) "You: $text" else text,
                 timestamp = newest.date,
-                unreadCount = list.count { it.unread },
+                unreadCount = unread[threadId] ?: 0,
                 verdict = null,
                 photoUri = people.singleOrNull()?.let(contacts::photoUri),
             )
-            summary to list.firstOrNull { !it.outgoing }?.key
+            summary to newest.key.takeIf { !newest.outgoing }
         }.sortedByDescending { it.first.timestamp }
+    }
+
+    /** The newest SMS or MMS of every thread, drafts aside, from the provider's own per-thread query. */
+    private fun newestPerThread(): Map<Long, Head> {
+        val newest = HashMap<Long, Head>()
+        resolver.query(
+            MMS_SMS_CONVERSATIONS,
+            // No transport_type here: some providers lack the column. An SMS row has a type, an MMS row a msg_box.
+            arrayOf("_id", "thread_id", "normalized_date", Telephony.Sms.TYPE, Telephony.Mms.MESSAGE_BOX),
+            null, null, null,
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val threadId = c.getLong(1)
+                val isSms = !c.isNull(3)
+                val incoming = if (isSms) c.getInt(3) == Telephony.Sms.MESSAGE_TYPE_INBOX else c.getInt(4) == Telephony.Mms.MESSAGE_BOX_INBOX
+                val head = Head(if (isSms) Kind.SMS else Kind.MMS, c.getLong(0), threadId, c.getLong(2), outgoing = !incoming, unread = false)
+                // Two messages can share a thread's newest timestamp; keep one.
+                if ((newest[threadId]?.date ?: Long.MIN_VALUE) < head.date) newest[threadId] = head
+            }
+        }
+        return newest
+    }
+
+    /** Unread incoming messages per thread. */
+    private fun unreadCounts(): Map<Long, Int> {
+        val counts = HashMap<Long, Int>()
+        fun count(uri: Uri, selection: String) {
+            resolver.query(uri, arrayOf("thread_id"), selection, null, null)?.use { c ->
+                while (c.moveToNext()) counts.merge(c.getLong(0), 1, Int::plus)
+            }
+        }
+        count(Telephony.Sms.CONTENT_URI, "${Telephony.Sms.READ} = 0 AND ${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_INBOX}")
+        count(Telephony.Mms.CONTENT_URI, "${Telephony.Mms.READ} = 0 AND ${Telephony.Mms.MESSAGE_BOX} = ${Telephony.Mms.MESSAGE_BOX_INBOX}")
+        return counts
     }
 
     /** SMS and MMS rows matching [selection] (which may only use thread_id and read), newest first. */

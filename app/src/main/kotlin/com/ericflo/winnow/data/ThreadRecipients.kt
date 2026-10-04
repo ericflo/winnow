@@ -7,6 +7,9 @@ import android.provider.Telephony
 /** The threads table without the platform's expensive snippet joins. */
 internal val THREADS_SIMPLE: Uri = Telephony.Threads.CONTENT_URI.buildUpon().appendQueryParameter("simple", "true").build()
 
+/** The newest message of each thread, SMS and MMS together, one row per thread. */
+internal val MMS_SMS_CONVERSATIONS: Uri = Telephony.MmsSms.CONTENT_CONVERSATIONS_URI
+
 private val CANONICAL_ADDRESSES: Uri = Uri.parse("content://mms-sms/canonical-addresses")
 
 /** thread id → participant addresses, from the threads table and canonical addresses. */
