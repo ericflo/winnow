@@ -194,6 +194,14 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     },
                 )
             }
+            item("delete-codes") {
+                SwitchRow(
+                    "Delete verification codes after a day",
+                    "One-time codes from services, not people, are deleted 24 hours after they arrive. Starred codes are kept.",
+                    s.deleteOldCodes,
+                    onChange = viewModel::setDeleteOldCodes,
+                )
+            }
             item("blocked") {
                 ListItem(
                     headlineContent = { Text("Blocked numbers") },

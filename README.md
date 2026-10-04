@@ -65,7 +65,9 @@ messages can't be tapped.
   the message they react to. Failed sends and MMS downloads can be retried. SMS delivery
   reports are opt-in.
 - **Conversations:** pin, archive, mute, mark read/unread, delete, block (Android's system
-  block list), name a group (just for you), and multi-select. Swipe to archive in the inbox, to mark not spam in Filtered,
+  block list), name a group (just for you), an **Unread** filter, and multi-select.
+  Optionally, one-time codes from services are deleted a day after they arrive. That's off by
+  default, never applies to texts from people, and keeps starred codes. Swipe to archive in the inbox, to mark not spam in Filtered,
   or to unarchive in Archived. Full-text search covers SMS and MMS, and each conversation can be searched on its own,
   with matches highlighted. Settings links to Android's blocked-numbers list.
 - **Composing:** New chat with your contacts and Create group, photos from the gallery or the

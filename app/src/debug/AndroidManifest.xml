@@ -14,6 +14,10 @@
             android:exported="true"
             android:permission="android.permission.DUMP" />
         <receiver
+            android:name=".debug.DebugCodesReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+        <receiver
             android:name=".debug.DebugSimReceiver"
             android:exported="true"
             android:permission="android.permission.DUMP" />

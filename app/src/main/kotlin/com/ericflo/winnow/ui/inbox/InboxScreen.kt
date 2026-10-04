@@ -1,5 +1,6 @@
 package com.ericflo.winnow.ui.inbox
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -47,6 +48,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -179,6 +181,19 @@ fun InboxScreen(
                         }
                         item("review") {
                             ReviewInboxCard(state.review, state.classifier, onStart = viewModel::startReview, onDismiss = viewModel::dismissReview)
+                        }
+                        // Only worth offering when there's something unread (or the filter is on).
+                        if (state.unreadConversations > 0 || state.unreadOnly) {
+                            item("filters") {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                                    FilterChip(selected = !state.unreadOnly, onClick = { viewModel.setUnreadOnly(false) }, label = { Text("All") })
+                                    FilterChip(
+                                        selected = state.unreadOnly,
+                                        onClick = { viewModel.setUnreadOnly(!state.unreadOnly) },
+                                        label = { Text(if (state.unreadConversations > 0) "Unread · ${state.unreadConversations}" else "Unread") },
+                                    )
+                                }
+                            }
                         }
                     } else if (state.query.isNotBlank() && state.conversations.isNotEmpty()) {
                         item("h-conversations") { SectionHeader("Conversations") }

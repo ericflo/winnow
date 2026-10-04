@@ -87,6 +87,12 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setUndoSend(seconds: Int) = update { it.copy(undoSendSeconds = seconds) }
 
+    fun setDeleteOldCodes(value: Boolean) {
+        update { it.copy(deleteOldCodes = value) }
+        // Tidy up right away rather than waiting for the next launch.
+        if (value) viewModelScope.launch { container.codeCleaner.clean() }
+    }
+
     /** App lock needs a screen lock to check against. */
     fun deviceIsSecure(): Boolean = container.deviceIsSecure()
 

@@ -77,6 +77,8 @@ data class WinnowSettings(
     val decideOnPhoneWhenSure: Boolean = false,
     /** Ask for a fingerprint, face or the screen lock to open Winnow. */
     val appLock: Boolean = false,
+    /** Delete one-time codes from services a day after they arrive. Off unless the user turns it on. */
+    val deleteOldCodes: Boolean = false,
     /** Seconds to hold a sent message so it can be undone; 0 sends at once. */
     val undoSendSeconds: Int = 0,
     /** Keep new-message notifications off the lock screen. */
@@ -143,6 +145,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             appLock = this[APP_LOCK] ?: false,
             hideOnLockScreen = this[HIDE_ON_LOCK_SCREEN] ?: false,
             undoSendSeconds = this[UNDO_SEND_SECONDS] ?: 0,
+            deleteOldCodes = this[DELETE_OLD_CODES] ?: false,
             deliveryReports = this[DELIVERY_REPORTS] ?: false,
             reviewPromptDismissed = this[REVIEW_DISMISSED] ?: false,
             onboarded = this[ONBOARDED] ?: false,
@@ -172,6 +175,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[APP_LOCK] = s.appLock
         this[HIDE_ON_LOCK_SCREEN] = s.hideOnLockScreen
         this[UNDO_SEND_SECONDS] = s.undoSendSeconds
+        this[DELETE_OLD_CODES] = s.deleteOldCodes
         this[DELIVERY_REPORTS] = s.deliveryReports
         this[REVIEW_DISMISSED] = s.reviewPromptDismissed
         this[ONBOARDED] = s.onboarded
@@ -192,6 +196,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val APP_LOCK = booleanPreferencesKey("security.app_lock")
         val HIDE_ON_LOCK_SCREEN = booleanPreferencesKey("security.hide_on_lock_screen")
         val UNDO_SEND_SECONDS = intPreferencesKey("compose.undo_send_seconds")
+        val DELETE_OLD_CODES = booleanPreferencesKey("messages.delete_old_codes")
         val DELIVERY_REPORTS = booleanPreferencesKey("sms.delivery_reports")
         val REVIEW_DISMISSED = booleanPreferencesKey("review.prompt_dismissed")
         val ONBOARDED = booleanPreferencesKey("onboarding.done")

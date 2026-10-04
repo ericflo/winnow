@@ -31,6 +31,7 @@ import com.ericflo.winnow.data.SwitchingMessageRepository
 import com.ericflo.winnow.data.TelephonyMessageRepository
 import com.ericflo.winnow.data.db.WinnowDatabase
 import com.ericflo.winnow.notify.Notifier
+import com.ericflo.winnow.sms.CodeCleaner
 import com.ericflo.winnow.sms.MessageScheduler
 import com.ericflo.winnow.sms.MmsFiles
 import com.ericflo.winnow.sms.MmsReceiver
@@ -77,6 +78,7 @@ class AppContainer(private val context: Context) {
     val smsSender by lazy { SmsSender(context, { settings.current().deliveryReports }, sims::forSending) }
 
     val sharedFiles by lazy { SharedFiles(context) }
+    val codeCleaner by lazy { CodeCleaner(context, verdictDao, starredDao) { isDefaultSmsApp() && settings.current().deleteOldCodes } }
 
     /** Process-wide, so rotating the screen or reopening the activity doesn't re-lock. */
     val appLock = AppLock().also { lock ->
