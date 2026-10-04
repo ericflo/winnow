@@ -143,6 +143,20 @@ class TelephonyMessageRepository(
         }
     }
 
+    override suspend fun unreadIncoming(threadId: Long): List<String> = withContext(Dispatchers.IO) {
+        val args = arrayOf(threadId.toString())
+        val unread = mutableListOf<Pair<Long, String>>()
+        resolver.query(
+            Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms._ID, Telephony.Sms.DATE),
+            "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.READ} = 0 AND ${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_INBOX}", args, null,
+        )?.use { c -> while (c.moveToNext()) unread += c.getLong(1) to ChatMessage.messageKey(Kind.SMS, c.getLong(0)) }
+        resolver.query(
+            Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.DATE),
+            "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms.READ} = 0 AND ${Telephony.Mms.MESSAGE_BOX} = ${Telephony.Mms.MESSAGE_BOX_INBOX}", args, null,
+        )?.use { c -> while (c.moveToNext()) unread += c.getLong(1) * 1000 to ChatMessage.messageKey(Kind.MMS, c.getLong(0)) }
+        unread.sortedBy { it.first }.map { it.second }
+    }
+
     override suspend fun markRead(threadId: Long) =
         setRead("${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.READ} = 0", arrayOf(threadId.toString()))
 

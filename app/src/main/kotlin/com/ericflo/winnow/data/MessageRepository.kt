@@ -44,6 +44,9 @@ interface MessageRepository {
 
     suspend fun markRead(threadId: Long)
 
+    /** Keys of the thread's unread incoming messages, oldest first: where "new messages" begin. */
+    suspend fun unreadIncoming(threadId: Long): List<String> = emptyList()
+
     suspend fun markUnread(threadId: Long)
 
     suspend fun markAllRead()
@@ -97,6 +100,7 @@ class SwitchingMessageRepository(
     override suspend fun messagesByKey(keys: Collection<String>) = current.messagesByKey(keys)
     override suspend fun retry(message: ChatMessage) = current.retry(message)
     override suspend fun markRead(threadId: Long) = current.markRead(threadId)
+    override suspend fun unreadIncoming(threadId: Long) = current.unreadIncoming(threadId)
     override suspend fun markUnread(threadId: Long) = current.markUnread(threadId)
     override suspend fun markAllRead() = current.markAllRead()
     override suspend fun deleteThreads(threadIds: Collection<Long>) = current.deleteThreads(threadIds)

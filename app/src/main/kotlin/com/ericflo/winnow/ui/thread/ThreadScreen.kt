@@ -164,6 +164,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.semantics.selected
 import com.ericflo.winnow.ui.components.MuteDialog
 import com.ericflo.winnow.ui.components.mutedLabel
+import androidx.compose.material3.HorizontalDivider
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -184,6 +185,7 @@ fun ThreadScreen(
     val blocked by viewModel.blocked.collectAsStateWithLifecycle()
     val scheduled by viewModel.scheduled.collectAsStateWithLifecycle()
     val textScale by viewModel.textScale.collectAsStateWithLifecycle()
+    val unreadOnOpen by viewModel.unreadOnOpen.collectAsStateWithLifecycle()
     var confirmBlock by remember { mutableStateOf(false) }
     var confirmReport by remember { mutableStateOf(false) }
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
@@ -436,6 +438,7 @@ fun ThreadScreen(
                 highlight = query.trim().takeIf { searching && it.length >= 2 },
                 focusKey = focusKey.takeIf { searching },
                 onMessageNumber = onMessageNumber,
+                unreadOnOpen = unreadOnOpen,
                 selected = selected,
                 onToggleSelected = { m -> selected = if (m.key in selected) selected - m.key else selected + m.key },
                 textScale = textScale,
@@ -623,6 +626,11 @@ private sealed interface ListItem {
     }
 
     data class Header(val label: String, override val key: String) : ListItem
+
+    /** "3 new messages": where the unread part began when the conversation was opened. */
+    data class NewMessages(val count: Int) : ListItem {
+        override val key get() = "new-messages"
+    }
     data class Bubble(
         val message: ChatMessage,
         val firstInGroup: Boolean,
@@ -680,7 +688,7 @@ private const val BLOCK_GAP_MILLIS = 60 * 60_000L
 private const val GROUP_GAP_MILLIS = 5 * 60_000L
 
 /** Transport line, time headers and grouped bubbles. Newest first, for a reversed list. */
-private fun buildItems(transport: String, messages: List<ChatMessage>): List<ListItem> {
+private fun buildItems(transport: String, messages: List<ChatMessage>, unreadOnOpen: List<String> = emptyList()): List<ListItem> {
     fun day(t: Long) = Instant.ofEpochMilli(t).atZone(ZoneId.systemDefault()).toLocalDate()
     fun newBlock(prev: ChatMessage?, m: ChatMessage) =
         prev == null || m.timestamp - prev.timestamp > BLOCK_GAP_MILLIS || day(prev.timestamp) != day(m.timestamp)
@@ -693,6 +701,8 @@ private fun buildItems(transport: String, messages: List<ChatMessage>): List<Lis
     shown.forEachIndexed { i, m ->
         val prev = shown.getOrNull(i - 1)
         val next = shown.getOrNull(i + 1)
+        // Above the first message that was unread on opening, and above its time header if it has one.
+        if (m.key == unreadOnOpen.firstOrNull()) items += ListItem.NewMessages(unreadOnOpen.size)
         if (newBlock(prev, m)) items += ListItem.Header(headerLabel(m.timestamp), "h-${m.key}")
         items += ListItem.Bubble(m, firstInGroup = !grouped(prev, m), lastInGroup = !grouped(m, next), reactions = reactions[m.key].orEmpty())
     }
@@ -715,6 +725,7 @@ private fun MessageList(
     highlight: String? = null,
     focusKey: String? = null,
     onMessageNumber: (String) -> Unit = {},
+    unreadOnOpen: List<String> = emptyList(),
     selected: Set<String> = emptySet(),
     onToggleSelected: (ChatMessage) -> Unit = {},
     textScale: Float = 1f,
@@ -727,7 +738,7 @@ private fun MessageList(
     val saveScale by rememberUpdatedState(onTextScale)
     val transport = if (state.isGroup) "Group texting with ${state.recipients.size} people (MMS)"
     else "Texting with ${ContactLookup.formatAddress(state.recipients.firstOrNull().orEmpty())} (SMS/MMS)"
-    val items = remember(transport, state.messages) { buildItems(transport, state.messages) }
+    val items = remember(transport, state.messages, unreadOnOpen) { buildItems(transport, state.messages, unreadOnOpen) }
     val latestOutgoing = state.messages.lastOrNull { it.outgoing }?.key
     var revealed by rememberSaveable { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
@@ -743,6 +754,16 @@ private fun MessageList(
         shownNewest = newestKey
         if (newestKey == null || focusKey != null) return@LaunchedEffect
         if (previous == null || listState.layoutInfo.visibleItemsInfo.any { it.key == previous }) listState.animateScrollToItem(0)
+    }
+    // Opening onto more new messages than fit on screen starts at the first of them, not the last.
+    var jumpedToNew by remember { mutableStateOf(false) }
+    LaunchedEffect(unreadOnOpen, items) {
+        if (jumpedToNew || unreadOnOpen.size < NEW_MESSAGES_JUMP) return@LaunchedEffect
+        val index = items.indexOfFirst { it is ListItem.NewMessages }
+        if (index < 0) return@LaunchedEffect
+        jumpedToNew = true
+        // Reversed list: the divider lands near the top, the new messages below it.
+        listState.scrollToItem(scheduled.size + index, -listState.layoutInfo.viewportSize.height * 2 / 3)
     }
     LaunchedEffect(focusKey) {
         val index = items.indexOfFirst { it.key == focusKey }
@@ -774,6 +795,7 @@ private fun MessageList(
             when (item) {
                 is ListItem.Transport -> CenteredNote(item.text, Modifier.padding(vertical = 4.dp))
                 is ListItem.Header -> CenteredNote(item.label, Modifier.padding(top = 20.dp, bottom = 8.dp))
+                is ListItem.NewMessages -> NewMessagesDivider(item.count)
                 is ListItem.Bubble -> {
                     // While selecting, every tap on a message selects or deselects it.
                     val selecting = selected.isNotEmpty()
@@ -833,6 +855,24 @@ private fun Modifier.pinchToZoom(onZoom: (Float) -> Unit, onEnd: () -> Unit): Mo
         if (zoomed) onEnd()
     }
 }
+
+@Composable
+private fun NewMessagesDivider(count: Int) {
+    val color = MaterialTheme.colorScheme.primary
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp)) {
+        HorizontalDivider(Modifier.weight(1f), color = color.copy(alpha = 0.5f))
+        Text(
+            if (count == 1) "1 new message" else "$count new messages",
+            style = MaterialTheme.typography.labelMedium,
+            color = color,
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
+        HorizontalDivider(Modifier.weight(1f), color = color.copy(alpha = 0.5f))
+    }
+}
+
+/** At least this many new messages on opening, and the conversation starts at the first of them. */
+private const val NEW_MESSAGES_JUMP = 6
 
 @Composable
 private fun CenteredNote(text: String, modifier: Modifier = Modifier) {

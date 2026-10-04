@@ -106,6 +106,10 @@ class ThreadViewModel(
         viewModelScope.launch { container.settings.update { it.copy(textScale = TextScale.clamp(value)) } }
     }
 
+    private val _unreadOnOpen = MutableStateFlow<List<String>>(emptyList())
+    /** The messages that were unread when the conversation opened, oldest first. */
+    val unreadOnOpen: StateFlow<List<String>> = _unreadOnOpen.asStateFlow()
+
     private val _sims = MutableStateFlow<List<SimCard>>(emptyList())
     /** The phone's SIMs when there are two or more to choose from; empty otherwise. */
     val sims: StateFlow<List<SimCard>> = _sims.asStateFlow()
@@ -125,6 +129,8 @@ class ThreadViewModel(
         viewModelScope.launch {
             if (threadId.value < 0) threadId.value = repo.threadIdFor(recipients)
             val id = threadId.value
+            // Read before marking read: where this visit's "new messages" begin.
+            if (id >= 0) _unreadOnOpen.value = runCatching { repo.unreadIncoming(id) }.getOrDefault(emptyList())
             repo.markRead(id)
             if (!inBubble) container.notifier.cancel(id)
             _sims.value = container.sims.available().takeIf { it.size >= 2 }.orEmpty()
@@ -240,6 +246,8 @@ class ThreadViewModel(
     private var pendingJob: Job? = null
 
     fun send() {
+        // Replying means the new messages have been read; the divider has done its job.
+        _unreadOnOpen.value = emptyList()
         val text = _draft.value.trim()
         val files = _attachments.value
         if (text.isEmpty() && files.isEmpty() || _pending.value != null) return
