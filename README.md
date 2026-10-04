@@ -137,6 +137,18 @@ messages can't be tapped.
     <td align="center"><sub>Starred messages</sub></td>
     <td align="center"><sub>Chat bubbles</sub></td>
   </tr>
+  <tr>
+    <td><img src="docs/screenshots/contact-card.png" width="200" alt="A shared contact card"></td>
+    <td><img src="docs/screenshots/photo-viewer.png" width="200" alt="Photo viewer with Share and Save"></td>
+    <td><img src="docs/screenshots/details-media.png" width="200" alt="Details with photos and per-conversation sound"></td>
+    <td><img src="docs/screenshots/display-settings.png" width="200" alt="Display settings: theme, text size, swipes"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Contact cards: add or message</sub></td>
+    <td align="center"><sub>Photos: swipe, zoom, save, share</sub></td>
+    <td align="center"><sub>Photos &amp; videos, conversation sound</sub></td>
+    <td align="center"><sub>Theme, text size, swipe actions</sub></td>
+  </tr>
 </table>
 
 The UI follows Google Messages: a large-title inbox on a rounded sheet, an avatar menu,

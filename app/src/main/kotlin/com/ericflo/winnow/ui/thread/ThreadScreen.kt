@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -590,6 +591,9 @@ private fun foldTapbacks(messages: List<ChatMessage>): Pair<List<ChatMessage>, M
     return shown to labels
 }
 
+/** Photo shapes already measured, so a bubble scrolled back into view doesn't jump from 4:3. */
+private val photoRatios = android.util.LruCache<String, Float>(512)
+
 /** A header opens every block of messages more than an hour after the previous one, like Messages. */
 private const val BLOCK_GAP_MILLIS = 60 * 60_000L
 
@@ -803,14 +807,23 @@ private fun MessageBubble(
                     } else if (attachment.isVideo) {
                         VideoAttachment(attachment.uri, attachment.name, onOpen = { onViewVideo(attachment.uri) })
                     } else if (attachment.isImage) {
+                        // Drawn in the photo's own shape, up to 260 x 320 dp; 4:3 until it has loaded once.
+                        var ratio by remember(attachment.uri) { mutableFloatStateOf(photoRatios[attachment.uri] ?: (4f / 3f)) }
                         AsyncImage(
                             model = attachment.uri,
                             contentDescription = attachment.name ?: "Image",
                             contentScale = ContentScale.Crop,
+                            onSuccess = { loaded ->
+                                val image = loaded.result.image
+                                if (image.width > 0 && image.height > 0) {
+                                    ratio = (image.width.toFloat() / image.height).coerceIn(0.5f, 2.5f)
+                                    photoRatios.put(attachment.uri, ratio)
+                                }
+                            },
                             onError = { Log.w("WinnowImage", "Couldn't load ${attachment.uri}", it.result.throwable) },
                             modifier = Modifier
-                                .widthIn(max = 260.dp)
-                                .heightIn(max = 320.dp)
+                                .width(minOf(260f, 320f * ratio).dp)
+                                .aspectRatio(ratio)
                                 .clip(RoundedCornerShape(18.dp))
                                 .combinedClickable(onClick = { onViewImage(attachment.uri) }, onLongClick = onLongClick),
                         )
