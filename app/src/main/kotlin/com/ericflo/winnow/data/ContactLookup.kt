@@ -31,13 +31,7 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
     private data class Info(val name: String, val photoUri: String?)
 
     init {
-        // Where the phone is, for showing numbers: the SIM's country, else the network's, else the
-        // language setting's (an English (UK) phone in Ohio is still in the US).
-        val telephony = context.getSystemService(android.telephony.TelephonyManager::class.java)
-        homeCountry = listOfNotNull(
-            runCatching { telephony?.simCountryIso }.getOrNull(),
-            runCatching { telephony?.networkCountryIso }.getOrNull(),
-        ).firstOrNull { it.isNotBlank() }?.uppercase()
+        appContext = context.applicationContext
     }
 
     // NOT_FOUND caches "not a contact" so unknown senders aren't looked up on every frame.
@@ -157,6 +151,7 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
 
     companion object {
         private val NOT_FOUND = Info("", null)
+        private const val COUNTRY_RETRY_MILLIS = 60_000L
         private const val SETTLE_MILLIS = 500L
 
         /**
@@ -177,12 +172,32 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
         /** A full phone number (7+ digits), not a short code, email or alphanumeric sender. */
         fun isPersonalNumber(address: String): Boolean = numberKey(address)?.startsWith("short:") == false
 
-        /** Set from the SIM (see init); the language setting's country until then, or without a SIM. */
+        @Volatile private var appContext: Context? = null
         @Volatile private var homeCountry: String? = null
+        @Volatile private var checkedAt = 0L
+
+        /**
+         * Where the phone is, for showing numbers: the SIM's country, else the network's, else the
+         * language setting's (an English (UK) phone in Ohio is still in the US). Asked once it's
+         * known; until then (a locked SIM, no SIM) at most once a minute.
+         */
+        private fun country(): String {
+            homeCountry?.let { return it }
+            val now = System.currentTimeMillis()
+            val context = appContext
+            if (context != null && now - checkedAt > COUNTRY_RETRY_MILLIS) {
+                checkedAt = now
+                val telephony = runCatching { context.getSystemService(android.telephony.TelephonyManager::class.java) }.getOrNull()
+                val sim = runCatching { telephony?.simCountryIso }.getOrNull()?.takeIf { it.isNotBlank() }
+                homeCountry = (sim ?: runCatching { telephony?.networkCountryIso }.getOrNull()?.takeIf { it.isNotBlank() })?.uppercase()
+                homeCountry?.let { return it }
+            }
+            return Locale.getDefault().country.uppercase()
+        }
 
         fun formatAddress(address: String): String {
             if (address.any(Char::isLetter)) return address
-            val country = (homeCountry ?: Locale.getDefault().country).uppercase()
+            val country = country()
             // A home-country number reads the same however the carrier wrote it: "+14155550177"
             // and "4155550177" both as (415) 555-0177, as in Messages.
             return PhoneNumberUtils.formatNumber(nationalForm(address, country) ?: address, country) ?: address

@@ -193,12 +193,7 @@ class ConversationDetailsViewModel(
         DetailsUiState(
             title = s?.title ?: displayNameFor(recipients, repo::displayName),
             groupName = s?.title,
-            people = recipients.map { address ->
-                val name = repo.displayName(address)
-                val number = ContactLookup.formatAddress(address)
-                // Asked, not inferred from the name: a contact saved without one shows its number.
-                DetailsUiState.Person(address, name, number, repo.photoUri(address), isContact = repo.contactName(address) != null)
-            },
+            people = people(),
             muted = s?.isMuted() == true,
             mutedUntil = s?.takeIf { it.isMuted() }?.mutedUntil,
             pinned = s?.pinned == true,
@@ -211,7 +206,15 @@ class ConversationDetailsViewModel(
     }
         // Contact lookups can hit the disk (the whole list, after a change).
         .flowOn(Dispatchers.IO)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DetailsUiState(displayNameFor(recipients, repo::displayName)))
+        // The people from the start, so a group's header doesn't flash the group glyph (or a 1:1's).
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DetailsUiState(displayNameFor(recipients, repo::displayName), people = people()))
+
+    private fun people() = recipients.map { address ->
+        val name = repo.displayName(address)
+        val number = ContactLookup.formatAddress(address)
+        // Asked, not inferred from the name: a contact saved without one shows its number.
+        DetailsUiState.Person(address, name, number, repo.photoUri(address), isContact = repo.contactName(address) != null)
+    }
 
     fun setMuted(value: Boolean, until: Long? = null) = launch { container.conversationStates.setMuted(threadId, value, until) }
 

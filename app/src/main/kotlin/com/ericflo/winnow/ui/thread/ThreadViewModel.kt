@@ -103,6 +103,10 @@ class ThreadViewModel(
     /** Whether contacts can be read, so "not a contact" means something. */
     fun canReadContacts(): Boolean = container.contacts.canRead()
 
+    /** For a group, two of its people, for its avatar (cached lookups, as the title's). */
+    private fun membersOf(): List<Member> =
+        if (recipients.size > 1) recipients.take(2).map { Member(it, repo.displayName(it), repo.photoUri(it)) } else emptyList()
+
     private fun subtitleFor(title: String) = when {
         recipients.size > 1 -> "${recipients.size + 1} people"
         else -> recipients.singleOrNull()?.let(ContactLookup::formatAddress)?.takeIf { it != title }
@@ -268,8 +272,8 @@ class ThreadViewModel(
                     muted = s?.isMuted() == true,
                     mutedUntil = s?.takeIf { it.isMuted() }?.mutedUntil,
                     archived = s?.archived == true,
+                    members = membersOf(),
                     // A real number with no name: short codes and alphanumeric senders aren't people to add.
-                    members = if (recipients.size > 1) recipients.take(2).map { Member(it, repo.displayName(it), repo.photoUri(it)) } else emptyList(),
                     addableContact = single?.takeIf {
                         container.contacts.canRead() && repo.contactName(it) == null && ContactLookup.isPersonalNumber(it)
                     },
@@ -278,7 +282,7 @@ class ThreadViewModel(
         }
         // Contact lookups can hit the disk (the whole list, after a change).
         .flowOn(Dispatchers.IO)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThreadUiState(title, subtitle, recipients))
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThreadUiState(title, subtitle, recipients, members = membersOf()))
 
     /**
      * Whose links may be previewed here (normalized addresses), or null when the setting is off.

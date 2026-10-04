@@ -64,6 +64,12 @@ class DailySummary(
             return
         }
         val now = System.currentTimeMillis()
+        // Saved a little in the future (the clock was set back): that's "just now" from here on,
+        // or once the clock passes it the next summary would look too soon and skip a day.
+        if (current.dailySummaryLastAt > now && current.dailySummaryLastAt - now <= FUTURE_TOLERANCE_MILLIS) {
+            runCatching { settings.update { it.copy(dailySummaryLastAt = now) } }
+            firedAt = minOf(firedAt, now)
+        }
         val tonight = evening(LocalDate.now(ZoneId.systemDefault()))
         // Not due if one went out lately (before a time-zone change, say): then tomorrow, or this
         // would fire, skip and re-arm for "now" again and again.

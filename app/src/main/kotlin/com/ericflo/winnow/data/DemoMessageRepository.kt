@@ -29,6 +29,7 @@ class DemoMessageRepository(private val packageName: String) : MessageRepository
                 threadId = t.threadId,
                 recipients = t.recipients,
                 displayName = displayNameFor(t.recipients, ::displayName),
+                members = if (t.recipients.size > 1) t.recipients.take(2).map { Member(it, displayName(it), null) } else emptyList(),
                 snippet = if (last.outgoing) "You: $text" else text,
                 timestamp = last.timestamp,
                 unreadCount = t.unreadCount,

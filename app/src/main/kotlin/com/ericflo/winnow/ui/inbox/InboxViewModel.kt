@@ -291,7 +291,15 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         if (displayName.contains(q, ignoreCase = true) || snippet.contains(q, ignoreCase = true) || recipients.any { it.contains(q) }) return true
         // A number typed any way ("415-555", "(415) 555", "+1 415") finds it however it's written or shown.
         val digits = q.filter(Char::isDigit)
-        val numeric = digits.length >= 3 && q.all { it.isDigit() || it in " +-().".toSet() }
-        return numeric && recipients.any { r -> r.filter(Char::isDigit).let { it.contains(digits) || ("1$it").contains(digits) } }
+        val numeric = digits.length >= 3 && q.all { it.isDigit() || it in NUMBER_PUNCTUATION }
+        return numeric && recipients.any { r ->
+            val number = r.filter(Char::isDigit)
+            // "+1 415…" typed against a number stored as 4155550177.
+            number.contains(digits) || (digits.startsWith('1') && number.length == 10 && "1$number".startsWith(digits))
+        }
+    }
+
+    private companion object {
+        val NUMBER_PUNCTUATION = setOf(' ', '+', '-', '(', ')', '.')
     }
 }

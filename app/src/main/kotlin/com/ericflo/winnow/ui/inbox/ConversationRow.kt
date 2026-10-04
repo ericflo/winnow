@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -52,7 +53,10 @@ fun ConversationRow(
     /** The conversation open in the other pane of a two-pane layout. */
     highlighted: Boolean = false,
     onLongClick: (() -> Unit)? = null,
-    leading: @Composable () -> Unit = { ConversationAvatar(conversation) },
+    // A group's front face is ringed in the row's own color: a highlighted row's isn't the surface.
+    leading: @Composable () -> Unit = {
+        ConversationAvatar(conversation, ring = if (highlighted) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surface)
+    },
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val unread = conversation.unread
@@ -142,9 +146,9 @@ private fun StatusIcon(icon: Int, description: String) {
 
 /** A person's avatar, or two of a group's people for group conversations. */
 @Composable
-fun ConversationAvatar(conversation: ConversationSummary, size: Dp = 52.dp) {
+fun ConversationAvatar(conversation: ConversationSummary, size: Dp = 52.dp, ring: Color = MaterialTheme.colorScheme.surface) {
     if (conversation.isGroup) {
-        GroupAvatar(conversation.members, size)
+        GroupAvatar(conversation.members, size, ring = ring)
     } else {
         Avatar(conversation.displayName, seed = conversation.address, size = size, photoUri = conversation.photoUri)
     }
