@@ -115,9 +115,10 @@ messages can't be tapped.
   app? **Import from SMS Backup & Restore** reads that app's .xml backup, texts and picture
   messages included, and adds whatever isn't on the phone yet. Leaving? **Export for other
   apps** writes the same format, which most texting apps can import.
-- **Big screens:** on a tablet, an unfolded foldable or a wide window, the conversation list
-  and the open conversation sit side by side. **Enter sends** (optional) makes a keyboard's
-  Enter send; Shift+Enter still starts a new line.
+- **Big screens:** on a tablet, an unfolded foldable or a big window, the conversation list
+  and the open conversation sit side by side, and the open one rides out rotation and resizing
+  (narrowed, it carries on full size). A phone on its side keeps one pane. **Enter sends**
+  (optional) makes a keyboard's Enter send; Shift+Enter still starts a new line.
 - **Display:** light, dark or the system theme, and a message text size. Pinch a
   conversation to zoom its text; it snaps back to normal near 100%.
 - **Getting started:** onboarding explains the RCS trade-off before it asks to become your
