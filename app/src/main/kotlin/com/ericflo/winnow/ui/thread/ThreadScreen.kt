@@ -151,6 +151,10 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import com.ericflo.winnow.data.TextScale
 import com.ericflo.winnow.ui.components.scaled
+import com.ericflo.winnow.data.attachmentSummary
+import com.ericflo.winnow.data.VCard
+import com.ericflo.winnow.ui.components.ContactCardAttachment
+import androidx.compose.material.icons.filled.Person
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -161,6 +165,8 @@ fun ThreadScreen(
     /** Opens a conversation with the carrier's spam-reporting short code, pre-filled. */
     onReportSpam: (String) -> Unit,
     onOpenDetails: (threadId: Long) -> Unit,
+    /** Opens a conversation with a number, from a shared contact card. */
+    onMessageNumber: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
@@ -200,6 +206,9 @@ fun ThreadScreen(
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewModel.addAttachment(OutgoingAttachment(uri.toString(), context.contentResolver.getType(uri) ?: "image/jpeg", null))
+    }
+    val contactPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickContact()) { uri ->
+        if (uri != null) viewModel.attachContact(uri)
     }
     // The camera app writes into a file of ours, so nothing depends on its permissions later.
     var cameraTarget by rememberSaveable { mutableStateOf<String?>(null) }
@@ -334,6 +343,7 @@ fun ThreadScreen(
                     cameraTarget = android.net.Uri.fromFile(file).toString()
                     runCatching { camera.launch(uri) }.onFailure { cameraTarget = null }
                 },
+                onContact = { runCatching { contactPicker.launch(null) } },
                 onRemoveAttachment = viewModel::removeAttachment,
                 isSms = single != null && attachments.isEmpty(),
                 onSend = viewModel::send,
@@ -362,6 +372,7 @@ fun ThreadScreen(
                 onCopyCode = { copy(it, "Code copied") },
                 highlight = query.trim().takeIf { searching && it.length >= 2 },
                 focusKey = focusKey.takeIf { searching },
+                onMessageNumber = onMessageNumber,
                 textScale = textScale,
                 onTextScale = viewModel::setTextScale,
                 modifier = Modifier.weight(1f),
@@ -584,6 +595,7 @@ private fun MessageList(
     onCopyCode: (String) -> Unit,
     highlight: String? = null,
     focusKey: String? = null,
+    onMessageNumber: (String) -> Unit = {},
     textScale: Float = 1f,
     onTextScale: (Float) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -598,6 +610,13 @@ private fun MessageList(
     val latestOutgoing = state.messages.lastOrNull { it.outgoing }?.key
     var revealed by rememberSaveable { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
+    // A message arriving (or sent) while the newest ones are in view scrolls up into view. A
+    // lazy list otherwise keeps the item that was at the bottom in place, leaving the new one
+    // just below the edge. Someone reading further up is left where they are.
+    val newestKey = items.firstOrNull()?.key
+    LaunchedEffect(newestKey) {
+        if (newestKey != null && focusKey == null && listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
+    }
     LaunchedEffect(focusKey) {
         val index = items.indexOfFirst { it.key == focusKey }
         // Reversed list: a negative offset lifts the match off the composer, a third of the way up.
@@ -643,6 +662,7 @@ private fun MessageList(
                     onViewVideo = onViewVideo,
                     highlight = highlight,
                     focused = item.key == focusKey,
+                    onMessageNumber = onMessageNumber,
                     textScale = liveScale,
                 )
             }
@@ -702,6 +722,7 @@ private fun MessageBubble(
     onViewVideo: (String) -> Unit,
     highlight: String? = null,
     focused: Boolean = false,
+    onMessageNumber: (String) -> Unit = {},
     textScale: Float = 1f,
 ) {
     val m = item.message
@@ -739,7 +760,9 @@ private fun MessageBubble(
                 modifier = Modifier.fillMaxWidth(if (showAvatarColumn) 0.85f else 0.8f),
             ) {
                 m.attachments.forEach { attachment ->
-                    if (attachment.isAudio) {
+                    if (VCard.isVCard(attachment.contentType)) {
+                        ContactCardAttachment(attachment.uri, outgoing = m.outgoing, onMessage = onMessageNumber, onLongClick = onLongClick)
+                    } else if (attachment.isAudio) {
                         AudioAttachment(attachment.uri, audio, outgoing = m.outgoing)
                     } else if (attachment.isVideo) {
                         VideoAttachment(attachment.uri, attachment.name, onOpen = { onViewVideo(attachment.uri) })
@@ -986,6 +1009,7 @@ private fun Composer(
     attachments: List<OutgoingAttachment>,
     onAttach: () -> Unit,
     onCamera: () -> Unit,
+    onContact: () -> Unit,
     onRemoveAttachment: (OutgoingAttachment) -> Unit,
     isSms: Boolean,
     onSend: () -> Unit,
@@ -1020,7 +1044,7 @@ private fun Composer(
         Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)) {
             Surface(shape = RoundedCornerShape(28.dp), color = colors.surfaceContainerHigh, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 16.dp)) {
-                    AttachMenu(onGallery = onAttach, onCamera = onCamera)
+                    AttachMenu(onGallery = onAttach, onCamera = onCamera, onContact = onContact)
                     Box(Modifier.weight(1f).padding(vertical = 16.dp)) {
                         if (draft.isEmpty()) {
                             val kind = if (isSms) "Text message" else "MMS message"
@@ -1053,7 +1077,7 @@ private fun Composer(
 
 /** The composer's "+": a photo from the gallery, or a new one from the camera. */
 @Composable
-private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit) {
+private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit, onContact: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) { Icon(Icons.Outlined.AddCircle, contentDescription = "Attach") }
@@ -1067,6 +1091,11 @@ private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit) {
                 leadingIcon = { Icon(painterResource(R.drawable.ic_camera), contentDescription = null) },
                 text = { Text("Camera") },
                 onClick = { open = false; onCamera() },
+            )
+            DropdownMenuItem(
+                leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
+                text = { Text("Contact") },
+                onClick = { open = false; onContact() },
             )
         }
     }
@@ -1136,7 +1165,7 @@ private fun UndoBar(pending: ThreadViewModel.PendingSend, onUndo: () -> Unit) {
                 Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
                     Text("Sending in $left…", style = MaterialTheme.typography.labelLarge)
                     Text(
-                        pending.text.ifBlank { "Photo" },
+                        pending.text.ifBlank { attachmentSummary(pending.attachments.map { it.contentType }) },
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

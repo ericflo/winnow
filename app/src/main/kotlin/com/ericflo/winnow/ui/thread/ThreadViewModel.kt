@@ -33,6 +33,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 import com.ericflo.winnow.data.TextScale
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 data class ThreadUiState(
     val title: String,
@@ -189,6 +191,12 @@ class ThreadViewModel(
     }
 
     fun newCameraPhoto() = container.sharedFiles.newCameraPhoto()
+
+    /** Attaches a contact from the picker as a vCard. */
+    fun attachContact(contact: android.net.Uri) = launch {
+        val card = withContext(Dispatchers.IO) { container.sharedFiles.contactCard(contact) }
+        if (card != null) addAttachment(card) else _notices.emit("Couldn't read that contact")
+    }
 
     fun removeAttachment(attachment: OutgoingAttachment) {
         _attachments.value = _attachments.value - attachment

@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.cancellation.CancellationException
+import com.ericflo.winnow.data.attachmentSummary
 
 /**
  * Store → classify → act, for each incoming SMS.
@@ -60,8 +61,8 @@ class IncomingMessageHandler(
     }
 
     /** A downloaded MMS, already stored by [com.ericflo.winnow.sms.MmsReceiver]. */
-    suspend fun onMmsStored(uri: Uri, threadId: Long, sender: String, recipients: List<String>, text: String, mediaCount: Int) {
-        val preview = text.ifBlank { if (mediaCount == 1) "Photo" else "$mediaCount attachments" }
+    suspend fun onMmsStored(uri: Uri, threadId: Long, sender: String, recipients: List<String>, text: String, mediaTypes: List<String>) {
+        val preview = text.ifBlank { attachmentSummary(mediaTypes) }
         // A media-only message still gets classified, on what little it says.
         route(uri, ChatMessage.Kind.MMS, threadId, sender, recipients, text.ifBlank { "[photo]" }, preview)
     }

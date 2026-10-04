@@ -24,7 +24,7 @@ class DemoMessageRepository(private val packageName: String) : MessageRepository
     override fun conversations(): Flow<List<ConversationSummary>> = threads.map { list ->
         list.filter { it.messages.isNotEmpty() }.map { t ->
             val last = t.messages.last()
-            val text = Tapback.summarize(last.body).ifBlank { if (last.attachments.any { it.isImage }) "Photo" else "Attachment" }
+            val text = Tapback.summarize(last.body).ifBlank { attachmentSummary(last.attachments.map { it.contentType }) }
             ConversationSummary(
                 threadId = t.threadId,
                 recipients = t.recipients,

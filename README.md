@@ -61,7 +61,8 @@ messages can't be tapped.
 
 - **SMS and MMS:** group conversations threaded correctly, photos in and out (downscaled to
   carrier limits) with a full-screen viewer, and voice messages and videos that play right in
-  the conversation. iPhone tapbacks and SMS reactions are drawn on
+  the conversation. Shared contacts show as cards with **Add contact** and **Message**, and
+  Attach → Contact sends one (its photo left out, so it fits). iPhone tapbacks and SMS reactions are drawn on
   the message they react to. Failed sends and MMS downloads can be retried. SMS delivery
   reports are opt-in.
 - **Conversations:** pin, archive, mute, mark read/unread, delete, block (Android's system
@@ -82,8 +83,8 @@ messages can't be tapped.
   code" for verification codes. Reactions go out as `Loved “…”`, which iPhones show as a
   tapback. **Starred** (in the menu) collects starred messages from every conversation, photos
   included.
-- **Share to Winnow:** text, photos and videos shared from any app open New chat with them
-  attached.
+- **Share to Winnow:** text, photos, videos and contacts shared from any app open New chat
+  with them attached.
 - **Notifications:** Android conversation notifications (Conversations section, priority),
   stacked per thread, with inline **Reply**, **Mark as read** and **Copy code**, and **chat
   bubbles** that float a conversation over other apps.
@@ -287,6 +288,9 @@ builds accept fake MMS through the real receive path, since emulators have no MM
 adb shell am broadcast -n com.ericflo.winnow/.debug.DebugMmsReceiver \
     --es from +14155550181 --es to "+15551234567,+14155550182" --es text "hi" --ez photo true
 ```
+
+`--ez voice true`, `--ez video true` and `--ez contact true` attach a voice memo, a clip or a
+contact card instead of (or as well as) the photo.
 
 `DebugSeedReceiver` writes thousands of synthetic messages, for testing at scale.
 

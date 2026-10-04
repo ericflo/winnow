@@ -204,6 +204,7 @@ fun WinnowNavHost(
                 onForward = { text -> nav.navigate(NewChatRoute(draft = text)) },
                 onReportSpam = { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
                 onOpenDetails = { threadId -> nav.navigate(DetailsRoute(threadId, route.recipients)) },
+                onMessageNumber = { number -> nav.navigate(ThreadRoute(-1, number)) },
             )
         }
         composable<DetailsRoute> { entry ->

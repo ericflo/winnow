@@ -4,6 +4,7 @@ import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.data.ConversationSummary
 import com.ericflo.winnow.data.StoredVerdict
+import com.ericflo.winnow.data.attachmentSummary
 import com.ericflo.winnow.data.db.ConversationStateEntity
 import com.ericflo.winnow.data.displayNameFor
 import com.ericflo.winnow.data.joinAddresses
@@ -60,5 +61,15 @@ class ModelsTest {
         assertTrue(phishing.isFraud)
         assertFalse(phishing.copy(userAction = Action.ALLOW).isFraud)
         assertFalse(StoredVerdict(Category.POLITICAL, 0.98, Action.FILTER, "test").isFraud)
+    }
+
+    @Test
+    fun `attachment-only previews say what's attached`() {
+        assertEquals("Photo", attachmentSummary(listOf("image/jpeg")))
+        assertEquals("Contact", attachmentSummary(listOf("text/x-vcard")))
+        assertEquals("Voice message", attachmentSummary(listOf("audio/amr")))
+        assertEquals("2 photos", attachmentSummary(listOf("image/jpeg", "image/png")))
+        assertEquals("3 attachments", attachmentSummary(listOf("image/jpeg", "video/mp4", "text/vcard")))
+        assertEquals("Attachment", attachmentSummary(listOf("application/pdf")))
     }
 }

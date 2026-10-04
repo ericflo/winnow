@@ -48,6 +48,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.ericflo.winnow.data.attachmentSummary
 
 class StarredViewModel(private val container: AppContainer) : ViewModel() {
     /** Newest star first; null while loading. */
@@ -115,7 +116,7 @@ fun StarredScreen(viewModel: StarredViewModel, onBack: () -> Unit, onOpenThread:
                     headlineContent = {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             if (m.body.isNotBlank() || m.attachments.none { it.isImage }) {
-                                Text(m.body.ifBlank { "Attachment" }, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                Text(m.body.ifBlank { attachmentSummary(m.attachments.map { it.contentType }) }, maxLines = 3, overflow = TextOverflow.Ellipsis)
                             }
                             m.attachments.firstOrNull { it.isImage }?.let { photo ->
                                 AsyncImage(

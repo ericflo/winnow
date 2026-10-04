@@ -122,3 +122,21 @@ fun normalizeAddress(address: String): String {
 fun joinAddresses(addresses: List<String>): String = addresses.joinToString(",")
 
 fun splitAddresses(joined: String): List<String> = joined.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+
+/** A preview for a message with attachments and no text: "Photo", "Contact", "2 videos", "3 attachments". */
+fun attachmentSummary(contentTypes: List<String>): String {
+    fun kind(type: String) = when {
+        type.startsWith("image/") -> "Photo" to "photos"
+        type.startsWith("video/") -> "Video" to "videos"
+        type.startsWith("audio/") -> "Voice message" to "voice messages"
+        VCard.isVCard(type) -> "Contact" to "contacts"
+        else -> "Attachment" to "attachments"
+    }
+    val kinds = contentTypes.map(::kind).distinct()
+    return when {
+        contentTypes.isEmpty() -> "Attachment"
+        contentTypes.size == 1 -> kinds.single().first
+        kinds.size == 1 -> "${contentTypes.size} ${kinds.single().second}"
+        else -> "${contentTypes.size} attachments"
+    }
+}

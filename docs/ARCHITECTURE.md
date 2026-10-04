@@ -248,9 +248,14 @@ don't announce themselves. Outbox and queued texts come back as failed, ready to
 - **Send** (`sms/MmsSender`): SMIL + media + text as m-send-req, via
   `SmsManager.sendMultimediaMessage`. The m-send-conf moves the message to sent or failed.
   Photos are downscaled so the whole message fits about 900 KB.
+- **Contacts:** a vCard part (`text/x-vcard`, `text/vcard`) is drawn as a card
+  (`data/VCard` parses 2.1 through 4.0, quoted-printable included). Sending uses the Contacts
+  provider's own export (`Contacts.CONTENT_VCARD_URI`) with PHOTO and LOGO removed, since a
+  photo can be most of a vCard and push it past the carrier's limit. Shared contacts get the
+  same treatment.
 
 Emulators have no MMS server. The debug-only `DebugMmsReceiver` feeds codec-built PDUs into
-the receive path. Its push mode exercises the download-failure and retry path.
+the receive path, with a photo, voice memo, video or contact card as asked. Its push mode exercises the download-failure and retry path.
 
 ## RCS
 

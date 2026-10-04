@@ -60,6 +60,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import com.ericflo.winnow.data.VCard
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.ui.text.style.TextAlign
 
 /**
  * Plays audio attachments, one at a time: starting one stops whatever was playing. Owned by
@@ -202,9 +205,11 @@ fun AttachmentThumbnail(uri: String, contentType: String, name: String?, modifie
     val isVideo = contentType.startsWith("video/")
     val isAudio = contentType.startsWith("audio/")
     val frame by produceState<Bitmap?>(null, uri) { if (isVideo) value = withContext(Dispatchers.IO) { frameOf(context, uri).first } }
+    val isContact = VCard.isVCard(contentType)
     val label = when {
         isVideo -> "Video"
         isAudio -> "Audio"
+        isContact -> name?.removeSuffix(".vcf")?.takeIf { it.isNotBlank() } ?: "Contact"
         else -> name?.substringAfterLast('.', "")?.takeIf { it.length in 1..5 }?.uppercase() ?: "File"
     }
     Box(
@@ -212,14 +217,15 @@ fun AttachmentThumbnail(uri: String, contentType: String, name: String?, modifie
         contentAlignment = Alignment.Center,
     ) {
         frame?.let { Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 6.dp)) {
+            if (isContact) Icon(Icons.Filled.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
             if (isVideo || isAudio) {
                 Box(Modifier.size(32.dp).background(Color.Black.copy(alpha = 0.55f), CircleShape), contentAlignment = Alignment.Center) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
                 }
             }
             if (frame == null) {
-                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = if (isContact) 2 else 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
             }
         }
     }

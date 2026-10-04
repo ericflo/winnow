@@ -117,7 +117,8 @@ class MmsReceiver(
         placeholder?.let(store::delete)
         if (acknowledge) transactionId?.takeIf { it.isNotBlank() }?.let { acknowledge(it, subscriptionId) }
         val text = conf.parts.filter { it.contentType == ContentTypes.TEXT_PLAIN }.mapNotNull { it.text }.joinToString("\n")
-        val media = conf.parts.count { !it.contentType.startsWith("text/") && it.contentType != ContentTypes.SMIL }
+        // Contacts are text/x-vcard, so "everything but the text and the layout", not "not text/".
+        val media = conf.parts.map { it.contentType }.filter { it != ContentTypes.TEXT_PLAIN && it != ContentTypes.SMIL }
         incoming.onMmsStored(message, threadId, conf.from ?: UNKNOWN_SENDER, recipients, text, media)
     }
 

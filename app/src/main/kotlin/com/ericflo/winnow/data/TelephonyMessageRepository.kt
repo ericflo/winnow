@@ -438,7 +438,7 @@ class TelephonyMessageRepository(
     private fun mmsSnippets(mmsIds: List<Long>): Map<Long, String> =
         if (mmsIds.isEmpty()) emptyMap() else mmsParts(mmsIds).mapValues { (_, parts) ->
             parts.firstOrNull { it.contentType == "text/plain" }?.text?.takeIf { it.isNotBlank() }
-                ?: if (parts.any { it.contentType.startsWith("image/") }) "Photo" else "Attachment"
+                ?: attachmentSummary(parts.map { it.contentType }.filter { it != "text/plain" && it != "application/smil" })
         }
 
     private fun mmsSender(mmsId: Long): String? =

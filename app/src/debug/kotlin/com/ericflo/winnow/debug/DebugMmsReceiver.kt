@@ -29,7 +29,8 @@ import java.io.ByteArrayOutputStream
  *     adb shell am broadcast -n com.ericflo.winnow/.debug.DebugMmsReceiver \
  *         --es from +14155550161 --es to +15555215554,+14155550162 --es text "hi" --ez photo true
  *
- * `--ez voice true` adds a voice memo (audio/amr) and `--ez video true` a short clip (video/mp4).
+ * `--ez voice true` adds a voice memo (audio/amr), `--ez video true` a short clip (video/mp4) and
+ * `--ez contact true` a shared contact (text/x-vcard, fictional 555 numbers).
  *
  * The default mode runs an m-retrieve-conf through [com.ericflo.winnow.sms.MmsReceiver.onDownloaded];
  * `--es mode push` runs an m-notification-ind through onPush, whose download then fails for
@@ -44,6 +45,7 @@ class DebugMmsReceiver : BroadcastReceiver() {
         val photo = intent.getBooleanExtra("photo", false)
         val voice = intent.getBooleanExtra("voice", false)
         val video = intent.getBooleanExtra("video", false)
+        val contact = intent.getBooleanExtra("contact", false)
         val subscriptionId = SubscriptionManager.getDefaultSmsSubscriptionId()
         val id = "debug${System.currentTimeMillis()}"
         val pending = goAsync()
@@ -57,6 +59,7 @@ class DebugMmsReceiver : BroadcastReceiver() {
                         if (photo) add(MmsPart("image/jpeg", samplePhoto(), name = "photo.jpg", contentId = "photo", contentLocation = "photo.jpg"))
                         if (voice) add(MmsPart("audio/amr", raw(context, R.raw.sample_voice), name = "voice.amr", contentId = "voice", contentLocation = "voice.amr"))
                         if (video) add(MmsPart("video/mp4", raw(context, R.raw.sample_clip), name = "clip.mp4", contentId = "clip", contentLocation = "clip.mp4"))
+                        if (contact) add(MmsPart("text/x-vcard", SAMPLE_CONTACT.toByteArray(), name = "Dana Whitfield.vcf", contentId = "contact", contentLocation = "contact.vcf"))
                         text?.let { add(MmsPart.plainText(it)) }
                     }
                     val conf = RetrieveConf(
@@ -96,5 +99,9 @@ class DebugMmsReceiver : BroadcastReceiver() {
 
     private companion object {
         const val TAG = "WinnowDebugMms"
+        val SAMPLE_CONTACT = listOf(
+            "BEGIN:VCARD", "VERSION:3.0", "N:Whitfield;Dana;;;", "FN:Dana Whitfield",
+            "item1.TEL;type=pref:(415) 555-0177", "TEL;type=WORK:(415) 555-0100", "EMAIL;type=INTERNET:dana@example.com", "END:VCARD",
+        ).joinToString("\r\n", postfix = "\r\n")
     }
 }

@@ -54,6 +54,7 @@ class BubbleActivity : ComponentActivity() {
                                     .putExtra(MainActivity.EXTRA_ADDRESS, recipients),
                             )
                         },
+                        onMessageNumber = { number -> openApp(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${Uri.encode(number)}"))) },
                     )
                     if (lock == AppLock.State.CHECKING) LockScreen(checking = true, onUnlock = {})
                 }
