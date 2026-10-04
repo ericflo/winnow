@@ -148,7 +148,7 @@ class Notifier(
         val choices = quickReplies ?: this.quickReplies
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val id = notificationId(threadId)
-        val photo = contactPhoto(senderPhotoUri)
+        val photo = personPhoto(senderPhotoUri)
         val sender = Person.Builder().setName(senderName).setKey(senderName).apply {
             photo?.let { setIcon(IconCompat.createWithBitmap(it)) }
         }.build()
@@ -157,7 +157,7 @@ class Notifier(
         val picture = image?.let { notificationImage(it, "$threadId-$timestamp") }
         // Likewise the conversation's shortcut (its letter icon is drawn here): nothing waits on it.
         val joined = joinAddresses(recipients)
-        val shortcutId = pushShortcut(threadId, joined, conversationTitle, sender, photo)
+        val shortcutId = pushShortcut(threadId, joined, conversationTitle, sender, senderPhotoUri)
         synchronized(lockFor(threadId)) {
         // What was just posted, if it was a moment ago: Android takes a moment to list a new
         // notification, and a text arriving right behind another mustn't build on the one before.
@@ -298,13 +298,13 @@ class Notifier(
      * A long-lived conversation shortcut puts the notification in the shade's Conversations
      * section (priority, bubbles) and the thread on the launcher icon's long-press menu.
      */
-    private fun pushShortcut(threadId: Long, joined: String, title: String, person: Person, photo: android.graphics.Bitmap?): String {
+    private fun pushShortcut(threadId: Long, joined: String, title: String, person: Person, photoUri: String?): String {
         val shortcutId = shortcutId(threadId)
-        runCatching { ShortcutManagerCompat.pushDynamicShortcut(context, shortcut(threadId, joined, title, person, photo)) }
+        runCatching { ShortcutManagerCompat.pushDynamicShortcut(context, shortcut(threadId, joined, title, person, photoUri)) }
         return shortcutId
     }
 
-    private fun shortcut(threadId: Long, joined: String, title: String, person: Person, photo: android.graphics.Bitmap?): ShortcutInfoCompat {
+    private fun shortcut(threadId: Long, joined: String, title: String, person: Person, photoUri: String?): ShortcutInfoCompat {
         val shortcutId = shortcutId(threadId)
         val open = Intent(context, MainActivity::class.java)
             .setAction(MainActivity.ACTION_OPEN_THREAD)
@@ -318,7 +318,7 @@ class Notifier(
             .setLocusId(LocusIdCompat(shortcutId))
             // A group's shortcut is the group's, not whoever texted it last.
             .setPerson(if (splitAddresses(joined).size > 1) Person.Builder().setName(title).setKey(joined).build() else person)
-            .setIcon(icon(title, joined, photo))
+            .setIcon(icon(title, joined, photoUri))
             .setIntent(open)
             // Offered by name in the share sheet (see res/xml/shortcuts.xml).
             .setCategories(setOf(SHARE_CATEGORY))
@@ -329,10 +329,11 @@ class Notifier(
      * A conversation's icon, as its avatar in the app: a group's two faces (never whoever texted
      * last), else the person's photo, else their letter.
      */
-    private fun icon(title: String, joined: String, photo: Bitmap?): IconCompat {
+    private fun icon(title: String, joined: String, photoUri: String?): IconCompat {
         val people = splitAddresses(joined)
         if (people.size > 1) return runCatching { groupIcon(groupFaces(people)) }.getOrNull() ?: letterIcon(title, joined)
-        return photo?.let(IconCompat::createWithAdaptiveBitmap) ?: letterIcon(title, joined)
+        // The launcher keeps its own copy of a shortcut's icon: this one can be full size.
+        return contactPhoto(photoUri, ICON_EDGE_PX)?.let(IconCompat::createWithAdaptiveBitmap) ?: letterIcon(title, joined)
     }
 
     /**
@@ -363,7 +364,7 @@ class Notifier(
     /** One face: the contact's photo, else their initial on their color, else a person glyph. */
     private fun drawFace(canvas: android.graphics.Canvas, member: Member, cx: Float, cy: Float, radius: Float, dark: Boolean) {
         val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
-        val photo = contactPhoto(member.photoUri)
+        val photo = contactPhoto(member.photoUri, (2 * radius).toInt())
         if (photo != null) {
             // Center-cropped into the circle.
             val scale = 2 * radius / minOf(photo.width, photo.height)
@@ -403,16 +404,31 @@ class Notifier(
      * configuration: Settings → Theme overrides that for Winnow alone.
      */
     private fun systemDark(): Boolean =
-        android.content.res.Resources.getSystem().configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
-            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        // The system-wide setting where it's a plain on or off: Settings → Theme's own override
+        // reaches even Resources.getSystem() in this process. Scheduled or automatic, only the
+        // configuration can say, and it's right unless that override is on too.
+        when (context.getSystemService(android.app.UiModeManager::class.java)?.nightMode) {
+            android.app.UiModeManager.MODE_NIGHT_YES -> true
+            android.app.UiModeManager.MODE_NIGHT_NO -> false
+            else -> android.content.res.Resources.getSystem().configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
 
     /**
-     * A contact's photo, sharp enough for an icon: the full-size display photo where there is one
-     * (the usual photo URI is a 96-pixel thumbnail, soft once drawn larger), else the thumbnail,
-     * at most [PHOTO_EDGE_PX] across.
+     * A contact's photo at most [edge] pixels across: the full-size display photo when that's
+     * bigger than the 96-pixel thumbnail (which is soft drawn larger) and the contact has one,
+     * else the thumbnail.
      */
-    private fun contactPhoto(thumbnail: String?): Bitmap? =
-        listOfNotNull(ContactLookup.displayPhoto(thumbnail), thumbnail).firstNotNullOfOrNull { decodeAtMost(Uri.parse(it), PHOTO_EDGE_PX) }
+    private fun contactPhoto(thumbnail: String?, edge: Int): Bitmap? {
+        val large = ContactLookup.displayPhoto(thumbnail)?.takeIf { edge > THUMBNAIL_EDGE_PX }
+        return listOfNotNull(large, thumbnail).firstNotNullOfOrNull { decodeAtMost(Uri.parse(it), edge) }
+    }
+
+    /**
+     * A contact's photo for a notification's Person or bubble: the small thumbnail. Every
+     * message in a notification carries its own copy, so a big one would add up.
+     */
+    private fun personPhoto(thumbnail: String?): Bitmap? = thumbnail?.let { decodeAtMost(Uri.parse(it), THUMBNAIL_EDGE_PX) }
 
     private fun decodeAtMost(uri: Uri, edge: Int): Bitmap? = runCatching {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -420,7 +436,14 @@ class Notifier(
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= edge) sample *= 2
-        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
+        val decoded = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
+            ?: return null
+        // Sampling only halves: down the rest of the way, so it's no bigger than asked for.
+        val longest = maxOf(decoded.width, decoded.height)
+        if (longest <= edge) return decoded
+        val scale = edge.toFloat() / longest
+        Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt().coerceAtLeast(1), (decoded.height * scale).toInt().coerceAtLeast(1), true)
+            .also { if (it !== decoded) decoded.recycle() }
     }.getOrNull()
 
     /** The conversation's first letter on its avatar color, as in the inbox; the app icon for a bare number. */
@@ -450,10 +473,10 @@ class Notifier(
      */
     fun pinToHomeScreen(threadId: Long, recipients: List<String>, title: String, photoUri: String?): Boolean {
         if (threadId < 0 || !ShortcutManagerCompat.isRequestPinShortcutSupported(context)) return false
-        val photo = contactPhoto(photoUri)
+        val photo = personPhoto(photoUri)
         val joined = joinAddresses(recipients)
         val person = Person.Builder().setName(title).setKey(joined).apply { photo?.let { setIcon(IconCompat.createWithBitmap(it)) } }.build()
-        val info = shortcut(threadId, joined, title, person, photo)
+        val info = shortcut(threadId, joined, title, person, photoUri)
         // The same shortcut as the conversation's own: one shortcut, kept up to date, however reached.
         runCatching { ShortcutManagerCompat.pushDynamicShortcut(context, info) }
         return runCatching { ShortcutManagerCompat.requestPinShortcut(context, info, null) }.getOrDefault(false)
@@ -465,10 +488,10 @@ class Notifier(
      */
     fun conversationSettings(threadId: Long, recipients: List<String>, title: String, photoUri: String? = null): Intent {
         // The same shortcut as the conversation's own (its photo too), or this would replace it.
-        val photo = contactPhoto(photoUri)
+        val photo = personPhoto(photoUri)
         val joined = joinAddresses(recipients)
         val person = Person.Builder().setName(title).setKey(joined).apply { photo?.let { setIcon(IconCompat.createWithBitmap(it)) } }.build()
-        val shortcutId = pushShortcut(threadId, joined, title, person, photo)
+        val shortcutId = pushShortcut(threadId, joined, title, person, photoUri)
         // Settings shows the general Messages page until the conversation has a channel of its
         // own. Notifications for this conversation move to it automatically, by shortcut ID.
         val system = context.getSystemService(NotificationManager::class.java)
@@ -505,11 +528,11 @@ class Notifier(
      */
     fun publishConversation(threadId: Long, recipients: List<String>, title: String, photoUri: String?) {
         if (threadId < 0) return
-        val photo = contactPhoto(photoUri)
+        val photo = personPhoto(photoUri)
         val person = Person.Builder().setName(title).setKey(joinAddresses(recipients)).apply {
             photo?.let { setIcon(IconCompat.createWithBitmap(it)) }
         }.build()
-        pushShortcut(threadId, joinAddresses(recipients), title, person, photo)
+        pushShortcut(threadId, joinAddresses(recipients), title, person, photoUri)
     }
 
     fun cancel(threadId: Long) {
@@ -566,8 +589,10 @@ class Notifier(
     private fun notificationId(threadId: Long) = threadId.toInt()
 
     private companion object {
-        /** A contact photo's size for icons: an adaptive icon is 432 pixels across. */
-        const val PHOTO_EDGE_PX = 432
+        /** A shortcut's adaptive icon is 432 pixels across. */
+        const val ICON_EDGE_PX = 432
+        /** A contact's thumbnail photo: what a notification's people get. */
+        const val THUMBNAIL_EDGE_PX = 96
         const val CHANNEL_MESSAGES = "messages"
         const val SHARE_CATEGORY = "com.ericflo.winnow.category.SHARE_TARGET"
         const val CHANNEL_NOT_SENT = "not_sent"

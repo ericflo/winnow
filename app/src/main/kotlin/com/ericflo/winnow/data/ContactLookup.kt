@@ -57,6 +57,7 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
     fun clear() {
         generation.incrementAndGet()
         cache.clear()
+        largePhotos.clear()
         numbers = null
     }
 
@@ -117,8 +118,8 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
         // emails and the like still go to PhoneLookup.
         numberKey(address)?.let { key -> return index(started)[key] }
         val uri = Uri.withAppendedPath(PhoneLookup.CONTENT_FILTER_URI, Uri.encode(address))
-        return context.contentResolver.query(uri, arrayOf(PhoneLookup.DISPLAY_NAME, PhoneLookup.PHOTO_THUMBNAIL_URI), null, null, null)?.use { c ->
-            if (c.moveToFirst()) c.getString(0)?.let { Info(it, c.getString(1)) } else null
+        return context.contentResolver.query(uri, arrayOf(PhoneLookup.DISPLAY_NAME, PhoneLookup.PHOTO_THUMBNAIL_URI, PhoneLookup.PHOTO_URI), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0)?.let { Info(it, remember(c.getString(1), c.getString(2))) } else null
         }
     }
 
@@ -129,19 +130,25 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
         }
     }
 
+    /** [thumbnail], noting its full-size [photo] for [displayPhoto] when the contact has a real one. */
+    private fun remember(thumbnail: String?, photo: String?): String? {
+        if (thumbnail != null && photo != null && photo != thumbnail) largePhotos[thumbnail] = photo
+        return thumbnail
+    }
+
     private fun loadIndex(): Map<String, Info> {
         val index = HashMap<String, Info>()
         runCatching {
             context.contentResolver.query(
                 Phone.CONTENT_URI,
-                arrayOf(Phone.NUMBER, Phone.NORMALIZED_NUMBER, Phone.DISPLAY_NAME, Phone.PHOTO_THUMBNAIL_URI),
+                arrayOf(Phone.NUMBER, Phone.NORMALIZED_NUMBER, Phone.DISPLAY_NAME, Phone.PHOTO_THUMBNAIL_URI, Phone.PHOTO_URI),
                 null, null,
                 // Primary numbers first, so a shared number goes to the contact it's primary for.
                 "${Phone.IS_SUPER_PRIMARY} DESC, ${Phone.IS_PRIMARY} DESC",
             )?.use { c ->
                 while (c.moveToNext()) {
                     val name = c.getString(2)?.takeIf { it.isNotBlank() } ?: continue
-                    val info = Info(name, c.getString(3))
+                    val info = Info(name, remember(c.getString(3), c.getString(4)))
                     listOfNotNull(c.getString(0), c.getString(1)).mapNotNull(::numberKey).forEach { index.putIfAbsent(it, info) }
                 }
             }
@@ -170,14 +177,16 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
         }
 
         /**
-         * The full-size photo for a contact's [thumbnail] (the 96-pixel PHOTO_THUMBNAIL_URI,
-         * content://com.android.contacts/contacts/<id>/photo): its display_photo, which a contact
-         * whose photo is only a thumbnail doesn't have, so callers fall back to [thumbnail].
+         * The full-size photo for a contact's [thumbnail] (the 96-pixel PHOTO_THUMBNAIL_URI), when
+         * the contact has one bigger than that; null when it doesn't, or it hasn't been looked up.
          */
-        fun displayPhoto(thumbnail: String?): String? =
-            thumbnail?.let(THUMBNAIL::matchEntire)?.let { "content://com.android.contacts/contacts/${it.groupValues[1]}/display_photo" }
+        fun displayPhoto(thumbnail: String?): String? = thumbnail?.let(largePhotos::get)
 
-        private val THUMBNAIL = Regex("""content://com\.android\.contacts/contacts/(\d+)/photo""")
+        /**
+         * Thumbnail → full-size photo, for the contacts that have one (Contacts gives PHOTO_URI
+         * as the thumbnail itself for the rest), as lookups find them.
+         */
+        private val largePhotos = java.util.concurrent.ConcurrentHashMap<String, String>()
 
         /** A full phone number (7+ digits), not a short code, email or alphanumeric sender. */
         fun isPersonalNumber(address: String): Boolean = numberKey(address)?.startsWith("short:") == false

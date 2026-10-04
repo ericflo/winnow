@@ -88,26 +88,15 @@ fun Avatar(name: String, seed: String, size: Dp = 52.dp, modifier: Modifier = Mo
         } else {
             Icon(Icons.Filled.Person, contentDescription = null, tint = content, modifier = Modifier.size(size * 0.5f))
         }
-        // Drawn over the initial, so a missing or unreadable photo just shows the initial.
+        // Drawn over the initial, so a missing or unreadable photo just shows the initial. At
+        // this size and up the 96-pixel thumbnail is soft: the full photo instead, if there is one.
         if (photoUri != null) {
             AsyncImage(
-                model = photoUri,
+                model = ContactLookup.displayPhoto(photoUri)?.takeIf { size >= SHARP_PHOTO_SIZE } ?: photoUri,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(size).clip(CircleShape),
             )
-            // The thumbnail is 96 pixels, soft at this size: the full photo over it, where the
-            // contact has one (one that doesn't just leaves the thumbnail showing).
-            if (size >= SHARP_PHOTO_SIZE) {
-                ContactLookup.displayPhoto(photoUri)?.let { large ->
-                    AsyncImage(
-                        model = large,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(size).clip(CircleShape),
-                    )
-                }
-            }
         }
     }
 }

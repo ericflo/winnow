@@ -98,6 +98,22 @@ class BackupArchiveTest {
     }
 
     @Test
+    fun `drops parts whose files would climb out of the media folder`() {
+        val manifest = """{"createdAt":1,"conversations":[{"recipients":["+14155550181"],
+            "draftAttachments":[{"contentType":"image/jpeg","name":"photo.jpg","file":"../../databases/winnow.db"},
+                                {"contentType":"image/jpeg","file":"draft-1-0.jpg"}],
+            "messages":[{"kind":"mms","date":1,"outgoing":false,"body":"",
+                "parts":[{"contentType":"image/jpeg","file":"../shared_prefs/x.xml"},{"contentType":"image/jpeg","file":"7.jpg"},
+                         {"contentType":"image/jpeg","file":"a\\b.jpg"}]}]}]}"""
+        val zip = ByteArrayOutputStream()
+        ZipOutputStream(zip).use { z -> z.putNextEntry(ZipEntry(BackupArchive.MANIFEST)); z.write(manifest.encodeToByteArray()); z.closeEntry() }
+        val read = BackupArchive.read(ByteArrayInputStream(zip.toByteArray()))
+        val conversation = read.conversations.single()
+        assertEquals(listOf("draft-1-0.jpg"), conversation.draftAttachments.map { it.file })
+        assertEquals(listOf("7.jpg"), conversation.messages.single().parts.map { it.file })
+    }
+
+    @Test
     fun `fingerprints distinguish messages that differ`() {
         val a = backup.conversations[0].messages[1]
         assertEquals(a.fingerprint, a.copy(verdict = null).fingerprint)

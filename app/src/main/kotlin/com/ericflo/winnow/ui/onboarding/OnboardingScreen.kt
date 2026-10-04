@@ -1,5 +1,6 @@
 package com.ericflo.winnow.ui.onboarding
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import com.ericflo.winnow.ui.settings.BackupProgress
 import com.ericflo.winnow.backup.BackupStatus
@@ -64,6 +65,8 @@ fun OnboardingScreen(
     backups: BackupManager,
 ) {
     var step by rememberSaveable { mutableIntStateOf(0) }
+    // Back goes to the step before, as a swipe back through a setup flow does; from the first, it leaves.
+    BackHandler(enabled = step > 0) { step-- }
     var defaultNow by rememberSaveable { mutableStateOf(isDefault()) }
     LifecycleResumeEffect(Unit) {
         defaultNow = isDefault()

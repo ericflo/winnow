@@ -209,10 +209,18 @@ object BackupArchive {
             throw IllegalArgumentException("This backup is damaged", e)
         }
         require(backup.format <= WinnowBackup.FORMAT) { "This backup is from a newer version of Winnow" }
-        return backup
+        // Each part's file is looked up in the folder media is spooled into, so its name must be
+        // as flat as the media entries': a "../" one in a crafted backup would reach the app's
+        // own files (and put them in a message, or a draft one tap from being sent).
+        fun safe(parts: List<PartBackup>) = parts.filter { safeName(it.file) != null }
+        return backup.copy(
+            conversations = backup.conversations.map { c ->
+                c.copy(messages = c.messages.map { m -> m.copy(parts = safe(m.parts)) }, draftAttachments = safe(c.draftAttachments))
+            },
+        )
     }
 
     /** Only flat file names: nothing that could climb out of the folder media is spooled into. */
-    private fun safeName(name: String): String? =
+    internal fun safeName(name: String): String? =
         name.takeIf { it.isNotEmpty() && it != "." && it != ".." && '/' !in it && '\\' !in it }
 }

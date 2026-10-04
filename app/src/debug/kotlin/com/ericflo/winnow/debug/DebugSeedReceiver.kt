@@ -26,6 +26,9 @@ import kotlin.random.Random
  * Or `--ez summary true` posts the daily summary now (whatever the setting or the last one), with
  * the last day's counts, without touching the real evening schedule.
  *
+ * Or `--ez onboarding true` shows onboarding again on the next launch (force-stop the app first),
+ * to look it over; finishing or skipping it changes nothing but choosing a classifier there.
+ *
  * Needs Winnow to be the default SMS app (only it may write the store).
  */
 class DebugSeedReceiver : BroadcastReceiver() {
@@ -39,6 +42,10 @@ class DebugSeedReceiver : BroadcastReceiver() {
             try {
                 if (intent.getBooleanExtra("summary", false)) {
                     container.dailySummary.fire(force = true)
+                    return@launch
+                }
+                if (intent.getBooleanExtra("onboarding", false)) {
+                    container.settings.update { it.copy(onboarded = false) }
                     return@launch
                 }
                 if (from != null) {

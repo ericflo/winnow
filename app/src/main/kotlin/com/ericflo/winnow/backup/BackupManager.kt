@@ -497,7 +497,7 @@ class BackupManager(
             missing.filter { it.kind == KIND_MMS }.forEach { m ->
                 // No text, no subject and none of its media in the file (say, a part no app could
                 // read): there's nothing to put back, and no point trying again later.
-                if (m.body.isEmpty() && m.subject.isNullOrBlank() && m.parts.none { File(spool, it.file).isFile }) {
+                if (m.body.isEmpty() && m.subject.isNullOrBlank() && m.parts.none { spooled(spool, it.file) != null }) {
                     empty++
                     report(BackupStatus.Working("Restoring messages", ++done, total))
                     return@forEach
@@ -519,14 +519,26 @@ class BackupManager(
 
     /** A conversation's pin, archive, mute, name and draft (its subject too), unless Winnow already has state for it. */
     private suspend fun restoreState(threadId: Long, conversation: ConversationBackup, spool: File) {
-        if (states.get(threadId) != null) return
         // The draft's attachments, copied out of the spool (which goes) to where drafts keep theirs.
-        val attached = drafts?.let { d ->
+        fun attached() = drafts?.let { d ->
             conversation.draftAttachments.mapNotNull { p ->
-                val file = File(spool, p.file).takeIf { it.isFile } ?: return@mapNotNull null
+                val file = spooled(spool, p.file) ?: return@mapNotNull null
                 d.keep(OutgoingAttachment(Uri.fromFile(file).toString(), p.contentType, p.name))
             }.let(d::encode)
         }
+        val existing = states.get(threadId)
+        if (existing != null) {
+            // State made since (the conversation opened again, a SIM picked) stands. Its draft is
+            // only taken if it has none at all: a conversation back from Recently deleted mustn't
+            // lose its draft, photos and all, to a row that only says which SIM it uses.
+            val backedUp = conversation.draft != null || conversation.draftSubject != null || conversation.draftAttachments.isNotEmpty()
+            val hasDraft = existing.draft != null || existing.draftSubject != null || existing.draftAttachments != null
+            if (backedUp && !hasDraft) {
+                states.upsert(existing.copy(draft = conversation.draft, draftSubject = conversation.draftSubject, draftAttachments = attached()))
+            }
+            return
+        }
+        val attached = attached()
         val state = ConversationStateEntity(
             threadId, conversation.pinned, conversation.archived, conversation.muted, conversation.draft, title = conversation.title,
             mutedUntil = conversation.mutedUntil.takeIf { conversation.muted },
@@ -534,6 +546,13 @@ class BackupManager(
             draftAttachments = attached,
         )
         if (state != ConversationStateEntity(threadId)) states.upsert(state)
+    }
+
+    /** [name]'s file in [spool], only if it's really in there (see BackupArchive.safeName) and exists. */
+    private fun spooled(spool: File, name: String): File? {
+        if (BackupArchive.safeName(name) == null) return null
+        val file = File(spool, name)
+        return file.takeIf { it.canonicalFile.parentFile == spool.canonicalFile && it.isFile }
     }
 
     /** A text's identity across threads: its fingerprint and the other person's number. */
@@ -562,7 +581,7 @@ class BackupManager(
         val parts = buildList {
             if (m.body.isNotEmpty()) add(MmsPart.plainText(m.body))
             m.parts.forEach { p ->
-                val file = File(spool, p.file).takeIf { it.isFile } ?: return@forEach
+                val file = spooled(spool, p.file) ?: return@forEach
                 add(MmsPart(contentType = p.contentType, data = file.readBytes(), name = p.name ?: p.file, contentLocation = p.name ?: p.file))
             }
             // A subject alone is carried by an empty text, as it was sent (see MmsSender).
