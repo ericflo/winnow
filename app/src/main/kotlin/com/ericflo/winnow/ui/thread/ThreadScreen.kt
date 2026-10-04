@@ -746,7 +746,7 @@ fun ThreadScreen(
             },
             onSelectText = { selectingText = words },
             onReactOther = { reactingWithOther = message },
-            links = if (message.verdict?.isFraud == true) emptyList() else allWebLinks(message.body),
+            links = if (state.linksOff(message)) emptyList() else allWebLinks(message.body),
             onCopyLink = { copy(it, "Link copied") },
             onShareText = {
                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, words)
@@ -1359,6 +1359,7 @@ private fun MessageList(
                             loadSmartLinks = loadSmartLinks,
                             onSmartLink = onSmartLink,
                             onPreviewClick = if (selecting) toggle else null,
+                            fraud = state.linksOff(item.message),
                         )
                     }
                 }
@@ -1483,6 +1484,8 @@ private fun MessageBubble(
     loadSmartLinks: suspend (String) -> List<SmartLink> = { emptyList() },
     onSmartLink: (String, SmartLink, Long) -> Unit = { _, _, _ -> },
     onPreviewClick: (() -> Unit)? = null,
+    /** Its links are off (see ThreadUiState.linksOff). */
+    fraud: Boolean = item.message.verdict?.isFraud == true,
 ) {
     val m = item.message
     val spoken = buildString {
@@ -1504,7 +1507,6 @@ private fun MessageBubble(
     } else {
         RoundedCornerShape(if (item.firstInGroup) big else small, big, big, if (item.lastInGroup) big else small)
     }
-    val fraud = m.verdict?.isFraud == true
     // Found off the main thread, after the text is showing; never for fraud, whose links are off.
     val smart by produceState(emptyList<SmartLink>(), m.body, fraud) { value = if (fraud) emptyList() else loadSmartLinks(m.body) }
     val showAvatarColumn = senderName != null
@@ -1660,7 +1662,10 @@ private fun MessageBubble(
                     }
                 }
                 if (fraud && m.body.contains('.')) {
-                    Text("Links turned off: this looks like ${m.verdict?.category?.label?.lowercase()}", style = MaterialTheme.typography.labelSmall, color = colors.error)
+                    // Its own verdict says why; a text that's off because of its sender's says that.
+                    val why = m.verdict?.takeIf { it.isFraud }?.category?.label?.lowercase()?.let { "this looks like $it" }
+                        ?: "this sender has sent phishing or scams"
+                    Text("Links turned off: $why", style = MaterialTheme.typography.labelSmall, color = colors.error)
                 }
                 if (!m.outgoing) {
                     VerificationCodes.find(m.body)?.let { code ->

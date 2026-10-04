@@ -82,6 +82,24 @@ data class ThreadUiState(
     val members: List<Member> = emptyList(),
 ) {
     val isGroup: Boolean get() = recipients.size > 1
+
+    /** Who sent fraud (phishing, a scam) here that the user hasn't cleared, by normalized number. */
+    private val fraudSenders: Set<String> by lazy {
+        messages.filter { !it.outgoing && it.verdict?.isFraud == true }
+            .mapNotNullTo(HashSet()) { (it.sender ?: recipients.singleOrNull())?.let(::normalizeAddress) }
+    }
+
+    /**
+     * [m]'s links can't be tapped: it's fraud, or its sender sent fraud here. An older text from
+     * them, never classified (it came before Winnow), can carry the same link. Not once the user
+     * has said this one isn't spam.
+     */
+    fun linksOff(m: ChatMessage): Boolean {
+        if (m.verdict?.isFraud == true) return true
+        if (m.outgoing || m.verdict?.userAction == Action.ALLOW) return false
+        val sender = (m.sender ?: recipients.singleOrNull())?.let(::normalizeAddress) ?: return false
+        return sender in fraudSenders
+    }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
