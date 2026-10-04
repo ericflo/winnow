@@ -30,6 +30,9 @@ class ConversationStateStore(private val dao: ConversationStateDao) {
     suspend fun saveDraft(threadId: Long, draft: String) =
         updateAll(listOf(threadId)) { it.copy(draft = draft.takeIf(String::isNotBlank)) }
 
+    suspend fun setTitle(threadId: Long, title: String?) =
+        updateAll(listOf(threadId)) { it.copy(title = title?.trim()?.takeIf(String::isNotEmpty)) }
+
     suspend fun setSim(threadId: Long, subscriptionId: Int?) = updateAll(listOf(threadId)) { it.copy(subscriptionId = subscriptionId) }
 
     suspend fun forget(threadIds: Collection<Long>) = dao.delete(threadIds)
@@ -43,5 +46,5 @@ class ConversationStateStore(private val dao: ConversationStateDao) {
 fun List<ConversationSummary>.withState(states: Map<Long, ConversationStateEntity>): List<ConversationSummary> =
     map { c ->
         val s = states[c.threadId] ?: return@map c
-        c.copy(pinned = s.pinned, archived = s.archived, muted = s.muted, draft = s.draft)
+        c.copy(pinned = s.pinned, archived = s.archived, muted = s.muted, draft = s.draft, displayName = s.title ?: c.displayName)
     }.sortedWith(compareByDescending<ConversationSummary> { it.pinned }.thenByDescending { it.timestamp })

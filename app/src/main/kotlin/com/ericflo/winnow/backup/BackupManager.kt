@@ -239,6 +239,7 @@ class BackupManager(
                 archived = state?.archived == true,
                 muted = state?.muted == true,
                 draft = state?.draft,
+                title = state?.title,
                 messages = messages.sortedBy { it.date },
             )
         }
@@ -339,7 +340,9 @@ class BackupManager(
             }
             _status.value = BackupStatus.Working("Restoring messages", done, total)
 
-            val state = ConversationStateEntity(threadId, conversation.pinned, conversation.archived, conversation.muted, conversation.draft)
+            val state = ConversationStateEntity(
+                threadId, conversation.pinned, conversation.archived, conversation.muted, conversation.draft, title = conversation.title,
+            )
             if (state != ConversationStateEntity(threadId) && states.get(threadId) == null) states.upsert(state)
         }
         return added to present

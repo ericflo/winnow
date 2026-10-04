@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -28,6 +29,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -75,6 +77,8 @@ data class DetailsUiState(
     val senderRule: SenderRule? = null,
     val blocked: Boolean = false,
     val canBlock: Boolean = false,
+    /** The group's name, if the user gave it one. */
+    val groupName: String? = null,
 ) {
     data class Person(val address: String, val name: String, val number: String, val photoUri: String?, val isContact: Boolean)
 
@@ -101,7 +105,8 @@ class ConversationDetailsViewModel(
         blocked,
     ) { s, rule, blocked ->
         DetailsUiState(
-            title = displayNameFor(recipients, repo::displayName),
+            title = s?.title ?: displayNameFor(recipients, repo::displayName),
+            groupName = s?.title,
             people = recipients.map { address ->
                 val name = repo.displayName(address)
                 val number = ContactLookup.formatAddress(address)
@@ -118,6 +123,8 @@ class ConversationDetailsViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DetailsUiState(displayNameFor(recipients, repo::displayName)))
 
     fun setMuted(value: Boolean) = launch { container.conversationStates.setMuted(threadId, value) }
+
+    fun setGroupName(value: String) = launch { container.conversationStates.setTitle(threadId, value) }
 
     fun setPinned(value: Boolean) = launch { container.conversationStates.setPinned(setOf(threadId), value) }
 
@@ -164,6 +171,7 @@ fun ConversationDetailsScreen(viewModel: ConversationDetailsViewModel, onBack: (
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var confirmDelete by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
     val showContact = { number: String ->
         context.startActivity(Intent(ContactsContract.Intents.SHOW_OR_CREATE_CONTACT, Uri.fromParts("tel", number, null)))
     }
@@ -192,6 +200,17 @@ fun ConversationDetailsScreen(viewModel: ConversationDetailsViewModel, onBack: (
                     if (person != null && person.name != person.number) {
                         Text(person.number, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                }
+            }
+
+            if (state.isGroup) {
+                item("group-name") {
+                    ListItem(
+                        headlineContent = { Text("Group name") },
+                        supportingContent = { Text(state.groupName ?: "Only you see it. Group texts have no shared name.") },
+                        trailingContent = { Icon(Icons.Filled.Edit, contentDescription = "Rename group") },
+                        modifier = Modifier.clickable { renaming = true },
+                    )
                 }
             }
 
@@ -232,6 +251,24 @@ fun ConversationDetailsScreen(viewModel: ConversationDetailsViewModel, onBack: (
                 }
             }
         }
+    }
+    if (renaming) {
+        var name by remember { mutableStateOf(state.groupName.orEmpty()) }
+        AlertDialog(
+            onDismissRequest = { renaming = false },
+            title = { Text("Name this group") },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.take(60) },
+                    placeholder = { Text("e.g. Lake house crew") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = { TextButton(onClick = { renaming = false; viewModel.setGroupName(name) }) { Text("Save") } },
+            dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
+        )
     }
     if (confirmDelete) {
         AlertDialog(

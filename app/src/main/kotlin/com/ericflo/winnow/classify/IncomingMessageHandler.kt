@@ -101,7 +101,7 @@ class IncomingMessageHandler(
                 notifier.showMessage(
                     threadId = threadId,
                     recipients = recipients,
-                    conversationTitle = displayNameFor(recipients, ::displayName),
+                    conversationTitle = states.get(threadId).title ?: displayNameFor(recipients, ::displayName),
                     senderName = displayName(sender),
                     body = preview,
                     code = VerificationCodes.find(text),

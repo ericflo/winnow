@@ -123,7 +123,7 @@ class ThreadViewModel(
             combine(repo.messages(id), states.observe().map { it[id] }, container.starredDao.observeKeys(id)) { messages, s, starredKeys ->
                 val stars = starredKeys.toSet()
                 ThreadUiState(
-                    title = title,
+                    title = s?.title ?: title,
                     subtitle = subtitle,
                     recipients = recipients,
                     messages = if (stars.isEmpty()) messages else messages.map { if (it.key in stars) it.copy(starred = true) else it },

@@ -67,6 +67,7 @@ data class ConversationBackup(
     val archived: Boolean = false,
     val muted: Boolean = false,
     val draft: String? = null,
+    val title: String? = null,
     val messages: List<MessageBackup> = emptyList(),
 )
 
