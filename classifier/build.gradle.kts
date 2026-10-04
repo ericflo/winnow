@@ -39,6 +39,22 @@ tasks.register<JavaExec>("trainLocalModel") {
         file("training/corpus").path,
         file("training/eval.tsv").path,
         file("src/main/resources/com/ericflo/winnow/classifier/local/winnow-local.bin").path,
+        file("src/main/resources/com/ericflo/winnow/classifier/local/winnow-local-metrics.json").path,
         file("training/REPORT.md").path,
     )
+}
+
+// Lists the bundled model's mistakes on training/eval.tsv.
+tasks.register<JavaExec>("evalMistakes") {
+    group = "winnow"
+    description = "Prints the on-device model's mistakes on the evaluation set."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.ericflo.winnow.classifier.local.EvalMistakesKt")
+}
+
+tasks.register<JavaExec>("tuneLocalModel") {
+    group = "winnow"
+    description = "Grid-searches the on-device model's training settings by cross-validation."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.ericflo.winnow.classifier.local.TuneLocalModelKt")
 }

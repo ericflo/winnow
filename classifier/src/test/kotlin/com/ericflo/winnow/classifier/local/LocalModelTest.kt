@@ -11,9 +11,14 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 
 class LocalModelTest {
-    private val corpusDir = File("training/corpus")
-    private val evalFile = File("training/eval.tsv")
     private val classifier = OnDeviceClassifier()
+
+    private companion object {
+        val corpusDir = File("training/corpus")
+        val evalFile = File("training/eval.tsv")
+        /** Cross-validation takes a few seconds, so every test shares one build. */
+        val build by lazy { LocalModelBuild.run(corpusDir, evalFile) }
+    }
 
     @Test
     fun `the bundled model loads and covers every category`() {
@@ -23,10 +28,13 @@ class LocalModelTest {
     }
 
     @Test
-    fun `the shipped model is exactly what the corpus trains`() {
-        val rebuilt = ByteArrayOutputStream().also { LocalModelBuild.run(corpusDir, evalFile).model.write(it) }.toByteArray()
+    fun `the shipped model and metrics are exactly what the corpus trains`() {
+        val rebuilt = ByteArrayOutputStream().also { build.model.write(it) }.toByteArray()
         val shipped = LocalModel::class.java.getResourceAsStream("winnow-local.bin")!!.use { it.readBytes() }
         assertArrayEquals("Stale model: run ./gradlew :classifier:trainLocalModel", shipped, rebuilt)
+        val metrics = LocalModel::class.java.getResourceAsStream("winnow-local-metrics.json")!!.use { it.readBytes().decodeToString() }
+        assertEquals("Stale metrics: run ./gradlew :classifier:trainLocalModel", metrics, build.metricsJson)
+        assertEquals(build.metrics, ClassifierMetrics.bundled)
     }
 
     @Test
@@ -42,13 +50,19 @@ class LocalModelTest {
 
     @Test
     fun `generalizes to text it never saw`() {
-        val (train, heldOut) = Corpus.split(Corpus.load(corpusDir), 0.2)
-        val probe = LocalModelBuild.trainer().train(train.map { it.example(Corpus.classes) })
-        val heldOutMetrics = Metrics.of(probe, heldOut)
-        assertTrue(heldOutMetrics.table(), heldOutMetrics.accuracy >= 0.85)
+        val m = build.metrics
+        assertTrue("cross-validated accuracy ${m.accuracy}", m.accuracy >= 0.88)
+        assertTrue("spam ROC AUC ${m.unwanted.auc}", m.unwanted.auc >= 0.97)
+        val political = m.perCategory.single { it.key == Category.POLITICAL.key }
+        assertTrue("political F1 ${political.f1}", political.f1 >= 0.9)
+        val e = m.evaluation!!
+        assertTrue("eval accuracy ${e.accuracy}", e.accuracy >= 0.9)
+    }
 
-        val evalMetrics = Metrics.of(LocalModel.bundled, LocalModelBuild.loadEval(evalFile))
-        assertTrue(evalMetrics.table(), evalMetrics.accuracy >= 0.9)
+    @Test
+    fun `Winnow's own rule rarely filters a wanted text`() {
+        val rule = build.metrics.unwanted.operatingPoint
+        assertTrue("false positive rate ${rule.falsePositiveRate}", rule.falsePositiveRate <= 0.02)
     }
 
     @Test
@@ -64,7 +78,6 @@ class LocalModelTest {
     fun `explains a toll phish by its link`() {
         val p = classifier.classify(InboundMessage("+18035550123", "SunPass: You have an unpaid toll of $4.15. Pay now to avoid a fee: sunpass.com-tollpay.vip"))
         assertEquals(Category.PHISHING, p.category)
-        assertTrue(p.reasons.toString(), p.reasons.isNotEmpty())
         assertTrue(p.reasons.toString(), p.reasons.any { "link" in it || "web address" in it })
         assertTrue(p.reasons.toString(), p.reasons.none { it == "“pay”" && "“pay now”" in p.reasons })
     }

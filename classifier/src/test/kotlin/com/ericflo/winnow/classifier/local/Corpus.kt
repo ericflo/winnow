@@ -36,6 +36,16 @@ object Corpus {
 
     private val AREA_CODES = listOf("415", "212", "312", "213", "617", "206", "512", "303", "404", "702", "305", "818")
 
+    /** Stratified folds: indices into [items], each category spread evenly across [k] folds. */
+    fun folds(items: List<LabeledText>, k: Int, seed: Int = 7): List<List<Int>> {
+        val random = kotlin.random.Random(seed)
+        val folds = List(k) { mutableListOf<Int>() }
+        items.indices.groupBy { items[it].category }.values.forEach { group ->
+            group.shuffled(random).forEachIndexed { n, i -> folds[n % k] += i }
+        }
+        return folds
+    }
+
     /** A stratified split: [fraction] of each category goes to the second list. */
     fun split(items: List<LabeledText>, fraction: Double, seed: Int = 7): Pair<List<LabeledText>, List<LabeledText>> {
         val random = kotlin.random.Random(seed)

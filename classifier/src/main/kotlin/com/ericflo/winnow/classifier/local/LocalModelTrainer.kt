@@ -15,8 +15,8 @@ data class Example(val features: List<String>, val label: Int)
 class LocalModelTrainer(
     private val classes: List<String>,
     private val buckets: Int = 1 shl 15,
-    private val epochs: Int = 30,
-    private val learningRate: Double = 0.5,
+    private val epochs: Int = 60,
+    private val learningRate: Double = 0.2,
     private val l2: Double = 1e-5,
     private val seed: Int = 42,
 ) {

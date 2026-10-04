@@ -46,3 +46,78 @@ spam	+18665550152	Lower your car insurance today. Free quote in 2 minutes: quote
 spam	+18555550117	Medicare members: you may qualify for extra benefits. Call 555-0170. Reply STOP to unsubscribe
 spam	+18885550139	Is your business listed correctly on Google? Reply YES for a free review. STOP to end
 spam	+18005550120	Free roof inspection for homes in your neighborhood this week. Reply ROOF. STOP to quit
+# --- Harder cases, added before any feature or corpus tuning (blind). ---
+personal	+14155550211	omg I just ran into Mrs. Keller from 3rd grade at Trader Joe's
+personal	+12125550212	Hey, it's Priyanka's husband Dev, she asked me to text you the address for Saturday: 18 Willow Ct
+personal	+13125550213	lmao no way. ok I'm calling you after work
+personal	+16175550214	I voted early today! line was short. you going this weekend?
+personal	+12065550215	Did you see what the senator said? My dad is losing it in the family group chat 😂
+personal	+15125550216	The kids want to know if Bella can sleep over Friday
+personal	+13035550217	Hi, this is Jordan, the new neighbor in 4B. Your package was left at my door, want me to bring it over?
+personal	+14045550218	I owe you $20 for the pizza, sending now
+personal	+17025550219	Sorry wrong number! Meant to text my sister
+personal	+13055550220	Can you send me a pic of the menu? Trying to order for everyone
+personal	+18185550221	running late, save me a seat
+personal	+12135550222	happy friday!! drinks later?
+transactional	+18885550223	Your Chase Freedom statement is ready. Minimum payment of $35.00 due 10/28. Log in to the Chase app to view.
+transactional	22000	Verizon: Your new phone has shipped. Track at vzw.com/track
+transactional	+18005550224	This is a reminder from Valley Dermatology: your appointment is Wed 10/15 at 11:20 AM. Reply C to confirm or call 555-0197.
+transactional	36397	Your ballot was received by the Travis County Elections Office on 10/02. Thank you for voting.
+transactional	+18665550225	Your Comcast service appointment is complete. Rate your technician: 1 (poor) to 5 (great).
+transactional	55255	Your one-time Amazon return code is ready. Bring your item to any Whole Foods by 10/12.
+transactional	32665	Your Uber Eats order from Shake Shack has been picked up.
+transactional	44144	Wells Fargo: Card ending 3381 purchase of $1,212.40 at APPLE.COM declined. Reply 1 if this was you, 2 if not.
+transactional	+18775550226	Your flight AA2204 has been cancelled. We've rebooked you on AA2318 departing 7:15 AM tomorrow. Details in the American app.
+transactional	76000	Your Lyft ride receipt: $23.18. Tip your driver in the app.
+transactional	92466	Bright Smiles Pediatric Dentistry: Reminder of Emma's cleaning tomorrow at 3:30 PM.
+transactional	+18885550227	Your rent payment of $2,150.00 to Parkside Lofts was received. Thank you!
+marketing	81866	Burlington: New arrivals in home décor! Shop in store today. Reply STOP to unsubscribe
+marketing	+18335550228	Hi from Riverside Honda! Your car is due for service. Book this week and get $25 off. Reply STOP to opt out
+marketing	47648	Panda Express: Treat yourself to a free entrée with any purchase, app only. STOP to end
+marketing	+18445550229	Hey it's Tess from Bloom Yoga 🧘 New student special: 3 classes for $29 this month! Book: bloomyoga.com STOP to opt out
+marketing	96360	Chewy: Autoship & save 35% on your first order! Reply STOP to unsubscribe
+marketing	23744	Kay Jewelers: Up to 40% off diamond studs this weekend only. Reply STOP to opt-out
+marketing	+18555550230	Thanks for visiting Mario's Pizzeria! Show this text for 15% off your next visit. Reply STOP to end
+marketing	71441	Fandango: Get $5 off your next movie with code FALLFLICK. Reply STOP to stop
+marketing	33858	Columbia Sportswear: Fall jackets 25% off for members. Shop columbia.com Reply STOP to quit
+marketing	+18665550231	Glamour Lash Studio ✨ Lash fills $45 all week! Reply BOOK or STOP to opt out
+political	+16025550232	Hi Melissa, Kelly with the Arizona GOP here. Mail ballots go out next week, will you vote Republican up and down the ballot? Reply STOP to quit
+political	+19195550233	BREAKING: Leaked memo shows Democrats plan to raise your taxes. Add your name to stop them: ncgop.org/stop Stop=End
+political	+12155550234	It's Senator Fetterman's team. We're $8,400 short of our end-of-month goal. Chip in $10? actblue.com/f Txt STOP to stop
+political	+13135550235	This is a recorded message from the Michigan Education Association. Vote YES on Proposal 2 on November 4. Reply STOP to opt out
+political	+16125550236	Your vote is public record. Neighbors will know if you didn't vote. Make a plan: mnvotes.org Paid for by Civic Duty Fund. STOP to end
+political	+17205550237	Hey it's Lauren w/ Colorado Dems! Can you make calls for Senator Bennet this Saturday? Sign up: mobilize.us/co Reply STOP to unsubscribe
+political	+14805550238	Patriot! President Trump wants to know: are you with him? Reply YES to confirm your support. STOP=quit
+political	+12485550239	Hi there, this is a survey from Public Policy Polling. In the race for Governor, would you vote for Benson or James? Reply 1 or 2. STOP to end
+political	+15035550240	Friend, the far-right just launched a $10M smear campaign. Will you rush $5 to fight back? oregondems.org/rush Stop2Quit
+political	+14075550241	Florida Families for Freedom: Amendment 4 is on your ballot. Learn the facts before you vote: ffff.org STOP to opt out
+phishing	+18325550242	Notice from the Texas DPS: Your driver's license is flagged for suspension due to unpaid fines. Resolve now: txdps.gov-resolve.top
+phishing	+15615550243	[DHL] Your package is held at customs. A fee of $2.15 is required to release it: dhl-express.help/fee
+phishing	+19735550244	Bank of America: We have placed a temporary hold on your account. Please review recent activity: bofa-review.co
+phishing	+16195550245	Your Costco membership will be cancelled today. Confirm your payment details to keep it active: costco-renewal.info
+phishing	+12675550246	Microsoft 365: Payment declined. Update your billing to avoid losing access to Outlook: ms365-billing.click
+phishing	+17575550247	PayPal: You sent $899.00 to CryptoMax LLC. If this wasn't you, call 1-555-0198 immediately.
+phishing	+14845550248	Ohio Turnpike: unpaid toll balance of $5.25. Pay now to avoid a $40 penalty: ohioturnpike.org-pay.vip
+phishing	+18085550249	Apple ID: Your account was used to purchase a gift card for $500. If you did not make this purchase, verify now: apple-support-id.top
+phishing	scanner.alerts019@hotmail.com	Netflix: Your account will be closed in 24 hours due to a billing problem. Restore access: netflix-restore.co
+phishing	+15125550250	Social Security Administration: Your 2026 COLA increase is pending. Verify your information to receive it: ssa-benefits.top
+scam	+13235550251	Hi Rachel, it's been so long! Are you still working at the hospital?
+scam	+14155550252	hello, is this Jenny's dad? This is Coach Mike
+scam	+12025550253	Good afternoon. I'm Olivia, a part-time recruiter for TikTok Shop. We pay $50-$100 per task, flexible hours. Interested?
+scam	+17185550254	Hi, I accidentally sent $350 to your Zelle. Could you please send it back? Thank you so much
+scam	+13105550255	Did you get my message about the investment opportunity? 30% returns in 2 weeks, guaranteed
+scam	+19495550256	Hey sweetie, I saw your photo and couldn't stop thinking about you. Want to chat on WhatsApp?
+scam	+16465550257	Your grandson is in jail and needs $2,000 for bail. Please call me back immediately. - Officer Davis
+scam	+15715550258	Hi, are you the owner of the blue Honda? I think I hit your car in the parking lot, please call me
+scam	+17865550259	Congratulations, you've been selected for a free Caribbean cruise for two! Reply YES to claim your trip
+scam	+12125550260	Hello, I have been trying to reach you about the house you're selling. Is it still available?
+spam	+18885550261	Attention homeowner: you may qualify for a no-cost energy upgrade. Reply YES to schedule. STOP to opt out
+spam	+18665550262	Get approved for a $35,000 line of credit with no hard credit pull. Reply INFO. STOP to end
+spam	+18005550263	Hi Kevin, this is Tracy from Allstar Auto Warranty following up on your vehicle coverage. Reply STOP to unsubscribe
+spam	+18775550264	Join 1,000s of traders getting free stock alerts every morning! Reply JOIN. STOP to quit
+spam	+18555550265	Your free trial of DietMax is ready. Just pay $4.99 shipping: dietmax.shop
+spam	+18335550266	We buy land! Cash offers for vacant lots. Reply YES for a quote. STOP to opt out
+spam	+18445550267	Hello! Get 50% off pest control in your area this week. Reply PEST. STOP to end
+spam	+18885550268	This message is for Angela Brooks. Please call 555-0199 regarding your account. Reply STOP to opt out
+spam	+18665550269	Stream every sports game for just $9.99/month: sportsstream.live Reply STOP to unsubscribe
+spam	+18775550270	Free consultation: Were you or a loved one exposed to toxic chemicals? You may be entitled to compensation. Call 555-0196. STOP to end
