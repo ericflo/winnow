@@ -74,6 +74,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import com.ericflo.winnow.ui.components.VideoViewer
+import com.ericflo.winnow.ui.components.VideoAttachment
+import com.ericflo.winnow.ui.components.AudioPlayer
+import com.ericflo.winnow.ui.components.AudioAttachment
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -153,6 +158,11 @@ fun ThreadScreen(
     var actionsFor by remember { mutableStateOf<ChatMessage?>(null) }
     var detailsFor by remember { mutableStateOf<ChatMessage?>(null) }
     var viewing by rememberSaveable { mutableStateOf<String?>(null) }
+    var watching by rememberSaveable { mutableStateOf<String?>(null) }
+    // One player for the whole conversation, so starting a voice message stops the last one.
+    val appContext = LocalContext.current.applicationContext
+    val audio = remember { AudioPlayer(appContext) }
+    DisposableEffect(audio) { onDispose { audio.release() } }
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
@@ -290,6 +300,8 @@ fun ThreadScreen(
                 onScheduledEdit = viewModel::editScheduled,
                 onScheduledDelete = viewModel::cancelScheduled,
                 onViewImage = { viewing = it },
+                onViewVideo = { audio.release(); watching = it },
+                audio = audio,
                 onActions = { actionsFor = it },
                 onRetry = viewModel::retry,
                 onCopyCode = { copy(it, "Code copied") },
@@ -311,6 +323,7 @@ fun ThreadScreen(
     }
     detailsFor?.let { message -> MessageDetailsDialog(message, state, sims, onDismiss = { detailsFor = null }) }
     viewing?.let { ImageViewer(it, onDismiss = { viewing = null }) }
+    watching?.let { VideoViewer(it, onDismiss = { watching = null }) }
     if (confirmReport) {
         val spam = state.messages.lastOrNull { !it.outgoing }?.body.orEmpty()
         AlertDialog(
@@ -504,6 +517,8 @@ private fun MessageList(
     onScheduledEdit: (ScheduledMessageEntity) -> Unit,
     onScheduledDelete: (Long) -> Unit,
     onViewImage: (String) -> Unit,
+    onViewVideo: (String) -> Unit,
+    audio: AudioPlayer,
     onActions: (ChatMessage) -> Unit,
     onRetry: (ChatMessage) -> Unit,
     onCopyCode: (String) -> Unit,
@@ -543,6 +558,8 @@ private fun MessageList(
                     onViewImage = onViewImage,
                     onRetry = { onRetry(item.message) },
                     onCopyCode = onCopyCode,
+                    audio = audio,
+                    onViewVideo = onViewVideo,
                 )
             }
         }
@@ -573,6 +590,8 @@ private fun MessageBubble(
     onViewImage: (String) -> Unit,
     onRetry: () -> Unit,
     onCopyCode: (String) -> Unit,
+    audio: AudioPlayer,
+    onViewVideo: (String) -> Unit,
 ) {
     val m = item.message
     val colors = MaterialTheme.colorScheme
@@ -609,7 +628,11 @@ private fun MessageBubble(
                 modifier = Modifier.fillMaxWidth(if (showAvatarColumn) 0.85f else 0.8f),
             ) {
                 m.attachments.forEach { attachment ->
-                    if (attachment.isImage) {
+                    if (attachment.isAudio) {
+                        AudioAttachment(attachment.uri, audio, outgoing = m.outgoing)
+                    } else if (attachment.isVideo) {
+                        VideoAttachment(attachment.uri, attachment.name, onOpen = { onViewVideo(attachment.uri) })
+                    } else if (attachment.isImage) {
                         AsyncImage(
                             model = attachment.uri,
                             contentDescription = attachment.name ?: "Image",

@@ -62,6 +62,8 @@ data class Attachment(
     val name: String? = null,
 ) {
     val isImage: Boolean get() = contentType.startsWith("image/")
+    val isAudio: Boolean get() = contentType.startsWith("audio/")
+    val isVideo: Boolean get() = contentType.startsWith("video/")
 }
 
 data class StoredVerdict(

@@ -60,7 +60,8 @@ messages can't be tapped.
 ### A complete messaging app
 
 - **SMS and MMS:** group conversations threaded correctly, photos in and out (downscaled to
-  carrier limits), and a full-screen viewer. iPhone tapbacks and SMS reactions are drawn on
+  carrier limits) with a full-screen viewer, and voice messages and videos that play right in
+  the conversation. iPhone tapbacks and SMS reactions are drawn on
   the message they react to. Failed sends and MMS downloads can be retried. SMS delivery
   reports are opt-in.
 - **Conversations:** pin, archive, mute, mark read/unread, delete, block (Android's system

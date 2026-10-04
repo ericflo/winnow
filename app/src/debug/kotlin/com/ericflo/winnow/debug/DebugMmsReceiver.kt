@@ -11,6 +11,7 @@ import android.graphics.Paint
 import android.graphics.Shader
 import android.telephony.SubscriptionManager
 import android.util.Log
+import com.ericflo.winnow.R
 import com.ericflo.winnow.WinnowApp
 import com.ericflo.winnow.data.splitAddresses
 import com.ericflo.winnow.mms.MmsPart
@@ -28,6 +29,8 @@ import java.io.ByteArrayOutputStream
  *     adb shell am broadcast -n com.ericflo.winnow/.debug.DebugMmsReceiver \
  *         --es from +14155550161 --es to +15555215554,+14155550162 --es text "hi" --ez photo true
  *
+ * `--ez voice true` adds a voice memo (audio/amr) and `--ez video true` a short clip (video/mp4).
+ *
  * The default mode runs an m-retrieve-conf through [com.ericflo.winnow.sms.MmsReceiver.onDownloaded];
  * `--es mode push` runs an m-notification-ind through onPush, whose download then fails for
  * want of an MMSC, which exercises the retry path.
@@ -39,6 +42,8 @@ class DebugMmsReceiver : BroadcastReceiver() {
         val to = intent.getStringExtra("to")?.let(::splitAddresses) ?: listOf("+15555215554")
         val text = intent.getStringExtra("text")
         val photo = intent.getBooleanExtra("photo", false)
+        val voice = intent.getBooleanExtra("voice", false)
+        val video = intent.getBooleanExtra("video", false)
         val subscriptionId = SubscriptionManager.getDefaultSmsSubscriptionId()
         val id = "debug${System.currentTimeMillis()}"
         val pending = goAsync()
@@ -50,6 +55,8 @@ class DebugMmsReceiver : BroadcastReceiver() {
                 } else {
                     val content = buildList {
                         if (photo) add(MmsPart("image/jpeg", samplePhoto(), name = "photo.jpg", contentId = "photo", contentLocation = "photo.jpg"))
+                        if (voice) add(MmsPart("audio/amr", raw(context, R.raw.sample_voice), name = "voice.amr", contentId = "voice", contentLocation = "voice.amr"))
+                        if (video) add(MmsPart("video/mp4", raw(context, R.raw.sample_clip), name = "clip.mp4", contentId = "clip", contentLocation = "clip.mp4"))
                         text?.let { add(MmsPart.plainText(it)) }
                     }
                     val conf = RetrieveConf(
@@ -70,6 +77,9 @@ class DebugMmsReceiver : BroadcastReceiver() {
             }
         }
     }
+
+    /** A 4-second voice memo (AMR) or a 3-second clip (MP4), generated with ffmpeg; see res/raw. */
+    private fun raw(context: Context, id: Int): ByteArray = context.resources.openRawResource(id).use { it.readBytes() }
 
     /** A 1200x900 dusk-over-hills JPEG, big enough to exercise real image handling. */
     private fun samplePhoto(): ByteArray {
