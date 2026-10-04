@@ -78,6 +78,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun importSmsBackupRestore(uri: Uri) = container.backups.importSmsBackupRestore(uri)
 
+    fun exportSmsBackupRestore(uri: Uri) = container.backups.exportSmsBackupRestore(uri)
+
     /** The automatic-backup folder's name, for display; null when off. */
     val autoBackupFolderName: StateFlow<String?> = container.settings.settings
         .map { it.autoBackupFolder }

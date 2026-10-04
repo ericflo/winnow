@@ -83,6 +83,13 @@ data class ConversationBackup(
     val mutedUntil: Long? = null,
 )
 
+/** [MessageBackup.kind] values. */
+internal const val KIND_SMS = "sms"
+internal const val KIND_MMS = "mms"
+
+/** [MessageBackup.status] for a message that didn't go out. */
+internal const val STATUS_FAILED = "failed"
+
 @Serializable
 data class MessageBackup(
     /** "sms" or "mms". */

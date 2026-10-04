@@ -34,6 +34,7 @@ import com.ericflo.winnow.backup.BackupSummary
 import java.text.NumberFormat
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -49,6 +50,9 @@ fun BackupSection(status: BackupStatus, isDefault: Boolean, canBackUpMessages: B
     }
     val openXml = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::importSmsBackupRestore)
+    }
+    val createXml = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/xml")) { uri ->
+        uri?.let(viewModel::exportSmsBackupRestore)
     }
 
     Column {
@@ -73,6 +77,16 @@ fun BackupSection(status: BackupStatus, isDefault: Boolean, canBackUpMessages: B
             supportingContent = { Text("Adds the texts and picture messages from its .xml backup that aren't on this phone yet") },
             modifier = Modifier.clickable(enabled = !busy) { openXml.launch(arrayOf("text/xml", "application/xml", "*/*")) },
         )
+        if (canBackUpMessages) {
+            ListItem(
+                headlineContent = { Text("Export for other apps") },
+                supportingContent = { Text("Your texts and picture messages as an SMS Backup & Restore .xml file, which most texting apps can import") },
+                // SMS Backup & Restore looks for files named like its own.
+                modifier = Modifier.clickable(enabled = !busy) {
+                    createXml.launch("sms-${LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))}.xml")
+                },
+            )
+        }
         BackupProgress(
             status,
             isDefault,

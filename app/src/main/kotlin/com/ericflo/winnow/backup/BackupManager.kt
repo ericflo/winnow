@@ -155,6 +155,39 @@ class BackupManager(
     }
 
     /** Clears a finished, failed or unconfirmed job's status. */
+    /** Writes every text and picture message as an SMS Backup & Restore file, for other apps (or Winnow) to import. */
+    fun exportSmsBackupRestore(uri: Uri) = start("Couldn't export") {
+        if (!canReadMessages()) {
+            _status.value = BackupStatus.Done("Winnow can't read your messages yet, so there's nothing to export.")
+            return@start
+        }
+        val job = coroutineContext
+        _status.value = BackupStatus.Working("Gathering messages")
+        val media = HashMap<String, Long>()
+        val conversations = readConversations(media)
+        val total = conversations.sumOf { it.messages.size }
+        (resolver.openOutputStream(uri, "wt") ?: error("The file couldn't be opened")).buffered().use { output ->
+            val serializer = Xml.newSerializer().apply { setOutput(output, "UTF-8") }
+            SmsBackupRestoreXml.write(
+                serializer,
+                conversations,
+                ownNumber = ownNumbers().firstOrNull(),
+                media = { part ->
+                    job.ensureActive()
+                    media[part.file]?.let { id ->
+                        runCatching { resolver.openInputStream(ContentUris.withAppendedId(Mms.Part.CONTENT_URI, id))?.use { it.readBytes() } }.getOrNull()
+                    }
+                },
+            ) { done, all ->
+                if (done % 100 == 0) _status.value = BackupStatus.Working("Exporting messages", done, all)
+            }
+        }
+        _status.value = BackupStatus.Done(
+            "Exported ${plural(total, "message")} in ${plural(conversations.size, "conversation")}. " +
+                "SMS Backup & Restore and most texting apps can import the file.",
+        )
+    }
+
     fun dismiss() {
         if (job?.isActive != true) _status.value = BackupStatus.Idle
     }
@@ -515,9 +548,6 @@ class BackupManager(
 
     private companion object {
         const val TAG = "WinnowBackup"
-        const val KIND_SMS = "sms"
-        const val KIND_MMS = "mms"
-        const val STATUS_FAILED = "failed"
         const val SMS_BATCH = 250
 
         fun format(n: Int): String = NumberFormat.getIntegerInstance().format(n)

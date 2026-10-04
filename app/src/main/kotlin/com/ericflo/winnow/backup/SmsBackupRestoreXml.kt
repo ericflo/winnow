@@ -2,13 +2,16 @@ package com.ericflo.winnow.backup
 
 import com.ericflo.winnow.data.normalizeAddress
 import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlSerializer
 import java.io.File
 import java.util.Base64
 
 /**
- * Reads an "SMS Backup & Restore" XML file, the format most Android texting backups use, into
- * Winnow's own backup model so the usual restore can add whatever's missing. MMS media is decoded
- * into [spool] as it streams past, so a file with thousands of photos never sits in memory whole.
+ * Reads and writes "SMS Backup & Restore" XML, the format most Android texting backups use.
+ * Reading turns it into Winnow's own backup model so the usual restore can add whatever's
+ * missing; MMS media is decoded into a spool as it streams past, so a file with thousands of
+ * photos never sits in memory whole. Writing is the way out: any app that reads the format can
+ * take the messages along.
  *
  * The format: `<smses>` holding `<sms address date type body read status …/>` and
  * `<mms date msg_box address …><parts><part ct text data …/></parts><addrs><addr address type/></addrs></mms>`,
@@ -19,10 +22,15 @@ object SmsBackupRestoreXml {
 
     // SMS types: 1 inbox, 2 sent, 3 draft, 4 outbox, 5 failed, 6 queued.
     private const val SMS_INBOX = 1
+    private const val SMS_SENT = 2
     private const val SMS_DRAFT = 3
     private const val SMS_FAILED = 5
     // MMS boxes: 1 inbox, 2 sent, 3 drafts, 4 outbox, 5 failed.
     private const val MMS_INBOX = 1
+    private const val MMS_SENT = 2
+    // PDU message types: m-send-req for sent messages, m-retrieve-conf for received ones.
+    private const val M_SEND_REQ = 128
+    private const val M_RETRIEVE_CONF = 132
     private const val MMS_DRAFT = 3
     private const val MMS_FAILED = 5
     // PduHeaders address types.
@@ -63,14 +71,14 @@ object SmsBackupRestoreXml {
                         add(
                             listOf(address),
                             MessageBackup(
-                                kind = "sms",
+                                kind = KIND_SMS,
                                 date = date,
                                 outgoing = !incoming,
                                 sender = address.takeIf { incoming },
                                 body = parser.attr("body").orEmpty(),
                                 subject = parser.attr("subject"),
                                 status = when {
-                                    type == SMS_FAILED -> "failed"
+                                    type == SMS_FAILED -> STATUS_FAILED
                                     !incoming && parser.attr("status") == "0" -> "delivered"
                                     else -> null
                                 },
@@ -131,13 +139,13 @@ object SmsBackupRestoreXml {
                         add(
                             participants,
                             MessageBackup(
-                                kind = "mms",
+                                kind = KIND_MMS,
                                 date = date,
                                 outgoing = !incoming,
                                 sender = sender.takeIf { incoming },
                                 body = texts.joinToString("\n"),
                                 subject = subject,
-                                status = if (box == MMS_FAILED) "failed" else null,
+                                status = if (box == MMS_FAILED) STATUS_FAILED else null,
                                 read = wasRead,
                                 parts = parts,
                             ),
@@ -152,6 +160,126 @@ object SmsBackupRestoreXml {
             ConversationBackup(recipients = recipients, messages = messages.sortedBy { it.date })
         }
         return Result(WinnowBackup(createdAt = System.currentTimeMillis(), conversations = conversations), skipped)
+    }
+
+    /**
+     * Writes [conversations] as one SMS Backup & Restore file, oldest message first. [media] gives
+     * a picture message part's bytes (null leaves it out); [ownNumber], if known, is listed as a
+     * recipient of received group messages, as phones record them. [onProgress] gets messages
+     * written so far and the total.
+     */
+    fun write(
+        out: XmlSerializer,
+        conversations: List<ConversationBackup>,
+        ownNumber: String?,
+        media: (PartBackup) -> ByteArray?,
+        onProgress: (Int, Int) -> Unit = { _, _ -> },
+    ) {
+        val messages = conversations.flatMap { c -> c.messages.map { c.recipients to it } }.sortedBy { it.second.date }
+        val now = System.currentTimeMillis()
+        out.startDocument("UTF-8", true)
+        out.startTag(null, "smses")
+        out.attr("count", messages.size)
+        out.attr("backup_set", java.util.UUID.randomUUID().toString())
+        out.attr("backup_date", now)
+        out.attr("type", "full")
+        messages.forEachIndexed { i, (recipients, m) ->
+            if (m.kind == KIND_MMS) writeMms(out, recipients, m, ownNumber, media) else writeSms(out, recipients, m)
+            onProgress(i + 1, messages.size)
+        }
+        out.endTag(null, "smses")
+        out.endDocument()
+        out.flush()
+    }
+
+    private fun writeSms(out: XmlSerializer, recipients: List<String>, m: MessageBackup) {
+        out.startTag(null, "sms")
+        out.attr("protocol", 0)
+        out.attr("address", (if (m.outgoing) m.to else m.sender) ?: recipients.firstOrNull())
+        out.attr("date", m.date)
+        out.attr("type", when {
+            !m.outgoing -> SMS_INBOX
+            m.status == STATUS_FAILED -> SMS_FAILED
+            else -> SMS_SENT
+        })
+        out.attr("subject", m.subject)
+        out.attr("body", m.body)
+        out.attr("toa", null)
+        out.attr("sc_toa", null)
+        out.attr("service_center", null)
+        out.attr("read", if (m.read) 1 else 0)
+        out.attr("status", if (m.status == "delivered") 0 else -1)
+        out.attr("locked", 0)
+        out.attr("date_sent", 0)
+        out.endTag(null, "sms")
+    }
+
+    private fun writeMms(out: XmlSerializer, recipients: List<String>, m: MessageBackup, ownNumber: String?, media: (PartBackup) -> ByteArray?) {
+        val files = m.parts.mapNotNull { part -> media(part)?.let { part to it } }
+        out.startTag(null, "mms")
+        out.attr("date", m.date)
+        out.attr("msg_box", when {
+            !m.outgoing -> MMS_INBOX
+            m.status == STATUS_FAILED -> MMS_FAILED
+            else -> MMS_SENT
+        })
+        out.attr("address", recipients.joinToString("~"))
+        out.attr("m_type", if (m.outgoing) M_SEND_REQ else M_RETRIEVE_CONF)
+        out.attr("read", if (m.read) 1 else 0)
+        out.attr("seen", 1)
+        out.attr("sub", m.subject)
+        out.attr("ct_t", "application/vnd.wap.multipart.related")
+        out.attr("text_only", if (files.isEmpty()) 1 else 0)
+        out.attr("locked", 0)
+        out.attr("date_sent", 0)
+        out.startTag(null, "parts")
+        var seq = 0
+        if (m.body.isNotEmpty()) {
+            out.startTag(null, "part")
+            out.attr("seq", seq++)
+            out.attr("ct", "text/plain")
+            out.attr("chset", 106)
+            out.attr("cl", "text0.txt")
+            out.attr("text", m.body)
+            out.endTag(null, "part")
+        }
+        files.forEachIndexed { i, (part, bytes) ->
+            val name = part.name ?: "attachment$i"
+            out.startTag(null, "part")
+            out.attr("seq", seq++)
+            out.attr("ct", part.contentType)
+            out.attr("name", name)
+            out.attr("cl", name)
+            out.attr("cid", "<$name>")
+            out.attr("data", Base64.getEncoder().encodeToString(bytes))
+            out.endTag(null, "part")
+        }
+        out.endTag(null, "parts")
+        out.startTag(null, "addrs")
+        if (m.outgoing) {
+            out.addr("insert-address-token", ADDR_FROM)
+            recipients.forEach { out.addr(it, ADDR_TO) }
+        } else {
+            val sender = m.sender ?: recipients.firstOrNull()
+            sender?.let { out.addr(it, ADDR_FROM) }
+            (recipients.filter { it != sender } + listOfNotNull(ownNumber)).forEach { out.addr(it, ADDR_TO) }
+        }
+        out.endTag(null, "addrs")
+        out.endTag(null, "mms")
+    }
+
+    private fun XmlSerializer.addr(address: String, type: Int) {
+        startTag(null, "addr")
+        attr("address", address)
+        attr("type", type)
+        attr("charset", 106)
+        endTag(null, "addr")
+    }
+
+    /** Missing values are written as the format's literal "null"; control characters XML can't carry are dropped. */
+    private fun XmlSerializer.attr(name: String, value: Any?) {
+        val text = value?.toString()?.filter { it >= ' ' || it == '\n' || it == '\r' || it == '\t' } ?: "null"
+        attribute(null, name, text)
     }
 
     /** The attribute, with SMS Backup & Restore's literal "null" read as missing. */

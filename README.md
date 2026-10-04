@@ -108,7 +108,8 @@ messages can't be tapped.
   automatically** writes one every week while the phone charges, into a folder you pick
   once, such as one your cloud drive syncs. It keeps the newest four. Coming from another
   app? **Import from SMS Backup & Restore** reads that app's .xml backup, texts and picture
-  messages included, and adds whatever isn't on the phone yet.
+  messages included, and adds whatever isn't on the phone yet. Leaving? **Export for other
+  apps** writes the same format, which most texting apps can import.
 - **Big screens:** on a tablet, an unfolded foldable or a wide window, the conversation list
   and the open conversation sit side by side. **Enter sends** (optional) makes a keyboard's
   Enter send; Shift+Enter still starts a new line.
