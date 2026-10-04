@@ -173,8 +173,10 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
         fun isPersonalNumber(address: String): Boolean = numberKey(address)?.startsWith("short:") == false
 
         @Volatile private var appContext: Context? = null
+        /** The SIM's country, once known; the network's isn't kept (a roaming phone is still from home). */
         @Volatile private var homeCountry: String? = null
-        @Volatile private var checkedAt = 0L
+        @Volatile private var network: String? = null
+        @Volatile private var checkedAt = Long.MIN_VALUE
 
         /**
          * Where the phone is, for showing numbers: the SIM's country, else the network's, else the
@@ -183,16 +185,17 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
          */
         private fun country(): String {
             homeCountry?.let { return it }
-            val now = System.currentTimeMillis()
+            // Elapsed time, not the clock: setting the clock back mustn't stop the retries.
+            val now = android.os.SystemClock.elapsedRealtime()
             val context = appContext
-            if (context != null && now - checkedAt > COUNTRY_RETRY_MILLIS) {
+            if (context != null && (checkedAt == Long.MIN_VALUE || now - checkedAt > COUNTRY_RETRY_MILLIS)) {
                 checkedAt = now
                 val telephony = runCatching { context.getSystemService(android.telephony.TelephonyManager::class.java) }.getOrNull()
-                val sim = runCatching { telephony?.simCountryIso }.getOrNull()?.takeIf { it.isNotBlank() }
-                homeCountry = (sim ?: runCatching { telephony?.networkCountryIso }.getOrNull()?.takeIf { it.isNotBlank() })?.uppercase()
+                homeCountry = runCatching { telephony?.simCountryIso }.getOrNull()?.takeIf { it.isNotBlank() }?.uppercase()
                 homeCountry?.let { return it }
+                network = runCatching { telephony?.networkCountryIso }.getOrNull()?.takeIf { it.isNotBlank() }?.uppercase()
             }
-            return Locale.getDefault().country.uppercase()
+            return network ?: Locale.getDefault().country.uppercase()
         }
 
         fun formatAddress(address: String): String {

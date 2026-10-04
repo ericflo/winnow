@@ -23,6 +23,7 @@ import com.ericflo.winnow.R
 import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.ui.BubbleActivity
 import com.ericflo.winnow.ui.MainActivity
+import com.ericflo.winnow.ui.theme.avatarHue
 import android.provider.Settings
 import java.io.File
 
@@ -320,8 +321,8 @@ class Notifier(private val context: Context) {
     /** The conversation's first letter on its avatar color, as in the inbox; the app icon for a bare number. */
     private fun letterIcon(title: String, seed: String): IconCompat {
         val letter = title.firstOrNull()?.takeIf { it.isLetter() } ?: return IconCompat.createWithResource(context, R.mipmap.ic_launcher)
-        val hues = floatArrayOf(4f, 28f, 48f, 96f, 150f, 188f, 214f, 262f, 292f, 330f)
-        val hue = hues[Math.floorMod(seed.hashCode(), hues.size)]
+        // The inbox avatar's hue, for the same conversation.
+        val hue = avatarHue(seed)
         // An adaptive icon: full bleed, with the letter inside the middle two thirds launchers keep.
         val size = 432
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)

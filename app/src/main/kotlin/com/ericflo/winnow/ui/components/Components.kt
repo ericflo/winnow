@@ -29,7 +29,6 @@ import coil3.compose.AsyncImage
 import com.ericflo.winnow.R
 import com.ericflo.winnow.data.Member
 import androidx.compose.ui.graphics.Color
-import com.ericflo.winnow.data.normalizeAddress
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.data.StoredVerdict
@@ -75,8 +74,7 @@ fun GroupAvatar(members: List<Member>, size: Dp = 52.dp, modifier: Modifier = Mo
 fun Avatar(name: String, seed: String, size: Dp = 52.dp, modifier: Modifier = Modifier, photoUri: String? = null) {
     val named = name.firstOrNull()?.let { it.isLetter() } == true
     val (container, content) = if (named) {
-        // The same person the same color everywhere, however the carrier wrote their number.
-        avatarColors(normalizeAddress(seed))
+        avatarColors(seed)
     } else {
         MaterialTheme.colorScheme.surfaceContainerHighest to MaterialTheme.colorScheme.onSurfaceVariant
     }

@@ -133,6 +133,9 @@ data class WinnowSettings(
     val ownNumberCardDismissed: Boolean = false,
     /** When the last daily summary went out (or had nothing to say); 0 for never. This phone's only. */
     val dailySummaryLastAt: Long = 0,
+    /** The newest SMS and MMS the last daily summary covered, so none is reported twice, whatever the clock does. */
+    val dailySummaryLastSmsId: Long = 0,
+    val dailySummaryLastMmsId: Long = 0,
     /** Fetch link previews for texts from people you know. Off by default: fetching tells the site your IP. */
     val linkPreviews: Boolean = false,
     /** A folder (SAF tree URI) for weekly automatic backups; this phone's only, never backed up. */
@@ -217,6 +220,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             dailySummary = this[DAILY_SUMMARY] ?: false,
             ownNumberCardDismissed = this[OWN_NUMBER_CARD_DISMISSED] ?: false,
             dailySummaryLastAt = this[DAILY_SUMMARY_LAST_AT] ?: 0,
+            dailySummaryLastSmsId = this[DAILY_SUMMARY_LAST_SMS] ?: 0,
+            dailySummaryLastMmsId = this[DAILY_SUMMARY_LAST_MMS] ?: 0,
             filteredPhrases = this[FILTERED_PHRASES]?.let { runCatching { Json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrNull() }.orEmpty(),
             autoBackupFolder = this[AUTO_BACKUP_FOLDER],
             autoBackupLast = this[AUTO_BACKUP_LAST] ?: 0,
@@ -265,6 +270,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[DAILY_SUMMARY] = s.dailySummary
         this[OWN_NUMBER_CARD_DISMISSED] = s.ownNumberCardDismissed
         this[DAILY_SUMMARY_LAST_AT] = s.dailySummaryLastAt
+        this[DAILY_SUMMARY_LAST_SMS] = s.dailySummaryLastSmsId
+        this[DAILY_SUMMARY_LAST_MMS] = s.dailySummaryLastMmsId
         s.autoBackupFolder?.let { this[AUTO_BACKUP_FOLDER] = it } ?: remove(AUTO_BACKUP_FOLDER)
         this[AUTO_BACKUP_LAST] = s.autoBackupLast
         s.autoBackupError?.let { this[AUTO_BACKUP_ERROR] = it } ?: remove(AUTO_BACKUP_ERROR)
@@ -302,6 +309,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val DAILY_SUMMARY = booleanPreferencesKey("filter.daily_summary")
         val OWN_NUMBER_CARD_DISMISSED = booleanPreferencesKey("ui.own_number_card_dismissed")
         val DAILY_SUMMARY_LAST_AT = longPreferencesKey("filter.daily_summary_last_at")
+        val DAILY_SUMMARY_LAST_SMS = longPreferencesKey("filter.daily_summary_last_sms")
+        val DAILY_SUMMARY_LAST_MMS = longPreferencesKey("filter.daily_summary_last_mms")
         val AUTO_SAVE_MEDIA = booleanPreferencesKey("mms.auto_save_media")
         val AUTO_BACKUP_FOLDER = stringPreferencesKey("backup.auto_folder")
         val AUTO_BACKUP_LAST = longPreferencesKey("backup.auto_last")

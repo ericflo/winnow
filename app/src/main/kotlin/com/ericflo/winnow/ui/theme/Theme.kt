@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.ericflo.winnow.classifier.message.Category
+import com.ericflo.winnow.data.normalizeAddress
 
 /** Material You colors from the wallpaper, like the system Messages app. */
 @Composable
@@ -21,11 +22,18 @@ fun WinnowTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable
     )
 }
 
-/** Stable avatar color for an address, from a fixed set of soft hues. */
+/**
+ * An address's avatar hue, from a fixed set of soft hues: the same person the same hue everywhere
+ * (avatars, group sender names, shortcut icons), however the carrier wrote their number.
+ */
+fun avatarHue(seed: String): Float = AVATAR_HUES[Math.floorMod(normalizeAddress(seed).hashCode(), AVATAR_HUES.size)]
+
+private val AVATAR_HUES = floatArrayOf(4f, 28f, 48f, 96f, 150f, 188f, 214f, 262f, 292f, 330f)
+
+/** Stable avatar colors for an address: see [avatarHue]. */
 @Composable
 fun avatarColors(seed: String): Pair<Color, Color> {
-    val hues = floatArrayOf(4f, 28f, 48f, 96f, 150f, 188f, 214f, 262f, 292f, 330f)
-    val hue = hues[Math.floorMod(seed.hashCode(), hues.size)]
+    val hue = avatarHue(seed)
     return if (isSystemInDarkTheme()) {
         Color.hsl(hue, 0.35f, 0.30f) to Color.hsl(hue, 0.70f, 0.88f)
     } else {
