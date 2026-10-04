@@ -1,0 +1,7 @@
+<resources>
+    <!-- Dark, with Settings → Theme too (the per-app night mode reaches resources). -->
+    <style name="Theme.Winnow" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/system_neutral1_900</item>
+        <item name="android:windowSplashScreenBackground">@android:color/system_neutral1_900</item>
+    </style>
+</resources>

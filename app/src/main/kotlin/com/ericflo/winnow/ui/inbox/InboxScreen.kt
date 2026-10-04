@@ -206,7 +206,19 @@ fun InboxScreen(
         Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
                 if (searching) SearchBar(typed, { typed = it; viewModel.setQuery(it) }, onClose = closeSearch)
-                if (state.loading) return@Column
+                if (state.loading) {
+                    // The title while the first list loads (a cold start with many conversations
+                    // takes a moment), not a blank screen with only the Start chat button on it.
+                    // The list itself waits, so it comes back to where it was scrolled.
+                    if (!searching) {
+                        if (LocalConfiguration.current.screenHeightDp < SHORT_SCREEN_DP) {
+                            CompactBar(onSearch = { searching = true }, onMenu = { menuOpen = true })
+                        } else {
+                            LargeHeader(onSearch = { searching = true }, onMenu = { menuOpen = true })
+                        }
+                    }
+                    return@Column
+                }
                 LazyColumn(
                     state = listState,
                     contentPadding = PaddingValues(
