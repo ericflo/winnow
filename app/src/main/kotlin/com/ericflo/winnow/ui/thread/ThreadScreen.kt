@@ -1480,6 +1480,22 @@ private fun MessageDetailsDialog(message: ChatMessage, state: ThreadUiState, sim
             add("From" to if (name != null && name != number) "$name · $number" else number)
             add("Received" to at)
         }
+        val status = when (message.status) {
+            ChatMessage.Status.SENDING -> "Sending"
+            ChatMessage.Status.SENT -> "Sent" + if (message.kind == ChatMessage.Kind.SMS) " (no delivery report)" else ""
+            ChatMessage.Status.DELIVERED -> "Delivered"
+            ChatMessage.Status.FAILED -> "Not sent"
+            ChatMessage.Status.DOWNLOADING -> "Downloading"
+            ChatMessage.Status.DOWNLOAD_FAILED -> "Couldn't download"
+            ChatMessage.Status.NOT_DOWNLOADED -> "Not downloaded yet${message.downloadSize.takeIf { it > 0 }?.let { " (${it / 1000} KB)" }.orEmpty()}"
+            ChatMessage.Status.RECEIVED -> null
+        }
+        status?.let { add("Status" to it) }
+        // A long text goes out in parts, each counted (and maybe billed) as a text.
+        if (message.kind == ChatMessage.Kind.SMS && message.body.isNotEmpty()) {
+            val parts = android.telephony.SmsMessage.calculateLength(message.body, false)[0]
+            if (parts > 1) add("Length" to "${message.body.length} characters, sent as $parts texts")
+        }
         // Which SIM only matters on a phone with more than one.
         sims.firstOrNull { it.subscriptionId == message.subscriptionId }?.let { add("SIM" to "${it.slotName} · ${it.label}") }
         message.subject?.let { add("Subject" to it) }
