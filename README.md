@@ -152,7 +152,7 @@ Details, including how to add a provider: [docs/ARCHITECTURE.md](docs/ARCHITECTU
 
 Winnow ships its own classifier: a softmax regression over words, word pairs and signals
 like "links to an unusual domain" or "a web address dressed up as another". The weights are
-230 KB. It runs in well under a millisecond, and it says why it decided ("Decided on this
+230 KB. It classifies a text in about 50 µs on a laptop JVM (not yet measured on a phone), and it says why it decided ("Decided on this
 phone: “confirm”, “package”, “fee”"). It's trained from a labeled corpus in
 `classifier/training/`. The model file is rebuilt with `./gradlew :classifier:trainLocalModel`,
 and a test fails if the shipped model doesn't match the corpus.
