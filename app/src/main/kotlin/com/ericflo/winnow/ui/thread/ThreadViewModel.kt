@@ -173,7 +173,12 @@ class ThreadViewModel(
             recipients.singleOrNull()?.let { _blocked.value = blockedNumbers.isBlocked(it) }
         }
         viewModelScope.launch {
-            if (threadId.value < 0) threadId.value = repo.threadIdFor(recipients)
+            if (threadId.value < 0) {
+                threadId.value = repo.threadIdFor(recipients)
+                // Opened by number (a link, a new chat): the screen said it was visible before the
+                // thread was known. Now its texts don't notify while it's showing.
+                if (visible) setVisible(true)
+            }
             val id = threadId.value
             // Read before marking read: where this visit's "new messages" begin.
             if (id >= 0) _unreadOnOpen.value = runCatching { repo.unreadIncoming(id) }.getOrDefault(emptyList())
@@ -239,7 +244,10 @@ class ThreadViewModel(
      * While the conversation is on screen, incoming texts for it don't notify (see
      * IncomingMessageHandler) and coming back to it marks it read.
      */
+    @Volatile private var visible = false
+
     fun setVisible(visible: Boolean) {
+        this.visible = visible
         val id = threadId.value
         if (visible) {
             container.visibleThread.value = id.takeIf { it >= 0 }
