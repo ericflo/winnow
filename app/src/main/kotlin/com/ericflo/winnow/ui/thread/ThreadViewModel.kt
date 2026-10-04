@@ -10,6 +10,7 @@ import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.data.SimCard
 import com.ericflo.winnow.backup.Trash
 import com.ericflo.winnow.data.PhotoCrop
+import com.ericflo.winnow.sms.SendReadiness
 import com.ericflo.winnow.data.Tapback
 import com.ericflo.winnow.data.StoredVerdict
 import com.ericflo.winnow.data.db.ScheduledMessageEntity
@@ -639,6 +640,11 @@ class ThreadViewModel(
         .map { (text, sim) -> text.length > 70 && container.mmsSender.textNeedsMms(container.smsSender.prepared(text), sim) }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** What might stop a message sending right now (see SendReadiness), for the composer and failed bubbles. */
+    val readiness: StateFlow<SendReadiness.State> = container.sendReadiness.changes { _selectedSim.value }
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SendReadiness.State())
 
     /** What one MMS can carry on the SIM this conversation sends from. */
     private suspend fun budget(): Long = withContext(Dispatchers.IO) { container.mmsSender.messageBudget(_selectedSim.value).toLong() }

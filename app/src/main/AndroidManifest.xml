@@ -10,6 +10,8 @@
         android:required="false" />
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Whether mobile data is on, which picture messages need (see SendReadiness). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_SMS" />

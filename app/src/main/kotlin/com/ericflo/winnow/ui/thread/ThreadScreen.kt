@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Star
 import com.ericflo.winnow.backup.Trash
 import com.ericflo.winnow.data.SimpleCharacters
 import com.ericflo.winnow.sms.measureSms
+import com.ericflo.winnow.sms.SendReadiness
 import com.ericflo.winnow.data.SimCard
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -112,6 +113,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -267,6 +269,7 @@ fun ThreadScreen(
     val textScale by viewModel.textScale.collectAsStateWithLifecycle()
     val unreadOnOpen by viewModel.unreadOnOpen.collectAsStateWithLifecycle()
     val enterToSend by viewModel.enterToSend.collectAsStateWithLifecycle()
+    val readiness by viewModel.readiness.collectAsStateWithLifecycle()
     val recording by viewModel.recording.collectAsStateWithLifecycle()
     val sendSeparately by viewModel.sendSeparately.collectAsStateWithLifecycle()
     val subjectShown by viewModel.subjectShown.collectAsStateWithLifecycle()
@@ -672,6 +675,7 @@ fun ThreadScreen(
                 onRemoveSubject = viewModel::removeSubject,
                 // Sent separately, each person gets a plain text; a subject makes it an MMS (an empty one is left off).
                 // An email address takes only an MMS.
+                readiness = readiness,
                 isSms = (single != null || sendSeparately) && state.recipients.none(::isEmailAddress) && attachments.isEmpty() && subjectBlank,
                 sendsAsMms = viewModel.sendsAsMms.collectAsStateWithLifecycle().value,
                 simpleCharacters = viewModel.simpleCharacters.collectAsStateWithLifecycle().value,
@@ -709,7 +713,7 @@ fun ThreadScreen(
                     onDismiss = { unknownDismissed = true },
                 )
             }
-            CompositionLocalProvider(LocalUriHandler provides uris) {
+            CompositionLocalProvider(LocalUriHandler provides uris, LocalSendReadiness provides readiness) {
             MessageList(
                 state = state,
                 scheduled = scheduled,
@@ -1788,7 +1792,15 @@ private fun MessageBubble(
         }
         val status = when (m.status) {
             ChatMessage.Status.SENDING -> "Sending…"
-            ChatMessage.Status.FAILED -> "Not sent · Tap to retry"
+            ChatMessage.Status.FAILED -> {
+                // What's in the way now, if anything (see SendReadiness).
+                val readiness = LocalSendReadiness.current
+                when {
+                    readiness.airplane -> "Not sent · Airplane mode is on · Tap to retry"
+                    m.kind == ChatMessage.Kind.MMS && readiness.mobileDataOff -> "Not sent · Mobile data is off · Tap to retry"
+                    else -> "Not sent · Tap to retry"
+                }
+            }
             ChatMessage.Status.DELIVERED -> when {
                 showTime -> "Delivered · ${timeOfDay(m.timestamp)}"
                 isLatestOutgoing -> "Delivered"
@@ -2076,6 +2088,8 @@ private fun Composer(
     isSms: Boolean,
     /** The draft is long enough that the carrier has it sent as an MMS. */
     sendsAsMms: Boolean = false,
+    /** What might stop it sending (see SendReadiness), said in a line above the composer. */
+    readiness: SendReadiness.State = SendReadiness.State(),
     /** Settings → Simple characters: count the draft as it will go out. */
     simpleCharacters: Boolean = false,
     onSend: () -> Unit,
@@ -2113,6 +2127,19 @@ private fun Composer(
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Making the video small enough to send… $shrinking%", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                 LinearProgressIndicator(progress = { shrinking / 100f }, modifier = Modifier.fillMaxWidth())
+            }
+        }
+        // Something to send and something in its way: say so now, not once it's failed.
+        val inTheWay = when {
+            readiness.airplane -> "Airplane mode is on, so this may not send"
+            !isSms && readiness.mobileDataOff -> "Mobile data is off. Picture messages need it to send"
+            else -> null
+        }
+        if (inTheWay != null && (draft.isNotBlank() || attachments.isNotEmpty() || subject != null)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 20.dp, end = 16.dp, top = 6.dp)) {
+                Icon(Icons.Filled.Info, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(inTheWay, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
             }
         }
         if (sendSeparately) {
@@ -2556,6 +2583,9 @@ private fun DeleteMessagesDialog(count: Int, everything: Boolean, onConfirm: () 
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/** What might stop a message sending, for the bubbles of ones that didn't. */
+private val LocalSendReadiness = compositionLocalOf { SendReadiness.State() }
 
 /** Below this the counter never shows: even in the 70-character form, a text this short is one part. */
 private const val SegmentCounterFrom = 50

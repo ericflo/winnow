@@ -253,6 +253,9 @@ class AppContainer(private val context: Context) {
     /** Reply reminders the user said "not now" to. */
     val dismissedNudges by lazy { com.ericflo.winnow.data.DismissedNudges(context) }
 
+    /** Airplane mode and mobile data, said before a send fails (see SendReadiness). */
+    val sendReadiness by lazy { com.ericflo.winnow.sms.SendReadiness(context) }
+
     /** Contacts' birthdays, for birthday reminders. */
     val birthdays by lazy { com.ericflo.winnow.data.Birthdays(context) }
 

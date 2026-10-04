@@ -87,7 +87,8 @@ and opens Filtered; nothing on a quiet day.
   fit (144–360 lines, 10–15 fps), and a long one is cut to the part that fits, with a note
   saying so. iPhone tapbacks and SMS reactions are drawn on
   the message they react to, and any emoji can be one. Failed sends and MMS downloads can be
-  retried. Delivery reports (SMS and MMS, where the carrier sends them) are opt-in, and MMS auto-download can be turned off (it's off while roaming unless
+  retried, and what's in the way is said before a message fails, not after: airplane mode, or
+  mobile data being off for a picture message. Delivery reports (SMS and MMS, where the carrier sends them) are opt-in, and MMS auto-download can be turned off (it's off while roaming unless
   you allow it), leaving "Tap to download" in the conversation. Optionally, photos and videos
   from your contacts and people you've texted are saved to the phone's gallery (Pictures/Winnow,
   Movies/Winnow) as they arrive; filtered and silenced texts' never are.
