@@ -13,6 +13,7 @@ import com.ericflo.winnow.data.SettingsRepository
 import com.ericflo.winnow.data.db.VerdictDao
 import com.ericflo.winnow.data.db.VerdictEntity
 import com.ericflo.winnow.data.normalizeAddress
+import com.ericflo.winnow.data.subjectAndText
 import com.ericflo.winnow.sms.MmsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -124,7 +125,7 @@ class HistoryReviewer(
         val filled = newest.values.map { c ->
             if (!c.key.startsWith("mms:")) return@map c
             val id = c.key.removePrefix("mms:").toLong()
-            c.copy(sender = store.sender(id).orEmpty(), body = store.text(id).ifBlank { "[photo]" })
+            c.copy(sender = store.sender(id).orEmpty(), body = subjectAndText(store.subject(id), store.text(id)).ifBlank { "[photo]" })
         }.filter { it.sender.isNotBlank() }
         val reviewed = filled.map { it.key }.chunked(500).flatMap { dao.existingKeys(it) }.toSet()
         filled.filterNot { it.key in reviewed }.sortedByDescending { it.date }

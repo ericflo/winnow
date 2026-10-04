@@ -50,6 +50,10 @@ class ConversationStateStore(private val dao: ConversationStateDao) {
     suspend fun saveDraft(threadId: Long, draft: String) =
         updateAll(listOf(threadId)) { it.copy(draft = draft.takeIf(String::isNotBlank)) }
 
+    /** Null takes the subject field away; "" keeps it, empty. */
+    suspend fun saveDraftSubject(threadId: Long, subject: String?) =
+        updateAll(listOf(threadId)) { it.copy(draftSubject = subject) }
+
     suspend fun saveDraftAttachments(threadId: Long, encoded: String?) =
         updateAll(listOf(threadId)) { it.copy(draftAttachments = encoded) }
 

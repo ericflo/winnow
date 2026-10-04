@@ -44,18 +44,21 @@ class MmsSender(
     private val deliveryReports: suspend () -> Boolean = { false },
 ) {
 
-    suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int? = null) {
+    suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int? = null, subject: String? = null) {
         // Settled before the message is stored: nothing after that may be cancelled halfway.
         val reports = deliveryReports()
         val sub = forSending(subscriptionId)
         val media = readAttachments(attachments, messageBudget(subscriptionId))
-        val content = media + listOfNotNull(body.takeIf { it.isNotBlank() }?.let { MmsPart.plainText(it) })
+        val text = body.takeIf { it.isNotBlank() }?.let { MmsPart.plainText(it) }
+            // A subject alone still needs a part to carry: an empty text, as other phones send.
+            ?: MmsPart.plainText("").takeIf { media.isEmpty() && !subject.isNullOrBlank() }
+        val content = media + listOfNotNull(text)
         require(content.isNotEmpty()) { "nothing to send" }
         val parts = listOf(Smil.forParts(content)) + content
         val threadId = Telephony.Threads.getOrCreateThreadId(context, recipients.toSet())
-        val uri = store.insertOutgoing(threadId, recipients, parts, sub ?: SubscriptionManager.getDefaultSmsSubscriptionId())
+        val uri = store.insertOutgoing(threadId, recipients, parts, sub ?: SubscriptionManager.getDefaultSmsSubscriptionId(), subject)
             ?: error("couldn't store the outgoing MMS; is Winnow the default SMS app?")
-        transmit(uri, recipients, parts, sub, reports)
+        transmit(uri, recipients, parts, sub, reports, subject)
     }
 
     suspend fun retry(mmsId: Long) {
@@ -64,20 +67,21 @@ class MmsSender(
         store.setBox(uri, Telephony.Mms.MESSAGE_BOX_OUTBOX)
         // Retry on the SIM it was first sent from; back to failed if it can't even be handed off.
         try {
-            transmit(uri, store.recipients(mmsId), store.parts(mmsId), forSending(store.subscriptionId(mmsId)), reports)
+            transmit(uri, store.recipients(mmsId), store.parts(mmsId), forSending(store.subscriptionId(mmsId)), reports, store.subject(mmsId))
         } catch (e: Exception) {
             store.setBox(uri, Telephony.Mms.MESSAGE_BOX_FAILED)
             throw e
         }
     }
 
-    private fun transmit(message: Uri, recipients: List<String>, parts: List<MmsPart>, subscriptionId: Int?, deliveryReport: Boolean) {
+    private fun transmit(message: Uri, recipients: List<String>, parts: List<MmsPart>, subscriptionId: Int?, deliveryReport: Boolean, subject: String?) {
         val pdu = PduComposer.compose(
             SendReq(
                 transactionId = "T" + UUID.randomUUID().toString().replace("-", "").take(12),
                 to = recipients,
                 dateSeconds = System.currentTimeMillis() / 1000,
                 parts = parts,
+                subject = subject?.takeIf { it.isNotBlank() },
                 // The carrier answers with an m-delivery-ind; see MmsReceiver.onPush.
                 deliveryReport = deliveryReport.takeIf { it },
             ),

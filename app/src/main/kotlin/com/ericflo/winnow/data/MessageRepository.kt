@@ -46,7 +46,14 @@ interface MessageRepository {
     suspend fun threadIdFor(recipients: List<String>): Long
 
     /** SMS to one recipient without attachments; MMS otherwise. [subscriptionId] picks the SIM; null for the default. */
-    suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment> = emptyList(), subscriptionId: Int? = null)
+    /** [subject], when given, makes it an MMS with that subject, even to one person with nothing attached. */
+    suspend fun send(
+        recipients: List<String>,
+        body: String,
+        attachments: List<OutgoingAttachment> = emptyList(),
+        subscriptionId: Int? = null,
+        subject: String? = null,
+    )
 
     /** The messages with these keys (`sms:<id>`, `mms:<id>`) that still exist, with their conversations. */
     suspend fun messagesByKey(keys: Collection<String>): List<StarredMessage> = emptyList()
@@ -133,8 +140,8 @@ class SwitchingMessageRepository(
     override fun contactName(address: String) = current.contactName(address)
     override fun contactChanges() = isLive.flatMapLatest { if (it) live.contactChanges() else emptyFlow() }
     override suspend fun threadIdFor(recipients: List<String>) = current.threadIdFor(recipients)
-    override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int?) =
-        current.send(recipients, body, attachments, subscriptionId)
+    override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int?, subject: String?) =
+        current.send(recipients, body, attachments, subscriptionId, subject)
     override suspend fun lastIncomingSubscription(threadId: Long) = current.lastIncomingSubscription(threadId)
     override suspend fun messagesByKey(keys: Collection<String>) = current.messagesByKey(keys)
     override suspend fun retry(message: ChatMessage) = current.retry(message)

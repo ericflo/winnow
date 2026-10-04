@@ -28,11 +28,12 @@ import kotlinx.coroutines.flow.Flow
         VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class, ScheduledMessageEntity::class,
         CorrectionEntity::class, StarredEntity::class,
     ],
-    version = 10,
+    version = 11,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
         AutoMigration(from = 9, to = 10, spec = WinnowDatabase.EverythingSummarized::class),
+        AutoMigration(from = 10, to = 11),
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
@@ -170,6 +171,8 @@ data class ConversationStateEntity(
     val mutedUntil: Long? = null,
     /** The composer's attachments, as [com.ericflo.winnow.data.DraftAttachments] encodes them. */
     val draftAttachments: String? = null,
+    /** The composer's MMS subject: null for no subject field, "" for an empty one. */
+    val draftSubject: String? = null,
 ) {
     /** Muted right now: a timed mute counts only until it ends. */
     fun isMuted(now: Long = System.currentTimeMillis()): Boolean = muted && (mutedUntil == null || now < mutedUntil)

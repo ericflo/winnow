@@ -174,5 +174,12 @@ fun meaningfulSubject(subject: String?): String? {
     return trimmed.takeIf { bare != "nosubject" && bare != "subject" }
 }
 
+/**
+ * What an MMS says in words: its subject (if it has a real one) over its text. What's classified
+ * and previewed, so a message carried in the subject line is seen like any other.
+ */
+fun subjectAndText(subject: String?, text: String): String =
+    listOfNotNull(meaningfulSubject(subject), text.takeIf { it.isNotBlank() }).joinToString("\n")
+
 /** One person in a group, as its avatar shows them. */
 data class Member(val address: String, val name: String, val photoUri: String?)

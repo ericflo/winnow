@@ -102,4 +102,12 @@ class ModelsTest {
         assertEquals(null, com.ericflo.winnow.data.meaningfulSubject("<Subject>"))
         assertEquals("Dinner Friday", com.ericflo.winnow.data.meaningfulSubject(" Dinner Friday "))
     }
+
+    @Test
+    fun `an MMS is classified on its subject and its text`() {
+        assertEquals("URGENT: account locked\nVerify at x.top", com.ericflo.winnow.data.subjectAndText("URGENT: account locked", "Verify at x.top"))
+        assertEquals("Only the subject", com.ericflo.winnow.data.subjectAndText("Only the subject", " "))
+        assertEquals("Just text", com.ericflo.winnow.data.subjectAndText("NoSubject", "Just text"))
+        assertEquals("", com.ericflo.winnow.data.subjectAndText(null, ""))
+    }
 }

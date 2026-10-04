@@ -68,6 +68,8 @@ and opens Filtered; nothing on a quiet day.
   double-tap to zoom), and voice messages and videos that play right in the conversation.
   GIFs and animated stickers move (they hold still when Android's "Remove animations" is on),
   and an MMS's subject heads its bubble in bold (placeholders like "NoSubject" are left out).
+  Attach → **Subject** adds one to your own message, which then goes as an MMS; it's kept
+  with the draft, and Winnow's classifier reads a received subject along with the text.
   Any attachment can be saved to the phone or shared to another app. **Link previews**
   (off by default) show a link's title and picture, but only for your own links and texts
   from people in your contacts or that you've texted. Strangers and filtered texts never

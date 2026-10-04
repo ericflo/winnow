@@ -191,6 +191,7 @@ import com.ericflo.winnow.data.SmartAction
 import com.ericflo.winnow.data.SmartLink
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isShiftPressed
@@ -255,6 +256,7 @@ fun ThreadScreen(
     val enterToSend by viewModel.enterToSend.collectAsStateWithLifecycle()
     val recording by viewModel.recording.collectAsStateWithLifecycle()
     val sendSeparately by viewModel.sendSeparately.collectAsStateWithLifecycle()
+    val subject by viewModel.subject.collectAsStateWithLifecycle()
     // A permission was refused, maybe for good (then asking again shows nothing): say what it's for.
     var refused by remember { mutableStateOf<String?>(null) }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -609,8 +611,12 @@ fun ThreadScreen(
                 },
                 onRemoveAttachment = viewModel::removeAttachment,
                 onRotateAttachment = viewModel::rotateAttachment,
-                // Sent separately, each person gets a plain text.
-                isSms = (single != null || sendSeparately) && attachments.isEmpty(),
+                subject = subject,
+                onAddSubject = viewModel::addSubject,
+                onSubjectChange = viewModel::setSubject,
+                onRemoveSubject = viewModel::removeSubject,
+                // Sent separately, each person gets a plain text; a subject makes it an MMS.
+                isSms = (single != null || sendSeparately) && attachments.isEmpty() && subject == null,
                 sendsAsMms = viewModel.sendsAsMms.collectAsStateWithLifecycle().value,
                 onSend = viewModel::send,
                 enterToSend = enterToSend,
@@ -1925,6 +1931,11 @@ private fun Composer(
     recordingElapsed: () -> Long = { 0 },
     onStopRecording: () -> Unit = {},
     onCancelRecording: () -> Unit = {},
+    /** The MMS subject: null for no subject field. */
+    subject: String? = null,
+    onAddSubject: () -> Unit = {},
+    onSubjectChange: (String) -> Unit = {},
+    onRemoveSubject: () -> Unit = {},
     isSms: Boolean,
     /** The draft is long enough that the carrier has it sent as an MMS. */
     sendsAsMms: Boolean = false,
@@ -1938,6 +1949,15 @@ private fun Composer(
 ) {
     val colors = MaterialTheme.colorScheme
     val draft = field.text
+    val subjectFocus = remember { FocusRequester() }
+    // Focused when it's added from the menu, not when it comes back with a saved draft.
+    var focusSubject by remember { mutableStateOf(false) }
+    LaunchedEffect(focusSubject, subject != null) {
+        if (focusSubject && subject != null) {
+            runCatching { subjectFocus.requestFocus() }
+            focusSubject = false
+        }
+    }
     Column(Modifier.fillMaxWidth().background(colors.surface).navigationBarsPadding().imePadding()) {
         if (recording) {
             RecordingBar(recordingElapsed, onCancel = onCancelRecording, onDone = onStopRecording)
@@ -1999,10 +2019,16 @@ private fun Composer(
         }
         Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)) {
             Surface(shape = RoundedCornerShape(28.dp), color = colors.surfaceContainerHigh, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
+                Column {
+                if (subject != null) {
+                    SubjectField(subject, onSubjectChange, onRemoveSubject, Modifier.focusRequester(subjectFocus))
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = colors.outlineVariant)
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 16.dp)) {
                     AttachMenu(
                         onGallery = onAttach, onCamera = onCamera, onVideo = onVideo, onContact = onContact, onVoice = onVoice, onLocation = onLocation,
                         quickReplies = quickReplies, onQuickReply = onQuickReply,
+                        onSubject = if (subject == null) ({ focusSubject = true; onAddSubject() }) else null,
                     )
                     Box(Modifier.weight(1f).padding(vertical = 16.dp)) {
                         if (draft.isEmpty()) {
@@ -2059,10 +2085,45 @@ private fun Composer(
                     }
                     if (sims.size >= 2 && selectedSim != null) SimPicker(sims, selectedSim, onSelectSim)
                 }
+                }
             }
             Spacer(Modifier.width(8.dp))
-            SendButton(enabled = draft.isNotBlank() || attachments.isNotEmpty(), onSend = onSend, onSchedule = onSchedule, onSendSeparately = onSendSeparately)
+            SendButton(
+                enabled = draft.isNotBlank() || attachments.isNotEmpty() || !subject.isNullOrBlank(),
+                onSend = onSend, onSchedule = onSchedule, onSendSeparately = onSendSeparately,
+            )
         }
+    }
+}
+
+/** An MMS subject line, above the message in the composer, with an X to drop it. */
+@Composable
+private fun SubjectField(subject: String, onChange: (String) -> Unit, onRemove: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, end = 4.dp)) {
+        Box(Modifier.weight(1f).padding(vertical = 12.dp)) {
+            if (subject.isEmpty()) {
+                Text("Subject", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+            }
+            BasicTextField(
+                value = subject,
+                onValueChange = onChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface, fontWeight = FontWeight.SemiBold),
+                cursorBrush = SolidColor(colors.primary),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
+                modifier = modifier.fillMaxWidth().semantics { contentDescription = "Subject" },
+            )
+        }
+        if (subject.length >= ThreadViewModel.MAX_SUBJECT - 10) {
+            Text(
+                "${subject.length}/${ThreadViewModel.MAX_SUBJECT}",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+        IconButton(onClick = onRemove) { Icon(Icons.Filled.Close, contentDescription = "Remove subject", Modifier.size(20.dp)) }
     }
 }
 
@@ -2077,6 +2138,8 @@ private fun AttachMenu(
     onLocation: () -> Unit,
     quickReplies: List<String> = emptyList(),
     onQuickReply: (String) -> Unit = {},
+    /** Adds a subject line; null when there already is one. */
+    onSubject: (() -> Unit)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     // The menu turns into the list of quick replies.
@@ -2126,6 +2189,13 @@ private fun AttachMenu(
                 text = { Text("Location") },
                 onClick = { open = false; onLocation() },
             )
+            if (onSubject != null) {
+                DropdownMenuItem(
+                    leadingIcon = { Icon(painterResource(R.drawable.ic_subject), contentDescription = null) },
+                    text = { Text("Subject") },
+                    onClick = { open = false; onSubject() },
+                )
+            }
         }
     }
 }
@@ -2193,8 +2263,14 @@ private fun UndoBar(pending: ThreadViewModel.PendingSend, onUndo: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, end = 8.dp)) {
                 Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
                     Text(if (pending.separately) "Sending to each person in $left…" else "Sending in $left…", style = MaterialTheme.typography.labelLarge)
+                    val body = pending.text.ifBlank { if (pending.attachments.isEmpty()) "" else attachmentSummary(pending.attachments.map { it.contentType }) }
                     Text(
-                        pending.text.ifBlank { attachmentSummary(pending.attachments.map { it.contentType }) },
+                        buildAnnotatedString {
+                            // The subject first, as the bubble shows it.
+                            pending.subject?.let { withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(it) } }
+                            if (pending.subject != null && body.isNotEmpty()) append(" · ")
+                            append(body)
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

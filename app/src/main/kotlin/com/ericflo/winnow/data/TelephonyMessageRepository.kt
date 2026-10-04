@@ -99,11 +99,14 @@ class TelephonyMessageRepository(
         Telephony.Threads.getOrCreateThreadId(context, recipients.toSet())
     }
 
-    override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int?) {
+    override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int?, subject: String?) {
         withContext(Dispatchers.IO) {
-            // One person, nothing attached: a text, unless the carrier wants one this long as an MMS.
-            if (recipients.size == 1 && attachments.isEmpty() && !mms.textNeedsMms(body, subscriptionId)) sms.send(recipients.single(), body, subscriptionId)
-            else mms.send(recipients, body, attachments, subscriptionId)
+            // One person, nothing attached, no subject: a text, unless the carrier wants one this long as an MMS.
+            if (recipients.size == 1 && attachments.isEmpty() && subject == null && !mms.textNeedsMms(body, subscriptionId)) {
+                sms.send(recipients.single(), body, subscriptionId)
+            } else {
+                mms.send(recipients, body, attachments, subscriptionId, subject)
+            }
         }
     }
 
@@ -386,7 +389,8 @@ class TelephonyMessageRepository(
                 ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, newest.id), arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY), null, null, null,
             )?.use { c -> if (c.moveToFirst()) InboundMessage(c.getString(0).orEmpty(), c.getString(1).orEmpty()) else null }
             Kind.MMS -> {
-                val text = mmsParts(listOf(newest.id))[newest.id].orEmpty().filter { it.contentType == "text/plain" }.joinToString("\n") { it.text.orEmpty() }
+                val words = mmsParts(listOf(newest.id))[newest.id].orEmpty().filter { it.contentType == "text/plain" }.joinToString("\n") { it.text.orEmpty() }
+                val text = subjectAndText(mmsSubjects(listOf(newest.id))[newest.id], words)
                 InboundMessage(mmsSender(newest.id).orEmpty(), text).takeIf { text.isNotBlank() }
             }
         }
@@ -633,12 +637,31 @@ class TelephonyMessageRepository(
         return parts
     }
 
-    /** A one-line preview per MMS: its text, or what kind of attachment it carries. */
-    private fun mmsSnippets(mmsIds: List<Long>): Map<Long, String> =
-        if (mmsIds.isEmpty()) emptyMap() else mmsParts(mmsIds).mapValues { (_, parts) ->
+    /** A one-line preview per MMS: its text, else its subject, else what kind of attachment it carries. */
+    private fun mmsSnippets(mmsIds: List<Long>): Map<Long, String> {
+        if (mmsIds.isEmpty()) return emptyMap()
+        val parts = mmsParts(mmsIds)
+        val wordless = parts.filterValues { p -> p.none { it.contentType == "text/plain" && !it.text.isNullOrBlank() } }.keys
+        val subjects = mmsSubjects(wordless.toList())
+        return parts.mapValues { (id, parts) ->
             parts.firstOrNull { it.contentType == "text/plain" }?.text?.takeIf { it.isNotBlank() }
+                ?: subjects[id]
                 ?: attachmentSummary(parts.map { it.contentType }.filter { it != "text/plain" && it != "application/smil" })
         }
+    }
+
+    /** The real subjects (see meaningfulSubject) of [mmsIds] that have one. */
+    private fun mmsSubjects(mmsIds: List<Long>): Map<Long, String> {
+        if (mmsIds.isEmpty()) return emptyMap()
+        val subjects = HashMap<Long, String>()
+        mmsIds.chunked(500).forEach { chunk ->
+            resolver.query(
+                Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.SUBJECT),
+                "${Telephony.Mms._ID} IN (${chunk.joinToString(",")})", null, null,
+            )?.use { c -> while (c.moveToNext()) meaningfulSubject(c.getString(1))?.let { subjects[c.getLong(0)] = it } }
+        }
+        return subjects
+    }
 
     private fun mmsSender(mmsId: Long): String? =
         resolver.query(

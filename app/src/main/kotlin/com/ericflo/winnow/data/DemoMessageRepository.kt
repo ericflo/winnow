@@ -53,13 +53,14 @@ class DemoMessageRepository(private val packageName: String) : MessageRepository
         return id
     }
 
-    override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int?) {
+    override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int?, subject: String?) {
         val threadId = threadIdFor(recipients)
         val message = ChatMessage(
             id = nextId(), threadId = threadId, body = body, timestamp = System.currentTimeMillis(), outgoing = true,
             status = ChatMessage.Status.SENT, verdict = null,
-            kind = if (recipients.size > 1 || attachments.isNotEmpty()) Kind.MMS else Kind.SMS,
+            kind = if (recipients.size > 1 || attachments.isNotEmpty() || subject != null) Kind.MMS else Kind.SMS,
             attachments = attachments.map { Attachment(it.uri, it.contentType, it.name) },
+            subject = subject,
         )
         updateThread(threadId) { it.copy(messages = it.messages + message) }
     }

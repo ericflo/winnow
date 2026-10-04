@@ -55,9 +55,10 @@ class MmsStore(private val context: Context) {
     }
 
     /** An outgoing message, in the outbox until [setBox] moves it to sent or failed. */
-    fun insertOutgoing(threadId: Long, recipients: List<String>, parts: List<MmsPart>, subscriptionId: Int): Uri? {
+    fun insertOutgoing(threadId: Long, recipients: List<String>, parts: List<MmsPart>, subscriptionId: Int, subject: String? = null): Uri? {
         val values = baseValues(threadId, Mms.MESSAGE_BOX_OUTBOX, MESSAGE_TYPE_SEND_REQ, System.currentTimeMillis() / 1000, read = true, subscriptionId).apply {
             put(Mms.CONTENT_TYPE, ContentTypes.MULTIPART_RELATED)
+            subject?.takeIf { it.isNotBlank() }?.let { put(Mms.SUBJECT, it); put(Mms.SUBJECT_CHARSET, MmsCharsets.UTF_8) }
             put(Mms.MESSAGE_CLASS, "personal")
             put(Mms.TEXT_ONLY, if (parts.all { it.isText() }) 1 else 0)
         }
@@ -198,6 +199,11 @@ class MmsStore(private val context: Context) {
             Mms.Part.CONTENT_URI, arrayOf(Mms.Part.TEXT),
             "${Mms.Part.MSG_ID} = ? AND ${Mms.Part.CONTENT_TYPE} = 'text/plain'", arrayOf(mmsId.toString()), "${Mms.Part.SEQ} ASC",
         )?.use { c -> buildList { while (c.moveToNext()) c.getString(0)?.let(::add) } }.orEmpty().joinToString("\n")
+
+    /** The subject [mmsId] was stored with, if any (a retry sends it again). */
+    fun subject(mmsId: Long): String? = resolver.query(
+        ContentUris.withAppendedId(Mms.CONTENT_URI, mmsId), arrayOf(Mms.SUBJECT), null, null, null,
+    )?.use { c -> if (c.moveToFirst()) c.getString(0)?.takeIf { it.isNotBlank() } else null }
 
     fun sender(mmsId: Long): String? =
         resolver.query(

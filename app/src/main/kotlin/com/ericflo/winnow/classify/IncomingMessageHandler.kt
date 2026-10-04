@@ -63,7 +63,7 @@ class IncomingMessageHandler(
         route(uri, ChatMessage.Kind.SMS, threadId, address, listOf(address), body, Tapback.summarize(body))
     }
 
-    /** A downloaded MMS, already stored by [com.ericflo.winnow.sms.MmsReceiver]. */
+    /** A downloaded MMS, already stored by [com.ericflo.winnow.sms.MmsReceiver]; [text] is its subject and text (see subjectAndText). */
     suspend fun onMmsStored(uri: Uri, threadId: Long, sender: String, recipients: List<String>, text: String, mediaTypes: List<String>) {
         val preview = text.ifBlank { attachmentSummary(mediaTypes) }
         // A media-only message still gets classified, on what little it says.
