@@ -229,7 +229,7 @@ class ConversationDetailsViewModel(
 
     /** Into Recently deleted, for 30 days, then gone. */
     fun delete(onDone: () -> Unit) = launch {
-        if (container.trash.delete(setOf(threadId))) onDone()
+        if (container.trash.delete(setOf(threadId)).ok) onDone()
         else container.toast("Couldn't keep it in Recently deleted, so it wasn't deleted")
     }
 

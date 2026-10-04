@@ -76,7 +76,12 @@ fun ConversationListScreen(
             text = { Text("Recently deleted keeps them for 30 days, in case you want them back.") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.delete(selected)
+                    viewModel.delete(selected) { items ->
+                        scope.launch {
+                            val message = if (items.size == 1) "Moved to Recently deleted" else "${items.size} moved to Recently deleted"
+                            if (snackbar.showSnackbar(message, actionLabel = "Undo") == SnackbarResult.ActionPerformed) viewModel.restore(items)
+                        }
+                    }
                     selected = emptySet()
                     confirmDelete = false
                 }) { Text("Delete") }

@@ -76,6 +76,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.ListItem
@@ -366,11 +367,19 @@ fun InboxScreen(
         }
     }
 
+    // Deleted conversations sit in Recently deleted; Undo puts them straight back.
+    val deleted = { items: List<com.ericflo.winnow.backup.Trash.Item> ->
+        scope.launch {
+            val message = if (items.size == 1) "Moved to Recently deleted" else "${items.size} moved to Recently deleted"
+            if (snackbar.showSnackbar(message, actionLabel = "Undo", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) viewModel.restore(items)
+        }
+        Unit
+    }
     swipedToDelete?.let { id ->
         DeleteDialog(
             count = 1,
             onConfirm = {
-                viewModel.delete(setOf(id))
+                viewModel.delete(setOf(id), deleted)
                 swipedToDelete = null
             },
             onDismiss = { swipedToDelete = null },
@@ -381,7 +390,7 @@ fun InboxScreen(
         DeleteDialog(
             count = selected.size,
             onConfirm = {
-                viewModel.delete(selected)
+                viewModel.delete(selected, deleted)
                 selected = emptySet()
                 confirmDelete = false
             },

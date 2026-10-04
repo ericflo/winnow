@@ -3,6 +3,7 @@ package com.ericflo.winnow.ui.inbox
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ericflo.winnow.AppContainer
+import com.ericflo.winnow.backup.Trash
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classify.ReviewStatus
@@ -221,10 +222,15 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         threadIds.forEach { if (read) repo.markRead(it) else repo.markUnread(it) }
     }
 
-    /** Into Recently deleted, for 30 days, then gone. */
-    fun delete(threadIds: Set<Long>) = launch {
-        if (!container.trash.delete(threadIds)) container.toast("Couldn't keep a conversation in Recently deleted, so it wasn't deleted")
+    /** Into Recently deleted, for 30 days, then gone. [onDone] gets what Undo would put back. */
+    fun delete(threadIds: Set<Long>, onDone: (List<Trash.Item>) -> Unit = {}) = launch {
+        val deleted = container.trash.delete(threadIds)
+        if (!deleted.ok) container.toast("Couldn't keep a conversation in Recently deleted, so it wasn't deleted")
+        if (deleted.items.isNotEmpty()) onDone(deleted.items)
     }
+
+    /** Undo for [delete]: back out of Recently deleted. */
+    fun restore(items: List<Trash.Item>) = launch { items.forEach { container.trash.restore(it) } }
 
     /** "Not spam" for a filtered 1:1 conversation: always allow its sender. */
     fun allow(conversation: ConversationSummary, onDone: (PreviousVerdict) -> Unit = {}) = launch {

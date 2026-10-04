@@ -46,29 +46,36 @@ class Trash(
     /** Newest first. */
     val items: StateFlow<List<Item>> = _items.asStateFlow()
 
+    /** What [delete] did: [ok] unless some conversation couldn't be kept (and so wasn't deleted). */
+    data class Deleted(val ok: Boolean, val items: List<Item>)
+
     /**
      * Keeps [threadIds] in Recently deleted, then deletes them from the phone. A conversation that
-     * couldn't be kept (say, the storage is full) isn't deleted: false says so.
+     * couldn't be kept (say, the storage is full) isn't deleted.
      */
-    suspend fun delete(threadIds: Set<Long>): Boolean = lock.withLock {
+    suspend fun delete(threadIds: Set<Long>): Deleted = lock.withLock {
         withContext(Dispatchers.IO) {
-            val kept = threadIds.filter { keep(it) }.toSet()
+            val files = threadIds.associateWith { keep(it) }
+            val kept = files.filterValues { it.ok }.keys
             if (kept.isNotEmpty()) {
                 repo.deleteThreads(kept)
                 states.forget(kept)
                 notifier.forget(kept)
             }
             reload()
-            kept.size == threadIds.size
+            val made = files.values.mapNotNull { it.file }.toSet()
+            Deleted(kept.size == threadIds.size, _items.value.filter { it.file in made })
         }
     }
 
-    private suspend fun keep(threadId: Long): Boolean {
+    private data class Kept(val ok: Boolean, val file: File? = null)
+
+    private suspend fun keep(threadId: Long): Kept {
         val media = HashMap<String, Long>()
         val conversation = runCatching { backups.readConversations(media, only = setOf(threadId)).singleOrNull() }
             .onFailure { Log.w(TAG, "Couldn't read a conversation to keep", it) }.getOrNull()
             // Nothing in it (a new, empty conversation): nothing to keep, fine to delete.
-            ?: return true
+            ?: return Kept(true)
         val now = System.currentTimeMillis()
         val file = File(dir, "$now-$threadId.zip")
         return runCatching {
@@ -79,11 +86,11 @@ class Trash(
                     }
                 }
             }
-            true
+            Kept(true, file)
         }.getOrElse {
             Log.w(TAG, "Couldn't keep a conversation in Recently deleted", it)
             file.delete()
-            false
+            Kept(false)
         }
     }
 
