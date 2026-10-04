@@ -4,4 +4,6 @@
     <cache-path name="mms" path="mms/" />
     <!-- Photos taken from the composer's Camera option, until they're sent. -->
     <cache-path name="camera" path="camera/" />
+    <!-- Copies of attachments handed to another app from Share, briefly. -->
+    <cache-path name="outbox" path="outbox/" />
 </paths>

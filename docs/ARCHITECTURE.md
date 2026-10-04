@@ -248,6 +248,10 @@ don't announce themselves. Outbox and queued texts come back as failed, ready to
 - **Send** (`sms/MmsSender`): SMIL + media + text as m-send-req, via
   `SmsManager.sendMultimediaMessage`. The m-send-conf moves the message to sent or failed.
   Photos are downscaled so the whole message fits about 900 KB.
+- **Saving and sharing attachments** (`data/MediaExport`): parts live in the message store,
+  which only the default SMS app can read, so Save copies into MediaStore (Pictures, Movies,
+  Recordings or Download, in a Winnow folder; no permission needed) and Share copies into a
+  FileProvider `outbox/` that `SharedFiles.cleanUp` empties after a day.
 - **Contacts:** a vCard part (`text/x-vcard`, `text/vcard`) is drawn as a card
   (`data/VCard` parses 2.1 through 4.0, quoted-printable included). Sending uses the Contacts
   provider's own export (`Contacts.CONTENT_VCARD_URI`) with PHOTO and LOGO removed, since a

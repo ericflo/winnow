@@ -60,8 +60,9 @@ messages can't be tapped.
 ### A complete messaging app
 
 - **SMS and MMS:** group conversations threaded correctly, photos in and out (downscaled to
-  carrier limits) with a full-screen viewer, and voice messages and videos that play right in
-  the conversation. Shared contacts show as cards with **Add contact** and **Message**, and
+  carrier limits) and a full-screen viewer (swipe through a conversation's photos, pinch or
+  double-tap to zoom), and voice messages and videos that play right in the conversation.
+  Any attachment can be saved to the phone or shared to another app. Shared contacts show as cards with **Add contact** and **Message**, and
   Attach → Contact sends one (its photo left out, so it fits). iPhone tapbacks and SMS reactions are drawn on
   the message they react to. Failed sends and MMS downloads can be retried. SMS delivery
   reports are opt-in.

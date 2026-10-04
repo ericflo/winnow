@@ -155,6 +155,9 @@ import com.ericflo.winnow.data.attachmentSummary
 import com.ericflo.winnow.data.VCard
 import com.ericflo.winnow.ui.components.ContactCardAttachment
 import androidx.compose.material.icons.filled.Person
+import com.ericflo.winnow.data.Attachment
+import androidx.compose.material.icons.filled.Share
+import android.widget.Toast
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -198,6 +201,19 @@ fun ThreadScreen(
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
+    // Results show as a toast from the full-screen viewers, which cover the snackbar.
+    fun tell(message: String, overViewer: Boolean) {
+        if (overViewer) Toast.makeText(context, message, Toast.LENGTH_SHORT).show() else scope.launch { snackbar.showSnackbar(message) }
+    }
+    fun share(attachments: List<Attachment>, overViewer: Boolean = false) {
+        scope.launch {
+            val intent = viewModel.shareIntent(attachments)
+            if (intent == null || runCatching { context.startActivity(intent) }.isFailure) tell("Couldn't share that", overViewer)
+        }
+    }
+    fun save(attachments: List<Attachment>, overViewer: Boolean = false) {
+        scope.launch { tell(viewModel.save(attachments), overViewer) }
+    }
     fun copy(text: String, notice: String) {
         scope.launch {
             clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("message", text)))
@@ -390,11 +406,30 @@ fun ThreadScreen(
             onDetails = { detailsFor = message },
             onStar = { viewModel.toggleStar(message) },
             onReact = { emoji -> viewModel.react(message, emoji) },
+            onSave = { save(message.attachments) },
+            onShare = { share(message.attachments) },
         )
     }
     detailsFor?.let { message -> MessageDetailsDialog(message, state, sims, onDismiss = { detailsFor = null }) }
-    viewing?.let { ImageViewer(it, onDismiss = { viewing = null }) }
-    watching?.let { VideoViewer(it, onDismiss = { watching = null }) }
+    viewing?.let { uri ->
+        val images = remember(state.messages) { state.messages.flatMap { m -> m.attachments.filter { it.isImage } } }
+        ImageViewer(
+            images = images,
+            start = images.indexOfFirst { it.uri == uri },
+            onDismiss = { viewing = null },
+            onShare = { share(listOf(it), overViewer = true) },
+            onSave = { save(listOf(it), overViewer = true) },
+        )
+    }
+    watching?.let { uri ->
+        val video = remember(state.messages, uri) { state.messages.firstNotNullOfOrNull { m -> m.attachments.firstOrNull { it.uri == uri } } }
+        VideoViewer(
+            uri,
+            onDismiss = { watching = null },
+            onShare = video?.let { { share(listOf(it), overViewer = true) } },
+            onSave = video?.let { { save(listOf(it), overViewer = true) } },
+        )
+    }
     if (confirmReport) {
         val spam = state.messages.lastOrNull { !it.outgoing }?.body.orEmpty()
         AlertDialog(
@@ -897,6 +932,8 @@ private fun MessageActionsSheet(
     onDetails: () -> Unit,
     onStar: () -> Unit,
     onReact: (String) -> Unit,
+    onSave: () -> Unit,
+    onShare: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
@@ -932,6 +969,21 @@ private fun MessageActionsSheet(
                     leadingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null) },
                     colors = colors,
                     modifier = Modifier.clickable(onClick = act(onForward)),
+                )
+            }
+            // Downloaded attachments only; a placeholder has nothing to save yet.
+            if (message.attachments.isNotEmpty() && message.status != ChatMessage.Status.DOWNLOADING && message.status != ChatMessage.Status.DOWNLOAD_FAILED) {
+                ListItem(
+                    headlineContent = { Text(if (message.attachments.size == 1) "Save to phone" else "Save ${message.attachments.size} attachments") },
+                    leadingContent = { Icon(painterResource(R.drawable.ic_download), contentDescription = null) },
+                    colors = colors,
+                    modifier = Modifier.clickable(onClick = act(onSave)),
+                )
+                ListItem(
+                    headlineContent = { Text("Share") },
+                    leadingContent = { Icon(Icons.Filled.Share, contentDescription = null) },
+                    colors = colors,
+                    modifier = Modifier.clickable(onClick = act(onShare)),
                 )
             }
             ListItem(

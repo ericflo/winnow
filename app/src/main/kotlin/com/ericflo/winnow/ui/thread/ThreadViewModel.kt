@@ -35,6 +35,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import com.ericflo.winnow.data.TextScale
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import com.ericflo.winnow.data.Attachment
 
 data class ThreadUiState(
     val title: String,
@@ -191,6 +192,26 @@ class ThreadViewModel(
     }
 
     fun newCameraPhoto() = container.sharedFiles.newCameraPhoto()
+
+    /**
+     * Saves attachments to the phone's Pictures, Movies, Recordings or Download. Returns what to
+     * tell the user; the caller shows it, since the photo viewer covers this screen's snackbar.
+     */
+    suspend fun save(attachments: List<Attachment>): String {
+        val folders = withContext(Dispatchers.IO) { attachments.map { container.mediaExport.save(it) } }
+        val saved = folders.filterNotNull()
+        return when {
+            saved.isEmpty() -> "Couldn't save that"
+            saved.size < folders.size -> "Saved ${saved.size} of ${folders.size}"
+            saved.size == 1 -> "Saved to ${saved.single()}"
+            saved.distinct().size == 1 -> "Saved ${saved.size} to ${saved.first()}"
+            else -> "Saved ${saved.size} attachments"
+        }
+    }
+
+    /** A share sheet for attachments, or null if they couldn't be copied out. */
+    suspend fun shareIntent(attachments: List<Attachment>): android.content.Intent? =
+        withContext(Dispatchers.IO) { container.mediaExport.shareIntent(attachments) }
 
     /** Attaches a contact from the picker as a vCard. */
     fun attachContact(contact: android.net.Uri) = launch {

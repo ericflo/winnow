@@ -63,6 +63,8 @@ import kotlinx.coroutines.withContext
 import com.ericflo.winnow.data.VCard
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.foundation.layout.statusBarsPadding
 
 /**
  * Plays audio attachments, one at a time: starting one stops whatever was playing. Owned by
@@ -233,7 +235,7 @@ fun AttachmentThumbnail(uri: String, contentType: String, name: String?, modifie
 
 /** Full-screen playback with the platform's own controls. */
 @Composable
-fun VideoViewer(uri: String, onDismiss: () -> Unit) {
+fun VideoViewer(uri: String, onDismiss: () -> Unit, onShare: (() -> Unit)? = null, onSave: (() -> Unit)? = null) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
             AndroidView(
@@ -247,8 +249,11 @@ fun VideoViewer(uri: String, onDismiss: () -> Unit) {
                 onRelease = { it.stopPlayback() },
                 modifier = Modifier.fillMaxWidth(),
             )
-            IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
-                Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+            Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White) }
+                Spacer(Modifier.weight(1f))
+                onShare?.let { IconButton(onClick = it) { Icon(Icons.Filled.Share, contentDescription = "Share", tint = Color.White) } }
+                onSave?.let { IconButton(onClick = it) { Icon(painterResource(R.drawable.ic_download), contentDescription = "Save to phone", tint = Color.White) } }
             }
         }
     }
