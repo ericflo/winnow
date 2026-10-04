@@ -84,7 +84,7 @@ messages can't be tapped.
 - **Backup and restore:** messages, photos, Winnow's decisions, conversation state, sender
   rules and settings go into one zip file that you choose where to keep. API keys are never
   included. Restoring onto a new phone, or the same one, only adds what's missing, so
-  restoring twice is harmless.
+  restoring twice is harmless. A new phone can restore right from onboarding.
 - **Getting started:** onboarding explains the RCS trade-off before it asks to become your
   SMS app. Once Winnow is in charge, it can review older conversations for spam.
 

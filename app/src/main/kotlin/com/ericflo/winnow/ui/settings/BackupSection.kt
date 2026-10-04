@@ -1,5 +1,6 @@
 package com.ericflo.winnow.ui.settings
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -58,6 +59,19 @@ fun BackupSection(status: BackupStatus, isDefault: Boolean, canBackUpMessages: B
             supportingContent = { Text("Adds whatever is missing from a Winnow backup. Nothing on this phone is deleted.") },
             modifier = Modifier.clickable(enabled = !busy) { open.launch(arrayOf("application/zip", "application/octet-stream")) },
         )
+        BackupProgress(
+            status,
+            isDefault,
+            onRestore = viewModel::restoreBackup,
+            onDismiss = viewModel::dismissBackup,
+        )
+    }
+}
+
+/** Progress, the outcome, or the confirm dialog for a backup or restore in flight. Shared with onboarding. */
+@Composable
+fun BackupProgress(status: BackupStatus, isDefault: Boolean, onRestore: (Uri, includeSettings: Boolean) -> Unit, onDismiss: () -> Unit) {
+    Column {
         when (status) {
             is BackupStatus.Working -> Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val progress = if (status.total > 0) "${status.label} · ${count(status.done)} of ${count(status.total)}" else "${status.label}…"
@@ -68,13 +82,13 @@ fun BackupSection(status: BackupStatus, isDefault: Boolean, canBackUpMessages: B
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
             }
-            is BackupStatus.Done -> Outcome(status.message, isError = false, onDismiss = viewModel::dismissBackup)
-            is BackupStatus.Failed -> Outcome(status.message, isError = true, onDismiss = viewModel::dismissBackup)
+            is BackupStatus.Done -> Outcome(status.message, isError = false, onDismiss = onDismiss)
+            is BackupStatus.Failed -> Outcome(status.message, isError = true, onDismiss = onDismiss)
             is BackupStatus.Ready -> RestoreDialog(
                 status.summary,
                 isDefault,
-                onRestore = { includeSettings -> viewModel.restoreBackup(status.uri, includeSettings) },
-                onDismiss = viewModel::dismissBackup,
+                onRestore = { includeSettings -> onRestore(status.uri, includeSettings) },
+                onDismiss = onDismiss,
             )
             BackupStatus.Idle -> Unit
         }

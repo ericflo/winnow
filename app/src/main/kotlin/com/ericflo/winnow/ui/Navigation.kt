@@ -126,6 +126,7 @@ fun WinnowNavHost(
                     scope.launch { container.settings.update { it.copy(onboarded = true) } }
                     nav.navigate(InboxRoute) { popUpTo<OnboardingRoute> { inclusive = true } }
                 },
+                backups = container.backups,
             )
         }
         composable<InboxRoute> {

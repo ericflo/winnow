@@ -1,6 +1,13 @@
 package com.ericflo.winnow.ui.onboarding
 
 import androidx.compose.foundation.background
+import com.ericflo.winnow.ui.settings.BackupProgress
+import com.ericflo.winnow.backup.BackupStatus
+import com.ericflo.winnow.backup.BackupManager
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material3.OutlinedButton
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +61,7 @@ fun OnboardingScreen(
     onMakeDefault: () -> Unit,
     onChooseClassifier: (ProviderKind, apiKey: String) -> Unit,
     onFinish: () -> Unit,
+    backups: BackupManager,
 ) {
     var step by rememberSaveable { mutableIntStateOf(0) }
     var defaultNow by rememberSaveable { mutableStateOf(isDefault()) }
@@ -71,7 +79,7 @@ fun OnboardingScreen(
         Box(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             when (step) {
                 0 -> Welcome()
-                1 -> BeDefault(defaultNow, onMakeDefault)
+                1 -> BeDefault(defaultNow, onMakeDefault, backups)
                 else -> ChooseClassifier(onChooseClassifier)
             }
         }
@@ -107,7 +115,7 @@ private fun Welcome() {
 }
 
 @Composable
-private fun BeDefault(isDefault: Boolean, onMakeDefault: () -> Unit) {
+private fun BeDefault(isDefault: Boolean, onMakeDefault: () -> Unit, backups: BackupManager) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 56.dp)) {
         Text("Make Winnow your SMS app", style = MaterialTheme.typography.headlineMedium)
         Text(
@@ -131,8 +139,29 @@ private fun BeDefault(isDefault: Boolean, onMakeDefault: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 Text("Winnow is your SMS app", style = MaterialTheme.typography.titleMedium)
             }
+            RestoreCard(backups)
         } else {
             Button(onClick = onMakeDefault) { Text("Set as default SMS app") }
+        }
+    }
+}
+
+/** For a new phone: bring messages, photos and Winnow's decisions over from a backup file. */
+@Composable
+private fun RestoreCard(backups: BackupManager) {
+    val status by backups.status.collectAsStateWithLifecycle()
+    val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(backups::open) }
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Moving from another phone?", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Restore a Winnow backup: messages, photos, and what Winnow learned. Anything already here is kept.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (status == BackupStatus.Idle) {
+                OutlinedButton(onClick = { open.launch(arrayOf("application/zip", "application/octet-stream")) }) { Text("Restore from a file") }
+            }
+            BackupProgress(status, isDefault = true, onRestore = backups::restore, onDismiss = backups::dismiss)
         }
     }
 }
