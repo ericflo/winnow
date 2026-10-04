@@ -193,6 +193,12 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.InputChip
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarResult
@@ -368,6 +374,7 @@ fun ThreadScreen(
     LaunchedEffect(state.messages) { selected = selected.filterTo(HashSet()) { key -> state.messages.any { it.key == key } } }
     BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
     var confirmDeleteSelected by remember { mutableStateOf(false) }
+    var confirmDeleteOne by remember { mutableStateOf<ChatMessage?>(null) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -594,7 +601,7 @@ fun ThreadScreen(
             onDismiss = { actionsFor = null },
             onCopy = { copy(message.body, "Message copied") },
             onForward = { onForward(message.body) },
-            onDelete = { viewModel.delete(message) },
+            onDelete = { confirmDeleteOne = message },
             onDetails = { detailsFor = message },
             onStar = { viewModel.toggleStar(message) },
             onReact = { emoji -> viewModel.react(message, emoji) },
@@ -613,6 +620,20 @@ fun ThreadScreen(
         MuteDialog(
             onMute = { until -> viewModel.setMuted(true, until); choosingMute = false },
             onDismiss = { choosingMute = false },
+        )
+    }
+    confirmDeleteOne?.let { message ->
+        AlertDialog(
+            onDismissRequest = { confirmDeleteOne = null },
+            title = { Text("Delete this message?") },
+            text = { Text("It's removed from this phone. This can't be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.delete(message)
+                    confirmDeleteOne = null
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDeleteOne = null }) { Text("Cancel") } },
         )
     }
     if (confirmDeleteSelected) {
@@ -901,14 +922,24 @@ private fun MessageList(
     // just below the edge. Someone reading further up is left where they are.
     // "In view" means the previous newest message is still on screen; a new message can bring a
     // time header with it, so its index alone doesn't say.
-    val newestKey = items.firstOrNull()?.key
+    // A message, never the "Texting with…" line that's all the list holds before messages load.
+    val newestKey = items.firstOrNull()?.takeIf { it is ListItem.Bubble }?.key
     var shownNewest by remember { mutableStateOf<String?>(null) }
+    // Texts that came in while the user was reading further up, for the jump-to-newest button.
+    var missed by remember { mutableIntStateOf(0) }
     LaunchedEffect(newestKey) {
         val previous = shownNewest
         shownNewest = newestKey
         if (newestKey == null || focusKey != null) return@LaunchedEffect
-        if (previous == null || listState.layoutInfo.visibleItemsInfo.any { it.key == previous }) listState.animateScrollToItem(0)
+        if (previous == null || listState.layoutInfo.visibleItemsInfo.any { it.key == previous }) {
+            listState.animateScrollToItem(0)
+        } else if (state.messages.lastOrNull()?.outgoing == false) {
+            missed++
+        }
     }
+    val scrolledUp by remember { derivedStateOf { listState.firstVisibleItemIndex > 2 } }
+    LaunchedEffect(scrolledUp) { if (!scrolledUp) missed = 0 }
+    val jumpScope = rememberCoroutineScope()
     // A text the user just scheduled sits below the newest message: brought into view. (Not
     // when the list of scheduled texts first loads, which would undo a jump to a message.)
     LaunchedEffect(scheduled.size) {
@@ -935,10 +966,11 @@ private fun MessageList(
         // Reversed list: a negative offset lifts the match off the composer, a third of the way up.
         if (focusKey != null && focusIndex >= 0) listState.animateScrollToItem(scheduled.size + focusIndex, -listState.layoutInfo.viewportSize.height / 3)
     }
+    Box(modifier.fillMaxWidth()) {
     LazyColumn(
         state = listState,
         reverseLayout = true,
-        modifier = modifier.fillMaxWidth().pinchToZoom(
+        modifier = Modifier.fillMaxSize().pinchToZoom(
             onZoom = { liveScale = TextScale.clamp(liveScale * it) },
             onEnd = {
                 liveScale = TextScale.settle(liveScale)
@@ -999,6 +1031,28 @@ private fun MessageList(
                 }
             }
         }
+    }
+    // Scrolled up: a way back to the newest, saying how many came in meanwhile.
+    androidx.compose.animation.AnimatedVisibility(
+        visible = scrolledUp,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+    ) {
+        SmallFloatingActionButton(
+            onClick = {
+                jumpScope.launch {
+                    // A long way back would animate through every message on the way; just go.
+                    if (listState.firstVisibleItemIndex > 40) listState.scrollToItem(0) else listState.animateScrollToItem(0)
+                }
+            },
+            modifier = Modifier.semantics { contentDescription = if (missed > 0) "Jump to newest, $missed new" else "Jump to newest" },
+        ) {
+            BadgedBox(badge = { if (missed > 0) Badge { Text(if (missed > 99) "99+" else "$missed") } }) {
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null)
+            }
+        }
+    }
     }
 }
 
