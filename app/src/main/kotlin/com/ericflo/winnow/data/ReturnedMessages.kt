@@ -10,7 +10,8 @@ import java.util.concurrent.ConcurrentHashMap
  * also saved as the draft, so it outlives the app being closed.)
  */
 class ReturnedMessages {
-    data class Returned(val text: String, val attachments: List<OutgoingAttachment>, val separately: Boolean)
+    /** [shared]: not a failure but something shared into the conversation (Direct Share). */
+    data class Returned(val text: String, val attachments: List<OutgoingAttachment>, val separately: Boolean, val shared: Boolean = false)
 
     private val byThread = ConcurrentHashMap<Long, Returned>()
     private val _arrived = MutableSharedFlow<Long>(extraBufferCapacity = 8)
@@ -19,7 +20,7 @@ class ReturnedMessages {
 
     fun put(threadId: Long, returned: Returned) {
         byThread.merge(threadId, returned) { a, b ->
-            Returned(listOf(a.text, b.text).filter { it.isNotBlank() }.joinToString("\n"), a.attachments + b.attachments, a.separately || b.separately)
+            Returned(listOf(a.text, b.text).filter { it.isNotBlank() }.joinToString("\n"), a.attachments + b.attachments, a.separately || b.separately, a.shared && b.shared)
         }
         _arrived.tryEmit(threadId)
     }

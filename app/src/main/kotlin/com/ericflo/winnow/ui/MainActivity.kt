@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import com.ericflo.winnow.data.ReturnedMessages
 import com.ericflo.winnow.ui.lock.LockActivity
 import com.ericflo.winnow.ui.lock.LockScreen
 import com.ericflo.winnow.ui.lock.AppLock
@@ -181,11 +182,14 @@ class MainActivity : ComponentActivity() {
             val attachments = withContext(Dispatchers.IO) { streams.mapNotNull { container.sharedFiles.import(it, type) } }
             if (text.isBlank() && attachments.isEmpty()) return@launch
             val recipients = directThread?.let { container.messages.recipientsFor(it) }.orEmpty()
-            // The copied files ride in the route itself, which survives the process being killed.
-            pendingRoute.value = if (directThread != null && recipients.isNotEmpty()) {
-                ThreadRoute(directThread, joinAddresses(recipients), text, SharedAttachments.encode(attachments))
+            if (directThread != null && recipients.isNotEmpty()) {
+                // Handed to the conversation's composer, open already or opened now (no second copy
+                // of it), to join whatever draft is waiting there.
+                container.returnedMessages.put(directThread, ReturnedMessages.Returned(text, attachments, separately = false, shared = true))
+                pendingRoute.value = ThreadRoute(directThread, joinAddresses(recipients))
             } else {
-                NewChatRoute(draft = text, attachments = SharedAttachments.encode(attachments))
+                // The copied files ride in the route itself, which survives the process being killed.
+                pendingRoute.value = NewChatRoute(draft = text, attachments = SharedAttachments.encode(attachments))
             }
         }
     }

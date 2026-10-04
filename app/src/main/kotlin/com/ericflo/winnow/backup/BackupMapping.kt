@@ -69,7 +69,7 @@ fun WinnowSettings.restoring(backup: SettingsBackup) = copy(
     autoDownloadMmsRoaming = backup.autoDownloadMmsRoaming,
     linkPreviews = backup.linkPreviews,
     enterToSend = backup.enterToSend,
-    quickReplies = backup.quickReplies ?: quickReplies,
+    quickReplies = backup.quickReplies?.map(String::trim)?.filter(String::isNotEmpty)?.distinct() ?: quickReplies,
     categoryActions = categoryActions + backup.categoryActions.mapNotNull { (key, action) ->
         val category = Category.fromKey(key) ?: return@mapNotNull null
         Action.entries.firstOrNull { it.name == action }?.let { category to it }

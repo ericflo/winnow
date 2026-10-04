@@ -92,6 +92,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import com.ericflo.winnow.ui.components.allWebLinks
 import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.flowOn
 import com.ericflo.winnow.ui.components.mutedLabel
 
 /** Links listed in a conversation's details; the conversation itself has the rest. */
@@ -157,6 +158,7 @@ class ConversationDetailsViewModel(
                 .take(MAX_LINKS)
                 .toList()
         }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The whole conversation as a text file, in a share sheet. */
@@ -268,7 +270,8 @@ fun ConversationDetailsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     opening = null
-                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                    val view = Intent(Intent.ACTION_VIEW, Uri.parse(url).normalizeScheme()).addCategory(Intent.CATEGORY_BROWSABLE)
+                    if (runCatching { context.startActivity(view) }.isFailure) Toast.makeText(context, "No app here can open that link", Toast.LENGTH_SHORT).show()
                 }) { Text("Open") }
             },
             dismissButton = {

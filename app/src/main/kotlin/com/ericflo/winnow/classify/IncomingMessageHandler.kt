@@ -93,6 +93,7 @@ class IncomingMessageHandler(
             body = deferredPreview(sizeBytes),
             senderPhotoUri = contacts.photoUri(sender),
             hideOnLockScreen = settings.current().hideOnLockScreen,
+            quickReplies = settings.current().quickReplies,
         )
     }
 
@@ -141,6 +142,7 @@ class IncomingMessageHandler(
                     senderPhotoUri = contacts.photoUri(sender),
                     hideOnLockScreen = settings.current().hideOnLockScreen,
                     offerSpam = recipients.size == 1 && !contacts.isContact(sender),
+                    quickReplies = settings.current().quickReplies,
                 )
             }
             Action.SILENCE -> Unit

@@ -55,8 +55,13 @@ class MmsSender(
     fun retry(mmsId: Long) {
         val uri = ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, mmsId)
         store.setBox(uri, Telephony.Mms.MESSAGE_BOX_OUTBOX)
-        // Retry on the SIM it was first sent from.
-        transmit(uri, store.recipients(mmsId), store.parts(mmsId), forSending(store.subscriptionId(mmsId)))
+        // Retry on the SIM it was first sent from; back to failed if it can't even be handed off.
+        try {
+            transmit(uri, store.recipients(mmsId), store.parts(mmsId), forSending(store.subscriptionId(mmsId)))
+        } catch (e: Exception) {
+            store.setBox(uri, Telephony.Mms.MESSAGE_BOX_FAILED)
+            throw e
+        }
     }
 
     private fun transmit(message: Uri, recipients: List<String>, parts: List<MmsPart>, subscriptionId: Int?) {

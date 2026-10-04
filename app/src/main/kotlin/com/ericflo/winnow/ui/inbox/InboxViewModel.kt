@@ -103,7 +103,8 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
 
     // Shared: the list and the photo/link browser read the same conversations, loaded once.
     private val all = combine(repo.conversations(), states.observeTimed()) { list, s -> list.withState(s) }
-        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+        // Not kept once nobody's looking: the browser mustn't start from a stale list.
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000, replayExpirationMillis = 0), replay = 1)
 
     private val hits = query.debounce(250).distinctUntilChanged().mapLatest { q -> if (q.length < 2) emptyList() else repo.search(q) }
 

@@ -56,7 +56,13 @@ class SmsSender(
             put(Telephony.Sms.STATUS, if (reports) Telephony.Sms.STATUS_PENDING else Telephony.Sms.STATUS_NONE)
         }
         context.contentResolver.update(message, values, null, null)
-        transmit(message, address, body, reports, forSending(subscriptionId))
+        try {
+            transmit(message, address, body, reports, forSending(subscriptionId))
+        } catch (e: Exception) {
+            // Back to failed, so it can be tried again rather than looking like it's still going.
+            context.contentResolver.update(message, ContentValues().apply { put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_FAILED) }, null, null)
+            throw e
+        }
     }
 
     private fun transmit(message: Uri?, address: String, body: String, reports: Boolean, subscriptionId: Int?) {

@@ -2,6 +2,7 @@ package com.ericflo.winnow
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.LinkAnnotation
+import com.ericflo.winnow.ui.components.allWebLinks
 import com.ericflo.winnow.ui.components.isEmojiOnly
 import com.ericflo.winnow.ui.components.linkify
 import com.ericflo.winnow.ui.components.shortTimestamp
@@ -17,6 +18,23 @@ import java.time.ZoneId
 class MessageTextTest {
     private fun links(text: String, enabled: Boolean = true) =
         linkify(text, enabled, Color.Blue).getLinkAnnotations(0, text.length).map { (it.item as LinkAnnotation.Url).url }
+
+    @Test
+    fun `a sentence break isn't a link`() {
+        assertEquals(emptyList<String>(), links("Ok.Coming over now"))
+        assertEquals(emptyList<String>(), links("Thanks.Me too"))
+        assertEquals(emptyList<String>(), links("Gate 5.Usually it's late"))
+        assertEquals(listOf("https://STORE.COM/deals"), links("VISIT STORE.COM/deals"))
+        assertEquals(listOf("https://Google.com"), links("search Google.com"))
+        assertEquals(listOf("https://bit.ly/x"), links("bit.ly/x"))
+    }
+
+    @Test
+    fun `links open with a scheme Android matches`() {
+        assertEquals(listOf("https://BIT.LY/x"), allWebLinks("HTTPS://BIT.LY/x"))
+        assertEquals(listOf("https://httpbin.org"), allWebLinks("try httpbin.org"))
+        assertEquals(listOf("http://example.com/a"), allWebLinks("Http://example.com/a."))
+    }
 
     @Test
     fun `finds web links, emails and phone numbers`() {

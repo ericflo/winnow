@@ -9,7 +9,18 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 
-private val WEB = Regex("""(?i)\b(?:https?://\S+|www\.\S+|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|co|me|us|app|dev|info|biz|top|vip|xyz|ly|gl|gov|edu|shop|click|link)(?:/\S*)?)""")
+private const val TLDS = "com|net|org|io|co|me|us|app|dev|info|biz|top|vip|xyz|ly|gl|gov|edu|shop|click|link"
+
+// A bare domain's ending must end the name ("Ok.Coming" and "5.Usually" aren't links) and be
+// all lowercase or all caps: "Thanks.Me too" is a sentence break, "STORE.COM" is shouting.
+private val WEB = Regex(
+    """(?i)\b(?:https?://\S+|www\.\S+|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?-i:(?:$TLDS)|(?:${TLDS.uppercase()}))(?![a-z0-9-])(?:/\S*)?)""",
+)
+private val SCHEME = Regex("^(https?)://", RegexOption.IGNORE_CASE)
+
+/** [value] as a URL to open: "HTTPS://…" lowercased to a scheme Android matches, a bare "httpbin.org" given one. */
+private fun toUrl(value: String): String =
+    SCHEME.find(value)?.let { value.replaceRange(it.range, "${it.groupValues[1].lowercase()}://") } ?: "https://$value"
 private val EMAIL = Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""")
 private val PHONE = Regex("""(?<![\w])(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]?\d{3}[ .-]?\d{4}(?![\w])""")
 private val TRAILING_PUNCTUATION = ".,!?;:)'\""
@@ -23,13 +34,13 @@ fun firstWebLink(text: String): String? {
     val m = WEB.find(text) ?: return null
     val value = m.value.trimEnd { it in TRAILING_PUNCTUATION }
     if (EMAIL.findAll(text).any { it.range.first <= m.range.first && m.range.first < it.range.last }) return null
-    return if (value.startsWith("http", ignoreCase = true)) value else "https://$value"
+    return toUrl(value)
 }
 
 /** Every web link in [text], as URLs to show; emails don't count. */
 fun allWebLinks(text: String): List<String> = WEB.findAll(text)
     .filterNot { m -> EMAIL.findAll(text).any { it.range.first <= m.range.first && m.range.first < it.range.last } }
-    .map { m -> m.value.trimEnd { it in TRAILING_PUNCTUATION }.let { if (it.startsWith("http", ignoreCase = true)) it else "https://$it" } }
+    .map { m -> toUrl(m.value.trimEnd { it in TRAILING_PUNCTUATION }) }
     .distinct()
     .toList()
 
@@ -45,7 +56,7 @@ fun linkify(text: String, links: Boolean, linkColor: Color): AnnotatedString {
         }
     }
     add(EMAIL) { "mailto:$it" }
-    add(WEB) { if (it.startsWith("http", ignoreCase = true)) it else "https://$it" }
+    add(WEB, ::toUrl)
     add(PHONE) { "tel:" + it.filter { c -> c.isDigit() || c == '+' } }
 
     val style = TextLinkStyles(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline))

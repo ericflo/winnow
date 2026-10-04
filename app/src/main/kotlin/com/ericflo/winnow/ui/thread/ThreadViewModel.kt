@@ -196,11 +196,10 @@ class ThreadViewModel(
             _sims.value = container.sims.available().takeIf { it.size >= 2 }.orEmpty()
             _selectedSim.value = container.simFor(id)
             val saved = states.get(id)
-            saved.draft?.let { text -> if (currentDraft().isEmpty()) setDraft(text) }
-            if (_attachments.value.isEmpty()) {
-                val kept = withContext(Dispatchers.IO) { drafts.decode(saved.draftAttachments) }
-                if (kept.isNotEmpty()) _attachments.value = kept
-            }
+            // A forwarded or shared draft joins what was already waiting here, rather than replacing it.
+            saved.draft?.let { text -> setDraft(if (currentDraft().isEmpty()) text else ReturnedMessages.appendTo(text, currentDraft())) }
+            val kept = withContext(Dispatchers.IO) { drafts.decode(saved.draftAttachments) }
+            if (kept.isNotEmpty()) _attachments.value = kept + _attachments.value.filter { a -> kept.none { it.uri == a.uri } }
             // From here on every change to the attachments is kept, the first included: a share's
             // attachments or a returned message's are in by now, and must outlive the app too.
             launch(start = CoroutineStart.UNDISPATCHED) { _attachments.debounce(400).collect { keepAttachments(id) } }
@@ -293,6 +292,11 @@ class ThreadViewModel(
         val returned = container.returnedMessages.take(id) ?: return
         // Its text was saved as the draft too, which this screen may have restored already.
         setDraft(ReturnedMessages.appendTo(currentDraft(), returned.text))
+        if (returned.shared) {
+            // Shared from another app: checked like anything else attached (a video may need shrinking).
+            returned.attachments.forEach(::addAttachment)
+            return
+        }
         // Its attachments were saved with the draft too; the same files mustn't show twice.
         _attachments.value = _attachments.value + returned.attachments.filter { r -> _attachments.value.none { it.uri == r.uri } }
         if (returned.separately) _sendSeparately.value = true

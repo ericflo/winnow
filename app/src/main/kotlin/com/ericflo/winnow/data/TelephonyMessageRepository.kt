@@ -283,7 +283,7 @@ class TelephonyMessageRepository(
         if (mmsText.isNotEmpty()) {
             resolver.query(
                 Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.THREAD_ID, Telephony.Mms.DATE),
-                "${Telephony.Mms._ID} IN (${mmsText.keys.joinToString(",")})", null, null,
+                "${Telephony.Mms._ID} IN (${mmsText.keys.joinToString(",")}) AND ${Telephony.Mms.MESSAGE_BOX} != ${Telephony.Mms.MESSAGE_BOX_DRAFTS}", null, null,
             )?.use { c ->
                 while (c.moveToNext()) hits += hit(c.getLong(1), recipients, mmsText[c.getLong(0)].orEmpty(), c.getLong(2) * 1000, ChatMessage.messageKey(Kind.MMS, c.getLong(0)))
             }

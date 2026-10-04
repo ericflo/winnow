@@ -64,7 +64,10 @@ class NotificationActionReceiver : BroadcastReceiver() {
                             val found = container.messages.messagesByKey(listOf(key)).firstOrNull()
                             // Once: a second tap (or a notice from before it went out) finds it no longer failed.
                             // And only as the SMS app, or Android keeps a second copy of the text.
-                            if (found != null && found.message.status == ChatMessage.Status.FAILED && container.isDefaultSmsApp()) {
+                            if (found != null && found.message.status == ChatMessage.Status.FAILED && !container.isDefaultSmsApp()) {
+                                container.notifier.showNotSent(threadId, recipients, found.conversationName, found.message.body, retryKey = key)
+                                container.toast("Winnow has to be your SMS app to send this")
+                            } else if (found != null && found.message.status == ChatMessage.Status.FAILED) {
                                 try {
                                     container.messages.retry(found.message)
                                 } catch (e: CancellationException) {

@@ -99,7 +99,10 @@ class Notifier(private val context: Context) {
         hideOnLockScreen: Boolean = false,
         /** Offer "Spam", for a stranger's text the classifier let through. */
         offerSpam: Boolean = false,
+        /** One-tap answers; the latest known if not given (the app may only just have started). */
+        quickReplies: List<String>? = null,
     ) {
+        val choices = quickReplies ?: this.quickReplies
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val id = notificationId(threadId)
         val photo = senderPhotoUri?.let { uri ->
@@ -130,7 +133,7 @@ class Notifier(private val context: Context) {
         )
             .addRemoteInput(
                 RemoteInput.Builder(NotificationActionReceiver.KEY_REPLY).setLabel("Reply")
-                    .apply { if (quickReplies.isNotEmpty()) setChoices(quickReplies.toTypedArray()) }
+                    .apply { if (choices.isNotEmpty()) setChoices(choices.toTypedArray()) }
                     .build(),
             )
             .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
