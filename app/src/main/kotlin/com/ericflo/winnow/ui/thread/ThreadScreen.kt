@@ -162,6 +162,8 @@ import androidx.compose.material.icons.filled.Share
 import android.widget.Toast
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.semantics.selected
+import com.ericflo.winnow.ui.components.MuteDialog
+import com.ericflo.winnow.ui.components.mutedLabel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -192,6 +194,7 @@ fun ThreadScreen(
         onPauseOrDispose { viewModel.setVisible(false) }
     }
     var menuOpen by remember { mutableStateOf(false) }
+    var choosingMute by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var actionsFor by remember { mutableStateOf<ChatMessage?>(null) }
     var detailsFor by remember { mutableStateOf<ChatMessage?>(null) }
@@ -333,9 +336,18 @@ fun ThreadScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text(if (state.muted) "Unmute notifications" else "Mute notifications") },
+                                text = {
+                                    if (state.muted) {
+                                        Column {
+                                            Text("Unmute notifications")
+                                            Text(mutedLabel(state.mutedUntil), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    } else {
+                                        Text("Mute notifications")
+                                    }
+                                },
                                 leadingIcon = { Icon(painterResource(R.drawable.ic_muted), contentDescription = null) },
-                                onClick = { menuOpen = false; viewModel.setMuted(!state.muted) },
+                                onClick = { menuOpen = false; if (state.muted) viewModel.setMuted(false) else choosingMute = true },
                             )
                             DropdownMenuItem(
                                 text = { Text(if (state.archived) "Unarchive" else "Archive") },
@@ -446,6 +458,12 @@ fun ThreadScreen(
             onSave = { save(message.attachments) },
             onShare = { share(message.attachments) },
             onSelect = { selected = setOf(message.key) },
+        )
+    }
+    if (choosingMute) {
+        MuteDialog(
+            onMute = { until -> viewModel.setMuted(true, until); choosingMute = false },
+            onDismiss = { choosingMute = false },
         )
     }
     if (confirmDeleteSelected) {

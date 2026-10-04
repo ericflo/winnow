@@ -249,7 +249,9 @@ class BackupManager(
                 recipients = people,
                 pinned = state?.pinned == true,
                 archived = state?.archived == true,
-                muted = state?.muted == true,
+                // A timed mute that has run out isn't carried over.
+                muted = state?.isMuted() == true,
+                mutedUntil = state?.takeIf { it.isMuted() }?.mutedUntil,
                 draft = state?.draft,
                 title = state?.title,
                 messages = messages.sortedBy { it.date },
@@ -356,6 +358,7 @@ class BackupManager(
 
             val state = ConversationStateEntity(
                 threadId, conversation.pinned, conversation.archived, conversation.muted, conversation.draft, title = conversation.title,
+                mutedUntil = conversation.mutedUntil.takeIf { conversation.muted },
             )
             if (state != ConversationStateEntity(threadId) && states.get(threadId) == null) states.upsert(state)
         }

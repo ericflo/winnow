@@ -67,7 +67,8 @@ messages can't be tapped.
   the message they react to. Failed sends and MMS downloads can be retried. SMS delivery
   reports are opt-in, and MMS auto-download can be turned off (it's off while roaming unless
   you allow it), leaving "Tap to download" in the conversation.
-- **Conversations:** pin, archive, mute, mark read/unread, delete, block (Android's system
+- **Conversations:** pin, archive, mute (for an hour, 8 hours, a day, or until you turn it
+  back on), mark read/unread, delete, block (Android's system
   block list), name a group (just for you), a **Photos & videos** strip in Details, **Export** to a text file, an **Unread** filter, and multi-select.
   Optionally, one-time codes from services are deleted a day after they arrive. That's off by
   default, never applies to texts from people, and keeps starred codes. Swipe to archive in the inbox (or set each direction to delete,

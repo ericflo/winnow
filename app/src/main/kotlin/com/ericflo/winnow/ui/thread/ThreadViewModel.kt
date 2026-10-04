@@ -49,6 +49,8 @@ data class ThreadUiState(
     /** Contact photos by address, for the header and group sender avatars. */
     val photos: Map<String, String> = emptyMap(),
     val muted: Boolean = false,
+    /** When a timed mute ends; null for none or until turned off. */
+    val mutedUntil: Long? = null,
     val archived: Boolean = false,
 ) {
     val isGroup: Boolean get() = recipients.size > 1
@@ -146,7 +148,8 @@ class ThreadViewModel(
                     senderNames = messages.mapNotNull { it.sender }.distinct().associateWith(repo::displayName),
                     photos = (recipients + messages.mapNotNull { it.sender }).distinct()
                         .mapNotNull { address -> repo.photoUri(address)?.let { address to it } }.toMap(),
-                    muted = s?.muted == true,
+                    muted = s?.isMuted() == true,
+                    mutedUntil = s?.takeIf { it.isMuted() }?.mutedUntil,
                     archived = s?.archived == true,
                 )
             }
@@ -353,7 +356,7 @@ class ThreadViewModel(
         _notices.emit(if (_blocked.value) "Blocked. Android will drop their texts and calls." else "Unblocked")
     }
 
-    fun setMuted(muted: Boolean) = launch { states.setMuted(threadId.value, muted) }
+    fun setMuted(muted: Boolean, until: Long? = null) = launch { states.setMuted(threadId.value, muted, until) }
 
     fun setArchived(archived: Boolean) = launch { states.setArchived(setOf(threadId.value), archived) }
 

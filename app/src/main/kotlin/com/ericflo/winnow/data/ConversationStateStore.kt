@@ -25,7 +25,9 @@ class ConversationStateStore(private val dao: ConversationStateDao) {
         if (dao.get(threadId)?.archived == true) setArchived(listOf(threadId), false)
     }
 
-    suspend fun setMuted(threadId: Long, muted: Boolean) = updateAll(listOf(threadId)) { it.copy(muted = muted) }
+    /** Mutes until [until] (epoch millis), or until turned off when null; unmuting clears both. */
+    suspend fun setMuted(threadId: Long, muted: Boolean, until: Long? = null) =
+        updateAll(listOf(threadId)) { it.copy(muted = muted, mutedUntil = until.takeIf { muted }) }
 
     suspend fun saveDraft(threadId: Long, draft: String) =
         updateAll(listOf(threadId)) { it.copy(draft = draft.takeIf(String::isNotBlank)) }
@@ -46,5 +48,5 @@ class ConversationStateStore(private val dao: ConversationStateDao) {
 fun List<ConversationSummary>.withState(states: Map<Long, ConversationStateEntity>): List<ConversationSummary> =
     map { c ->
         val s = states[c.threadId] ?: return@map c
-        c.copy(pinned = s.pinned, archived = s.archived, muted = s.muted, draft = s.draft, displayName = s.title ?: c.displayName)
+        c.copy(pinned = s.pinned, archived = s.archived, muted = s.isMuted(), draft = s.draft, displayName = s.title ?: c.displayName)
     }.sortedWith(compareByDescending<ConversationSummary> { it.pinned }.thenByDescending { it.timestamp })

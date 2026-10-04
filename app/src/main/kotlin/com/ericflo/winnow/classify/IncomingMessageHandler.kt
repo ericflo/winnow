@@ -84,7 +84,7 @@ class IncomingMessageHandler(
             withContext(Dispatchers.IO) { markRead(uri) }
             return
         }
-        if (last == Action.SILENCE.name || states.get(threadId).muted) return
+        if (last == Action.SILENCE.name || states.get(threadId).isMuted()) return
         notifier.showMessage(
             threadId = threadId,
             recipients = listOf(sender),
@@ -130,7 +130,7 @@ class IncomingMessageHandler(
             return
         }
         when (action) {
-            Action.ALLOW -> if (!states.get(threadId).muted) {
+            Action.ALLOW -> if (!states.get(threadId).isMuted()) {
                 notifier.showMessage(
                     threadId = threadId,
                     recipients = recipients,

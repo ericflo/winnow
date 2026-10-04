@@ -87,11 +87,14 @@ import com.ericflo.winnow.ui.components.VideoViewer
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
+import com.ericflo.winnow.ui.components.MuteDialog
+import com.ericflo.winnow.ui.components.mutedLabel
 
 data class DetailsUiState(
     val title: String,
     val people: List<Person> = emptyList(),
     val muted: Boolean = false,
+    val mutedUntil: Long? = null,
     val pinned: Boolean = false,
     val archived: Boolean = false,
     /** For 1:1 conversations: the user's standing decision about this sender, if any. */
@@ -159,7 +162,8 @@ class ConversationDetailsViewModel(
                 // A known name means a contact, for real contacts and sample conversations alike.
                 DetailsUiState.Person(address, name, number, repo.photoUri(address), isContact = name != number)
             },
-            muted = s?.muted == true,
+            muted = s?.isMuted() == true,
+            mutedUntil = s?.takeIf { it.isMuted() }?.mutedUntil,
             pinned = s?.pinned == true,
             archived = s?.archived == true,
             senderRule = rule,
@@ -168,7 +172,7 @@ class ConversationDetailsViewModel(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DetailsUiState(displayNameFor(recipients, repo::displayName)))
 
-    fun setMuted(value: Boolean) = launch { container.conversationStates.setMuted(threadId, value) }
+    fun setMuted(value: Boolean, until: Long? = null) = launch { container.conversationStates.setMuted(threadId, value, until) }
 
     fun setGroupName(value: String) = launch { container.conversationStates.setTitle(threadId, value) }
 
@@ -230,6 +234,7 @@ fun ConversationDetailsScreen(viewModel: ConversationDetailsViewModel, onBack: (
     }
     val save = { attachment: Attachment -> scope.launch { toast(viewModel.save(attachment)) }; Unit }
     var confirmDelete by remember { mutableStateOf(false) }
+    var choosingMute by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     val showContact = { number: String ->
         context.startActivity(Intent(ContactsContract.Intents.SHOW_OR_CREATE_CONTACT, Uri.fromParts("tel", number, null)))
@@ -311,7 +316,11 @@ fun ConversationDetailsScreen(viewModel: ConversationDetailsViewModel, onBack: (
             }
 
             section("Conversation")
-            item("muted") { Toggle("Notifications", if (state.muted) "Muted" else "On", !state.muted) { viewModel.setMuted(!it) } }
+            item("muted") {
+                Toggle("Notifications", if (state.muted) mutedLabel(state.mutedUntil) else "On", !state.muted) { on ->
+                    if (on) viewModel.setMuted(false) else choosingMute = true
+                }
+            }
             if (!state.muted && viewModel.hasThread) {
                 item("sound") {
                     ListItem(
@@ -366,6 +375,9 @@ fun ConversationDetailsScreen(viewModel: ConversationDetailsViewModel, onBack: (
     watching?.let { uri ->
         val video = media.firstOrNull { it.uri == uri }
         VideoViewer(uri, onDismiss = { watching = null }, onShare = video?.let { { share(it) } }, onSave = video?.let { { save(it) } })
+    }
+    if (choosingMute) {
+        MuteDialog(onMute = { until -> viewModel.setMuted(true, until); choosingMute = false }, onDismiss = { choosingMute = false })
     }
     if (renaming) {
         var name by remember { mutableStateOf(state.groupName.orEmpty()) }

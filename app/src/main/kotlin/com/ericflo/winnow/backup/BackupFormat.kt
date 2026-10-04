@@ -77,6 +77,8 @@ data class ConversationBackup(
     val draft: String? = null,
     val title: String? = null,
     val messages: List<MessageBackup> = emptyList(),
+    /** When a timed mute ends; null with [muted] means until turned off. */
+    val mutedUntil: Long? = null,
 )
 
 @Serializable

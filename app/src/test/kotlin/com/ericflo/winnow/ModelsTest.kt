@@ -72,4 +72,24 @@ class ModelsTest {
         assertEquals("3 attachments", attachmentSummary(listOf("image/jpeg", "video/mp4", "text/vcard")))
         assertEquals("Attachment", attachmentSummary(listOf("application/pdf")))
     }
+
+    @Test
+    fun `a timed mute ends on its own`() {
+        val now = 1_000_000L
+        assertTrue(ConversationStateEntity(1, muted = true).isMuted(now))
+        assertTrue(ConversationStateEntity(1, muted = true, mutedUntil = now + 1).isMuted(now))
+        assertFalse(ConversationStateEntity(1, muted = true, mutedUntil = now).isMuted(now))
+        assertFalse(ConversationStateEntity(1, muted = false, mutedUntil = now + 1).isMuted(now))
+    }
+
+    @Test
+    fun `muted labels say until when`() {
+        val zone = java.time.ZoneId.of("UTC")
+        val today = java.time.LocalDate.of(2026, 10, 3)
+        fun at(day: Int, hour: Int) = java.time.ZonedDateTime.of(2026, 10, day, hour, 30, 0, 0, zone).toInstant().toEpochMilli()
+        assertEquals("Muted", com.ericflo.winnow.ui.components.mutedLabel(null, today, zone))
+        assertTrue(com.ericflo.winnow.ui.components.mutedLabel(at(3, 18), today, zone).startsWith("Muted until 6:30"))
+        assertTrue(com.ericflo.winnow.ui.components.mutedLabel(at(4, 9), today, zone).startsWith("Muted until tomorrow, 9:30"))
+        assertTrue(com.ericflo.winnow.ui.components.mutedLabel(at(9, 9), today, zone).startsWith("Muted until Oct 9, 9:30"))
+    }
 }
