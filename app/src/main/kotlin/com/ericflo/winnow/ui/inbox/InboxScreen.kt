@@ -110,6 +110,8 @@ fun InboxScreen(
     onMakeDefault: () -> Unit,
     onOpenStarred: () -> Unit = {},
     onOpenScheduled: () -> Unit = {},
+    /** In the two-pane layout, the conversation open beside the list. */
+    openThreadId: Long? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val scheduledCount by viewModel.scheduledCount.collectAsStateWithLifecycle()
@@ -229,6 +231,7 @@ fun InboxScreen(
                                 conversation,
                                 showVerdict = conversation.verdict?.effectiveAction == Action.SILENCE,
                                 selected = conversation.threadId in selected,
+                                highlighted = conversation.threadId == openThreadId,
                                 onClick = { if (selected.isEmpty()) open() else toggle(conversation.threadId) },
                                 onLongClick = { toggle(conversation.threadId) },
                             )

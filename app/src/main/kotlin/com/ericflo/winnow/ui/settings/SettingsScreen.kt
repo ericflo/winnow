@@ -259,6 +259,14 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     onChange = viewModel::setDeliveryReports,
                 )
             }
+            item("enter-to-send") {
+                SwitchRow(
+                    "Enter sends",
+                    "Enter sends the message instead of starting a new line; Shift+Enter still does. Handy with a keyboard.",
+                    s.enterToSend,
+                    onChange = viewModel::setEnterToSend,
+                )
+            }
             item("link-previews") {
                 SwitchRow(
                     "Link previews",

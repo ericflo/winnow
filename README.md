@@ -104,6 +104,9 @@ messages can't be tapped.
   restoring twice is harmless. A new phone can restore right from onboarding. **Back up
   automatically** writes one every week while the phone charges, into a folder you pick
   once, such as one your cloud drive syncs. It keeps the newest four.
+- **Big screens:** on a tablet, an unfolded foldable or a wide window, the conversation list
+  and the open conversation sit side by side. **Enter sends** (optional) makes a keyboard's
+  Enter send; Shift+Enter still starts a new line.
 - **Display:** light, dark or the system theme, and a message text size. Pinch a
   conversation to zoom its text; it snaps back to normal near 100%.
 - **Getting started:** onboarding explains the RCS trade-off before it asks to become your

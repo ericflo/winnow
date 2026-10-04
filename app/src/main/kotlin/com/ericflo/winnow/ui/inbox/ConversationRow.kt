@@ -48,6 +48,8 @@ fun ConversationRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    /** The conversation open in the other pane of a two-pane layout. */
+    highlighted: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     leading: @Composable () -> Unit = { ConversationAvatar(conversation) },
     trailing: (@Composable () -> Unit)? = null,
@@ -59,7 +61,13 @@ fun ConversationRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .fillMaxWidth()
-            .background(if (selected) colors.secondaryContainer else colors.surface)
+            .background(
+                when {
+                    selected -> colors.secondaryContainer
+                    highlighted -> colors.surfaceContainerHighest
+                    else -> colors.surface
+                },
+            )
             .combinedClickable(onClick = onClick, onLongClickLabel = if (onLongClick != null) "Select" else null, onLongClick = onLongClick)
             .semantics { if (selected) stateDescription = "Selected" }
             .padding(horizontal = 16.dp, vertical = 10.dp),

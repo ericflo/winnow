@@ -42,6 +42,28 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import com.ericflo.winnow.ui.scheduled.ScheduledScreen
 import com.ericflo.winnow.ui.scheduled.ScheduledViewModel
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 
 /** Where US carriers collect forwarded spam ("SPAM" on a keypad). */
 const val CARRIER_SPAM_SHORT_CODE = "7726"
@@ -153,18 +175,55 @@ fun WinnowNavHost(
             )
         }
         composable<InboxRoute> {
-            InboxScreen(
-                viewModel = viewModel { InboxViewModel(container, ListMode.INBOX) },
-                onOpenThread = openThread,
-                onNewChat = { nav.navigate(NewChatRoute()) },
-                onOpenFiltered = { nav.navigate(FilteredRoute) },
-                onOpenArchived = { nav.navigate(ArchivedRoute) },
-                onOpenActivity = { nav.navigate(ActivityRoute) },
-                onOpenSettings = { nav.navigate(SettingsRoute) },
-                onMakeDefault = onMakeDefault,
-                onOpenStarred = { nav.navigate(StarredRoute) },
-                onOpenScheduled = { nav.navigate(ScheduledRoute) },
-            )
+            // A tablet, an unfolded foldable or a wide window: the list and a conversation side by side.
+            val twoPane = LocalConfiguration.current.screenWidthDp >= TWO_PANE_MIN_WIDTH_DP
+            var openId by rememberSaveable { mutableStateOf<Long?>(null) }
+            var openRecipients by rememberSaveable { mutableStateOf("") }
+            val inbox = @Composable { modifier: Modifier ->
+                Box(modifier) {
+                    InboxScreen(
+                        viewModel = viewModel { InboxViewModel(container, ListMode.INBOX) },
+                        onOpenThread = if (twoPane) { id, recipients -> openId = id; openRecipients = joinAddresses(recipients) } else openThread,
+                        onNewChat = { nav.navigate(NewChatRoute()) },
+                        onOpenFiltered = { nav.navigate(FilteredRoute) },
+                        onOpenArchived = { nav.navigate(ArchivedRoute) },
+                        onOpenActivity = { nav.navigate(ActivityRoute) },
+                        onOpenSettings = { nav.navigate(SettingsRoute) },
+                        onMakeDefault = onMakeDefault,
+                        onOpenStarred = { nav.navigate(StarredRoute) },
+                        onOpenScheduled = { nav.navigate(ScheduledRoute) },
+                        openThreadId = openId.takeIf { twoPane },
+                    )
+                }
+            }
+            if (!twoPane) {
+                inbox(Modifier.fillMaxSize())
+            } else {
+                Row(Modifier.fillMaxSize()) {
+                    inbox(Modifier.width(LIST_PANE_WIDTH).fillMaxHeight())
+                    VerticalDivider()
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        val id = openId
+                        if (id == null) {
+                            EmptyConversationPane()
+                        } else {
+                            // Each conversation gets its own ViewModel store, cleared when another
+                            // is opened, so switching doesn't pile up conversations in memory.
+                            ScopedViewModelStore(key = "$id:$openRecipients") {
+                                ThreadScreen(
+                                    viewModel = viewModel { ThreadViewModel(container, id, splitAddresses(openRecipients)) },
+                                    onBack = { openId = null },
+                                    onForward = { text -> nav.navigate(NewChatRoute(draft = text)) },
+                                    onReportSpam = { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
+                                    onOpenDetails = { threadId -> nav.navigate(DetailsRoute(threadId, openRecipients)) },
+                                    onMessageNumber = { number -> nav.navigate(ThreadRoute(-1, number)) },
+                                    showBack = false,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
         composable<ScheduledRoute> {
             ScheduledScreen(viewModel = viewModel { ScheduledViewModel(container) }, onBack = dropUnlessResumed { nav.popBackStack() }, onOpenThread = openThread)
@@ -249,4 +308,24 @@ fun WinnowNavHost(
             SenderRulesScreen(container = container, onBack = dropUnlessResumed { nav.popBackStack() })
         }
     }
+}
+
+/** Window width at which the inbox shows a conversation beside the list instead of on top of it. */
+private const val TWO_PANE_MIN_WIDTH_DP = 840
+private val LIST_PANE_WIDTH = 400.dp
+
+@Composable
+private fun EmptyConversationPane() {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
+        Text("Choose a conversation", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Gives [content] its own ViewModelStore for [key], cleared when the key changes or this leaves. */
+@Composable
+private fun ScopedViewModelStore(key: String, content: @Composable () -> Unit) {
+    val store = remember(key) { ViewModelStore() }
+    DisposableEffect(store) { onDispose { store.clear() } }
+    val owner = remember(store) { object : ViewModelStoreOwner { override val viewModelStore = store } }
+    CompositionLocalProvider(LocalViewModelStoreOwner provides owner) { content() }
 }

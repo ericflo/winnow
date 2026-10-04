@@ -169,6 +169,15 @@ import com.ericflo.winnow.data.LinkPreview
 import com.ericflo.winnow.ui.components.LinkPreviewCard
 import com.ericflo.winnow.ui.components.firstWebLink
 import com.ericflo.winnow.data.normalizeAddress
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -181,6 +190,8 @@ fun ThreadScreen(
     onOpenDetails: (threadId: Long) -> Unit,
     /** Opens a conversation with a number, from a shared contact card. */
     onMessageNumber: (String) -> Unit = {},
+    /** False in the two-pane layout, where the conversation list stays beside it. */
+    showBack: Boolean = true,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
@@ -190,6 +201,7 @@ fun ThreadScreen(
     val scheduled by viewModel.scheduled.collectAsStateWithLifecycle()
     val textScale by viewModel.textScale.collectAsStateWithLifecycle()
     val unreadOnOpen by viewModel.unreadOnOpen.collectAsStateWithLifecycle()
+    val enterToSend by viewModel.enterToSend.collectAsStateWithLifecycle()
     val linkPreviewSenders by viewModel.linkPreviewSenders.collectAsStateWithLifecycle()
     var confirmBlock by remember { mutableStateOf(false) }
     var confirmReport by remember { mutableStateOf(false) }
@@ -302,7 +314,7 @@ fun ThreadScreen(
                 )
             } else TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    if (showBack) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
                 title = {
                     // Tapping the title opens the conversation's details, as in Messages.
@@ -417,6 +429,7 @@ fun ThreadScreen(
                 onRemoveAttachment = viewModel::removeAttachment,
                 isSms = single != null && attachments.isEmpty(),
                 onSend = viewModel::send,
+                enterToSend = enterToSend,
                 onSchedule = viewModel::schedule,
             )
             }
@@ -981,7 +994,8 @@ private fun MessageBubble(
             Column(
                 horizontalAlignment = if (m.outgoing) Alignment.End else Alignment.Start,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.fillMaxWidth(if (showAvatarColumn) 0.85f else 0.8f),
+                // Most of a phone's width, but not a tablet pane's: long lines get hard to read.
+                modifier = Modifier.fillMaxWidth(if (showAvatarColumn) 0.85f else 0.8f).widthIn(max = 560.dp),
             ) {
                 m.attachments.forEach { attachment ->
                     if (VCard.isVCard(attachment.contentType)) {
@@ -1292,6 +1306,7 @@ private fun Composer(
     isSms: Boolean,
     onSend: () -> Unit,
     onSchedule: (at: Long, label: String) -> Unit,
+    enterToSend: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().background(colors.surface).navigationBarsPadding().imePadding()) {
@@ -1340,7 +1355,18 @@ private fun Composer(
                             textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
                             cursorBrush = SolidColor(colors.primary),
                             maxLines = 6,
-                            modifier = Modifier.fillMaxWidth(),
+                            // With "Enter sends": the on-screen keyboard shows a Send key, and a
+                            // hardware Enter sends while Shift+Enter still starts a new line.
+                            keyboardOptions = if (enterToSend) KeyboardOptions(imeAction = ImeAction.Send) else KeyboardOptions.Default,
+                            keyboardActions = KeyboardActions(onSend = { onSend() }),
+                            modifier = Modifier.fillMaxWidth().onPreviewKeyEvent { event ->
+                                if (enterToSend && event.key == Key.Enter && !event.isShiftPressed) {
+                                    if (event.type == KeyEventType.KeyDown) onSend()
+                                    true
+                                } else {
+                                    false
+                                }
+                            },
                         )
                     }
                     if (isSms && draft.length >= 100) SegmentCounter(draft)

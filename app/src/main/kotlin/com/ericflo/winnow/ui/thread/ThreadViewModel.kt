@@ -100,6 +100,9 @@ class ThreadViewModel(
         .flatMapLatest { scheduler.observe(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val enterToSend: StateFlow<Boolean> = container.settings.settings.map { it.enterToSend }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     /** Message text size; see [TextScale]. Pinching the conversation changes it. */
     val textScale: StateFlow<Float> = container.settings.settings
         .map { it.textScale }
