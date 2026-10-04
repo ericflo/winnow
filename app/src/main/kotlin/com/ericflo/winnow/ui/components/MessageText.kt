@@ -17,6 +17,10 @@ private val WEB = Regex(
     """(?i)\b(?:https?://\S+|www\.\S+|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?-i:(?:$TLDS)|(?:${TLDS.uppercase()}))(?![a-z0-9-])(?:/\S*)?)""",
 )
 private val SCHEME = Regex("^(https?)://", RegexOption.IGNORE_CASE)
+private val UPS = Regex("""\b1Z[0-9A-Z]{16}\b""", RegexOption.IGNORE_CASE)
+private val USPS = Regex("""(?<!\d)9[2-5]\d{18,24}(?!\d)""")
+private val FEDEX = Regex("""(?<!\d)(?:\d{12}|\d{15})(?!\d)""")
+private val FEDEX_NAMED = Regex("""(?i)\bfed\s?ex\b""")
 
 /** [value] as a URL to open: "HTTPS://…" lowercased to a scheme Android matches, a bare "httpbin.org" given one. */
 private fun toUrl(value: String): String =
@@ -57,6 +61,12 @@ fun linkify(text: String, links: Boolean, linkColor: Color): AnnotatedString {
     }
     add(EMAIL) { "mailto:$it" }
     add(WEB, ::toUrl)
+    // Package tracking numbers, to the carrier's tracking page. Before phone numbers, whose
+    // digits a long tracking number would otherwise lend itself to.
+    add(UPS) { "https://www.ups.com/track?tracknum=${it.uppercase()}" }
+    add(USPS) { "https://tools.usps.com/go/TrackConfirmAction?tLabels=$it" }
+    // FedEx's are plain 12 or 15 digits, like any order number: only when the text says FedEx.
+    if (FEDEX_NAMED.containsMatchIn(text)) add(FEDEX) { "https://www.fedex.com/fedextrack/?trknbr=$it" }
     add(PHONE) { "tel:" + it.filter { c -> c.isDigit() || c == '+' } }
 
     val style = TextLinkStyles(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline))

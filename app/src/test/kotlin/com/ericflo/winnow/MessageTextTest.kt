@@ -30,6 +30,17 @@ class MessageTextTest {
     }
 
     @Test
+    fun `tracking numbers link to the carrier`() {
+        assertEquals(listOf("https://www.ups.com/track?tracknum=1Z999AA10123456784"), links("UPS: your package 1z999AA10123456784 is out for delivery"))
+        assertEquals(listOf("https://tools.usps.com/go/TrackConfirmAction?tLabels=9400111899223197428490"), links("USPS 9400111899223197428490 delivered"))
+        assertEquals(listOf("https://www.fedex.com/fedextrack/?trknbr=123456789012"), links("FedEx shipment 123456789012 arrives today"))
+        // Twelve digits with no FedEx in sight is just a number.
+        assertEquals(emptyList<String>(), links("Order 123456789012 confirmed"))
+        // A phone number is still a phone number.
+        assertEquals(listOf("tel:4155550123"), links("Call 415-555-0123"))
+    }
+
+    @Test
     fun `links open with a scheme Android matches`() {
         assertEquals(listOf("https://BIT.LY/x"), allWebLinks("HTTPS://BIT.LY/x"))
         assertEquals(listOf("https://httpbin.org"), allWebLinks("try httpbin.org"))
