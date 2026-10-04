@@ -12,6 +12,9 @@ import android.view.textclassifier.TextClassificationManager
 import android.view.textclassifier.TextClassifier
 import android.view.textclassifier.TextLinks
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 private const val TAG = "WinnowSmartLinks"
@@ -46,12 +49,18 @@ class SmartAction(val title: String, private val intent: PendingIntent) {
 class SmartLinks(context: Context) {
     private val manager = context.getSystemService(TextClassificationManager::class.java)
     private val cache = LruCache<String, List<SmartLink>>(256)
+    /** A few at a time: flinging through a long conversation mustn't queue a call per bubble. */
+    private val gate = Semaphore(2)
 
     /** The smart links in [text]; none if the classifier can't say. Off the main thread. */
     suspend fun find(text: String): List<SmartLink> {
         if (text.length < MIN_LENGTH) return emptyList()
         cache.get(text)?.let { return it }
         return withContext(Dispatchers.Default) {
+            gate.withPermit {
+            // A bubble scrolled away while waiting no longer wants an answer.
+            ensureActive()
+            cache.get(text)?.let { return@withPermit it }
             val found = runCatching {
                 val classifier = manager?.textClassifier ?: return@runCatching emptyList()
                 if (text.length > classifier.maxGenerateLinksTextLength) return@runCatching emptyList()
@@ -64,6 +73,7 @@ class SmartLinks(context: Context) {
                     }
             }.onFailure { Log.w(TAG, "The text classifier couldn't look at a message", it) }.getOrDefault(emptyList())
             found.also { cache.put(text, it) }
+            }
         }
     }
 
