@@ -595,6 +595,7 @@ fun ThreadScreen(
                     runCatching { if (canReadContacts) contactPicker.launch(null) else phonePicker.launch(null) }
                 },
                 onRemoveAttachment = viewModel::removeAttachment,
+                onRotateAttachment = viewModel::rotateAttachment,
                 // Sent separately, each person gets a plain text.
                 isSms = (single != null || sendSeparately) && attachments.isEmpty(),
                 sendsAsMms = viewModel.sendsAsMms.collectAsStateWithLifecycle().value,
@@ -1870,6 +1871,8 @@ private fun Composer(
     onCamera: () -> Unit,
     onContact: () -> Unit,
     onRemoveAttachment: (OutgoingAttachment) -> Unit,
+    /** A photo turned a quarter-turn; GIFs, which would stop moving, aren't offered it. */
+    onRotateAttachment: (OutgoingAttachment) -> Unit = {},
     onVoice: () -> Unit = {},
     onVideo: () -> Unit = {},
     onLocation: () -> Unit = {},
@@ -1942,6 +1945,14 @@ private fun Composer(
                                 .clickable(onClickLabel = "Remove attachment") { onRemoveAttachment(attachment) },
                             contentAlignment = Alignment.Center,
                         ) { Icon(Icons.Filled.Close, contentDescription = "Remove attachment", modifier = Modifier.size(16.dp)) }
+                        if (attachment.contentType.startsWith("image/") && attachment.contentType != "image/gif") {
+                            Box(
+                                Modifier.align(Alignment.BottomStart).padding(4.dp).size(26.dp).clip(CircleShape)
+                                    .background(colors.surface.copy(alpha = 0.85f))
+                                    .clickable(onClickLabel = "Rotate photo") { onRotateAttachment(attachment) },
+                                contentAlignment = Alignment.Center,
+                            ) { Icon(painterResource(R.drawable.ic_rotate), contentDescription = "Rotate photo", modifier = Modifier.size(16.dp)) }
+                        }
                     }
                 }
             }

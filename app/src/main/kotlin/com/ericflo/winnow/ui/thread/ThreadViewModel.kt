@@ -547,6 +547,18 @@ class ThreadViewModel(
         if (card != null) addAttachment(card) else _notices.emit("Couldn't read that contact")
     }
 
+    /** Turns a photo in the composer a quarter-turn clockwise, in its place. */
+    fun rotateAttachment(attachment: OutgoingAttachment) = launch {
+        val turned = withContext(Dispatchers.IO) { container.sharedFiles.rotated(attachment) }
+        if (turned == null) {
+            _notices.emit("Couldn't rotate that photo")
+            return@launch
+        }
+        // Gone meanwhile (sent, or removed): the copy isn't wanted.
+        if (attachment !in _attachments.value) return@launch
+        _attachments.value = _attachments.value.map { if (it == attachment) turned else it }
+    }
+
     fun removeAttachment(attachment: OutgoingAttachment) {
         _attachments.value = _attachments.value - attachment
         recorder.discard(attachment)
