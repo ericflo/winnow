@@ -34,6 +34,7 @@ class DebugTrafficReceiver : BroadcastReceiver() {
                 val random = Random(7)
                 val now = System.currentTimeMillis()
                 val settings = container.settings.current()
+                val summarizedUntil = settings.dailySummaryLastAt
                 val classifier = container.classifiers.create(settings)
                 var stored = 0
                 repeat(count) { i ->
@@ -55,7 +56,11 @@ class DebugTrafficReceiver : BroadcastReceiver() {
                     val threadId = context.contentResolver.query(uri, arrayOf(Telephony.Sms.THREAD_ID), null, null, null)
                         ?.use { c -> if (c.moveToFirst()) c.getLong(0) else null } ?: return@repeat
                     val verdict = classifier.classify(InboundMessage(sender, body))
-                    container.verdictDao.upsert(VerdictEntity.from(ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId, sender, verdict, date))
+                    // Backdated history: not news for a daily summary, except what would have come since the last one.
+                    container.verdictDao.upsert(
+                        VerdictEntity.from(ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId, sender, verdict, date)
+                            .copy(summarized = date <= summarizedUntil),
+                    )
                     stored++
                 }
                 Log.i(TAG, "Simulated $stored texts over $days days")

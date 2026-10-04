@@ -1,6 +1,8 @@
 package com.ericflo.winnow.data.db
 
 import androidx.room.AutoMigration
+import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.room.migration.AutoMigrationSpec
 import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
@@ -30,10 +32,20 @@ import kotlinx.coroutines.flow.Flow
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
-        AutoMigration(from = 9, to = 10),
+        AutoMigration(from = 9, to = 10, spec = WinnowDatabase.EverythingSummarized::class),
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
+    /**
+     * 9 to 10 adds VerdictEntity.summarized. What came before is taken as reported, or the first
+     * summary after the update would repeat the last one's.
+     */
+    class EverythingSummarized : AutoMigrationSpec {
+        override fun onPostMigrate(db: SupportSQLiteDatabase) {
+            db.execSQL("UPDATE verdicts SET summarized = 1")
+        }
+    }
+
     abstract fun verdicts(): VerdictDao
     abstract fun conversationStates(): ConversationStateDao
     abstract fun scheduled(): ScheduledMessageDao

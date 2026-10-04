@@ -108,9 +108,10 @@ class DailySummary(
                 // Texts not yet in a summary, from the last two days (one, the first time): a
                 // skipped evening's still count, and nothing counts twice whatever the clock does.
                 val found = unsummarized(now - if (last == 0L) DAY_MILLIS else 2 * DAY_MILLIS)
-                if (found.filtered + found.silenced > 0) notifier.showSummary(found.filtered, found.silenced)
-                // Only what was counted: a text decided a moment later is the next one's.
+                // Flagged first (only what was counted: a text decided a moment later is the next
+                // one's), so a failure after can't make tomorrow's repeat tonight's.
                 found.keys.chunked(500).forEach { verdicts.markSummarized(it) }
+                if (found.filtered + found.silenced > 0) notifier.showSummary(found.filtered, found.silenced)
             }
         } catch (e: CancellationException) {
             throw e

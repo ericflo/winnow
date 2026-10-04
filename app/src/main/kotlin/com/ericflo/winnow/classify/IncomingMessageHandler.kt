@@ -136,9 +136,14 @@ class IncomingMessageHandler(
 
         // A correction the user made while this was being classified (Filter sender from the
         // conversation, say) stands: any row for it now was written since.
-        val corrected = dao.forKey(key)?.takeIf { it.threadId == threadId }?.userAction?.let { runCatching { Action.valueOf(it) }.getOrNull() }
+        val existing = dao.forKey(key)?.takeIf { it.threadId == threadId }
+        val corrected = existing?.userAction?.let { runCatching { Action.valueOf(it) }.getOrNull() }
         if (verdict != null) {
-            dao.upsert(VerdictEntity.from(key, threadId, sender, verdict, System.currentTimeMillis()).copy(userAction = corrected?.name))
+            // The correction's own row is never news for a daily summary; keeping it keeps that too.
+            dao.upsert(
+                VerdictEntity.from(key, threadId, sender, verdict, System.currentTimeMillis())
+                    .copy(userAction = corrected?.name, summarized = existing?.summarized ?: false),
+            )
         }
         val action = corrected ?: verdict?.action ?: Action.ALLOW
         // A new message brings an archived conversation back, unless it's being filtered.
