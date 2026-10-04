@@ -308,7 +308,7 @@ fun InboxScreen(
                         item("h-messages") { SectionHeader("Messages") }
                         // By message: two picture messages in one thread can share a second.
                         items(state.messageHits, key = { "hit-${it.key ?: "${it.threadId}-${it.timestamp}"}" }) { hit ->
-                            SearchHitRow(hit, onClick = { onOpenSearchHit(hit, state.query.trim()) })
+                            SearchHitRow(hit, filtered = hit.threadId in state.filteredThreads, onClick = { onOpenSearchHit(hit, state.query.trim()) })
                         }
                     }
                     if (state.conversations.isEmpty() && state.messageHits.isEmpty() && !(searching && typed.isBlank() && browsing != null)) {
@@ -632,7 +632,7 @@ private fun BrowseEmpty(text: String) {
 }
 
 @Composable
-private fun SearchHitRow(hit: SearchHit, onClick: () -> Unit) {
+private fun SearchHitRow(hit: SearchHit, filtered: Boolean = false, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
@@ -640,7 +640,19 @@ private fun SearchHitRow(hit: SearchHit, onClick: () -> Unit) {
         Avatar(hit.displayName, seed = hit.recipients.firstOrNull().orEmpty(), size = 44.dp)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
-            Text(hit.displayName, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(hit.displayName, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                // Found in Filtered: not what an inbox result usually is, so it says so.
+                if (filtered) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Filtered",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            }
             Text(
                 hit.body,
                 style = MaterialTheme.typography.bodyMedium,

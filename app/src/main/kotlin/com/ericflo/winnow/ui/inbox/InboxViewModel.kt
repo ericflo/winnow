@@ -74,6 +74,8 @@ data class InboxUiState(
     val conversations: List<ConversationSummary> = emptyList(),
     /** Message bodies matching [query], beyond conversation names and snippets. */
     val messageHits: List<SearchHit> = emptyList(),
+    /** Conversations in Filtered, so a message found in one can say so. */
+    val filteredThreads: Set<Long> = emptySet(),
     val filteredCount: Int = 0,
     val archivedCount: Int = 0,
     /** Which classifier is active, for the menu, e.g. "Jev via OpenRouter". */
@@ -147,6 +149,7 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
             query = query,
             conversations = matching,
             messageHits = hits,
+            filteredThreads = all.filter { it.isFiltered }.mapTo(HashSet()) { it.threadId },
             filteredCount = all.count { it.isFiltered },
             archivedCount = all.count { it.archived && !it.isFiltered },
             classifier = classifier,
