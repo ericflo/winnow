@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Conversations as Direct Share targets: the share sheet offers recent ones by name. -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Long-pressing the app icon: start a conversation (recent ones are added beside it). -->
+    <shortcut
+        android:shortcutId="new_chat"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_new_chat"
+        android:shortcutShortLabel="@string/shortcut_new_chat"
+        android:shortcutLongLabel="@string/shortcut_new_chat_long">
+        <intent
+            android:action="com.ericflo.winnow.NEW_CHAT"
+            android:targetPackage="com.ericflo.winnow"
+            android:targetClass="com.ericflo.winnow.ui.MainActivity" />
+    </shortcut>
     <share-target android:targetClass="com.ericflo.winnow.ui.MainActivity">
         <data android:mimeType="text/plain" />
         <data android:mimeType="image/*" />

@@ -3,5 +3,7 @@
     <string name="channel_messages">Messages</string>
     <string name="channel_messages_description">New messages that pass Winnow\'s filter</string>
     <string name="channel_not_sent">Messages not sent</string>
+    <string name="shortcut_new_chat">New chat</string>
+    <string name="shortcut_new_chat_long">Start a conversation</string>
     <string name="channel_not_sent_description">When a text you sent, or scheduled, couldn\'t go out</string>
 </resources>

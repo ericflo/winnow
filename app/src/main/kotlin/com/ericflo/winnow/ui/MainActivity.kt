@@ -149,6 +149,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         when (intent?.action) {
+            ACTION_NEW_CHAT -> pendingRoute.value = NewChatRoute()
             ACTION_OPEN_THREAD -> {
                 val recipients = intent.getStringExtra(EXTRA_ADDRESS) ?: return
                 pendingRoute.value = ThreadRoute(intent.getLongExtra(EXTRA_THREAD_ID, -1), recipients)
@@ -196,6 +197,8 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val ACTION_OPEN_THREAD = "com.ericflo.winnow.OPEN_THREAD"
+        /** The launcher's "New chat" shortcut (res/xml/shortcuts.xml). */
+        const val ACTION_NEW_CHAT = "com.ericflo.winnow.NEW_CHAT"
         const val EXTRA_THREAD_ID = "thread_id"
         /** Comma-joined recipients of the thread to open. */
         const val EXTRA_ADDRESS = "address"
