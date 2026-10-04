@@ -9,18 +9,21 @@
 variables:
   - &jdk_image docker.io/library/eclipse-temurin:21-jdk@sha256:3e3c176ffed168beb42c607be9bc1639b466cf00261a0fb04425562c9d0c5c2b
   # The steps run unprivileged, so HOME, the Gradle cache and the Android SDK
-  # live in the workspace. The release step reuses what the gate downloaded.
+  # go somewhere writable: the pod's own disk (ephemeral storage, below), not
+  # the workspace volume, which is 2 GiB on this server and holds only the
+  # checkout and its build outputs. Each step fetches them for itself.
   - &workspace_env >-
-    export HOME="$${CI_WORKSPACE}/.ci/home"
-    GRADLE_USER_HOME="$${CI_WORKSPACE}/.ci/gradle"
-    ANDROID_HOME="$${CI_WORKSPACE}/.ci/android-sdk"
+    export HOME="/tmp/ci/home"
+    GRADLE_USER_HOME="/tmp/ci/gradle"
+    ANDROID_HOME="/tmp/ci/android-sdk"
     && mkdir -p "$${HOME}"
   - &backend
     kubernetes:
       resources:
         # Gradle gets -Xmx4g (gradle.properties); lint and the Kotlin compiler need room beside it.
-        requests: {cpu: "1", memory: 4Gi, ephemeral-storage: 1Gi}
-        limits: {cpu: "4", memory: 8Gi, ephemeral-storage: 4Gi}
+        # Ephemeral storage holds the SDK (~0.5 GiB) and Gradle's caches (~3 GiB).
+        requests: {cpu: "1", memory: 4Gi, ephemeral-storage: 5Gi}
+        limits: {cpu: "4", memory: 8Gi, ephemeral-storage: 10Gi}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -59,6 +62,7 @@ steps:
         from_secret: winnow_key_password
     commands:
       - *workspace_env
+      - sh scripts/ci/android-sdk.sh
       - bash scripts/ci/release.sh
     backend_options: *backend
 
