@@ -115,6 +115,7 @@ fun InboxScreen(
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<Long>()) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var makeDefaultDismissed by rememberSaveable { mutableStateOf(false) }
     val atTop by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
     val farDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 6 } }
     val closeSearch = {
@@ -170,7 +171,9 @@ fun InboxScreen(
                 ) {
                     if (!searching) {
                         item("header") { LargeHeader(onSearch = { searching = true }, onMenu = { menuOpen = true }) }
-                        if (!state.live) item("make-default") { MakeDefaultCard(onMakeDefault) }
+                        if (!state.live && !makeDefaultDismissed) {
+                            item("make-default") { MakeDefaultCard(onMakeDefault, onDismiss = { makeDefaultDismissed = true }) }
+                        }
                         item("review") {
                             ReviewInboxCard(state.review, state.classifier, onStart = viewModel::startReview, onDismiss = viewModel::dismissReview)
                         }
@@ -508,7 +511,7 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit, onClose: (
 }
 
 @Composable
-private fun MakeDefaultCard(onMakeDefault: () -> Unit) {
+private fun MakeDefaultCard(onMakeDefault: () -> Unit, onDismiss: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         shape = RoundedCornerShape(24.dp),
@@ -522,7 +525,11 @@ private fun MakeDefaultCard(onMakeDefault: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(12.dp))
-            FilledTonalButton(onClick = onMakeDefault) { Text("Set as default") }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FilledTonalButton(onClick = onMakeDefault) { Text("Set as default") }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = onDismiss) { Text("Not now") }
+            }
         }
     }
 }

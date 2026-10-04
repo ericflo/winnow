@@ -29,6 +29,8 @@ import com.ericflo.winnow.sms.MmsReceiver
 import com.ericflo.winnow.sms.MmsSender
 import com.ericflo.winnow.sms.MmsStore
 import com.ericflo.winnow.sms.SmsSender
+import android.util.Log
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -41,7 +43,10 @@ class WinnowApp : Application() {
 
 /** Hand-rolled dependency graph. Small enough that a DI framework would cost more than it saves. */
 class AppContainer(private val context: Context) {
-    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // Background work (receivers, reviews, sends) must never take the app down with it.
+    val appScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, e -> Log.e("Winnow", "Background task failed", e) },
+    )
 
     private val database by lazy {
         Room.databaseBuilder(context, WinnowDatabase::class.java, "winnow.db").build()

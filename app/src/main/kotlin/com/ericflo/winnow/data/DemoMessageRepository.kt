@@ -24,7 +24,7 @@ class DemoMessageRepository(private val packageName: String) : MessageRepository
     override fun conversations(): Flow<List<ConversationSummary>> = threads.map { list ->
         list.filter { it.messages.isNotEmpty() }.map { t ->
             val last = t.messages.last()
-            val text = last.body.ifBlank { if (last.attachments.any { it.isImage }) "Photo" else "Attachment" }
+            val text = Tapback.summarize(last.body).ifBlank { if (last.attachments.any { it.isImage }) "Photo" else "Attachment" }
             ConversationSummary(
                 threadId = t.threadId,
                 recipients = t.recipients,
@@ -149,6 +149,7 @@ class DemoMessageRepository(private val packageName: String) : MessageRepository
                 inbound("", 41, contact, from = PRIYA, photo = true),
                 inbound("Last year's sunset, for motivation", 40, contact, from = PRIYA),
                 inbound("ok now I'm counting the days", 22, contact, from = SAM),
+                inbound("Loved “Last year's sunset, for motivation”", 21, contact, from = ALEX),
             ),
             thread(3, listOf("72975"), false, inbound("Your Northwind Bank verification code is 482913. Don't share it with anyone.", 95, code)),
             thread(

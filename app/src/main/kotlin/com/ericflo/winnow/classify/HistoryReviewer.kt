@@ -1,6 +1,8 @@
 package com.ericflo.winnow.classify
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.provider.Telephony
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.InboundMessage
@@ -47,14 +49,18 @@ class HistoryReviewer(
     val status: StateFlow<ReviewStatus> = _status.asStateFlow()
     private var job: Job? = null
 
-    /** Recounts what's pending, unless a review is running. */
+    /** Recounts what's pending, unless a review is running. Without SMS access there's nothing to count. */
     fun refresh() {
         if (job?.isActive == true) return
+        if (!canReadSms()) {
+            _status.value = ReviewStatus.Unknown
+            return
+        }
         scope.launch { _status.value = ReviewStatus.Ready(candidates().size) }
     }
 
     fun start() {
-        if (job?.isActive == true) return
+        if (job?.isActive == true || !canReadSms()) return
         job = scope.launch {
             val pending = candidates()
             val classifier = classifiers.create(settings.current())
@@ -82,6 +88,9 @@ class HistoryReviewer(
             _status.value = ReviewStatus.Finished(pending.size, filtered, silenced)
         }
     }
+
+    private fun canReadSms() =
+        context.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
 
     /** The newest incoming SMS or downloaded MMS of each thread, if it has no verdict yet. */
     private suspend fun candidates(): List<Candidate> = withContext(Dispatchers.IO) {
