@@ -398,7 +398,7 @@ fun ThreadScreen(
     var confirmDeleteOne by remember { mutableStateOf<ChatMessage?>(null) }
     var reactingWithOther by remember { mutableStateOf<ChatMessage?>(null) }
     // A place, date or flight tapped in a message: its text, and where in it.
-    var smartTapped by remember { mutableStateOf<Pair<String, SmartLink>?>(null) }
+    var smartTapped by remember { mutableStateOf<Triple<String, SmartLink, Long>?>(null) }
     // A phone number tapped in a message: what to do with it, rather than straight to the dialer.
     var numberTapped by remember { mutableStateOf<String?>(null) }
     val systemUris = LocalUriHandler.current
@@ -649,7 +649,7 @@ fun ThreadScreen(
                 linkPreviewSenders = linkPreviewSenders,
                 loadPreview = viewModel::preview,
                 loadSmartLinks = viewModel::smartLinks,
-                onSmartLink = { text, link -> smartTapped = text to link },
+                onSmartLink = { text, link, sentAt -> smartTapped = Triple(text, link, sentAt) },
                 selected = selected,
                 onToggleSelected = { m -> selected = if (m.key in selected) selected - m.key else selected + m.key },
                 textScale = textScale,
@@ -660,11 +660,11 @@ fun ThreadScreen(
         }
     }
 
-    smartTapped?.let { (text, link) ->
+    smartTapped?.let { (text, link, sentAt) ->
         SmartLinkSheet(
             text = text,
             link = link,
-            loadActions = { viewModel.smartActions(text, link) },
+            loadActions = { viewModel.smartActions(text, link, sentAt) },
             onRun = { it.run(context) },
             onCopy = { copy(text.substring(link.start, link.end), "Copied") },
             onDismiss = { smartTapped = null },
@@ -1176,7 +1176,7 @@ private fun MessageList(
     loadPreview: suspend (String) -> LinkPreview? = { null },
     /** Places, dates and flights in a message's text, from Android's text classifier. */
     loadSmartLinks: suspend (String) -> List<SmartLink> = { emptyList() },
-    onSmartLink: (String, SmartLink) -> Unit = { _, _ -> },
+    onSmartLink: (String, SmartLink, Long) -> Unit = { _, _, _ -> },
     selected: Set<String> = emptySet(),
     onToggleSelected: (ChatMessage) -> Unit = {},
     textScale: Float = 1f,
@@ -1426,7 +1426,7 @@ private fun MessageBubble(
     loadPreview: suspend (String) -> LinkPreview? = { null },
     /** Places, dates and flights in a message's text, from Android's text classifier. */
     loadSmartLinks: suspend (String) -> List<SmartLink> = { emptyList() },
-    onSmartLink: (String, SmartLink) -> Unit = { _, _ -> },
+    onSmartLink: (String, SmartLink, Long) -> Unit = { _, _, _ -> },
     onPreviewClick: (() -> Unit)? = null,
 ) {
     val m = item.message
@@ -1569,7 +1569,7 @@ private fun MessageBubble(
                             append(
                                 linkify(
                                     m.body, links = !fraud, linkColor = if (m.outgoing) colors.onPrimaryContainer else colors.primary,
-                                    smart = smart, onSmart = { onSmartLink(m.body, it) },
+                                    smart = smart, onSmart = { onSmartLink(m.body, it, m.timestamp) },
                                 ),
                             )
                         }

@@ -55,6 +55,14 @@ class MessageTextTest {
         // Lowercase words and counts aren't streets.
         assertEquals(emptyList<String>(), links("I have 2 dogs on the way home"))
         assertEquals(emptyList<String>(), links("Order #4521 Main course is ready"))
+        // Nor are Title Case texts, times or prices.
+        assertEquals(emptyList<String>(), links("Appt Reminder: Oct 5 at 3:30 PM With Dr. Patel"))
+        assertEquals(emptyList<String>(), links("Order 104582 Is On Its Way"))
+        assertEquals(emptyList<String>(), links("Ok see you at 5 Then I'll Drive"))
+        assertEquals(emptyList<String>(), links("Top 3 Restaurants In Times Square"))
+        // The ambiguous ones still work where an address ends.
+        assertEquals(listOf("geo:0,0?q=42%20Wallaby%20Way"), links("P. Sherman, 42 Wallaby Way, Sydney"))
+        assertEquals(listOf("geo:0,0?q=9%20Elm%20Dr"), links("Party at 9 Elm Dr!"))
     }
 
     @Test

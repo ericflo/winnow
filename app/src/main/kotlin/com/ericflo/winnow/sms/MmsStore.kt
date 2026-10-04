@@ -104,9 +104,10 @@ class MmsStore(private val context: Context) {
      */
     fun markDelivered(messageId: String, status: Int, subscriptionId: Int): Boolean {
         if (messageId.isBlank()) return false
-        // On the SIM it came in on (each carrier numbers its own messages), and only the newest
-        // match, should a carrier ever reuse an ID.
-        val onSim = if (subscriptionId >= 0) " AND ${Mms.SUBSCRIPTION_ID} = $subscriptionId" else ""
+        // On the SIM it came in on (each carrier numbers its own messages), or one stored without
+        // a SIM (Android's default was "ask every time"), and only the newest match, should a
+        // carrier ever reuse an ID.
+        val onSim = if (subscriptionId >= 0) " AND (${Mms.SUBSCRIPTION_ID} = $subscriptionId OR ${Mms.SUBSCRIPTION_ID} < 0)" else ""
         val id = resolver.query(
             Mms.CONTENT_URI, arrayOf(Mms._ID),
             "${Mms.MESSAGE_ID} = ? AND ${Mms.MESSAGE_BOX} = ${Mms.MESSAGE_BOX_SENT}$onSim", arrayOf(messageId), "${Mms.DATE} DESC",

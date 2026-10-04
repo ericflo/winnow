@@ -280,7 +280,7 @@ class ThreadViewModel(
 
     suspend fun smartLinks(text: String): List<SmartLink> = container.smartLinks.find(text)
 
-    suspend fun smartActions(text: String, link: SmartLink): List<SmartAction> = container.smartLinks.actions(text, link)
+    suspend fun smartActions(text: String, link: SmartLink, sentAt: Long): List<SmartAction> = container.smartLinks.actions(text, link, sentAt)
 
     /** The real thread id, once a new conversation's thread has been created; negative before. */
     fun currentThreadId(): Long = threadId.value

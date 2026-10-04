@@ -16,6 +16,9 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 private const val TAG = "WinnowSmartLinks"
 
@@ -62,8 +65,8 @@ class SmartLinks(context: Context) {
             ensureActive()
             cache.get(text)?.let { return@withPermit it }
             val found = runCatching {
-                val classifier = manager?.textClassifier ?: return@runCatching emptyList()
-                if (text.length > classifier.maxGenerateLinksTextLength) return@runCatching emptyList()
+                val classifier = manager?.textClassifier ?: return@runCatching emptyList<SmartLink>()
+                if (text.length > classifier.maxGenerateLinksTextLength) return@runCatching emptyList<SmartLink>()
                 val config = TextClassifier.EntityConfig.Builder().setIncludedTypes(TYPES).includeTypesFromTextClassifier(false).build()
                 classifier.generateLinks(TextLinks.Request.Builder(text).setEntityConfig(config).build())
                     .links
@@ -71,17 +74,22 @@ class SmartLinks(context: Context) {
                         val type = (0 until link.entityCount).map(link::getEntity).firstOrNull { it in TYPES } ?: return@mapNotNull null
                         SmartLink(link.start, link.end, type).takeIf { link.getConfidenceScore(type) >= MIN_CONFIDENCE }
                     }
-            }.onFailure { Log.w(TAG, "The text classifier couldn't look at a message", it) }.getOrDefault(emptyList())
-            found.also { cache.put(text, it) }
+            }.onFailure { Log.w(TAG, "The text classifier couldn't look at a message", it) }
+            // A failure (the service still starting, say) is tried again next time, not remembered.
+            found.getOrNull()?.also { cache.put(text, it) } ?: emptyList()
             }
         }
     }
 
-    /** What can be done with [link] in [text]: the classifier's own actions. Off the main thread. */
-    suspend fun actions(text: String, link: SmartLink): List<SmartAction> = withContext(Dispatchers.Default) {
+    /**
+     * What can be done with [link] in [text], sent at [sentAt]: the classifier's own actions, with
+     * "tomorrow" read from when the message came, not from today. Off the main thread.
+     */
+    suspend fun actions(text: String, link: SmartLink, sentAt: Long): List<SmartAction> = withContext(Dispatchers.Default) {
         runCatching {
             val classifier = manager?.textClassifier ?: return@runCatching emptyList()
-            classifier.classifyText(TextClassification.Request.Builder(text, link.start, link.end).build())
+            val reference = ZonedDateTime.ofInstant(Instant.ofEpochMilli(sentAt), ZoneId.systemDefault())
+            classifier.classifyText(TextClassification.Request.Builder(text, link.start, link.end).setReferenceTime(reference).build())
                 .actions
                 .filter(RemoteAction::isEnabled)
                 .map { SmartAction(it.title.toString(), it.actionIntent) }

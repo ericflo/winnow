@@ -148,6 +148,9 @@ class Notifier(private val context: Context) {
         // Before reading what's showing: decoding takes a while, and two texts at once would
         // otherwise both build on the same old stack, the second dropping the first.
         val picture = image?.let { notificationImage(it, "$threadId-$timestamp") }
+        // Likewise the conversation's shortcut (its letter icon is drawn here): nothing waits on it.
+        val joined = joinAddresses(recipients)
+        val shortcutId = pushShortcut(threadId, joined, conversationTitle, sender, photo)
         synchronized(lockFor(threadId)) {
         // What was just posted, if it was a moment ago: Android takes a moment to list a new
         // notification, and a text arriving right behind another mustn't build on the one before.
@@ -168,7 +171,6 @@ class Notifier(private val context: Context) {
             style.isGroupConversation = true
         }
 
-        val joined = joinAddresses(recipients)
         val open = Intent(context, MainActivity::class.java)
             .setAction(MainActivity.ACTION_OPEN_THREAD)
             .putExtra(MainActivity.EXTRA_THREAD_ID, threadId)
@@ -196,7 +198,6 @@ class Notifier(private val context: Context) {
             .setShowsUserInterface(false)
             .build()
 
-        val shortcutId = pushShortcut(threadId, joined, conversationTitle, sender, photo)
         val builder = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
             .setShortcutId(shortcutId)
             .setLocusId(LocusIdCompat(shortcutId))
@@ -243,6 +244,8 @@ class Notifier(private val context: Context) {
         val notification = builder.build()
         manager.notify(TAG, id, notification)
         recent[threadId] = now to style
+        // The rest are listed by Android by now: no need to hold on to them.
+        recent.entries.removeIf { now - it.value.first >= RECENT_MILLIS }
         }
     }
 
@@ -414,10 +417,10 @@ class Notifier(private val context: Context) {
 
     /** Clears just the new-message notification, leaving any "not sent" one standing. */
     fun cancelMessages(threadId: Long) {
-        synchronized(lockFor(threadId)) {
-            recent.remove(threadId)
-            manager.cancel(TAG, notificationId(threadId))
-        }
+        // No lock: this runs on the main thread when a conversation opens, and a post racing it
+        // only means one more notification, cleared when the conversation is next looked at.
+        recent.remove(threadId)
+        manager.cancel(TAG, notificationId(threadId))
     }
 
     /** Drops notifications and conversation shortcuts for deleted threads. */
