@@ -7,12 +7,14 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
+import androidx.core.content.FileProvider
 import androidx.core.content.LocusIdCompat
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
@@ -22,6 +24,7 @@ import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.ui.BubbleActivity
 import com.ericflo.winnow.ui.MainActivity
 import android.provider.Settings
+import java.io.File
 
 /** Conversation notifications with inline reply and mark-as-read. */
 class Notifier(private val context: Context) {
@@ -101,6 +104,8 @@ class Notifier(private val context: Context) {
         offerSpam: Boolean = false,
         /** One-tap answers; the latest known if not given (the app may only just have started). */
         quickReplies: List<String>? = null,
+        /** A received photo (an MMS part) to show in the notification itself. */
+        image: Uri? = null,
     ) {
         val choices = quickReplies ?: this.quickReplies
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
@@ -114,7 +119,14 @@ class Notifier(private val context: Context) {
         val previous = manager.activeNotifications.firstOrNull { it.tag == TAG && it.id == id }
             ?.notification?.let(NotificationCompat.MessagingStyle::extractMessagingStyleFromNotification)
         val style = previous ?: NotificationCompat.MessagingStyle(Person.Builder().setName("You").build())
-        style.addMessage(body, timestamp, sender)
+        val picture = image?.let { notificationImage(it, "$threadId-$timestamp") }
+        if (picture != null) {
+            // A message with a picture shows the picture instead of its text; the caption follows it.
+            style.addMessage(NotificationCompat.MessagingStyle.Message("Photo", timestamp, sender).setData("image/jpeg", picture))
+            if (body.isNotBlank() && body != "Photo") style.addMessage(body, timestamp, sender)
+        } else {
+            style.addMessage(body, timestamp, sender)
+        }
         if (recipients.size > 1) {
             style.conversationTitle = conversationTitle
             style.isGroupConversation = true
@@ -195,6 +207,31 @@ class Notifier(private val context: Context) {
         val notification = builder.build()
         manager.notify(TAG, id, notification)
     }
+
+    /**
+     * A small copy of a received photo that the notification shade may read, or null if it can't
+     * be read. Copies from a day ago are no longer showing, and go.
+     */
+    private fun notificationImage(part: Uri, name: String): Uri? = runCatching {
+        val dir = File(context.cacheDir, "notified").apply { mkdirs() }
+        val now = System.currentTimeMillis()
+        dir.listFiles()?.filter { now - it.lastModified() > DAY_MILLIS }?.forEach { it.delete() }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(part)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= IMAGE_EDGE_PX) sample *= 2
+        val bitmap = context.contentResolver.openInputStream(part)
+            ?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
+            ?: return null
+        val file = File(dir, "$name.jpg")
+        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+        bitmap.recycle()
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.mms", file)
+        // The shade draws it in System UI's process.
+        context.grantUriPermission(SYSTEM_UI, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        uri
+    }.getOrNull()
 
     /**
      * A long-lived conversation shortcut puts the notification in the shade's Conversations
@@ -330,5 +367,8 @@ class Notifier(private val context: Context) {
         const val CHANNEL_NOT_SENT = "not_sent"
         const val TAG = "thread"
         const val TAG_NOT_SENT = "not_sent"
+        const val SYSTEM_UI = "com.android.systemui"
+        const val IMAGE_EDGE_PX = 1024
+        const val DAY_MILLIS = 24 * 60 * 60_000L
     }
 }

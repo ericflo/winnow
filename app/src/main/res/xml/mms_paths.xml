@@ -6,4 +6,6 @@
     <cache-path name="camera" path="camera/" />
     <!-- Copies of attachments handed to another app from Share, briefly. -->
     <cache-path name="outbox" path="outbox/" />
+    <!-- Small copies of received photos, shown in their notification. -->
+    <cache-path name="notified" path="notified/" />
 </paths>

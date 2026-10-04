@@ -72,8 +72,8 @@ class IncomingMessageHandler(
         // silenced one's), and only from people they know. A classifier that timed out lets a
         // stranger's message through too, and the gallery may back up to the cloud. In a group,
         // having texted the group doesn't vouch for everyone in it.
-        if (action == Action.ALLOW && settings.current().autoSaveMedia) withContext(Dispatchers.IO) {
-            if (contacts.isContact(sender) || (recipients.size == 1 && hasOutgoing(threadId))) saveMedia(uri)
+        if (action == Action.ALLOW && settings.current().autoSaveMedia && knows(sender, recipients, threadId)) {
+            withContext(Dispatchers.IO) { saveMedia(uri) }
         }
     }
 
@@ -153,6 +153,8 @@ class IncomingMessageHandler(
                     hideOnLockScreen = settings.current().hideOnLockScreen,
                     offerSpam = recipients.size == 1 && !contacts.isContact(sender),
                     quickReplies = settings.current().quickReplies,
+                    // The picture itself, from people the user knows: a stranger's never pops up on screen.
+                    image = if (kind == ChatMessage.Kind.MMS && knows(sender, recipients, threadId)) withContext(Dispatchers.IO) { firstPhoto(uri) } else null,
                 )
             }
             Action.SILENCE -> Unit
@@ -160,6 +162,18 @@ class IncomingMessageHandler(
         }
         return action
     }
+
+    /** A contact, or someone the user has texted one to one: whose photos may show and be saved. */
+    private suspend fun knows(sender: String, recipients: List<String>, threadId: Long): Boolean =
+        contacts.isContact(sender) || (recipients.size == 1 && withContext(Dispatchers.IO) { hasOutgoing(threadId) })
+
+    /** The first still photo in the MMS at [uri], if any. */
+    private fun firstPhoto(uri: Uri): Uri? = context.contentResolver.query(
+        Telephony.Mms.Part.CONTENT_URI,
+        arrayOf(Telephony.Mms.Part._ID),
+        "${Telephony.Mms.Part.MSG_ID} = ? AND ${Telephony.Mms.Part.CONTENT_TYPE} LIKE 'image/%'",
+        arrayOf(ContentUris.parseId(uri).toString()), "${Telephony.Mms.Part._ID} ASC",
+    )?.use { c -> if (c.moveToFirst()) ContentUris.withAppendedId(Telephony.Mms.Part.CONTENT_URI, c.getLong(0)) else null }
 
     /** The photos and videos of the MMS at [uri], each saved to the phone. */
     private fun saveMedia(uri: Uri) {

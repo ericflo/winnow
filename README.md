@@ -97,7 +97,8 @@ messages can't be tapped.
   separately** in a group (each person gets their own text, so replies come back one to one), and
   optional **undo send** (5 or 10 seconds to take a message back). **Quick replies** ("On my
   way", "Can't talk now, I'll call you later", your own) sit in the + menu and appear as one-tap
-  answers on notifications. Conversations you text with
+  answers on notifications. A photo from a contact, or from someone you've texted, shows in its
+  notification; a stranger's doesn't. Conversations you text with
   show up by name in Android's share sheet and on the app icon's long-press menu; sharing to
   one puts the photo or text straight into it. A text that doesn't go out
   (no signal, a carrier refusal, a scheduled one that fails) says so in a notification, and a
