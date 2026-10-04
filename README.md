@@ -68,7 +68,8 @@ messages can't be tapped.
   make Winnow fetch anything. Shared contacts show as cards with **Add contact** and **Message**, and
   Attach → Contact sends one (its photo left out, so it fits). Attach → **Voice message**
   records one (AAC, stopping at 5 minutes or 800 KB, so it always fits an MMS), and
-  **Location** puts a map link for where you are into the draft (one fix, nothing tracked). iPhone tapbacks and SMS reactions are drawn on
+  **Location** puts a map link for where you are into the draft (one fix, nothing tracked).
+  GIFs and stickers sent from the keyboard (Gboard's GIF panel, for one) attach as pictures. iPhone tapbacks and SMS reactions are drawn on
   the message they react to. Failed sends and MMS downloads can be retried. SMS delivery
   reports are opt-in, and MMS auto-download can be turned off (it's off while roaming unless
   you allow it), leaving "Tap to download" in the conversation.

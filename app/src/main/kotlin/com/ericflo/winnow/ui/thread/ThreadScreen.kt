@@ -169,7 +169,6 @@ import com.ericflo.winnow.data.LinkPreview
 import com.ericflo.winnow.ui.components.LinkPreviewCard
 import com.ericflo.winnow.ui.components.firstWebLink
 import com.ericflo.winnow.data.normalizeAddress
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.input.key.Key
@@ -197,6 +196,12 @@ import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.content.MediaType
+import androidx.compose.foundation.content.consume
+import androidx.compose.foundation.content.contentReceiver
+import androidx.compose.foundation.content.hasMediaType
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -213,7 +218,6 @@ fun ThreadScreen(
     showBack: Boolean = true,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val draft by viewModel.draft.collectAsStateWithLifecycle()
     val sims by viewModel.sims.collectAsStateWithLifecycle()
     val selectedSim by viewModel.selectedSim.collectAsStateWithLifecycle()
     val blocked by viewModel.blocked.collectAsStateWithLifecycle()
@@ -456,8 +460,8 @@ fun ThreadScreen(
                 sims = sims,
                 selectedSim = sims.firstOrNull { it.subscriptionId == selectedSim },
                 onSelectSim = viewModel::selectSim,
-                draft = draft,
-                onDraftChange = viewModel::setDraft,
+                field = viewModel.draftField,
+                onKeyboardContent = viewModel::addKeyboardContent,
                 attachments = attachments,
                 onAttach = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onCamera = {
@@ -1383,13 +1387,15 @@ private fun MessageDetailsDialog(message: ChatMessage, state: ThreadUiState, sim
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class) // contentReceiver
 @Composable
 private fun Composer(
     sims: List<SimCard>,
     selectedSim: SimCard?,
     onSelectSim: (Int) -> Unit,
-    draft: String,
-    onDraftChange: (String) -> Unit,
+    field: TextFieldState,
+    /** A GIF, sticker or picture sent from the keyboard: its URI and type. */
+    onKeyboardContent: (android.net.Uri, String?) -> Unit,
     attachments: List<OutgoingAttachment>,
     onAttach: () -> Unit,
     onCamera: () -> Unit,
@@ -1412,6 +1418,7 @@ private fun Composer(
     onClearSendSeparately: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
+    val draft = field.text
     Column(Modifier.fillMaxWidth().background(colors.surface).navigationBarsPadding().imePadding()) {
         if (recording) {
             RecordingBar(recordingElapsed, onCancel = onCancelRecording, onDone = onStopRecording)
@@ -1473,16 +1480,26 @@ private fun Composer(
                             )
                         }
                         BasicTextField(
-                            value = draft,
-                            onValueChange = onDraftChange,
+                            state = field,
                             textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
                             cursorBrush = SolidColor(colors.primary),
-                            maxLines = 6,
+                            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 6),
                             // With "Enter sends": the on-screen keyboard shows a Send key, and a
                             // hardware Enter sends while Shift+Enter still starts a new line.
                             keyboardOptions = if (enterToSend) KeyboardOptions(imeAction = ImeAction.Send) else KeyboardOptions.Default,
-                            keyboardActions = KeyboardActions(onSend = { onSend() }),
-                            modifier = Modifier.fillMaxWidth().onPreviewKeyEvent { event ->
+                            onKeyboardAction = { onSend() },
+                            modifier = Modifier.fillMaxWidth()
+                                // GIFs and stickers from the keyboard become attachments; anything else (text) is typed as usual.
+                                .contentReceiver { content ->
+                                    if (!content.hasMediaType(MediaType.Image)) return@contentReceiver content
+                                    val description = content.clipMetadata.clipDescription
+                                    content.consume { item ->
+                                        val uri = item.uri ?: return@consume false
+                                        onKeyboardContent(uri, (0 until description.mimeTypeCount).map(description::getMimeType).firstOrNull { it.startsWith("image/") })
+                                        true
+                                    }
+                                }
+                                .onPreviewKeyEvent { event ->
                                 if (enterToSend && event.key == Key.Enter && !event.isShiftPressed) {
                                     if (event.type == KeyEventType.KeyDown) onSend()
                                     true
@@ -1492,7 +1509,7 @@ private fun Composer(
                             },
                         )
                     }
-                    if (isSms && draft.length >= 100) SegmentCounter(draft)
+                    if (isSms && draft.length >= 100) SegmentCounter(draft.toString())
                     if (sims.size >= 2 && selectedSim != null) SimPicker(sims, selectedSim, onSelectSim)
                 }
             }

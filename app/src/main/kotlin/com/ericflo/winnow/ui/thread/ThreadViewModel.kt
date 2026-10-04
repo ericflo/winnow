@@ -40,6 +40,10 @@ import com.ericflo.winnow.data.LinkPreview
 import com.ericflo.winnow.data.normalizeAddress
 import kotlinx.coroutines.CompletableDeferred
 import com.ericflo.winnow.data.CurrentLocation
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
+import androidx.compose.runtime.snapshotFlow
 
 data class ThreadUiState(
     val title: String,
@@ -80,8 +84,15 @@ class ThreadViewModel(
         else -> recipients.singleOrNull()?.let(ContactLookup::formatAddress)?.takeIf { it != title }
     }
 
-    private val _draft = MutableStateFlow("")
-    val draft: StateFlow<String> = _draft.asStateFlow()
+    /**
+     * The composer's text, which the text field edits in place. Changes from here (a location
+     * link, Undo, sending) happen on the main thread, so they never race the typing.
+     */
+    val draftField = TextFieldState()
+    val draft: StateFlow<String> = snapshotFlow { draftField.text.toString() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    private fun currentDraft() = draftField.text.toString()
 
     private val _attachments = MutableStateFlow<List<OutgoingAttachment>>(emptyList())
     val attachments: StateFlow<List<OutgoingAttachment>> = _attachments.asStateFlow()
@@ -145,8 +156,8 @@ class ThreadViewModel(
             if (!inBubble) container.notifier.cancel(id)
             _sims.value = container.sims.available().takeIf { it.size >= 2 }.orEmpty()
             _selectedSim.value = container.simFor(id)
-            states.get(id).draft?.let { saved -> if (_draft.value.isEmpty()) _draft.value = saved }
-            _draft.drop(1).debounce(400).collect { states.saveDraft(id, it) }
+            states.get(id).draft?.let { saved -> if (currentDraft().isEmpty()) setDraft(saved) }
+            draft.drop(1).debounce(400).collect { states.saveDraft(id, it) }
         }
     }
 
@@ -214,14 +225,20 @@ class ThreadViewModel(
         _attachments.value.forEach(recorder::discard)
         val id = threadId.value
         if (id >= 0) {
-            val draft = _draft.value
+            val draft = currentDraft()
             container.appScope.launch { states.saveDraft(id, draft) }
         }
         if (container.visibleThread.value == id) container.visibleThread.value = null
     }
 
     fun setDraft(value: String) {
-        _draft.value = value
+        draftField.setTextAndPlaceCursorAtEnd(value)
+    }
+
+    /** A GIF, sticker or picture from the keyboard, copied in before its permission can lapse. */
+    fun addKeyboardContent(uri: android.net.Uri, type: String?) = launch {
+        val attachment = withContext(Dispatchers.IO) { container.sharedFiles.import(uri, type) }
+        if (attachment != null) addAttachment(attachment) else _notices.emit("Couldn't attach that")
     }
 
     fun addAttachment(attachment: OutgoingAttachment) {
@@ -303,7 +320,7 @@ class ThreadViewModel(
                 _notices.emit("Couldn't get your location. Is location turned on?")
             } else {
                 val link = CurrentLocation.mapLink(location)
-                _draft.value = listOf(_draft.value.trimEnd(), link).filter { it.isNotEmpty() }.joinToString(" ")
+                setDraft(listOf(currentDraft().trimEnd(), link).filter { it.isNotEmpty() }.joinToString(" "))
             }
         }
     }
@@ -353,13 +370,13 @@ class ThreadViewModel(
 
     /** [separately]: in a group, each person gets their own text and replies come back one to one. */
     fun send(separately: Boolean = false) {
-        val text = _draft.value.trim()
+        val text = currentDraft().trim()
         val files = _attachments.value
         if (text.isEmpty() && files.isEmpty() || _pending.value != null) return
         val apart = (separately || _sendSeparately.value) && recipients.size > 1
         // Replying means the new messages have been read; the divider has done its job.
         _unreadOnOpen.value = emptyList()
-        _draft.value = ""
+        draftField.clearText()
         _attachments.value = emptyList()
         _sendSeparately.value = false
         val sim = _selectedSim.value
@@ -389,9 +406,11 @@ class ThreadViewModel(
 
     /** A message that didn't go out goes back in the composer, saved as the draft in case this screen is gone. */
     private fun putBack(text: String, files: List<OutgoingAttachment>, separately: Boolean) {
-        _draft.value = text
-        _attachments.value = files
-        _sendSeparately.value = separately
+        container.appScope.launch(Dispatchers.Main.immediate) {
+            setDraft(text)
+            _attachments.value = files
+            _sendSeparately.value = separately
+        }
         val id = threadId.value
         if (id >= 0) container.appScope.launch { states.saveDraft(id, text) }
     }
@@ -438,13 +457,13 @@ class ThreadViewModel(
 
     /** Schedules the draft. Attachments can't be scheduled (yet): MMS bodies aren't stored ahead of time. */
     fun schedule(sendAt: Long, label: String) {
-        val text = _draft.value.trim()
+        val text = currentDraft().trim()
         if (_attachments.value.isNotEmpty()) {
             _notices.tryEmit("Only text messages can be scheduled")
             return
         }
         if (text.isEmpty()) return
-        _draft.value = ""
+        draftField.clearText()
         viewModelScope.launch {
             states.saveDraft(threadId.value, "")
             scheduler.schedule(threadId.value, recipients, text, sendAt, _selectedSim.value)
@@ -465,7 +484,7 @@ class ThreadViewModel(
     /** Moves a scheduled message back into the composer. */
     fun editScheduled(message: ScheduledMessageEntity) = launch {
         scheduler.cancel(message.id)
-        _draft.value = message.body
+        setDraft(message.body)
     }
 
     fun retry(message: ChatMessage) = launch { repo.retry(message) }
