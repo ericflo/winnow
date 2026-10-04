@@ -20,6 +20,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -287,7 +288,8 @@ private fun QuietHero(state: ActivityUiState) {
     Surface(shape = RoundedCornerShape(28.dp), color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
         Row(
             Modifier
-                .background(Brush.linearGradient(listOf(c.primaryContainer, c.surfaceContainer, c.tertiaryContainer.copy(alpha = 0.6f))))
+                // Two stops: a surface color between them makes a dark band across the card in dark mode.
+                .background(Brush.linearGradient(listOf(c.primaryContainer, c.tertiaryContainer.copy(alpha = 0.6f).compositeOver(c.surface))))
                 .padding(20.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(20.dp),

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -69,7 +70,8 @@ fun ReviewInboxCard(status: ReviewStatus, classifier: String, onStart: () -> Uni
             } else {
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (status is ReviewStatus.Ready) FilledTonalButton(onClick = { confirming = true }) { Text("Review") }
+                    // Filled: a tonal button is the card's own color, and would show as bare text on it.
+                    if (status is ReviewStatus.Ready) Button(onClick = { confirming = true }) { Text("Review") }
                     TextButton(onClick = onDismiss) { Text(if (status is ReviewStatus.Finished) "Done" else "Not now") }
                 }
             }
