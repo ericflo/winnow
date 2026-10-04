@@ -137,7 +137,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setClearOldFiltered(value: Boolean) {
         update { it.copy(clearOldFiltered = value) }
-        if (value) viewModelScope.launch { container.filteredCleaner.clean() }
+        if (value) viewModelScope.launch { container.filteredCleaner.clean(force = true) }
     }
 
     fun setDeleteOldCodes(value: Boolean) {

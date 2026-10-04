@@ -24,36 +24,45 @@ class FilteredCleaner(
     /** Deleting needs the SMS role, and the user's say-so. */
     private val enabled: suspend () -> Boolean,
 ) {
-    suspend fun clean(now: Long = System.currentTimeMillis()): Int {
+    /** When this process last looked: once a day is plenty for a month-old cutoff. */
+    @Volatile private var lastRun = 0L
+
+    suspend fun clean(now: Long = System.currentTimeMillis(), force: Boolean = false): Int {
         if (!enabled()) return 0
-        val written = withContext(Dispatchers.IO) { threadsWithOutgoing() }
-        val stale = repo.conversations().first()
+        if (!force && now - lastRun < DAY_MILLIS) return 0
+        lastRun = now
+        val candidates = repo.conversations().first()
             .withState(states.all().associateBy { it.threadId })
             .filter { it.isFiltered && !it.pinned && it.timestamp < now - MAX_AGE_MILLIS }
             .map { it.threadId }
-            // The user's own words in it: kept, whatever the newest message is.
-            .filter { it !in written && starred.keysForThread(it).isEmpty() }
-            .toSet()
+        if (candidates.isEmpty()) return 0
+        val stale = withContext(Dispatchers.IO) {
+            // The user's own words in it: kept, whatever the newest message is. Only these few
+            // conversations are looked at, not every message on the phone.
+            candidates.filter { !hasOutgoing(it) && starred.keysForThread(it).isEmpty() }.toSet()
+        }
         if (stale.isEmpty()) return 0
         val deleted = trash.delete(stale)
         Log.i(TAG, "Moved ${stale.size} old filtered conversations to Recently deleted${deleted.problem?.let { " ($it)" }.orEmpty()}")
         return stale.size
     }
 
-    /** Conversations the user has sent something in. */
-    private fun threadsWithOutgoing(): Set<Long> {
-        val threads = HashSet<Long>()
-        context.contentResolver.query(
-            Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.THREAD_ID), "${Telephony.Sms.TYPE} != ${Telephony.Sms.MESSAGE_TYPE_INBOX}", null, null,
-        )?.use { c -> while (c.moveToNext()) threads += c.getLong(0) }
-        context.contentResolver.query(
-            Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms.THREAD_ID), "${Telephony.Mms.MESSAGE_BOX} != ${Telephony.Mms.MESSAGE_BOX_INBOX}", null, null,
-        )?.use { c -> while (c.moveToNext()) threads += c.getLong(0) }
-        return threads
+    /** Whether the user has sent (or tried to send, or drafted) something in [threadId]. */
+    private fun hasOutgoing(threadId: Long): Boolean {
+        val args = arrayOf(threadId.toString())
+        val sms = context.contentResolver.query(
+            Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms._ID),
+            "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.TYPE} != ${Telephony.Sms.MESSAGE_TYPE_INBOX}", args, "${Telephony.Sms._ID} LIMIT 1",
+        )?.use { it.count > 0 } ?: true
+        return sms || context.contentResolver.query(
+            Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID),
+            "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms.MESSAGE_BOX} != ${Telephony.Mms.MESSAGE_BOX_INBOX}", args, "${Telephony.Mms._ID} LIMIT 1",
+        )?.use { it.count > 0 } ?: true
     }
 
     private companion object {
         const val TAG = "WinnowFiltered"
         const val MAX_AGE_MILLIS = 30L * 24 * 60 * 60_000
+        const val DAY_MILLIS = 24L * 60 * 60_000
     }
 }

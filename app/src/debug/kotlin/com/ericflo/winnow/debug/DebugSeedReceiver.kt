@@ -51,7 +51,7 @@ class DebugSeedReceiver : BroadcastReceiver() {
                 }
                 if (intent.hasExtra("clean_filtered_ahead_days")) {
                     val days = intent.getIntExtra("clean_filtered_ahead_days", 40)
-                    Log.i(TAG, "Filtered cleaner, as if $days days on: ${container.filteredCleaner.clean(System.currentTimeMillis() + days * 86_400_000L)} moved")
+                    Log.i(TAG, "Filtered cleaner, as if $days days on: ${container.filteredCleaner.clean(System.currentTimeMillis() + days * 86_400_000L, force = true)} moved")
                     return@launch
                 }
                 if (intent.hasExtra("remind_in")) {

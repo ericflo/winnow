@@ -113,6 +113,9 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import com.ericflo.winnow.data.searchSnippet
 
 @Composable
@@ -520,6 +523,13 @@ fun SwipeAction(start: Swipe?, end: Swipe?, content: @Composable () -> Unit) {
         enableDismissFromStartToEnd = start != null,
         enableDismissFromEndToStart = end != null,
         onDismiss = onDismiss,
+        // What a swipe does, as actions a screen reader offers: a swipe is a gesture TalkBack
+        // takes for itself.
+        modifier = Modifier.semantics {
+            customActions = listOfNotNull(start, end).distinctBy { it.label }.map { swipe ->
+                CustomAccessibilityAction(swipe.label) { swipe.run(); true }
+            }
+        },
         backgroundContent = {
             val toEnd = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
             val swipe = (if (toEnd) start else end) ?: return@SwipeToDismissBox
