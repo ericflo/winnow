@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -39,6 +40,8 @@ import kotlinx.serialization.Serializable
 import com.ericflo.winnow.data.OutgoingAttachment
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import com.ericflo.winnow.ui.scheduled.ScheduledScreen
+import com.ericflo.winnow.ui.scheduled.ScheduledViewModel
 
 /** Where US carriers collect forwarded spam ("SPAM" on a keypad). */
 const val CARRIER_SPAM_SHORT_CODE = "7726"
@@ -86,6 +89,9 @@ data object MetricsRoute
 @Serializable
 data object StarredRoute
 
+@Serializable
+data object ScheduledRoute
+
 /** [draft] carries a forwarded message into the conversation the user picks. */
 @Serializable
 data class NewChatRoute(val draft: String = "", val attachments: String = "")
@@ -124,6 +130,8 @@ fun WinnowNavHost(
     }
     val openThread = { threadId: Long, recipients: List<String> -> nav.navigate(ThreadRoute(threadId, joinAddresses(recipients))) }
 
+    // Every Back below is dropUnlessResumed: a second tap during the exit animation would
+    // otherwise pop the screen underneath too, down to an empty, blank app.
     NavHost(navController = nav, startDestination = if (onboarded) InboxRoute else OnboardingRoute) {
         composable<OnboardingRoute> {
             OnboardingScreen(
@@ -155,16 +163,20 @@ fun WinnowNavHost(
                 onOpenSettings = { nav.navigate(SettingsRoute) },
                 onMakeDefault = onMakeDefault,
                 onOpenStarred = { nav.navigate(StarredRoute) },
+                onOpenScheduled = { nav.navigate(ScheduledRoute) },
             )
         }
+        composable<ScheduledRoute> {
+            ScheduledScreen(viewModel = viewModel { ScheduledViewModel(container) }, onBack = dropUnlessResumed { nav.popBackStack() }, onOpenThread = openThread)
+        }
         composable<StarredRoute> {
-            StarredScreen(viewModel = viewModel { StarredViewModel(container) }, onBack = { nav.popBackStack() }, onOpenThread = openThread)
+            StarredScreen(viewModel = viewModel { StarredViewModel(container) }, onBack = dropUnlessResumed { nav.popBackStack() }, onOpenThread = openThread)
         }
         composable<FilteredRoute> {
             ConversationListScreen(
                 viewModel = viewModel { InboxViewModel(container, ListMode.FILTERED) },
                 mode = ListMode.FILTERED,
-                onBack = { nav.popBackStack() },
+                onBack = dropUnlessResumed { nav.popBackStack() },
                 onOpenThread = openThread,
                 onOpenMetrics = { nav.navigate(MetricsRoute) },
             )
@@ -173,7 +185,7 @@ fun WinnowNavHost(
             ConversationListScreen(
                 viewModel = viewModel { InboxViewModel(container, ListMode.ARCHIVED) },
                 mode = ListMode.ARCHIVED,
-                onBack = { nav.popBackStack() },
+                onBack = dropUnlessResumed { nav.popBackStack() },
                 onOpenThread = openThread,
             )
         }
@@ -181,7 +193,7 @@ fun WinnowNavHost(
             val route = entry.toRoute<NewChatRoute>()
             NewChatScreen(
                 viewModel = viewModel { NewChatViewModel(container) },
-                onBack = { nav.popBackStack() },
+                onBack = dropUnlessResumed { nav.popBackStack() },
                 onStart = { recipients ->
                     nav.navigate(ThreadRoute(-1, joinAddresses(recipients), route.draft, route.attachments)) {
                         popUpTo<NewChatRoute> { inclusive = true }
@@ -200,7 +212,7 @@ fun WinnowNavHost(
                         SharedAttachments.decode(route.attachments).forEach(vm::addAttachment)
                     }
                 },
-                onBack = { nav.popBackStack() },
+                onBack = dropUnlessResumed { nav.popBackStack() },
                 onForward = { text -> nav.navigate(NewChatRoute(draft = text)) },
                 onReportSpam = { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
                 onOpenDetails = { threadId -> nav.navigate(DetailsRoute(threadId, route.recipients)) },
@@ -211,30 +223,30 @@ fun WinnowNavHost(
             val route = entry.toRoute<DetailsRoute>()
             ConversationDetailsScreen(
                 viewModel = viewModel { ConversationDetailsViewModel(container, route.threadId, splitAddresses(route.recipients)) },
-                onBack = { nav.popBackStack() },
+                onBack = dropUnlessResumed { nav.popBackStack() },
                 onDeleted = { nav.popBackStack<InboxRoute>(inclusive = false) },
             )
         }
         composable<ActivityRoute> {
             ActivityScreen(
                 viewModel = viewModel { ActivityViewModel(container) },
-                onBack = { nav.popBackStack() },
+                onBack = dropUnlessResumed { nav.popBackStack() },
                 onOpenMetrics = { nav.navigate(MetricsRoute) },
             )
         }
         composable<MetricsRoute> {
-            MetricsScreen(viewModel = viewModel { MetricsViewModel(container) }, onBack = { nav.popBackStack() })
+            MetricsScreen(viewModel = viewModel { MetricsViewModel(container) }, onBack = dropUnlessResumed { nav.popBackStack() })
         }
         composable<SettingsRoute> {
             SettingsScreen(
                 viewModel = viewModel { SettingsViewModel(container) },
-                onBack = { nav.popBackStack() },
+                onBack = dropUnlessResumed { nav.popBackStack() },
                 onMakeDefault = onMakeDefault,
                 onOpenSenderRules = { nav.navigate(SenderRulesRoute) },
             )
         }
         composable<SenderRulesRoute> {
-            SenderRulesScreen(container = container, onBack = { nav.popBackStack() })
+            SenderRulesScreen(container = container, onBack = dropUnlessResumed { nav.popBackStack() })
         }
     }
 }

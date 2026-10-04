@@ -121,6 +121,11 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         query.value = value
     }
 
+    /** Texts waiting for their send time, for the menu. */
+    val scheduledCount: StateFlow<Int> = container.scheduler.observeAll()
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
     /** What swiping a conversation right and left does, from Settings. */
     val swipes: StateFlow<Pair<SwipeChoice, SwipeChoice>> = container.settings.settings
         .map { it.swipeRight to it.swipeLeft }

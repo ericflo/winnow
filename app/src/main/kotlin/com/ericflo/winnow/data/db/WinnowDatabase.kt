@@ -121,6 +121,9 @@ interface ScheduledMessageDao {
     @Query("SELECT * FROM scheduled_messages")
     suspend fun all(): List<ScheduledMessageEntity>
 
+    @Query("SELECT * FROM scheduled_messages ORDER BY sendAt")
+    fun observeAll(): Flow<List<ScheduledMessageEntity>>
+
     @Query("SELECT * FROM scheduled_messages WHERE id = :id")
     suspend fun get(id: Long): ScheduledMessageEntity?
 

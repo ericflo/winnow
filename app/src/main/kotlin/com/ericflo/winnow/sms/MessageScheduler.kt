@@ -27,6 +27,9 @@ class MessageScheduler(
 
     fun observe(threadId: Long): Flow<List<ScheduledMessageEntity>> = dao.observeForThread(threadId)
 
+    /** Every scheduled text, soonest first. */
+    fun observeAll(): Flow<List<ScheduledMessageEntity>> = dao.observeAll()
+
     suspend fun schedule(threadId: Long, recipients: List<String>, body: String, sendAt: Long, subscriptionId: Int? = null) {
         val id = dao.insert(
             ScheduledMessageEntity(threadId = threadId, recipients = joinAddresses(recipients), body = body, sendAt = sendAt, subscriptionId = subscriptionId),

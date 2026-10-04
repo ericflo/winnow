@@ -109,8 +109,10 @@ fun InboxScreen(
     onOpenSettings: () -> Unit,
     onMakeDefault: () -> Unit,
     onOpenStarred: () -> Unit = {},
+    onOpenScheduled: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val scheduledCount by viewModel.scheduledCount.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
         viewModel.refresh()
         onPauseOrDispose { }
@@ -328,6 +330,11 @@ fun InboxScreen(
             onOpenStarred = {
                 menuOpen = false
                 onOpenStarred()
+            },
+            scheduledCount = scheduledCount,
+            onOpenScheduled = {
+                menuOpen = false
+                onOpenScheduled()
             },
             onOpenActivity = {
                 menuOpen = false
