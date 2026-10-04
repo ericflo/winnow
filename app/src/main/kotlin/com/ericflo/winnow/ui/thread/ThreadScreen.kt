@@ -578,7 +578,7 @@ fun ThreadScreen(
                 onRemoveAttachment = viewModel::removeAttachment,
                 // Sent separately, each person gets a plain text.
                 isSms = (single != null || sendSeparately) && attachments.isEmpty(),
-                textGoesAsMms = viewModel::textGoesAsMms,
+                sendsAsMms = viewModel.sendsAsMms.collectAsStateWithLifecycle().value,
                 onSend = viewModel::send,
                 enterToSend = enterToSend,
                 onSendSeparately = if (state.isGroup && !sendSeparately) ({ viewModel.send(separately = true) }) else null,
@@ -901,6 +901,8 @@ private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter:
     val (title, detail) = when {
         verdict.userAction == Action.ALLOW -> "You allowed this sender" to "Their messages will always reach your inbox."
         verdict.userAction != null -> "You filtered this sender" to "Their messages will skip your inbox without a notification."
+        // A rule, not a category: its reason says it all ("Has “toll”, which you filter").
+        verdict.category == null && verdict.action == Action.FILTER -> "Filtered" to "${verdict.source}. Kept out of your inbox, no notification."
         verdict.action == Action.FILTER -> "Filtered as $label$percent" to "${verdict.source}. Kept out of your inbox, no notification."
         else -> "Silenced: $label$percent" to "${verdict.source}. Delivered without a notification."
     }
@@ -1675,7 +1677,7 @@ private fun MessageDetailsDialog(message: ChatMessage, state: ThreadUiState, sim
         if (message.attachments.isNotEmpty()) add("Attachments" to message.attachments.joinToString { it.contentType })
         message.verdict?.let { v ->
             val percent = if (v.confidence < 1.0) " (${(v.confidence * 100).toInt()}%)" else ""
-            add("Winnow" to "${v.category?.label ?: "Sender rule"}$percent → ${v.effectiveAction.name.lowercase()}")
+            add("Winnow" to "${v.label}$percent → ${v.effectiveAction.name.lowercase()}")
             add("Decided by" to v.source)
         }
     }
@@ -1723,8 +1725,8 @@ private fun Composer(
     onStopRecording: () -> Unit = {},
     onCancelRecording: () -> Unit = {},
     isSms: Boolean,
-    /** A long text the carrier has sent as an MMS. */
-    textGoesAsMms: (CharSequence) -> Boolean = { false },
+    /** The draft is long enough that the carrier has it sent as an MMS. */
+    sendsAsMms: Boolean = false,
     onSend: () -> Unit,
     onSchedule: (at: Long, label: String) -> Unit,
     enterToSend: Boolean = false,
@@ -1835,7 +1837,7 @@ private fun Composer(
                         )
                     }
                     if (isSms && draft.length >= 100) {
-                        if (textGoesAsMms(draft)) {
+                        if (sendsAsMms) {
                             Text(
                                 "MMS",
                                 style = MaterialTheme.typography.labelSmall,

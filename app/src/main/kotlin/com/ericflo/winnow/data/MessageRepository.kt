@@ -12,7 +12,14 @@ import kotlinx.coroutines.flow.flatMapLatest
 data class OutgoingAttachment(val uri: String, val contentType: String, val name: String?)
 
 /** What a correction replaced, so Undo can put it back exactly. */
-data class PreviousVerdict(val threadId: Long, val address: String, val userAction: Action?, val senderRule: String?)
+data class PreviousVerdict(
+    val threadId: Long,
+    val address: String,
+    val userAction: Action?,
+    val senderRule: String?,
+    /** A verdict the correction had to add (its newest text was never classified); Undo takes it away. */
+    val insertedKey: String? = null,
+)
 
 /**
  * The message store. Winnow-only state (pinned, archived, muted, drafts) lives in

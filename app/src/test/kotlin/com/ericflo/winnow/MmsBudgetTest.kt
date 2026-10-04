@@ -18,7 +18,9 @@ class MmsBudgetTest {
         assertEquals(MmsSender.DEFAULT_BUDGET_BYTES, MmsSender.budgetFor(0))
         assertEquals(MmsSender.DEFAULT_BUDGET_BYTES, MmsSender.budgetFor(-1))
         assertEquals(2_000_000, MmsSender.budgetFor(50_000_000))
-        assertEquals(100_000, MmsSender.budgetFor(20_000))
+        // A tiny limit stays a limit: never more than the carrier takes.
+        assertEquals(20_000 - 1_000 - 8_000, MmsSender.budgetFor(20_000))
+        assertTrue(MmsSender.budgetFor(102_400) < 102_400)
         assertTrue(MmsSender.budgetFor(600_000) > MmsSender.MIN_PHOTO_BYTES)
     }
 

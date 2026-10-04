@@ -272,7 +272,7 @@ class ThreadViewModel(
         if (!on) return@combine null
         val texted = s.recipients.size == 1 && s.messages.any { it.outgoing }
         s.recipients.filter { texted || container.contacts.isContact(it) }.map(::normalizeAddress).toSet()
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     suspend fun preview(url: String): LinkPreview? = container.linkPreviews.get(url)
 
@@ -474,11 +474,18 @@ class ThreadViewModel(
         return budget() - taken
     }
 
-    /** Whether the carrier has [text] sent as an MMS from here (it's long; see MmsSender.textNeedsMms). */
-    fun textGoesAsMms(text: CharSequence): Boolean = container.mmsSender.textNeedsMms(text.toString(), _selectedSim.value)
+    /**
+     * Whether the carrier has the draft sent as an MMS from here (it's long; see
+     * MmsSender.textNeedsMms). Worked out off the main thread, as the typing settles.
+     */
+    @OptIn(FlowPreview::class)
+    val sendsAsMms: StateFlow<Boolean> = combine(draft.debounce(300), _selectedSim) { text, sim -> text to sim }
+        .map { (text, sim) -> text.length >= 100 && container.mmsSender.textNeedsMms(text, sim) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** What one MMS can carry on the SIM this conversation sends from. */
-    private fun budget(): Long = container.mmsSender.messageBudget(_selectedSim.value).toLong()
+    private suspend fun budget(): Long = withContext(Dispatchers.IO) { container.mmsSender.messageBudget(_selectedSim.value).toLong() }
 
     private suspend fun shrinkVideo(video: OutgoingAttachment) {
         // Whatever the rest of the message leaves: other videos, recordings and cards at their

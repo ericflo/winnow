@@ -326,17 +326,19 @@ class TelephonyMessageRepository(
     }
 
     override suspend fun overrideVerdict(threadId: Long, address: String, action: Action): PreviousVerdict {
+        // The inbox goes by the newest incoming text's verdict. One Winnow never classified (from
+        // before it was the SMS app, or a classifier that timed out) has none to correct, so the
+        // correction gets one of its own: "Filter sender" then really moves the conversation.
+        val unclassified = newestIncomingKey(threadId)?.takeIf { dao.existingKeys(listOf(it)).isEmpty() }
         val previous = PreviousVerdict(
             threadId,
             address,
             userAction = dao.userAction(threadId)?.let { runCatching { Action.valueOf(it) }.getOrNull() },
             senderRule = dao.senderRule(normalizeAddress(address)),
+            insertedKey = unclassified,
         )
         dao.setUserAction(threadId, action.name)
-        // A conversation Winnow never classified (texts from before it was the SMS app, or a
-        // classifier that timed out) has no verdict to correct: the correction gets one of its
-        // own, on the newest incoming message, so "Filter sender" moves it out of the inbox.
-        if (dao.keysForThread(threadId).isEmpty()) newestIncomingKey(threadId)?.let { key ->
+        unclassified?.let { key ->
             dao.upsert(
                 VerdictEntity(
                     messageKey = key, threadId = threadId, address = address, category = null, confidence = 1.0,
@@ -354,6 +356,7 @@ class TelephonyMessageRepository(
 
     override suspend fun restoreVerdict(previous: PreviousVerdict) {
         val threadId = previous.threadId
+        previous.insertedKey?.let { dao.deleteForMessage(it) }
         dao.setUserAction(threadId, previous.userAction?.name)
         val address = normalizeAddress(previous.address)
         if (previous.senderRule == null) dao.deleteSenderRule(address)

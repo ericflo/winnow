@@ -57,11 +57,16 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
     }
 
     private val permissionChecks = MutableStateFlow(0)
+    @Volatile private var couldRead = canRead()
+    /** The last [permissionChecks] already announced as a change; restarting the watcher isn't one. */
+    private val announced = AtomicInteger()
 
-    /** After a permission change: contacts may only now be readable, and so watchable. */
+    /** After a possible permission change (every resume): contacts may only now be readable, and so watchable. */
     fun permissionsChanged() {
         clear()
-        permissionChecks.update { it + 1 }
+        val can = canRead()
+        if (can && !couldRead) permissionChecks.update { it + 1 }
+        couldRead = can
     }
 
     /**
@@ -82,7 +87,7 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
             val watching = canRead() &&
                 runCatching { context.contentResolver.registerContentObserver(ContactsContract.Contacts.CONTENT_URI, true, observer) }.isSuccess
             // Just allowed: whatever was shown without names is worth reading again.
-            if (check > 0 && watching) trySend(Unit)
+            if (watching && announced.getAndSet(check) < check) trySend(Unit)
             awaitClose { if (watching) context.contentResolver.unregisterContentObserver(observer) }
         }
     }.debounce(SETTLE_MILLIS).let { flow -> if (scope != null) flow.shareIn(scope, SharingStarted.WhileSubscribed(5_000)) else flow }
@@ -94,8 +99,12 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
         cache[address]?.let { return it.takeIf { found -> found !== NOT_FOUND } }
         val started = generation.get()
         val found = query(address, started) ?: NOT_FOUND
-        // Not if the contacts changed meanwhile: it may be the old name.
-        if (generation.get() == started) cache[address] = found
+        // Not if the contacts changed meanwhile: it may be the old name. Checked again after
+        // storing, as a change can land in between.
+        if (generation.get() == started) {
+            cache[address] = found
+            if (generation.get() != started) cache.remove(address, found)
+        }
         return found.takeIf { it !== NOT_FOUND }
     }
 
@@ -109,8 +118,12 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
         }
     }
 
-    private fun index(started: Int): Map<String, Info> =
-        numbers ?: loadIndex().also { if (generation.get() == started) numbers = it }
+    private fun index(started: Int): Map<String, Info> = numbers ?: loadIndex().also { loaded ->
+        if (generation.get() == started) {
+            numbers = loaded
+            if (generation.get() != started) numbers = null
+        }
+    }
 
     private fun loadIndex(): Map<String, Info> {
         val index = HashMap<String, Info>()

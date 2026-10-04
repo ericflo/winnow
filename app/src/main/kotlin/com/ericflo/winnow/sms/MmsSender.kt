@@ -119,14 +119,15 @@ class MmsSender(
     private fun carrierConfig(subscriptionId: Int?): Bundle? {
         val sub = forSending(subscriptionId)
         val now = System.currentTimeMillis()
-        configs[sub ?: -1]?.takeIf { now - it.readAt < CONFIG_MAX_AGE_MILLIS }?.let { return it.values }
+        configs[sub ?: -1]?.takeIf { now - it.readAt < CONFIG_MAX_AGE_MILLIS }?.let { return it.values.takeUnless { values -> values.isEmpty } }
+        // A phone that can't say (no telephony, say) is asked again in a minute, not per keystroke.
         val values = runCatching {
             context.getSystemService(SmsManager::class.java)
                 .let { if (sub != null) it.createForSubscriptionId(sub) else it }
                 .carrierConfigValues
-        }.getOrNull() ?: return null
+        }.getOrNull() ?: Bundle.EMPTY
         configs[sub ?: -1] = Config(now, values)
-        return values
+        return values.takeUnless { it.isEmpty }
     }
 
     /**
@@ -247,7 +248,8 @@ class MmsSender(
         /** Attachments' share of a carrier's [maxMessageSize] (0 or less: it didn't say). */
         fun budgetFor(maxMessageSize: Int): Int =
             if (maxMessageSize <= 0) DEFAULT_BUDGET_BYTES
-            else (maxMessageSize - maxMessageSize / 20 - HEADER_BYTES).coerceIn(MIN_BUDGET_BYTES, MAX_BUDGET_BYTES)
+            // Never more than the carrier takes, however small: the MMS service refuses anything bigger.
+            else (maxMessageSize - maxMessageSize / 20 - HEADER_BYTES).coerceIn(minOf(MIN_BUDGET_BYTES, maxMessageSize / 2), MAX_BUDGET_BYTES)
 
         /** Photos are shrunk to fit; GIFs (which would lose their animation), video and audio go as they are. */
         fun canShrink(contentType: String) = contentType.startsWith("image/") && contentType != "image/gif"
