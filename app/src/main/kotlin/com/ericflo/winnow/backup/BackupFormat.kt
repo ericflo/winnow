@@ -171,19 +171,44 @@ object BackupArchive {
      * that looks whole.
      */
     fun write(output: OutputStream, backup: WinnowBackup, media: (PartBackup) -> InputStream?) {
-        val buffered = output.buffered()
-        val zip = ZipOutputStream(buffered)
-        zip.putNextEntry(ZipEntry(MANIFEST))
-        zip.write(json.encodeToString(WinnowBackup.serializer(), backup).encodeToByteArray())
-        zip.closeEntry()
-        backup.conversations.flatMap { c -> c.messages.flatMap { it.parts } + c.draftAttachments }.forEach { part ->
-            val stream = media(part) ?: return@forEach
-            zip.putNextEntry(ZipEntry(MEDIA + part.file))
-            stream.use { it.copyTo(zip) }
+        val shield = Shield(output.buffered())
+        val zip = ZipOutputStream(shield)
+        try {
+            zip.putNextEntry(ZipEntry(MANIFEST))
+            zip.write(json.encodeToString(WinnowBackup.serializer(), backup).encodeToByteArray())
             zip.closeEntry()
+            backup.conversations.flatMap { c -> c.messages.flatMap { it.parts } + c.draftAttachments }.forEach { part ->
+                val stream = media(part) ?: return@forEach
+                zip.putNextEntry(ZipEntry(MEDIA + part.file))
+                stream.use { it.copyTo(zip) }
+                zip.closeEntry()
+            }
+        } catch (e: Throwable) {
+            // Closed all the same, to free its compressor, but with the index going nowhere.
+            shield.discarding = true
+            runCatching { zip.close() }
+            throw e
         }
-        zip.finish()
-        buffered.flush()
+        zip.close()
+    }
+
+    /** Between the zip and [write]'s output: closing only flushes, and once [discarding], nothing gets through. */
+    private class Shield(out: OutputStream) : java.io.FilterOutputStream(out) {
+        var discarding = false
+
+        override fun write(b: Int) {
+            if (!discarding) out.write(b)
+        }
+
+        override fun write(b: ByteArray, off: Int, len: Int) {
+            if (!discarding) out.write(b, off, len)
+        }
+
+        override fun flush() {
+            if (!discarding) out.flush()
+        }
+
+        override fun close() = flush()
     }
 
     /**

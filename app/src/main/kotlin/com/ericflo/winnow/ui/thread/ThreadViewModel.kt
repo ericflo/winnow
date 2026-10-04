@@ -613,7 +613,7 @@ class ThreadViewModel(
      */
     @OptIn(FlowPreview::class)
     val sendsAsMms: StateFlow<Boolean> = combine(draft.debounce(300), _selectedSim) { text, sim -> text to sim }
-        .map { (text, sim) -> text.length >= 100 && container.mmsSender.textNeedsMms(container.smsSender.prepared(text), sim) }
+        .map { (text, sim) -> text.length > 70 && container.mmsSender.textNeedsMms(container.smsSender.prepared(text), sim) }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 

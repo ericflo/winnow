@@ -2177,7 +2177,7 @@ private fun Composer(
                         )
                     }
                     if (isSms && draft.length >= SegmentCounterFrom) {
-                        if (sendsAsMms && draft.length >= 100) {
+                        if (sendsAsMms && draft.length > 70) {
                             Text(
                                 "MMS",
                                 style = MaterialTheme.typography.labelSmall,

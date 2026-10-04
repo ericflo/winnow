@@ -47,13 +47,17 @@ class BackupPassword(context: Context) {
             } finally {
                 raw.fill(0)
             }
+            val before = prefs.all
             val saved = prefs.edit()
                 .putString(KEY_SALT, encode(params.salt))
                 .putInt(KEY_ITERATIONS, params.iterations)
                 .putString(KEY_IV, encode(cipher.iv))
                 .putString(KEY_SEALED, encode(sealed))
                 .commit()
-            if (!saved) error("The backup password couldn't be saved")
+            if (!saved) {
+                putBack(before)
+                error("The backup password couldn't be saved")
+            }
             _isSet.value = true
         }
     }
@@ -61,7 +65,11 @@ class BackupPassword(context: Context) {
     /** New backups aren't protected; ones already made still need the password they were made with. */
     suspend fun clear() = changing.withLock {
         withContext(Dispatchers.IO) {
-            if (!prefs.edit().clear().commit()) error("The backup password couldn't be turned off")
+            val before = prefs.all
+            if (!prefs.edit().clear().commit()) {
+                putBack(before)
+                error("The backup password couldn't be turned off")
+            }
             _isSet.value = false
         }
     }
@@ -96,6 +104,21 @@ class BackupPassword(context: Context) {
                     .build(),
             )
         }.generateKey()
+    }
+
+    /**
+     * A failed commit has already changed what this process reads: back to [before], so the
+     * change that "didn't happen" really didn't, here at least.
+     */
+    private fun putBack(before: Map<String, *>) {
+        prefs.edit().clear().apply {
+            before.forEach { (key, value) ->
+                when (value) {
+                    is String -> putString(key, value)
+                    is Int -> putInt(key, value)
+                }
+            }
+        }.commit()
     }
 
     private fun encode(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.NO_WRAP)

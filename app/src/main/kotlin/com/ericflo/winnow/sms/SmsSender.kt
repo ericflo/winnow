@@ -14,6 +14,7 @@ import android.telephony.SmsMessage
 import android.telephony.SubscriptionManager
 import com.ericflo.winnow.WinnowApp
 import com.ericflo.winnow.data.SimpleCharacters
+import com.ericflo.winnow.data.Tapback
 import kotlinx.coroutines.launch
 
 class SmsSender(
@@ -25,8 +26,12 @@ class SmsSender(
     private val simpleCharacters: suspend () -> Boolean = { false },
 ) {
 
-    /** [body] as it would go out as a text: with Simple characters on, maybe in plainer characters. */
-    suspend fun prepared(body: String): String = if (simpleCharacters()) SimpleCharacters.forSms(body, ::measureSms) else body
+    /**
+     * [body] as it would go out as a text: with Simple characters on, maybe in plainer
+     * characters. Never a reaction (`Loved “…”`), which other phones know by its curly quotes.
+     */
+    suspend fun prepared(body: String): String =
+        if (simpleCharacters() && Tapback.parse(body) == null) SimpleCharacters.forSms(body, ::measureSms) else body
 
     /**
      * Records the message in the outbox and sends it; [SmsStatusReceiver] moves it to sent or
