@@ -134,8 +134,12 @@ fun InboxScreen(
     var makeDefaultDismissed by rememberSaveable { mutableStateOf(false) }
     val atTop by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
     val farDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 6 } }
+    // The search field shows what's typed straight from here: echoed back through the
+    // ViewModel's combined flows, fast typing would drop and reorder characters.
+    var typed by rememberSaveable { mutableStateOf("") }
     val closeSearch = {
         searching = false
+        typed = ""
         viewModel.setQuery("")
     }
     BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
@@ -176,7 +180,7 @@ fun InboxScreen(
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
-                if (searching) SearchBar(state.query, viewModel::setQuery, onClose = closeSearch)
+                if (searching) SearchBar(typed, { typed = it; viewModel.setQuery(it) }, onClose = closeSearch)
                 if (state.loading) return@Column
                 LazyColumn(
                     state = listState,

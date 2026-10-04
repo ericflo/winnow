@@ -124,9 +124,12 @@ data object StarredRoute
 @Serializable
 data object ScheduledRoute
 
-/** [draft] carries a forwarded message into the conversation the user picks. */
+/**
+ * [draft] carries a forwarded message into the conversation the user picks; [with] (comma-joined
+ * addresses) starts a new group with those people picked, from "Add people".
+ */
 @Serializable
-data class NewChatRoute(val draft: String = "", val attachments: String = "")
+data class NewChatRoute(val draft: String = "", val attachments: String = "", val with: String = "")
 
 /** Shared attachments as one route argument, since routes take simple values. */
 object SharedAttachments {
@@ -291,7 +294,7 @@ fun WinnowNavHost(
         composable<NewChatRoute> { entry ->
             val route = entry.toRoute<NewChatRoute>()
             NewChatScreen(
-                viewModel = viewModel { NewChatViewModel(container) },
+                viewModel = viewModel { NewChatViewModel(container, splitAddresses(route.with)) },
                 onBack = dropUnlessResumed { nav.popBackStack() },
                 onStart = { recipients ->
                     nav.navigate(ThreadRoute(-1, joinAddresses(recipients), route.draft, route.attachments)) {
@@ -334,6 +337,7 @@ fun WinnowNavHost(
                 viewModel = viewModel { ConversationDetailsViewModel(container, route.threadId, splitAddresses(route.recipients)) },
                 onBack = dropUnlessResumed { nav.popBackStack() },
                 onDeleted = { nav.popBackStack<InboxRoute>(inclusive = false) },
+                onAddPeople = dropUnlessResumed { nav.navigate(NewChatRoute(with = route.recipients)) },
             )
         }
         composable<ActivityRoute> {

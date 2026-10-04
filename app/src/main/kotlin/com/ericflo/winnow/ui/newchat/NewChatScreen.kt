@@ -39,6 +39,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,11 +79,17 @@ data class NewChatUiState(
     val picked: List<ContactEntry> = emptyList(),
 )
 
-class NewChatViewModel(container: AppContainer) : ViewModel() {
+class NewChatViewModel(
+    container: AppContainer,
+    /** People already in it, from "Add people": a new group starts with them picked. */
+    startWith: List<String> = emptyList(),
+) : ViewModel() {
     private val query = MutableStateFlow("")
     private val contacts = MutableStateFlow<List<ContactEntry>>(emptyList())
-    private val groupMode = MutableStateFlow(false)
-    private val picked = MutableStateFlow<List<ContactEntry>>(emptyList())
+    private val groupMode = MutableStateFlow(startWith.isNotEmpty())
+    private val picked = MutableStateFlow(
+        startWith.map { ContactEntry(container.messages.displayName(it), it, container.messages.photoUri(it)) },
+    )
 
     init {
         viewModelScope.launch { contacts.value = container.contactsSource.all() }
@@ -109,7 +118,6 @@ class NewChatViewModel(container: AppContainer) : ViewModel() {
     fun toggle(contact: ContactEntry) {
         val current = picked.value
         picked.value = if (current.any { it.number == contact.number }) current.filterNot { it.number == contact.number } else current + contact
-        query.value = ""
     }
 
     private fun ContactEntry.matches(q: String): Boolean {
@@ -122,7 +130,18 @@ class NewChatViewModel(container: AppContainer) : ViewModel() {
 @Composable
 fun NewChatScreen(viewModel: NewChatViewModel, onBack: () -> Unit, onStart: (recipients: List<String>) -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val choose = { contact: ContactEntry -> if (state.groupMode) viewModel.toggle(contact) else onStart(listOf(contact.number)) }
+    // The field shows what's typed straight from here: echoed back through the ViewModel's
+    // combined flows, fast typing would drop and reorder characters.
+    var typed by rememberSaveable { mutableStateOf("") }
+    val type = { value: String -> typed = value; viewModel.setQuery(value) }
+    val choose = { contact: ContactEntry ->
+        if (state.groupMode) {
+            viewModel.toggle(contact)
+            type("")
+        } else {
+            onStart(listOf(contact.number))
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -140,7 +159,7 @@ fun NewChatScreen(viewModel: NewChatViewModel, onBack: () -> Unit, onStart: (rec
     ) { padding ->
         LazyColumn(contentPadding = padding, modifier = Modifier.fillMaxSize().imePadding()) {
             item("to") {
-                ToField(state.query, viewModel::setQuery, onDone = { state.dialable?.let { choose(ContactEntry(ContactLookup.formatAddress(it), it)) } })
+                ToField(typed, type, onDone = { state.dialable?.let { choose(ContactEntry(ContactLookup.formatAddress(it), it)) } })
             }
             if (state.groupMode && state.picked.isNotEmpty()) {
                 item("picked") {

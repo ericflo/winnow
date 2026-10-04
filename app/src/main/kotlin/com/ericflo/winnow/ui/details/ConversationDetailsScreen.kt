@@ -217,7 +217,13 @@ class ConversationDetailsViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConversationDetailsScreen(viewModel: ConversationDetailsViewModel, onBack: () -> Unit, onDeleted: () -> Unit) {
+fun ConversationDetailsScreen(
+    viewModel: ConversationDetailsViewModel,
+    onBack: () -> Unit,
+    onDeleted: () -> Unit,
+    /** A new group with everyone here, plus whoever the user adds. */
+    onAddPeople: () -> Unit = {},
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val media by viewModel.media.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -290,6 +296,17 @@ fun ConversationDetailsScreen(viewModel: ConversationDetailsViewModel, onBack: (
                         }
                     },
                     modifier = Modifier.clickable { showContact(person.address) },
+                )
+            }
+            item("add-people") {
+                ListItem(
+                    leadingContent = {
+                        Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Icon(painterResource(R.drawable.ic_person_add), contentDescription = null) }
+                    },
+                    headlineContent = { Text("Add people") },
+                    // Group texts can't gain members: the new people make a new conversation.
+                    supportingContent = { Text("Starts a new group with ${if (state.isGroup) "everyone here" else state.people.singleOrNull()?.name ?: "them"} and whoever you add") },
+                    modifier = Modifier.clickable(onClick = onAddPeople),
                 )
             }
 
