@@ -305,6 +305,8 @@ class ThreadViewModel(
 
     fun newCameraPhoto() = container.sharedFiles.newCameraPhoto()
 
+    fun newCameraVideo() = container.sharedFiles.newCameraVideo()
+
     /**
      * Saves attachments to the phone's Pictures, Movies, Recordings or Download. Returns what to
      * tell the user; the caller shows it, since the photo viewer covers this screen's snackbar.

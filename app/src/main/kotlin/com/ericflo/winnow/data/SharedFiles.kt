@@ -95,8 +95,13 @@ class SharedFiles(private val context: Context) {
     }
 
     /** A fresh file for the camera app to write a photo into, and the URI to hand it. */
-    fun newCameraPhoto(): Pair<File, Uri> {
-        val file = File(File(context.cacheDir, "camera").apply { mkdirs() }, "${UUID.randomUUID()}.jpg")
+    fun newCameraPhoto(): Pair<File, Uri> = newCameraFile("jpg")
+
+    /** Where the camera app records a video for the composer; shrunk to fit afterwards if need be. */
+    fun newCameraVideo(): Pair<File, Uri> = newCameraFile("mp4")
+
+    private fun newCameraFile(extension: String): Pair<File, Uri> {
+        val file = File(File(context.cacheDir, "camera").apply { mkdirs() }, "${UUID.randomUUID()}.$extension")
         return file to FileProvider.getUriForFile(context, "${context.packageName}.mms", file)
     }
 

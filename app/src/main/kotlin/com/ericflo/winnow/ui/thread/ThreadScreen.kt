@@ -311,6 +311,13 @@ fun ThreadScreen(
         cameraTarget = null
         if (taken && target != null) viewModel.addAttachment(OutgoingAttachment(target, "image/jpeg", "photo.jpg"))
     }
+    var videoTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    val videoCamera = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { recorded ->
+        val target = videoTarget
+        videoTarget = null
+        // Too big for an MMS (most are), it's shrunk to fit once it's attached.
+        if (recorded && target != null) viewModel.addAttachment(OutgoingAttachment(target, "video/mp4", "video.mp4"))
+    }
     val single = state.recipients.singleOrNull()
 
     // Search within the conversation: matches newest first, and which one is in view.
@@ -499,6 +506,11 @@ fun ThreadScreen(
                     val (file, uri) = viewModel.newCameraPhoto()
                     cameraTarget = android.net.Uri.fromFile(file).toString()
                     runCatching { camera.launch(uri) }.onFailure { cameraTarget = null }
+                },
+                onVideo = {
+                    val (file, uri) = viewModel.newCameraVideo()
+                    videoTarget = android.net.Uri.fromFile(file).toString()
+                    runCatching { videoCamera.launch(uri) }.onFailure { videoTarget = null }
                 },
                 onVoice = {
                     if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -1437,6 +1449,7 @@ private fun Composer(
     onContact: () -> Unit,
     onRemoveAttachment: (OutgoingAttachment) -> Unit,
     onVoice: () -> Unit = {},
+    onVideo: () -> Unit = {},
     onLocation: () -> Unit = {},
     locating: Boolean = false,
     /** A video being made small enough to send, 0–100; null when none is. */
@@ -1510,7 +1523,7 @@ private fun Composer(
         Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)) {
             Surface(shape = RoundedCornerShape(28.dp), color = colors.surfaceContainerHigh, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 16.dp)) {
-                    AttachMenu(onGallery = onAttach, onCamera = onCamera, onContact = onContact, onVoice = onVoice, onLocation = onLocation)
+                    AttachMenu(onGallery = onAttach, onCamera = onCamera, onVideo = onVideo, onContact = onContact, onVoice = onVoice, onLocation = onLocation)
                     Box(Modifier.weight(1f).padding(vertical = 16.dp)) {
                         if (draft.isEmpty()) {
                             val kind = if (isSms) "Text message" else "MMS message"
@@ -1564,7 +1577,7 @@ private fun Composer(
 
 /** The composer's "+": a photo from the gallery, or a new one from the camera. */
 @Composable
-private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit, onContact: () -> Unit, onVoice: () -> Unit, onLocation: () -> Unit) {
+private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit, onVideo: () -> Unit, onContact: () -> Unit, onVoice: () -> Unit, onLocation: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) { Icon(Icons.Outlined.AddCircle, contentDescription = "Attach") }
@@ -1578,6 +1591,11 @@ private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit, onContact: (
                 leadingIcon = { Icon(painterResource(R.drawable.ic_camera), contentDescription = null) },
                 text = { Text("Camera") },
                 onClick = { open = false; onCamera() },
+            )
+            DropdownMenuItem(
+                leadingIcon = { Icon(painterResource(R.drawable.ic_videocam), contentDescription = null) },
+                text = { Text("Video") },
+                onClick = { open = false; onVideo() },
             )
             DropdownMenuItem(
                 leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },

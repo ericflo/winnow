@@ -71,8 +71,9 @@ messages can't be tapped.
   records one (AAC, stopping at 5 minutes or 800 KB, so it always fits an MMS), and
   **Location** puts a map link for where you are into the draft (one fix, nothing tracked).
   GIFs and stickers sent from the keyboard (Gboard's GIF panel, for one) attach as pictures.
-  A video too big for an MMS is re-encoded to fit (240–360 lines, 15 fps), and a long one is
-  cut to the part that fits, with a note saying so. iPhone tapbacks and SMS reactions are drawn on
+  Attach → **Video** records one with the camera. A video too big for an MMS is re-encoded to
+  fit (144–360 lines, 10–15 fps), and a long one is cut to the part that fits, with a note
+  saying so. iPhone tapbacks and SMS reactions are drawn on
   the message they react to. Failed sends and MMS downloads can be retried. SMS delivery
   reports are opt-in, and MMS auto-download can be turned off (it's off while roaming unless
   you allow it), leaving "Tap to download" in the conversation.
