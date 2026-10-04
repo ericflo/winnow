@@ -128,11 +128,7 @@ fun ConversationListScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
-                actions = {
-                    if (filtered) {
-                        IconButton(onClick = onOpenMetrics) { Icon(painterResource(R.drawable.ic_insights), contentDescription = "Classifier accuracy") }
-                    }
-                },
+                // Accuracy is the "How accurate is this?" row below, which says what it opens.
             )
         },
     ) { padding ->

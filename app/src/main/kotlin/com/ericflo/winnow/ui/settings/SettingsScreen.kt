@@ -178,8 +178,23 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
             section("Try it")
             item { TrialCard(trial, onClassify = viewModel::tryClassify) }
 
-            section("Privacy")
-            privacyItems(s, viewModel)
+            // What the classifier's answers lead to, and the user's own rules on top of them.
+            section("Filtering")
+            item("categories-explainer") {
+                Text(
+                    "What happens to each kind of message",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            Category.entries.forEach { category ->
+                item(category.key) {
+                    CategoryActionRow(category, s.categoryActions[category] ?: category.defaultAction) {
+                        viewModel.setAction(category, it)
+                    }
+                }
+            }
             item("sender-rules") {
                 ListItem(
                     headlineContent = { Text("Sender rules") },
@@ -201,6 +216,10 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                 section("Older conversations")
                 item("review") { ReviewSettingsRow(review, s.provider.label, onStart = viewModel::startReview) }
             }
+
+            // What a classifier service is sent, and which messages never leave the phone.
+            section("Privacy")
+            privacyItems(s, viewModel)
 
             section("Display")
             item("theme") {
@@ -350,15 +369,6 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
 
             section("Backup")
             item("backup") { BackupSection(backup, isDefault, canBackUpMessages, viewModel) }
-
-            section("What happens to each kind of message")
-            Category.entries.forEach { category ->
-                item(category.key) {
-                    CategoryActionRow(category, s.categoryActions[category] ?: category.defaultAction) {
-                        viewModel.setAction(category, it)
-                    }
-                }
-            }
 
             section("About")
             item("version") {
