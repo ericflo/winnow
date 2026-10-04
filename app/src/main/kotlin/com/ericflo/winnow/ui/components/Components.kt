@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.ericflo.winnow.R
+import com.ericflo.winnow.data.Member
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.data.StoredVerdict
@@ -44,6 +45,30 @@ import androidx.compose.ui.text.TextStyle
  * The contact's photo when there is one; otherwise a colored initial for named senders and a
  * neutral person glyph for bare numbers, like Messages.
  */
+/**
+ * A group's avatar: two of its people, overlapping, as in Messages. With fewer than two known
+ * (an older list, a sample conversation), the group glyph.
+ */
+@Composable
+fun GroupAvatar(members: List<Member>, size: Dp = 52.dp, modifier: Modifier = Modifier) {
+    if (members.size < 2) {
+        Box(modifier.size(size).background(MaterialTheme.colorScheme.tertiaryContainer, CircleShape).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
+            Icon(painterResource(R.drawable.ic_group), contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(size * 0.5f))
+        }
+        return
+    }
+    val small = size * 0.66f
+    Box(modifier.size(size).clearAndSetSemantics {}) {
+        val (first, second) = members
+        Avatar(first.name, seed = first.address, size = small, photoUri = first.photoUri, modifier = Modifier.align(Alignment.TopStart))
+        // The front one ringed in the background color, so the two read as separate faces.
+        Box(
+            Modifier.align(Alignment.BottomEnd).size(small + 3.dp).background(MaterialTheme.colorScheme.surface, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) { Avatar(second.name, seed = second.address, size = small, photoUri = second.photoUri) }
+    }
+}
+
 @Composable
 fun Avatar(name: String, seed: String, size: Dp = 52.dp, modifier: Modifier = Modifier, photoUri: String? = null) {
     val named = name.firstOrNull()?.let { it.isLetter() } == true

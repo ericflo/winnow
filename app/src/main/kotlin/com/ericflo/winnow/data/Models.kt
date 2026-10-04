@@ -19,6 +19,8 @@ data class ConversationSummary(
     val draft: String? = null,
     /** The newest message is one of the user's that didn't go out. */
     val notSent: Boolean = false,
+    /** For a group, the first two people in it, for its avatar; empty otherwise. */
+    val members: List<Member> = emptyList(),
     /** The contact's photo, for 1:1 conversations with a contact who has one. */
     val photoUri: String? = null,
 ) {
@@ -171,3 +173,6 @@ fun meaningfulSubject(subject: String?): String? {
     val bare = trimmed.removeSurrounding("<", ">").replace(" ", "").lowercase()
     return trimmed.takeIf { bare != "nosubject" && bare != "subject" }
 }
+
+/** One person in a group, as its avatar shows them. */
+data class Member(val address: String, val name: String, val photoUri: String?)

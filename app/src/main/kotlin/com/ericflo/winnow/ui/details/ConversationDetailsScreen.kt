@@ -55,10 +55,12 @@ import com.ericflo.winnow.R
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.SenderRule
 import com.ericflo.winnow.data.ContactLookup
+import com.ericflo.winnow.data.Member
 import com.ericflo.winnow.data.displayNameFor
 import com.ericflo.winnow.data.normalizeAddress
 import com.ericflo.winnow.ui.components.showOrCreateContact
 import com.ericflo.winnow.ui.components.Avatar
+import com.ericflo.winnow.ui.components.GroupAvatar
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -321,9 +323,7 @@ fun ConversationDetailsScreen(
                     if (person != null) {
                         Avatar(person.name, seed = person.address, size = 88.dp, photoUri = person.photoUri)
                     } else {
-                        Box(Modifier.size(88.dp).background(MaterialTheme.colorScheme.tertiaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                            Icon(painterResource(R.drawable.ic_group), contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(44.dp))
-                        }
+                        GroupAvatar(state.people.take(2).map { Member(it.address, it.name, it.photoUri) }, 88.dp)
                     }
                     Spacer(Modifier.height(12.dp))
                     Text(state.title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))

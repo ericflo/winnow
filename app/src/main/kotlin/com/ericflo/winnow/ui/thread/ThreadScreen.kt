@@ -142,6 +142,7 @@ import com.ericflo.winnow.data.StoredVerdict
 import com.ericflo.winnow.data.Tapback
 import com.ericflo.winnow.data.db.ScheduledMessageEntity
 import com.ericflo.winnow.ui.components.Avatar
+import com.ericflo.winnow.ui.components.GroupAvatar
 import com.ericflo.winnow.ui.components.ImageViewer
 import com.ericflo.winnow.ui.components.headerLabel
 import com.ericflo.winnow.ui.components.isEmojiOnly
@@ -461,7 +462,7 @@ fun ThreadScreen(
                         viewModel.currentThreadId().takeIf { it >= 0 }?.let(onOpenDetails)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = openDetails) {
-                        if (state.isGroup) GroupAvatar(36.dp) else Avatar(state.title, seed = single.orEmpty(), size = 36.dp, photoUri = state.photos[single])
+                        if (state.isGroup) GroupAvatar(state.members, 36.dp) else Avatar(state.title, seed = single.orEmpty(), size = 36.dp, photoUri = state.photos[single])
                         Spacer(Modifier.width(12.dp))
                         Column {
                             Text(state.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -854,18 +855,6 @@ fun ThreadScreen(
                 }) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
-        )
-    }
-}
-
-@Composable
-private fun GroupAvatar(size: androidx.compose.ui.unit.Dp) {
-    Box(Modifier.size(size).background(MaterialTheme.colorScheme.tertiaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-        Icon(
-            painterResource(R.drawable.ic_group),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onTertiaryContainer,
-            modifier = Modifier.size(size * 0.55f),
         )
     }
 }

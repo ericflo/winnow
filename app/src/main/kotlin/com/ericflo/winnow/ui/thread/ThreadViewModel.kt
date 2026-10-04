@@ -42,6 +42,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import com.ericflo.winnow.data.Attachment
 import com.ericflo.winnow.data.LinkPreview
+import com.ericflo.winnow.data.Member
 import com.ericflo.winnow.data.SmartAction
 import com.ericflo.winnow.data.SmartLink
 import com.ericflo.winnow.data.normalizeAddress
@@ -73,6 +74,8 @@ data class ThreadUiState(
     val archived: Boolean = false,
     /** The other person's number, in a one-to-one conversation with someone not in contacts. */
     val addableContact: String? = null,
+    /** For a group, two of its people, for its avatar. */
+    val members: List<Member> = emptyList(),
 ) {
     val isGroup: Boolean get() = recipients.size > 1
 }
@@ -266,6 +269,7 @@ class ThreadViewModel(
                     mutedUntil = s?.takeIf { it.isMuted() }?.mutedUntil,
                     archived = s?.archived == true,
                     // A real number with no name: short codes and alphanumeric senders aren't people to add.
+                    members = if (recipients.size > 1) recipients.take(2).map { Member(it, repo.displayName(it), repo.photoUri(it)) } else emptyList(),
                     addableContact = single?.takeIf {
                         container.contacts.canRead() && name == ContactLookup.formatAddress(it) && ContactLookup.isPersonalNumber(it)
                     },

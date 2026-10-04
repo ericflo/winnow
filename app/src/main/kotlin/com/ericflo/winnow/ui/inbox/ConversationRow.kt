@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.ericflo.winnow.R
 import com.ericflo.winnow.data.ConversationSummary
 import com.ericflo.winnow.ui.components.Avatar
+import com.ericflo.winnow.ui.components.GroupAvatar
 import com.ericflo.winnow.ui.components.UnreadCountBadge
 import com.ericflo.winnow.ui.components.VerdictBadge
 import com.ericflo.winnow.ui.components.shortTimestamp
@@ -139,21 +140,11 @@ private fun StatusIcon(icon: Int, description: String) {
     )
 }
 
-/** A person's avatar, or a group glyph for group conversations. */
+/** A person's avatar, or two of a group's people for group conversations. */
 @Composable
 fun ConversationAvatar(conversation: ConversationSummary, size: Dp = 52.dp) {
     if (conversation.isGroup) {
-        Box(
-            Modifier.size(size).background(MaterialTheme.colorScheme.tertiaryContainer, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painterResource(R.drawable.ic_group),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                modifier = Modifier.size(size * 0.5f),
-            )
-        }
+        GroupAvatar(conversation.members, size)
     } else {
         Avatar(conversation.displayName, seed = conversation.address, size = size, photoUri = conversation.photoUri)
     }
