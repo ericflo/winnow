@@ -9,8 +9,9 @@ data class LabeledText(val category: Category, val sender: String, val body: Str
 }
 
 /**
- * Reads `<category>.tsv` files of `sender<TAB>body` lines. A sender of `phone` or `short`
- * becomes a fictional 555 number or a short code, derived from the text so it's stable.
+ * Reads `<category>.tsv` files of `sender<TAB>body` lines. A sender of `phone`, `tollfree`,
+ * `intl` or `short` becomes a fictional number of that kind (US ones in the 555-01xx range),
+ * derived from the text so it's stable.
  */
 object Corpus {
     val classes: List<String> = Category.entries.map { it.key }
@@ -30,6 +31,8 @@ object Corpus {
         return when (sender) {
             "phone" -> "+1" + AREA_CODES[(h % AREA_CODES.size).toInt()] + "555" + "01" + (h / 7 % 100).toString().padStart(2, '0')
             "short" -> (20000 + h % 880000).toString()
+            "tollfree" -> "+1" + listOf("800", "833", "844", "855", "866", "877", "888")[(h % 7).toInt()] + "555" + "01" + (h / 7 % 100).toString().padStart(2, '0')
+            "intl" -> listOf("+44", "+234", "+63", "+92", "+855", "+62")[(h % 6).toInt()] + (7_000_000_000L + h % 999_999_999L).toString()
             else -> sender
         }
     }

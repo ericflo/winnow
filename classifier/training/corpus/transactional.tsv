@@ -7,7 +7,7 @@ short	UPS: Your package will arrive today between 1:15 PM and 5:15 PM.
 phone	Reminder: You have an appointment with Dr. Lin on Tue 10/14 at 9:30 AM. Reply C to confirm, R to reschedule.
 short	Your prescription is ready for pickup at CVS Pharmacy on Main St.
 short	Walgreens: Your prescription is ready. Pickup by 10/21.
-phone	Chase: A $482.15 transaction at COSTCO WHSE was made on your card ending in 4412. Not you? Call the number on the back of your card.
+tollfree	Chase: A $482.15 transaction at COSTCO WHSE was made on your card ending in 4412. Not you? Call the number on the back of your card.
 short	Bank of America: Your balance is below $100. Current balance: $86.20.
 short	Wells Fargo: Your direct deposit of $2,315.40 is available.
 phone	Your Verizon bill of $84.99 is ready. It will be auto-paid on 10/18.
@@ -16,7 +16,7 @@ short	PG&E: Your bill of $142.33 is due on 10/25. Pay at pge.com/pay or reply HE
 phone	Your Uber is arriving now. Look for a white Toyota Camry, plate 8ABC123.
 short	Lyft: Your driver Ana is 3 min away in a gray Honda Civic.
 short	Your DoorDash order from Chipotle is on its way! Track: drd.sh
-phone	Instacart: Your shopper Maria has started shopping your order.
+tollfree	Instacart: Your shopper Maria has started shopping your order.
 short	Your table at Rosa's is ready! Please check in at the host stand within 10 minutes.
 short	Delta: Flight DL1482 to ATL is on time. Boarding begins 6:05 PM at gate B22.
 phone	United: Your flight UA923 has a new departure time of 8:40 PM. We apologize for the delay.
@@ -25,7 +25,7 @@ short	Hilton: Your room is ready! Room 1412. Your digital key is now active in t
 phone	Your Airbnb host has sent you a message about your reservation in Portland.
 short	Your Zelle payment of $45.00 to Mike R. was sent.
 short	Venmo: Jess paid you $25.00 for 🍕
-phone	Your Netflix payment could not be processed. Please update your payment method in the app.
+tollfree	Your Netflix payment could not be processed. Please update your payment method in the app.
 short	Your Comcast technician is on the way and should arrive in about 30 minutes.
 short	Your car is ready for pickup at Jiffy Lube. Total: $79.99
 phone	Reminder: Your dental cleaning is tomorrow at 2:00 PM with Smile Dental. Reply Y to confirm.
@@ -34,7 +34,7 @@ short	Your Apple ID was used to sign in on a new device near San Jose, CA.
 phone	Google: Someone signed in to your account from a new Windows device. If this was you, ignore this message.
 short	Your library book "The Overstory" is due in 3 days. Renew at mylibrary.org.
 short	Your return was received. Your refund of $34.99 will be issued in 3-5 business days.
-phone	Target: Your order is ready for Drive Up. Tap here when you're on your way.
+tollfree	Target: Your order is ready for Drive Up. Tap here when you're on your way.
 short	Home Depot: Your order is ready for pickup at store #0612.
 short	Your Spectrum appointment is confirmed for Wed between 8-10am.
 phone	School alert: Lincoln Elementary will have a 2-hour delayed start tomorrow due to weather.
@@ -43,7 +43,7 @@ short	Your Costco membership renews on 11/02.
 phone	Your ride receipt: $18.42 for your trip on Oct 3. Thanks for riding with Lyft.
 short	Kaiser Permanente: You have a new test result. Log in to kp.org to view.
 short	MyChart: You have a new message from your care team.
-phone	Your Peloton order has been delivered.
+tollfree	Your Peloton order has been delivered.
 short	Your Starbucks order is ready at Pine & 3rd.
 short	Payment of $1,200.00 to Riverside Apartments was successful.
 phone	Citi Alert: Your statement is ready. Minimum payment due 10/28.
@@ -52,7 +52,7 @@ short	Amex: Did you make a $2,140.00 purchase at BEST BUY? Reply YES or NO.
 phone	Discover: Your payment of $250.00 has been received. Thank you!
 short	Your AT&T payment of $65.00 was received. Thanks!
 short	Your water bill is ready. Amount due $58.12 by 10/30. Questions? Call 555-0144.
-phone	Your order from Sweetgreen will be ready in 15 min.
+tollfree	Your order from Sweetgreen will be ready in 15 min.
 short	Your Grubhub order was delivered. Enjoy!
 short	Your car wash membership will renew on 10/15 for $29.99.
 phone	Your Ring doorbell detected motion at Front Door.
@@ -61,7 +61,7 @@ short	Your Nest thermostat lost connection to Wi-Fi.
 phone	Your Tesla has finished charging.
 short	Reminder from Bright Horizons: Picture day is Friday!
 short	Your reservation at Nopa for 4 people tonight at 7:30 is confirmed. Reply C to cancel.
-phone	OpenTable: Your reservation at Zuni Cafe is tomorrow at 8:00 PM.
+tollfree	OpenTable: Your reservation at Zuni Cafe is tomorrow at 8:00 PM.
 short	Your Planet Fitness membership fee of $10.00 will be charged on 10/17.
 short	Thanks for shopping at Trader Joe's! Your receipt: $63.21
 phone	Your Chewy order is out for delivery.
@@ -70,7 +70,7 @@ short	Jury duty reminder: Please report on 10/20 at 8:00 AM. Check status the ni
 phone	DMV: Your appointment is confirmed for 10/16 at 1:30 PM at the Fremont office.
 short	Your Fidelity transfer of $500.00 has completed.
 short	Your Schwab account statement is available online.
-phone	Your password was changed. If you didn't make this change, contact support.
+tollfree	Your password was changed. If you didn't make this change, contact support.
 short	Your Best Buy order is ready for pickup. Bring your ID and order number.
 short	Your package from Etsy shop WillowCraft has shipped.
 phone	Your Lowe's delivery is scheduled for tomorrow between 12 PM and 4 PM.
@@ -79,7 +79,7 @@ short	Your Enterprise reservation is confirmed for pickup on 10/22 at 10:00 AM.
 phone	Amtrak: Train 11 to Los Angeles is departing 15 minutes late.
 short	Your BART ticket purchase of $20.00 was successful.
 short	Your Clipper card balance is low: $3.25.
-phone	Your E-ZPass account was replenished with $35.00 from your card ending 2201.
+tollfree	Your E-ZPass account was replenished with $35.00 from your card ending 2201.
 short	FasTrak: Your account has been charged $25.00 for automatic replenishment.
 short	Your Xfinity bill is ready. Amount due: $95.00. Due date: 10/27.
 phone	Your State Farm policy renewal is available. Log in to view your documents.
@@ -88,7 +88,7 @@ short	Your Progressive ID cards are ready in the app.
 phone	Your Medicare card has been mailed. - Social Security Administration
 short	Your IRS refund was deposited. - your bank
 short	Your Wise transfer to EUR has arrived.
-phone	Your Robinhood order to buy 2 shares of VTI was filled at $268.40.
+tollfree	Your Robinhood order to buy 2 shares of VTI was filled at $268.40.
 short	Your Coinbase deposit of $100.00 is complete.
 short	Your Square receipt from Blue Bottle Coffee: $6.50
 phone	Your Toast receipt from Pho 75: $24.10
@@ -97,7 +97,7 @@ short	Your Papa John's order is out for delivery with Chris.
 phone	Your Apple Store pickup is ready at Union Square.
 short	Your Squarespace domain renews in 7 days.
 short	Your GitHub account was accessed from a new location. If this was you, no action is needed.
-phone	PayPal: You've received $40.00 USD from Jordan Lee.
+tollfree	PayPal: You've received $40.00 USD from Jordan Lee.
 short	Your Cash App payment of $15 to $danny was completed.
 short	Your package has been delivered. Photo: amzn.to/3xKp
 phone	Your Walmart order arrives today between 4pm and 6pm.
@@ -106,7 +106,7 @@ short	Your Nike order has shipped! Track it here: nike.com/orders
 phone	Your eBay item sold! Ship by 10/7 to get paid faster.
 short	Your Poshmark order has been delivered. Please accept it in the app.
 short	Your Zillow tour of 22 Elm St is confirmed for Saturday at 11 AM.
-phone	Your Rover sitter, Emily, sent you a photo update.
+tollfree	Your Rover sitter, Emily, sent you a photo update.
 short	Your Calendly meeting with Priya is confirmed for Wed 2:00 PM.
 short	Your Zoom meeting starts in 15 minutes.
 phone	Your Duolingo streak is at risk! Practice now to keep your 120-day streak.
@@ -115,7 +115,7 @@ short	Your Garmin Connect upload is complete.
 phone	Your Hulu subscription will renew on 10/19 for $17.99.
 short	Your Spotify Premium payment of $11.99 was processed.
 short	Your Audible credit is available.
-phone	Your parking session at Lot 7 expires in 10 minutes. Extend in the ParkMobile app.
+tollfree	Your parking session at Lot 7 expires in 10 minutes. Extend in the ParkMobile app.
 short	Your SpotHero reservation at 5th & Mission starts at 6:00 PM.
 short	Your Wag! walker has arrived.
 phone	Your utility payment of $120.45 is scheduled for 10/20.
@@ -124,7 +124,7 @@ short	Your StubHub order is confirmed. Tickets will be delivered 48 hours before
 phone	Your Eventbrite registration for Tech Meetup is confirmed.
 short	Your oil change is due. Schedule service at your convenience. - Honda Service
 short	Your Instacart order was delivered. Rate your shopper.
-phone	Your Gap order has shipped. Track: gap.com
+tollfree	Your Gap order has shipped. Track: gap.com
 short	Chase: Did you attempt a $612.18 purchase at TARGET? Reply YES or NO. Msg&data rates may apply.
 short	Bank of America: Reply 1 if you made a $1,040.00 transfer to Savings, 2 if not.
 phone	Capital One: We declined a $1,899.99 purchase at BEST BUY on card ending 7781. Reply Y if this was you or N if not.
@@ -136,7 +136,7 @@ short	Amazon: Your package will be delivered today by 9pm. Track at amazon.com/o
 short	USPS: Expected delivery by 9:00 PM today. Track: usps.com/track
 short	FedEx: Delivery exception: no one available to sign. We'll try again tomorrow. Details at fedex.com
 short	UPS: Your package was delivered at 3:47 PM. Left at front door.
-phone	Your Grubhub courier is arriving now with your order from Panda Express.
+tollfree	Your Grubhub courier is arriving now with your order from Panda Express.
 short	Instacart: Your order is out for delivery and will arrive in 10 minutes.
 short	Your Airbnb reservation in Austin is confirmed for Oct 18-20. Check-in details will be sent 3 days before.
 short	Delta: Your bag has arrived at baggage claim carousel 7.
@@ -197,4 +197,24 @@ short	Your Medicare Summary Notice is ready to view at medicare.gov.
 short	Your COVID test results are available in MyChart.
 short	Quest Diagnostics: Your lab results are ready. Log in to view.
 short	Your package is out for delivery with Amazon Logistics. Track: amazon.com/progress-tracker
-phone	Hi from Main Street Auto: your Honda is ready for pickup. Total due $412.60. We're open till 6.
+tollfree	Hi from Main Street Auto: your Honda is ready for pickup. Total due $412.60. We're open till 6.
+tollfree	Your Capital One payment of $85.00 has posted. Thank you!
+tollfree	Hi, this is Mercy Hospital confirming your procedure on Thursday at 7:30 AM. Please arrive 1 hour early. Reply C to confirm.
+tollfree	Your American Express card ending in 1005 was used for $64.12 at SHELL. Reply 1 if you recognize this charge.
+tollfree	Your AT&T service has been restored. Thank you for your patience.
+tollfree	Reminder from Lakeside Vet: Bella is due for her annual vaccines. Call 555-0166 to schedule.
+tollfree	Your Xfinity appointment is confirmed for Friday between 12 PM and 2 PM.
+tollfree	Hi, your prescription from Express Scripts has shipped and will arrive in 3-5 days.
+tollfree	Your payment of $1,450.00 to Cornerstone Property Management was received.
+short	Your Amazon order of "Kitchen Scale" has shipped and will arrive Tuesday.
+short	Your Venmo transfer of $120.00 to your bank is complete.
+short	You received $35.00 from Chris on Venmo for 🍣
+short	Your Uber Eats order is arriving soon. Meet your courier at the door.
+short	USPS: Your package has been delivered to your parcel locker. Pickup code sent separately.
+short	Your Target order is ready for pickup at the Guest Services desk.
+short	Your FedEx package was delivered and signed for by J. SMITH.
+short	Your Delta flight DL882 has a gate change: now departing from gate A14.
+short	Your Lyft driver has arrived. Look for a blue Hyundai Elantra.
+short	Your Zocdoc appointment is tomorrow at 4:15 PM. Reply C to confirm, X to cancel.
+short	Your Instacart order has been delivered. Your total was $87.42.
+short	Your car has been checked in for service at Valley Honda. We'll text you when it's ready.

@@ -129,7 +129,7 @@ payload for any message.
 - **On this phone only** keeps everything local. Winnow's own model (below) decides, and
   it only filters when it's at least 85% sure; otherwise it silences.
 - **Decide on this phone when it's sure** keeps texts the model is very sure about (95%+)
-  from ever reaching your provider. In cross-validation that's two-thirds of texts, and 98.5%
+  from ever reaching your provider. In cross-validation that's 65% of texts, and 98.2%
   of those calls are right.
 - If no provider answers in time, the on-phone model decides. If classification fails
   altogether, the message is delivered with a notification.
@@ -157,7 +157,7 @@ up as another ("sunpass.com-tollpay.vip"), a stranger introducing themselves "wi
 a donation "match", a deadline, a "reply STOP" opt-out, and letters from another alphabet
 posing as English. The weights are 230 KB. It classifies a text in about 50 µs on a laptop
 JVM (not yet measured on a phone), and it says why it decided ("Decided on this phone:
-“confirm”, “package”, “fee”"). It's trained from 1,125 labeled texts in
+“confirm”, “package”, “fee”"). It's trained from 1,349 labeled texts in
 `classifier/training/`, balanced across all seven categories.
 `./gradlew :classifier:trainLocalModel` rebuilds it, and a test fails if the shipped model or
 its metrics don't match the corpus.
@@ -172,11 +172,11 @@ cross-validation: every text is scored by a model that never saw it.
 
 | Accuracy | Macro F1 | Cohen's κ | MCC | ROC AUC (unwanted vs. wanted) | Avg. precision | Calibration error |
 |---|---|---|---|---|---|---|
-| 92.1% | 0.92 | 0.91 | 0.91 | 0.988 | 0.988 | 0.026 |
+| 91.6% | 0.92 | 0.90 | 0.90 | 0.987 | 0.987 | 0.015 |
 
 Winnow's own filtering rule (an unwanted category at ≥85% confidence) catches 77% of
-unwanted texts and filters 1.2% of wanted ones. The less certain rest is silenced, not
-filtered. Per category, F1 runs from 0.96 (transactional, marketing, political) to 0.78 for
+unwanted texts and filters 1.1% of wanted ones. The less certain rest is silenced, not
+filtered. Per category, F1 runs from 0.96 (transactional, political) to 0.78 for
 "likely scam", whose "hi, is this David?" openers read exactly like a real new number. On
 120 more texts written separately and never trained on, it got all 120 right.
 

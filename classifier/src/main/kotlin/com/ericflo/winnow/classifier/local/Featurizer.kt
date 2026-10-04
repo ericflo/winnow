@@ -12,13 +12,14 @@ import com.ericflo.winnow.classifier.message.SenderKind
  * retrain (`./gradlew :classifier:trainLocalModel`).
  */
 object Featurizer {
-    const val VERSION = 2
+    const val VERSION = 3
 
     data class Input(val sender: String, val body: String, val senderInContacts: Boolean = false, val userHasMessagedSender: Boolean = false)
 
     fun features(input: Input): List<String> {
         val out = ArrayList<String>(64)
         out += "__sender_${SenderKind.of(input.sender).wire}__"
+        senderNumber(input.sender)?.let(out::add)
         if (input.senderInContacts) out += CONTACT
         if (input.userHasMessagedSender) out += KNOWN
 
@@ -42,6 +43,17 @@ object Featurizer {
         words.forEach { out += "w:$it" }
         words.zipWithNext().forEach { (a, b) -> out += "b:$a $b" }
         return out
+    }
+
+    /** Toll-free numbers send business texts, never personal ones; foreign numbers often send scams. */
+    private fun senderNumber(sender: String): String? {
+        val digits = sender.filter(Char::isDigit)
+        return when {
+            sender.trim().startsWith("+") && !sender.trim().startsWith("+1") && digits.length >= 8 -> SENDER_INTERNATIONAL
+            digits.length == 11 && digits.startsWith("1") && digits.substring(1, 4) in TOLL_FREE -> SENDER_TOLL_FREE
+            digits.length == 10 && digits.substring(0, 3) in TOLL_FREE -> SENDER_TOLL_FREE
+            else -> null
+        }
     }
 
     /** Shapes that words alone miss: how a message opens, asks, pressures and lets you opt out. */
@@ -112,6 +124,9 @@ object Featurizer {
     private const val DECEPTIVE_HOST = "__deceptive_host__"
     private const val HYPHENATED_HOST = "__hyphenated_host__"
     private const val URL_PATH = "__url_path__"
+    private const val SENDER_TOLL_FREE = "__sender_toll_free__"
+    private const val SENDER_INTERNATIONAL = "__sender_international__"
+    private val TOLL_FREE = setOf("800", "833", "844", "855", "866", "877", "888")
     private const val OFFICIAL_DOMAIN = "__official_domain__"
     private const val OPT_OUT_FEATURE = "__opt_out__"
     private const val SELF_INTRO_FEATURE = "__self_intro__"
@@ -144,6 +159,8 @@ object Featurizer {
         "__sender_alphanumeric__" to "sent from a named sender",
         "__sender_email__" to "sent from an email address",
         OFFICIAL_DOMAIN to "a link to the company's real website",
+        SENDER_TOLL_FREE to "sent from a toll-free business number",
+        SENDER_INTERNATIONAL to "sent from an overseas number",
         OPT_OUT_FEATURE to "a “reply STOP” opt-out",
         SELF_INTRO_FEATURE to "a stranger introducing themselves",
         INTRO_WITH_ORG_FEATURE to "someone writing on behalf of a group",

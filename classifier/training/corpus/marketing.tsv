@@ -10,7 +10,7 @@ phone	Best Buy: Early Black Friday deals are live! TVs from $99.99. Shop now. Tx
 short	Chipotle: BOGO burritos today for Rewards members! Use code BOGO in the app. Reply STOP to unsubscribe
 short	Panera: Free pastry with any purchase this weekend for MyPanera members 🥐 Reply STOP to end
 short	Starbucks Rewards: Double Star Day is Thursday! Earn 2x Stars on every order.
-phone	Taco Bell: $5 Cravings Box is BACK. Order ahead in the app. STOP to end
+tollfree	Taco Bell: $5 Cravings Box is BACK. Order ahead in the app. STOP to end
 short	Macy's: Extra 25% off with code SAVE25. Plus free shipping on $49+. Reply STOP to opt-out
 short	Nordstrom: The Anniversary Sale ends Sunday! Shop now before it's gone.
 short	H&M: New arrivals just dropped 🛍️ Members get 10% off. Reply STOP to unsubscribe
@@ -22,7 +22,7 @@ phone	Home Depot: Save up to 40% on select appliances this week. Shop: homedepot
 short	Lowe's: Fall Savings event! Mulch 5 for $10. Reply STOP to end
 short	Petco: Your pet deserves a treat 🐶 Get 20% off your next order with code TREAT20. Reply STOP to stop
 short	PetSmart: Treats members save $10 on $50+ grooming this week. Reply STOP to end
-phone	Jersey Mike's: Buy one sub, get one FREE in the app today only! Reply STOP to quit
+tollfree	Jersey Mike's: Buy one sub, get one FREE in the app today only! Reply STOP to quit
 short	Subway: Footlong deal! Any footlong $6.99 with code 699FL. STOP to opt out
 short	DoorDash: $0 delivery fee on orders over $15 this weekend 🍔 Reply STOP to opt out
 short	Uber Eats: Craving something? Get 40% off your next 2 orders, up to $10 each. Txt STOP to end
@@ -34,7 +34,7 @@ phone	Jiffy Lube: $20 off a signature service oil change. Show this text. Reply 
 short	Valvoline: Save $15 on your next full synthetic oil change. Coupon: vioc.com/c Reply STOP to end
 short	AutoZone: Rewards members get double points this weekend. Txt STOP to stop
 short	Hello from Sunrise Toyota! Our fall sales event is here: 0% APR for 60 months on select models. Reply STOP to opt-out
-phone	Mattress Firm: Labor Day sale! Save up to $700 on Tempur-Pedic. Reply STOP to unsubscribe
+tollfree	Mattress Firm: Labor Day sale! Save up to $700 on Tempur-Pedic. Reply STOP to unsubscribe
 short	Crumbl: This week's flavors just dropped 🍪 Order now in the app! Reply STOP to end
 short	Sweetgreen: Your favorite bowl is $2 off today. Order ahead. Reply STOP to quit
 short	Dunkin': Free medium hot coffee with any purchase on Mondays this month for DD Perks members. STOP to end
@@ -46,7 +46,7 @@ phone	Hi, it's Mia from Bloom Florist! 🌸 Order your Mother's Day bouquet now 
 short	REI: The Anniversary Sale is on. Members get 20% off one full-price item. Reply STOP to opt out
 short	Dick's Sporting Goods: Score up to 50% off cleats this week. Reply STOP to end
 short	Foot Locker: The new Jordans drop Saturday at 10 AM. Reserve now in the app. Reply STOP to stop
-phone	Nike: Members get early access to the fall collection. Shop now. Reply STOP to opt-out
+tollfree	Nike: Members get early access to the fall collection. Shop now. Reply STOP to opt-out
 short	Adidas: Last chance! Extra 30% off sale styles ends tonight. Reply STOP to end
 short	Express: BOGO 50% off everything in store and online! Reply STOP to unsubscribe
 short	JCPenney: Take an extra $10 off $25 with code FALLDEAL. Reply STOP to end
@@ -58,7 +58,7 @@ phone	Walgreens: 25% off sitewide with code SAVE25. Reply STOP to unsubscribe
 short	Peloton: Get the Bike+ for $0 down and 0% APR. Limited time. Reply STOP to opt-out
 short	Planet Fitness: Join for $1 down this month! Reply STOP to end
 short	LA Fitness: Bring a friend free all October. Reply STOP to stop
-phone	Spotify: Get 3 months of Premium for $0. Offer ends soon. Reply STOP to opt out
+tollfree	Spotify: Get 3 months of Premium for $0. Offer ends soon. Reply STOP to opt out
 short	Hulu: Bundle Disney+, Hulu and ESPN+ for $14.99/mo. Reply STOP to end
 short	Verizon: Upgrade to the new iPhone and get up to $800 off with trade-in. Reply STOP to opt out
 short	T-Mobile Tuesdays: Free Wendy's Frosty this week in the app! Reply STOP to end
@@ -70,7 +70,7 @@ phone	Quick survey from Kaiser: How was your recent visit? Tap to answer 3 quest
 short	Tell us about your stay at Marriott and enter to win 50,000 points! Survey: mrt.us/s Reply STOP to opt out
 short	Hey there! Thanks for joining the Brew Lab texting list 🍺 Show this text for $2 off your first pint. Reply STOP to unsubscribe
 short	Trivia night is BACK at O'Malley's every Wednesday 7pm! Reply STOP to end
-phone	Your local Ace Hardware: 20% off one item this weekend for Rewards members. Reply STOP to opt-out
+tollfree	Your local Ace Hardware: 20% off one item this weekend for Rewards members. Reply STOP to opt-out
 short	Michaels: 40% off one regular price item. Code 40MICH. Reply STOP to end
 short	Joann: Fabric sale! Up to 60% off quilting cottons. Reply STOP to stop
 short	Barnes & Noble: Members get double points on all books this weekend. Reply STOP to unsubscribe
@@ -82,7 +82,7 @@ phone	Lands' End: 50% off one full-price item. Code: CHEERS. Reply STOP to end
 short	Cheesecake Factory: Celebrate National Cheesecake Day with half-price slices! Reply STOP to opt-out
 short	Buffalo Wild Wings: Boneless Thursday! BOGO wings dine-in only. Reply STOP to end
 short	Chili's: 3 for Me starting at $10.99. Order now. Reply STOP to stop
-phone	Applebee's: Get a Dollarita all month long! Reply STOP to end
+tollfree	Applebee's: Get a Dollarita all month long! Reply STOP to end
 short	Hello! Elm Street Pharmacy now offers flu shots, no appointment needed. Reply STOP to opt out
 short	Huge clearance this weekend at Bob's Discount Furniture! Save up to 50%. Reply STOP to end
 short	Morton's: Join us for Steak Week, 3 courses for $59. Reply STOP to unsubscribe
@@ -94,7 +94,7 @@ phone	Groupon: Today only, extra 20% off local deals with code SAVE20. Reply STO
 short	Yelp: Restaurants near you are offering deals tonight. Reply STOP to stop
 short	Ticketmaster: Presale for Coldplay starts tomorrow at 10am. Reply STOP to opt-out
 short	AMC Theatres: $5 Tuesdays are back. Reply STOP to end
-phone	Regal: Get a free large popcorn with your Crown Club membership this week. Reply STOP to unsubscribe
+tollfree	Regal: Get a free large popcorn with your Crown Club membership this week. Reply STOP to unsubscribe
 short	Southwest: Fares from $49 one way! Book by Thursday. Reply STOP to opt out
 short	JetBlue: Fall fares from $59 one way. Book now. Reply STOP to end
 short	Expedia: Save 25% on hotels when you bundle with a flight. Reply STOP to stop
@@ -105,7 +105,7 @@ short	Starbucks: Happy hour is back! Buy one, get one free handcrafted drinks af
 short	Chipotle: Double points on all orders this weekend. Order in the app.
 short	Ulta Beauty: Your favorite brands, 30% off. This week only.
 phone	Hi, it's Mike from Mike's Barbershop! We have openings this Saturday. Book: mikesbarbers.com/book Reply STOP to opt out
-phone	Hey there, it's Jen from Sparkle Car Wash 🚗 Unlimited washes $19.99/mo this month only! Reply STOP to unsubscribe
+tollfree	Hey there, it's Jen from Sparkle Car Wash 🚗 Unlimited washes $19.99/mo this month only! Reply STOP to unsubscribe
 phone	Hello from Green Leaf Landscaping! Fall cleanup specials are here. Call 555-0118 for a free estimate. Reply STOP to opt out
 phone	Hi! This is Sophie at Bella Nail Spa. Gel manicures $30 all week 💅 Reply STOP to end
 short	Kohl's: Take an extra 15% off with code SHOP15. Ends Monday.
@@ -173,3 +173,28 @@ short	Thanks for being a loyal customer! Enjoy $5 off your next visit to Sunny's
 short	How was your visit to Valley Ford? Take a 1-minute survey and get $10 off your next service: vford.co/s Reply STOP to end
 short	We'd love your feedback! Rate your experience with Comcast. Reply 1-5.
 short	Your opinion matters: Tell Kroger about your last visit and get 50 bonus points.
+short	Thanks for shopping with us! Here's 15% off your next purchase at Willow & Pine: code THANKS15
+phone	Hi, it's Laura from Main Street Bakery 🥐 Fresh sourdough every Saturday morning! See you soon
+short	Your exclusive member offer: free dessert with any entrée at Cedar Grill this week
+short	It's our birthday! Celebrate with 20% off everything at Riverside Books this weekend
+short	New flavors just landed at Swirl Frozen Yogurt 🍦 Come try them this week!
+short	Last call! Our end-of-season sale ends tonight at midnight. Shop now: summitoutdoor.com
+short	Treat yourself this weekend: 2-for-1 smoothies at Juice Junction, Saturday only
+phone	Hi from Peak Fitness! Bring a friend for free all month. See you at the gym 💪
+short	Early access for VIPs: our holiday collection drops tomorrow at 9am
+short	Your points are about to expire! Redeem them for a free coffee before 10/31
+short	We miss you! Here's $10 off your next order of $40 or more. Code: COMEBACK
+tollfree	Spectrum: Upgrade to Gig internet for just $10 more per month. Call 555-0162 to switch
+tollfree	Xfinity: Add Peacock Premium to your plan for free for 6 months. Reply YES to add
+short	Fall is here 🍂 Pumpkin spice everything at Brewed Awakening starting today
+short	Introducing our new loyalty app! Download and get a free pastry with your first order
+short	Weekend deal: oil change + tire rotation for $59.99 at Express Auto Care
+short	Book your holiday party with us! Private rooms available at The Oak Tavern
+short	Kids eat free every Tuesday at Rosie's Diner 🍔
+short	Flash deal: 40% off all candles for the next 4 hours only!
+short	Our spring catalog is here! Browse new arrivals at bloomgarden.com
+short	Thanks for your order! Rate your experience and get 100 bonus points
+short	Your cart misses you 🛒 Complete your purchase and enjoy free shipping
+short	Members-only: early access to Black Friday deals starts now
+short	New menu alert! Try our chef's seasonal tasting menu this month
+short	Holiday gift guide is live! Find something for everyone
