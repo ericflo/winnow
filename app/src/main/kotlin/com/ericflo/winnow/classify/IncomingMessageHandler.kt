@@ -11,6 +11,7 @@ import com.ericflo.winnow.classifier.message.InboundMessage
 import com.ericflo.winnow.classifier.message.SenderRule
 import com.ericflo.winnow.classifier.message.Verdict
 import com.ericflo.winnow.classifier.message.VerificationCodes
+import com.ericflo.winnow.data.Attachment
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.ConversationStateStore
 import com.ericflo.winnow.data.Tapback
@@ -44,6 +45,8 @@ class IncomingMessageHandler(
     private val notifier: Notifier,
     private val states: ConversationStateStore,
     private val visibleThread: StateFlow<Long?>,
+    /** Saves an attachment to the phone's gallery (see "Save received photos and videos"). */
+    private val saveToPhone: (Attachment) -> String? = { null },
 ) {
 
     suspend fun onSmsDelivered(address: String, body: String, sentAt: Long, subscriptionId: Int) {
@@ -64,7 +67,9 @@ class IncomingMessageHandler(
     suspend fun onMmsStored(uri: Uri, threadId: Long, sender: String, recipients: List<String>, text: String, mediaTypes: List<String>) {
         val preview = text.ifBlank { attachmentSummary(mediaTypes) }
         // A media-only message still gets classified, on what little it says.
-        route(uri, ChatMessage.Kind.MMS, threadId, sender, recipients, text.ifBlank { "[photo]" }, preview)
+        val action = route(uri, ChatMessage.Kind.MMS, threadId, sender, recipients, text.ifBlank { "[photo]" }, preview)
+        // Into the gallery if the user asked, and only what reached the inbox: never a filtered or silenced one's.
+        if (action == Action.ALLOW && settings.current().autoSaveMedia) withContext(Dispatchers.IO) { saveMedia(uri) }
     }
 
     /**
@@ -105,7 +110,7 @@ class IncomingMessageHandler(
         recipients: List<String>,
         text: String,
         preview: String,
-    ) {
+    ): Action {
         val verdict = try {
             withTimeout(BUDGET_MILLIS) { classify(sender, text, threadId) }
         } catch (e: TimeoutCancellationException) {
@@ -128,7 +133,7 @@ class IncomingMessageHandler(
         if (action != Action.FILTER && visibleThread.value == threadId) {
             // The user is looking at this conversation: no heads-up, and it's already read.
             withContext(Dispatchers.IO) { markRead(uri) }
-            return
+            return action
         }
         when (action) {
             Action.ALLOW -> if (!states.get(threadId).isMuted()) {
@@ -147,6 +152,23 @@ class IncomingMessageHandler(
             }
             Action.SILENCE -> Unit
             Action.FILTER -> withContext(Dispatchers.IO) { markRead(uri) }
+        }
+        return action
+    }
+
+    /** The photos and videos of the MMS at [uri], each saved to the phone. */
+    private fun saveMedia(uri: Uri) {
+        val id = ContentUris.parseId(uri)
+        context.contentResolver.query(
+            Telephony.Mms.Part.CONTENT_URI,
+            arrayOf(Telephony.Mms.Part._ID, Telephony.Mms.Part.CONTENT_TYPE, Telephony.Mms.Part.NAME),
+            "${Telephony.Mms.Part.MSG_ID} = ? AND (${Telephony.Mms.Part.CONTENT_TYPE} LIKE 'image/%' OR ${Telephony.Mms.Part.CONTENT_TYPE} LIKE 'video/%')",
+            arrayOf(id.toString()), null,
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val part = Attachment(ContentUris.withAppendedId(Telephony.Mms.Part.CONTENT_URI, c.getLong(0)).toString(), c.getString(1).orEmpty(), c.getString(2))
+                runCatching { saveToPhone(part) }.onFailure { Log.w(TAG, "Couldn't save a received photo", it) }
+            }
         }
     }
 

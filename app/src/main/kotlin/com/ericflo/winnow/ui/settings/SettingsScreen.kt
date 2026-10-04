@@ -272,6 +272,14 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                 )
             }
             item("quick-replies") { QuickRepliesRow(s.quickReplies, viewModel::setQuickReplies) }
+            item("auto-save-media") {
+                SwitchRow(
+                    "Save received photos and videos",
+                    "To the phone's Pictures and Movies, for texts that reach your inbox. Never for filtered or silenced ones.",
+                    s.autoSaveMedia,
+                    onChange = viewModel::setAutoSaveMedia,
+                )
+            }
             item("link-previews") {
                 SwitchRow(
                     "Link previews",

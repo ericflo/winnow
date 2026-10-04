@@ -61,6 +61,7 @@ data class SettingsBackup(
     val autoDownloadMmsRoaming: Boolean = false,
     val linkPreviews: Boolean = false,
     val enterToSend: Boolean = false,
+    val autoSaveMedia: Boolean = false,
     /** Null in backups made before quick replies existed: the phone keeps its own. */
     val quickReplies: List<String>? = null,
 )

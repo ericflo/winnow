@@ -121,6 +121,8 @@ data class WinnowSettings(
     val autoDownloadMmsRoaming: Boolean = false,
     /** Enter sends instead of starting a new line (Shift+Enter still does), for hardware keyboards. */
     val enterToSend: Boolean = false,
+    /** Save received photos and videos to the phone's gallery, for texts that reach the inbox. */
+    val autoSaveMedia: Boolean = false,
     /** Canned replies: in the composer's attach menu, and as one-tap choices on notifications. */
     val quickReplies: List<String> = DEFAULT_QUICK_REPLIES,
     /** Fetch link previews for texts from people you know. Off by default: fetching tells the site your IP. */
@@ -202,6 +204,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             autoDownloadMmsRoaming = this[AUTO_DOWNLOAD_MMS_ROAMING] ?: false,
             linkPreviews = this[LINK_PREVIEWS] ?: false,
             enterToSend = this[ENTER_TO_SEND] ?: false,
+            autoSaveMedia = this[AUTO_SAVE_MEDIA] ?: false,
             quickReplies = this[QUICK_REPLIES]?.let { runCatching { Json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrNull() } ?: DEFAULT_QUICK_REPLIES,
             autoBackupFolder = this[AUTO_BACKUP_FOLDER],
             autoBackupLast = this[AUTO_BACKUP_LAST] ?: 0,
@@ -244,6 +247,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[AUTO_DOWNLOAD_MMS_ROAMING] = s.autoDownloadMmsRoaming
         this[LINK_PREVIEWS] = s.linkPreviews
         this[ENTER_TO_SEND] = s.enterToSend
+        this[AUTO_SAVE_MEDIA] = s.autoSaveMedia
         this[QUICK_REPLIES] = Json.encodeToString(ListSerializer(String.serializer()), s.quickReplies)
         s.autoBackupFolder?.let { this[AUTO_BACKUP_FOLDER] = it } ?: remove(AUTO_BACKUP_FOLDER)
         this[AUTO_BACKUP_LAST] = s.autoBackupLast
@@ -278,6 +282,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val LINK_PREVIEWS = booleanPreferencesKey("messages.link_previews")
         val ENTER_TO_SEND = booleanPreferencesKey("compose.enter_to_send")
         val QUICK_REPLIES = stringPreferencesKey("compose.quick_replies")
+        val AUTO_SAVE_MEDIA = booleanPreferencesKey("mms.auto_save_media")
         val AUTO_BACKUP_FOLDER = stringPreferencesKey("backup.auto_folder")
         val AUTO_BACKUP_LAST = longPreferencesKey("backup.auto_last")
         val AUTO_BACKUP_ERROR = stringPreferencesKey("backup.auto_error")

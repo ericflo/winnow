@@ -218,7 +218,7 @@ class AppContainer(private val context: Context) {
     }
 
     val incoming by lazy {
-        IncomingMessageHandler(context, verdictDao, contacts, settings, classifiers, notifier, conversationStates, visibleThread)
+        IncomingMessageHandler(context, verdictDao, contacts, settings, classifiers, notifier, conversationStates, visibleThread, saveToPhone = mediaExport::save)
     }
 
     /** The SIM a new message to [threadId] should go out on; null for Android's default. */
