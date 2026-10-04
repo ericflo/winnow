@@ -27,8 +27,9 @@ provider, but Winnow depends only on a small decision interface. You can switch 
 service, your own server, any OpenAI-compatible model, or rules that run entirely on the
 phone.
 
-> Screenshots use Winnow's built-in sample conversations. Every name and number is fictional
-> (555-01xx), and the "Classified by Jev" verdicts in them are part of that sample data.
+> Screenshots were taken on an emulator with made-up conversations. Every name and number is
+> fictional (555-01xx), and the "Classified by Jev" verdicts in them are part of that test data.
+> The app itself never ships sample data: a fresh install is empty until it's your SMS app.
 
 ## What it does
 
@@ -332,6 +333,16 @@ It also **learns from your corrections**. "Not spam" or "Filter sender" teaches 
 that message's content, so similar texts from other senders follow; a sender rule only
 covers the one sender. Only hashed word fingerprints are kept, never the message, and
 Settings → **Forget** undoes all of it.
+
+## Install on a phone
+
+1. In Google Messages, turn RCS off (Settings → RCS chats); see [RCS](#rcs) below.
+2. Download `winnow-X.Y.Z.apk` from the [latest release](https://github.com/ericflo/winnow/releases)
+   and open it. Allow installs from your browser when Android asks.
+3. Open Winnow and tap **Set as default SMS app**. On Android 15 and later, a browser-installed
+   app is refused the first time ("App was denied access to be default SMS app"). Open App info
+   (Winnow links to it), tap ⋮ at the top right, choose **Allow restricted settings**, then go
+   back and tap Set as default again. Every text already on the phone appears straight away.
 
 ## RCS
 

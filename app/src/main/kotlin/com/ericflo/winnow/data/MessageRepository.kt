@@ -122,8 +122,8 @@ fun displayNameFor(recipients: List<String>, single: (String) -> String): String
 }
 
 /**
- * Serves the real SMS store once Winnow can read it, and sample conversations before that
- * (fresh install, emulator, screenshots).
+ * Serves the real SMS store once Winnow can read it, and nothing before that (see
+ * NoAccessMessageRepository).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SwitchingMessageRepository(

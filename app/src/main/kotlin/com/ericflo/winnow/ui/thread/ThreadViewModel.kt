@@ -922,7 +922,7 @@ class ThreadViewModel(
         if (separately && recipients.size > 1) return deliverSeparately(text, files, sim, subject)
         try {
             repo.send(recipients, text, files, sim, subject)
-            // Sent: the message holds its own copy of any recording now (sample conversations don't).
+            // Sent: the message holds its own copy of any recording now.
             if (container.isLive.value) files.forEach(recorder::discard)
         } catch (e: CancellationException) {
             throw e

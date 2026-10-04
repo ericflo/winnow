@@ -1,5 +1,13 @@
 package com.ericflo.winnow.ui
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.EnterTransition
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -184,7 +192,19 @@ fun WinnowNavHost(
 
     // Every Back below is dropUnlessResumed: a second tap during the exit animation would
     // otherwise pop the screen underneath too, down to an empty, blank app.
-    NavHost(navController = nav, startDestination = if (onboarded) InboxRoute else OnboardingRoute) {
+    // Screens slide a little and fade, as Android's own apps move between screens, for Back
+    // and the back gesture alike. NavHost's default back gesture shrinks the screen instead,
+    // which looked broken on a phone.
+    NavHost(
+        navController = nav,
+        startDestination = if (onboarded) InboxRoute else OnboardingRoute,
+        enterTransition = { forwardEnter() },
+        exitTransition = { forwardExit() },
+        popEnterTransition = { backEnter() },
+        popExitTransition = { backExit() },
+        predictivePopEnterTransition = { backEnter() },
+        predictivePopExitTransition = { backExit() },
+    ) {
         composable<OnboardingRoute> {
             OnboardingScreen(
                 isDefault = container::isDefaultSmsApp,
@@ -478,3 +498,22 @@ private suspend fun openInPane(route: ThreadRoute, nav: NavHostController, pane:
     else pane.open(threadId, route.recipients)
     return true
 }
+
+/** How long a move between screens takes, and its curve: Material's emphasized decelerate. */
+private const val NAV_MILLIS = 300
+private val NavEasing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+
+/** How far a screen slides as it comes or goes: a short nudge, not a whole width. */
+private fun nudge(width: Int) = width / 10
+
+private fun forwardEnter(): EnterTransition =
+    slideInHorizontally(tween(NAV_MILLIS, easing = NavEasing)) { nudge(it) } + fadeIn(tween(NAV_MILLIS, easing = NavEasing))
+
+private fun forwardExit(): ExitTransition =
+    slideOutHorizontally(tween(NAV_MILLIS, easing = NavEasing)) { -nudge(it) } + fadeOut(tween(NAV_MILLIS / 2))
+
+private fun backEnter(): EnterTransition =
+    slideInHorizontally(tween(NAV_MILLIS, easing = NavEasing)) { -nudge(it) } + fadeIn(tween(NAV_MILLIS, easing = NavEasing))
+
+private fun backExit(): ExitTransition =
+    slideOutHorizontally(tween(NAV_MILLIS, easing = NavEasing)) { nudge(it) } + fadeOut(tween(NAV_MILLIS / 2))

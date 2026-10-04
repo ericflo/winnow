@@ -6,19 +6,14 @@ import android.content.pm.PackageManager
 import android.provider.ContactsContract.CommonDataKinds.Email
 import android.provider.ContactsContract.CommonDataKinds.Phone
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
 data class ContactEntry(val name: String, val number: String, val photoUri: String? = null)
 
-/**
- * Contacts for New chat, by phone number and by email address (an MMS can go to either); sample
- * contacts while the app shows sample conversations.
- */
-class ContactsSource(private val context: Context, private val isLive: StateFlow<Boolean>) {
+/** Contacts for New chat, by phone number and by email address (an MMS can go to either). */
+class ContactsSource(private val context: Context) {
 
     suspend fun all(): List<ContactEntry> {
-        if (!isLive.value) return DEMO
         if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return emptyList()
         return withContext(Dispatchers.IO) {
             val phones = read(Phone.CONTENT_URI, Phone.DISPLAY_NAME, Phone.NUMBER, Phone.PHOTO_THUMBNAIL_URI)
@@ -39,13 +34,4 @@ class ContactsSource(private val context: Context, private val isLive: StateFlow
                 }
             }
         }.orEmpty()
-
-    private companion object {
-        val DEMO = listOf(
-            ContactEntry("Alex Chen", "+15555550103"),
-            ContactEntry("Mom", "+15555550101"),
-            ContactEntry("Priya Natarajan", "+15555550104"),
-            ContactEntry("Sam Rivera", "+15555550102"),
-        )
-    }
 }

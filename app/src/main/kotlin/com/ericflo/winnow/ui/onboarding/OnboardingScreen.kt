@@ -45,6 +45,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.ericflo.winnow.ui.components.RestrictedSettingHelp
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -175,6 +176,7 @@ private fun BeDefault(isDefault: Boolean, onMakeDefault: () -> Unit, backups: Ba
             RestoreCard(backups)
         } else {
             Button(onClick = onMakeDefault) { Text("Set as default SMS app") }
+            RestrictedSettingHelp()
         }
     }
 }

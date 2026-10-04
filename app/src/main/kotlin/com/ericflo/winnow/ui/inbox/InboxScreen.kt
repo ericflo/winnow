@@ -80,12 +80,14 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.ListItem
+import com.ericflo.winnow.ui.components.RestrictedSettingHelp
 import com.ericflo.winnow.ui.components.AttachmentThumbnail
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
@@ -165,6 +167,9 @@ fun InboxScreen(
     var swipedToDelete by remember { mutableStateOf<Long?>(null) }
     val swipes by viewModel.swipes.collectAsStateWithLifecycle()
     var makeDefaultDismissed by rememberSaveable { mutableStateOf(false) }
+    var alertsOffDismissed by rememberSaveable { mutableStateOf(false) }
+    val alertsOff by viewModel.alertsOff.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val atTop by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
     val farDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 6 } }
     // The search field shows what's typed straight from here: echoed back through the
@@ -262,6 +267,16 @@ fun InboxScreen(
                         }
                         if (!state.live && !makeDefaultDismissed) {
                             item("make-default") { MakeDefaultCard(onMakeDefault, onDismiss = { makeDefaultDismissed = true }) }
+                        }
+                        // Texts arriving without a sound or a notification at all: worth saying every time the inbox opens.
+                        // Only once Winnow is the SMS app: before that, the old app still sounds the alerts.
+                        if (state.live && state.isDefault && alertsOff && !alertsOffDismissed) {
+                            item("alerts-off") {
+                                AlertsOffCard(
+                                    onTurnOn = { runCatching { context.startActivity(viewModel.alertSettingsIntent()) } },
+                                    onDismiss = { alertsOffDismissed = true },
+                                )
+                            }
                         }
                         item("review") {
                             ReviewInboxCard(state.review, state.classifier, onStart = viewModel::startReview, onDismiss = viewModel::dismissReview)
@@ -823,6 +838,31 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit, onClose: (
 }
 
 @Composable
+private fun AlertsOffCard(onTurnOn: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text("Notifications are off", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onErrorContainer)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "New texts arrive without a sound or a notification, even from people you know.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onTurnOn) { Text("Turn on") }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = onDismiss) { Text("Not now") }
+            }
+        }
+    }
+}
+
+@Composable
 private fun MakeDefaultCard(onMakeDefault: () -> Unit, onDismiss: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -833,7 +873,7 @@ private fun MakeDefaultCard(onMakeDefault: () -> Unit, onDismiss: () -> Unit) {
             Text("Make Winnow your SMS app", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Winnow can only filter messages as your default SMS app. Until then you're looking at sample conversations.",
+                "Your texts appear here once Winnow is your default SMS app: until then Android doesn't let it read them.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(12.dp))
@@ -842,6 +882,7 @@ private fun MakeDefaultCard(onMakeDefault: () -> Unit, onDismiss: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onDismiss) { Text("Not now") }
             }
+            RestrictedSettingHelp(Modifier.padding(top = 12.dp))
         }
     }
 }

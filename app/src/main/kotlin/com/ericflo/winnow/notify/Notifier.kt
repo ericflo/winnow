@@ -616,6 +616,26 @@ class Notifier(
 
     private fun notificationId(threadId: Long) = threadId.toInt()
 
+    /**
+     * Whether a new text can't alert the user: notifications for Winnow are off (or never
+     * allowed), or its messages channel is. Checked as the inbox shows, since either can
+     * change in Android's settings at any time.
+     */
+    fun alertsOff(): Boolean {
+        if (!manager.areNotificationsEnabled()) return true
+        return manager.getNotificationChannel(CHANNEL_MESSAGES)?.importance == NotificationManager.IMPORTANCE_NONE
+    }
+
+    /** Where to turn alerts back on: the app's notification settings, or the messages channel's if only it is off. */
+    fun alertSettingsIntent(): Intent =
+        if (manager.areNotificationsEnabled()) {
+            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL_MESSAGES)
+        } else {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        }
+
     private companion object {
         /** A shortcut's adaptive icon is 432 pixels across. */
         const val ICON_EDGE_PX = 432

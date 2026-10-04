@@ -25,7 +25,7 @@ import com.ericflo.winnow.data.BlockedNumbers
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.ContactsSource
 import com.ericflo.winnow.data.ConversationStateStore
-import com.ericflo.winnow.data.DemoMessageRepository
+import com.ericflo.winnow.data.NoAccessMessageRepository
 import com.ericflo.winnow.data.MediaExport
 import com.ericflo.winnow.data.MessageRepository
 import com.ericflo.winnow.data.OwnNumbers
@@ -225,7 +225,7 @@ class AppContainer(private val context: Context) {
 
     private val access = MutableStateFlow(hasSmsAccess())
 
-    /** True once Winnow can read the real SMS store; until then the UI shows sample conversations. */
+    /** True once Winnow can read the real SMS store; until then there's nothing to show. */
     val isLive: StateFlow<Boolean> = access
 
     val messages: MessageRepository by lazy {
@@ -236,15 +236,15 @@ class AppContainer(private val context: Context) {
                 onCorrected = { threadId, message, action -> learner.learn(threadId, message, action) },
                 onUncorrected = { threadId -> learner.unlearn(threadId) },
             ),
-            demo = DemoMessageRepository(context.packageName),
+            demo = NoAccessMessageRepository(),
             isLive = access,
         )
     }
 
-    val contactsSource by lazy { ContactsSource(context, access) }
+    val contactsSource by lazy { ContactsSource(context) }
     val blockedNumbers by lazy { BlockedNumbers(context) }
     val historyReviewer by lazy { HistoryReviewer(context, appScope, verdictDao, contacts, settings, classifiers) }
-    // Scheduled texts only ever go out through the real store, never the sample conversations.
+    // Scheduled texts only ever go out through the real store, once Winnow is the SMS app.
     val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages.takeIf { isDefaultSmsApp() } } }
 
     /** Settings → Clear out old filtered texts. */
@@ -337,10 +337,17 @@ class AppContainer(private val context: Context) {
 
     fun isDefaultSmsApp(): Boolean = context.getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_SMS)
 
+    /**
+     * Asked to be the default SMS app, and still isn't: the user said no, or (Android 15+, an app
+     * installed from a browser) Android refused it as a restricted setting. See RestrictedSettingHelp.
+     */
+    val defaultRefused = MutableStateFlow(false)
+
     /** Call after permission or role changes. */
     fun refreshAccess() {
         contacts.permissionsChanged()
         access.value = hasSmsAccess()
+        if (isDefaultSmsApp()) defaultRefused.value = false
     }
 
     private fun hasSmsAccess(): Boolean =

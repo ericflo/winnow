@@ -196,9 +196,16 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         container.dismissedNudges.dismiss(Nudge.key(conversation, kind, startOfToday))
     }
 
+    private val _alertsOff = MutableStateFlow(false)
+    /** New texts can't alert the user: Winnow's notifications, or its message channel, are turned off. */
+    val alertsOff: StateFlow<Boolean> = _alertsOff.asStateFlow()
+
+    fun alertSettingsIntent(): android.content.Intent = container.notifier.alertSettingsIntent()
+
     fun refresh() {
         isDefault.value = container.isDefaultSmsApp()
         if (mode == ListMode.INBOX) container.historyReviewer.refresh()
+        _alertsOff.value = container.notifier.alertsOff()
     }
 
     fun startReview() = container.historyReviewer.start()

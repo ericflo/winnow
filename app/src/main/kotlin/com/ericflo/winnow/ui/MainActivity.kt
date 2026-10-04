@@ -45,6 +45,7 @@ class MainActivity : ComponentActivity() {
 
     private val roleRequest = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         container.refreshAccess()
+        container.defaultRefused.value = !container.isDefaultSmsApp()
         requestCompanionPermissions()
     }
 
