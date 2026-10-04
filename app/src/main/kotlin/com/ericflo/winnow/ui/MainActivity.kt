@@ -7,7 +7,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.net.Uri
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import com.ericflo.winnow.ui.lock.LockActivity
 import com.ericflo.winnow.ui.lock.LockScreen
 import com.ericflo.winnow.ui.lock.AppLock
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -33,8 +35,7 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { (application as WinnowApp).container }
-    /** A screen to open from an intent: a [ThreadRoute] or a [NewChatRoute]. */
-    private val pendingRoute = MutableStateFlow<Any?>(null)
+    private val pendingRoute get() = container.pendingRoute
 
     private val roleRequest = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         container.refreshAccess()
@@ -58,14 +59,23 @@ class MainActivity : ComponentActivity() {
             // A force-stop cancels alarms without a reboot to re-arm them.
             container.scheduler.rearmAll()
         }
-        // With app lock on, recents shows a blank card instead of the conversation list.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            lifecycleScope.launch { appLock.enabled.collect { setRecentsScreenshotEnabled(!it) } }
+        // With app lock on, recents shows a blank card instead of the conversation list. Android 12
+        // has no per-app switch for that, so there it's FLAG_SECURE (which also blocks screenshots).
+        lifecycleScope.launch {
+            appLock.enabled.collect { on ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    setRecentsScreenshotEnabled(!on)
+                } else if (on) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+            }
         }
         setContent {
             WinnowTheme {
                 val lock by appLock.state.collectAsStateWithLifecycle()
-                LaunchedEffect(lock) { if (lock == AppLock.State.LOCKED) appLock.authenticate(this@MainActivity) }
+                LaunchedEffect(lock) { if (lock == AppLock.State.LOCKED) startActivity(Intent(this@MainActivity, LockActivity::class.java)) }
                 Box(Modifier.fillMaxSize()) {
                     WinnowNavHost(
                         container = container,
@@ -73,9 +83,8 @@ class MainActivity : ComponentActivity() {
                         onRouteConsumed = { pendingRoute.value = null },
                         onMakeDefault = ::requestDefaultSmsRole,
                     )
-                    if (lock != AppLock.State.UNLOCKED) {
-                        LockScreen(checking = lock == AppLock.State.CHECKING, onUnlock = { appLock.authenticate(this@MainActivity) })
-                    }
+                    // Until settings say whether the lock is on, cover the app. LockActivity covers it after that.
+                    if (lock == AppLock.State.CHECKING) LockScreen(checking = true, onUnlock = {})
                 }
             }
         }
@@ -154,11 +163,13 @@ class MainActivity : ComponentActivity() {
         } else {
             listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
         }
-        lifecycleScope.launch {
-            val attachments = withContext(Dispatchers.IO) { streams.mapNotNull { container.sharedFiles.import(it, intent.type) } }
+        val type = intent.type
+        // The app scope, not this activity's: a rotation mid-copy mustn't drop the share.
+        container.appScope.launch {
+            val attachments = withContext(Dispatchers.IO) { streams.mapNotNull { container.sharedFiles.import(it, type) } }
             if (text.isBlank() && attachments.isEmpty()) return@launch
-            container.pendingShare.value = attachments
-            pendingRoute.value = NewChatRoute(draft = text, shared = attachments.isNotEmpty())
+            // The copied files ride in the route itself, which survives the process being killed.
+            pendingRoute.value = NewChatRoute(draft = text, attachments = SharedAttachments.encode(attachments))
         }
     }
 

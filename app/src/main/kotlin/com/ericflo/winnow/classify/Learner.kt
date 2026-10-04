@@ -62,11 +62,16 @@ class Learner(private val dao: CorrectionDao, private val settings: SettingsRepo
     }
 
     private suspend fun retrain(): OnDeviceClassifier = lock.withLock {
-        val classes = LocalModel.bundled.classes
-        val corrections = dao.all().mapNotNull { e ->
-            val label = classes.indexOf(e.label).takeIf { it >= 0 && e.featurizerVersion == Featurizer.VERSION } ?: return@mapNotNull null
-            Correction(e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray(), label)
-        }
-        withContext(Dispatchers.Default) { base.learn(corrections) }.also { trained = it }
+        val rows = dao.all()
+        withContext(Dispatchers.Default) {
+            // Loading the model happens here too, off the main thread.
+            val classes = LocalModel.bundled.classes
+            val corrections = rows.mapNotNull { e ->
+                val label = classes.indexOf(e.label).takeIf { it >= 0 && e.featurizerVersion == Featurizer.VERSION } ?: return@mapNotNull null
+                Correction(e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray(), label)
+            }
+            // A bad correction must never stop classification: fall back to the bundled model.
+            runCatching { base.learn(corrections) }.getOrElse { base }
+        }.also { trained = it }
     }
 }

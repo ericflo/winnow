@@ -91,6 +91,7 @@ import androidx.compose.runtime.DisposableEffect
 import com.ericflo.winnow.ui.components.VideoViewer
 import com.ericflo.winnow.ui.components.VideoAttachment
 import com.ericflo.winnow.ui.components.AudioPlayer
+import com.ericflo.winnow.ui.components.AttachmentThumbnail
 import com.ericflo.winnow.ui.components.AudioAttachment
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -115,6 +116,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.ericflo.winnow.R
@@ -176,6 +178,7 @@ fun ThreadScreen(
     val appContext = LocalContext.current.applicationContext
     val audio = remember { AudioPlayer(appContext) }
     DisposableEffect(audio) { onDispose { audio.release() } }
+    LifecycleStartEffect(audio) { onStopOrDispose { audio.pause() } }
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
@@ -512,7 +515,7 @@ private fun foldTapbacks(messages: List<ChatMessage>): Pair<List<ChatMessage>, M
         val tapback = Tapback.parse(m.body)
         val target = tapback?.let { t ->
             shown.lastOrNull { prior ->
-                if (t.quoted == "an image") prior.attachments.any { it.isImage } else t.matches(prior.body)
+                t.matchesAttachments(prior.attachments.map { it.contentType }) ?: t.matches(prior.body)
             }
         }
         if (tapback == null || target == null) {
@@ -947,11 +950,11 @@ private fun Composer(
             ) {
                 items(attachments, key = { it.uri }) { attachment ->
                     Box {
-                        AsyncImage(
-                            model = attachment.uri,
-                            contentDescription = "Attachment",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.size(88.dp).clip(RoundedCornerShape(16.dp)),
+                        AttachmentThumbnail(
+                            attachment.uri,
+                            attachment.contentType,
+                            attachment.name,
+                            Modifier.size(88.dp).clip(RoundedCornerShape(16.dp)),
                         )
                         // A plain circle, not an IconButton, which would grow itself to a 48dp target and cover the photo.
                         Box(

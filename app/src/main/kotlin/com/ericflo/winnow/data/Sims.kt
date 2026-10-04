@@ -62,7 +62,10 @@ class SimCards(private val context: Context, private val debugFlags: () -> Boole
      * The subscription to hand to SmsManager, or null for its default. The simulated SIM sends
      * through the default one, so debug builds still go out the emulator's virtual modem.
      */
-    fun forSending(subscriptionId: Int?): Int? = subscriptionId?.takeIf { it != SIMULATED_ID && it != SubscriptionManager.INVALID_SUBSCRIPTION_ID }
+    fun forSending(subscriptionId: Int?): Int? = subscriptionId
+        ?.takeIf { it != SIMULATED_ID && it != SubscriptionManager.INVALID_SUBSCRIPTION_ID }
+        // A SIM that's gone (swapped, or an old eSIM) has no slot: use the default instead.
+        ?.takeIf { SubscriptionManager.getSlotIndex(it) != SubscriptionManager.INVALID_SIM_SLOT_INDEX }
 
     private fun canList() = context.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
 

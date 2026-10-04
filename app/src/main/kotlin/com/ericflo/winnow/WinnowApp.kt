@@ -86,8 +86,12 @@ class AppContainer(private val context: Context) {
         appScope.launch { settings.settings.collect { lock.update(it.appLock && deviceIsSecure()) } }
     }
 
-    /** Photos shared into Winnow, waiting for the user to pick a conversation. */
-    val pendingShare = MutableStateFlow<List<OutgoingAttachment>>(emptyList())
+    /**
+     * A screen an intent asked for (a [com.ericflo.winnow.ui.ThreadRoute] or
+     * [com.ericflo.winnow.ui.NewChatRoute]). Process-wide, so a share still being copied when the
+     * screen rotates reaches the recreated activity.
+     */
+    val pendingRoute = MutableStateFlow<Any?>(null)
 
     /** The conversation on screen right now, which shouldn't raise notifications for itself. */
     val visibleThread = MutableStateFlow<Long?>(null)

@@ -19,6 +19,12 @@ class SharedFiles(private val context: Context) {
 
     /** [fallbackType] is the share intent's own type, for providers that won't say; a wildcard like image/any gets a typical type. */
     fun import(uri: Uri, fallbackType: String? = null): OutgoingAttachment? {
+        // Only another app's content. file:// (which would read with Winnow's own permissions,
+        // its private files included) and the message stores Winnow alone can read are refused.
+        if (uri.scheme != "content" || uri.authority in privateAuthorities()) {
+            Log.w(TAG, "Refused a shared item from $uri")
+            return null
+        }
         val resolver = context.contentResolver
         val type = runCatching { resolver.getType(uri) }.getOrNull()
             ?: fallbackType?.takeIf { !it.endsWith("/*") }
@@ -35,6 +41,8 @@ class SharedFiles(private val context: Context) {
         }.onFailure { Log.w(TAG, "Couldn't read a shared $type", it) }.getOrDefault(false)
         return if (copied) OutgoingAttachment(Uri.fromFile(file).toString(), type, name) else null
     }
+
+    private fun privateAuthorities() = setOf("${context.packageName}.mms", "mms", "sms", "mms-sms")
 
     private companion object {
         const val TAG = "WinnowShare"

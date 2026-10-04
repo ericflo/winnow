@@ -11,7 +11,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.ericflo.winnow.AppContainer
-import kotlinx.coroutines.flow.getAndUpdate
 import com.ericflo.winnow.ui.activity.ActivityScreen
 import com.ericflo.winnow.ui.activity.ActivityViewModel
 import com.ericflo.winnow.data.joinAddresses
@@ -37,6 +36,9 @@ import com.ericflo.winnow.ui.thread.ThreadViewModel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import com.ericflo.winnow.data.OutgoingAttachment
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 
 /** Where US carriers collect forwarded spam ("SPAM" on a keypad). */
 const val CARRIER_SPAM_SHORT_CODE = "7726"
@@ -56,8 +58,8 @@ data class ThreadRoute(
     val threadId: Long,
     val recipients: String,
     val draft: String = "",
-    /** Attach the photos waiting in [AppContainer.pendingShare]. */
-    val shared: Boolean = false,
+    /** Shared photos or videos to attach, as [SharedAttachments.encode] wrote them. */
+    val attachments: String = "",
 )
 
 @Serializable
@@ -86,7 +88,20 @@ data object StarredRoute
 
 /** [draft] carries a forwarded message into the conversation the user picks. */
 @Serializable
-data class NewChatRoute(val draft: String = "", val shared: Boolean = false)
+data class NewChatRoute(val draft: String = "", val attachments: String = "")
+
+/** Shared attachments as one route argument, since routes take simple values. */
+object SharedAttachments {
+    @Serializable
+    private data class Item(val uri: String, val type: String, val name: String? = null)
+
+    fun encode(items: List<OutgoingAttachment>): String =
+        if (items.isEmpty()) "" else Json.encodeToString(ListSerializer(Item.serializer()), items.map { Item(it.uri, it.contentType, it.name) })
+
+    fun decode(value: String): List<OutgoingAttachment> =
+        if (value.isEmpty()) emptyList()
+        else runCatching { Json.decodeFromString(ListSerializer(Item.serializer()), value) }.getOrDefault(emptyList()).map { OutgoingAttachment(it.uri, it.type, it.name) }
+}
 
 @Composable
 fun WinnowNavHost(
@@ -168,7 +183,7 @@ fun WinnowNavHost(
                 viewModel = viewModel { NewChatViewModel(container) },
                 onBack = { nav.popBackStack() },
                 onStart = { recipients ->
-                    nav.navigate(ThreadRoute(-1, joinAddresses(recipients), route.draft, route.shared)) {
+                    nav.navigate(ThreadRoute(-1, joinAddresses(recipients), route.draft, route.attachments)) {
                         popUpTo<NewChatRoute> { inclusive = true }
                     }
                 },
@@ -182,7 +197,7 @@ fun WinnowNavHost(
                 viewModel = viewModel(key = "thread:${route.threadId}:${route.recipients}") {
                     ThreadViewModel(container, route.threadId, splitAddresses(route.recipients)).also { vm ->
                         if (route.draft.isNotEmpty()) vm.setDraft(route.draft)
-                        if (route.shared) container.pendingShare.getAndUpdate { emptyList() }.forEach(vm::addAttachment)
+                        SharedAttachments.decode(route.attachments).forEach(vm::addAttachment)
                     }
                 },
                 onBack = { nav.popBackStack() },

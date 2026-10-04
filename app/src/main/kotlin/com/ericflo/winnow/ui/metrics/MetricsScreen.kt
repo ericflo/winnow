@@ -84,8 +84,9 @@ class MetricsViewModel(container: AppContainer) : ViewModel() {
         container.verdictDao.observeAll(),
     ) { metrics, verdicts ->
         // Rules (contacts, codes, sender rules) aren't classifications, so they don't count either way.
-        val decided = verdicts.filter { it.sourceKind != "rule" }
-        val corrected = decided.filter { it.userAction != null && it.userAction != it.action }
+        // Counted per conversation: a correction applies to every verdict in its thread at once.
+        val decided = verdicts.filter { it.sourceKind != "rule" }.groupBy { it.threadId }
+        val corrected = decided.mapNotNull { (_, rows) -> rows.firstOrNull { it.userAction != null && it.userAction != it.action } }
         MetricsUiState(
             metrics = metrics,
             agreement = Agreement(
@@ -428,12 +429,12 @@ private fun AgreementCard(a: Agreement) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 ScoreGauge(a.agreement, "agreement", size = 120.dp, format = { "${(it * 100).roundToInt()}%" })
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("${count(a.decisions)} texts classified", style = MaterialTheme.typography.titleSmall)
+                    Text("${count(a.decisions)} conversations classified", style = MaterialTheme.typography.titleSmall)
                     Text("${count(a.notSpam)} you marked “Not spam”", style = MaterialTheme.typography.bodyMedium)
                     Text("${count(a.filteredByYou)} you filtered yourself", style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            Note("Counts every text a model or provider decided, against the ones you corrected. Texts you never looked at count as agreement, so treat this as a ceiling.")
+            Note("Counts every conversation a model or provider decided, against the ones you corrected. Ones you never looked at count as agreement, so treat this as a ceiling.")
         }
     }
 }

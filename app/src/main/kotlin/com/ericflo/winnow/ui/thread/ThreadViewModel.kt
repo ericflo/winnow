@@ -273,7 +273,8 @@ class ThreadViewModel(
 
     /** Sends a reaction as text (`Loved “…”`), which iPhones show as a tapback and Winnow folds onto [message]. */
     fun react(message: ChatMessage, emoji: String) = launch {
-        val text = Tapback.compose(emoji, if (message.body.isBlank() && message.attachments.any { it.isImage }) "" else message.body)
+        val attachment = message.attachments.firstOrNull()?.let { Tapback.attachmentName(it.contentType) } ?: "an attachment"
+        val text = Tapback.compose(emoji, message.body, attachment)
         repo.send(recipients, text, subscriptionId = _selectedSim.value)
     }
 

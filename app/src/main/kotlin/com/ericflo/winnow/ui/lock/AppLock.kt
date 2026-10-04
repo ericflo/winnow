@@ -2,6 +2,7 @@ package com.ericflo.winnow.ui.lock
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.KeyguardManager
 import android.hardware.biometrics.BiometricManager.Authenticators
 import android.hardware.biometrics.BiometricPrompt
 import android.os.CancellationSignal
@@ -84,8 +85,9 @@ class AppLock {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = unlock()
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                // Nothing to authenticate with any more (the screen lock was removed): let them in.
-                if (errorCode in NO_WAY_TO_AUTHENTICATE) unlock()
+                // Only when the phone truly can't authenticate any more (its screen lock was
+                // removed) does the lock give way; a passing hardware error doesn't count.
+                if (errorCode in NO_WAY_TO_AUTHENTICATE && !activity.getSystemService(KeyguardManager::class.java).isDeviceSecure) unlock()
             }
         })
     }

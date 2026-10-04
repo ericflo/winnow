@@ -58,6 +58,19 @@ class TapbackTest {
     }
 
     @Test
+    fun `reactions to videos and voice messages name them like iPhones do`() {
+        assertEquals("Loved a movie", Tapback.compose("❤️", "", Tapback.attachmentName("video/mp4")))
+        assertEquals("Liked an audio message", Tapback.compose("👍", "", Tapback.attachmentName("audio/amr")))
+        val movie = Tapback.parse("Loved a movie")!!
+        assertEquals(true, movie.matchesAttachments(listOf("video/3gpp")))
+        assertEquals(false, movie.matchesAttachments(listOf("image/jpeg")))
+        assertEquals(true, Tapback.parse("Emphasized an audio message")!!.matchesAttachments(listOf("audio/mpeg")))
+        assertEquals(true, Tapback.parse("Liked an attachment")!!.matchesAttachments(listOf("application/pdf")))
+        assertNull(Tapback.parse("Loved “a movie night”")!!.matchesAttachments(listOf("video/mp4")))
+        assertEquals("Reacted 🔥 to “a movie”", Tapback.compose("🔥", "", "a movie"))
+    }
+
+    @Test
     fun `long messages are quoted short and still match`() {
         val long = "word ".repeat(60).trim()
         val sent = Tapback.compose("👍", long)

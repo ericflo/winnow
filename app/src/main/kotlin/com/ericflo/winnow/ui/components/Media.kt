@@ -1,6 +1,9 @@
 package com.ericflo.winnow.ui.components
 
 import android.content.Context
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.Column
+import coil3.compose.AsyncImage
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
@@ -71,28 +74,40 @@ class AudioPlayer(private val context: Context) {
 
     fun toggle(uri: String) {
         val current = player
-        if (current != null && _state.value.uri == uri) {
-            if (current.isPlaying) current.pause() else current.start()
-            _state.value = _state.value.copy(playing = current.isPlaying)
+        if (current != null && _state.value.uri == uri && _state.value.durationMillis > 0) {
+            if (_state.value.playing) current.pause() else current.start()
+            _state.value = _state.value.copy(playing = !_state.value.playing)
             return
         }
         release()
-        val created = runCatching {
-            MediaPlayer().apply {
-                setDataSource(context, Uri.parse(uri))
-                setOnCompletionListener { _state.value = _state.value.copy(playing = false, positionMillis = 0); seekTo(0) }
-                prepare()
-                start()
-            }
-        }.getOrNull() ?: return
+        val created = MediaPlayer()
         player = created
-        _state.value = State(uri, playing = true, positionMillis = 0, durationMillis = created.duration)
+        _state.value = State(uri, playing = false)
+        runCatching {
+            created.setDataSource(context, Uri.parse(uri))
+            created.setOnCompletionListener { _state.value = _state.value.copy(playing = false, positionMillis = 0); it.seekTo(0) }
+            created.setOnErrorListener { _, _, _ -> release(); true }
+            // Prepared off the main thread; playback starts once it's ready.
+            created.setOnPreparedListener {
+                if (player !== it) return@setOnPreparedListener
+                it.start()
+                _state.value = State(uri, playing = true, positionMillis = 0, durationMillis = it.duration)
+            }
+            created.prepareAsync()
+        }.onFailure { release() }
+    }
+
+    /** Called when the screen stops: a voice message shouldn't keep playing behind other apps or the lock. */
+    fun pause() {
+        val p = player ?: return
+        if (_state.value.playing && runCatching { p.isPlaying }.getOrDefault(false)) p.pause()
+        _state.value = _state.value.copy(playing = false)
     }
 
     /** Called while playing, to move the progress bar. */
     fun tick() {
         val p = player ?: return
-        if (p.isPlaying) _state.value = _state.value.copy(positionMillis = p.currentPosition)
+        if (_state.value.playing) runCatching { _state.value = _state.value.copy(positionMillis = p.currentPosition) }
     }
 
     fun release() {
@@ -169,6 +184,43 @@ fun VideoAttachment(uri: String, name: String?, onOpen: () -> Unit) {
                 color = Color.White,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
             )
+        }
+    }
+}
+
+/**
+ * A pending attachment in the composer: the photo itself, a video's first frame, or a tile
+ * naming what it is, so a voice note or PDF doesn't show as an empty square.
+ */
+@Composable
+fun AttachmentThumbnail(uri: String, contentType: String, name: String?, modifier: Modifier = Modifier) {
+    if (contentType.startsWith("image/")) {
+        AsyncImage(model = uri, contentDescription = "Attachment", contentScale = ContentScale.Crop, modifier = modifier)
+        return
+    }
+    val context = LocalContext.current
+    val isVideo = contentType.startsWith("video/")
+    val isAudio = contentType.startsWith("audio/")
+    val frame by produceState<Bitmap?>(null, uri) { if (isVideo) value = withContext(Dispatchers.IO) { frameOf(context, uri).first } }
+    val label = when {
+        isVideo -> "Video"
+        isAudio -> "Audio"
+        else -> name?.substringAfterLast('.', "")?.takeIf { it.length in 1..5 }?.uppercase() ?: "File"
+    }
+    Box(
+        modifier.background(MaterialTheme.colorScheme.surfaceVariant).semantics { contentDescription = "$label attachment${name?.let { ", $it" } ?: ""}" },
+        contentAlignment = Alignment.Center,
+    ) {
+        frame?.let { Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (isVideo || isAudio) {
+                Box(Modifier.size(32.dp).background(Color.Black.copy(alpha = 0.55f), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                }
+            }
+            if (frame == null) {
+                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }

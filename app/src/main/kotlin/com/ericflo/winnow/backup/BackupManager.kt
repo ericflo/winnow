@@ -146,7 +146,7 @@ class BackupManager(
             BackupArchive.write(output, backup) { part ->
                 val partId = media[part.file] ?: return@write null
                 _status.value = BackupStatus.Working("Saving photos and videos", ++saved, media.size)
-                resolver.openInputStream(ContentUris.withAppendedId(Mms.Part.CONTENT_URI, partId))
+                runCatching { resolver.openInputStream(ContentUris.withAppendedId(Mms.Part.CONTENT_URI, partId)) }.getOrNull()
             }
         }
         _status.value = BackupStatus.Done(
@@ -219,7 +219,9 @@ class BackupManager(
                 subject = row.subject,
                 status = STATUS_FAILED.takeIf { row.box == Mms.MESSAGE_BOX_FAILED || row.box == Mms.MESSAGE_BOX_OUTBOX },
                 read = !incoming || row.read,
-                parts = own.media().map { part ->
+                // A part whose data can't be opened (written by another app, or its file is gone) is
+                // left out of the manifest too, so its media count stays honest for later restores.
+                parts = own.media().filter { readable(it.id) }.map { part ->
                     val file = "${part.id}.${MimeTypeMap.getSingleton().getExtensionFromMimeType(part.contentType) ?: "bin"}"
                     media[file] = part.id
                     PartBackup(part.contentType, part.name, file)
@@ -251,14 +253,16 @@ class BackupManager(
         _status.value = BackupStatus.Working("Reading backup")
         val spool = File(context.cacheDir, "restore").apply { deleteRecursively(); mkdirs() }
         try {
+            val restored = mutableListOf<String>()
+            // Settings first, from the manifest alone: anything the user changes while the
+            // media is copied (picking a classifier during onboarding, say) then wins.
+            val manifest = (resolver.openInputStream(uri) ?: error("The file couldn't be opened")).use(BackupArchive::peek)
+            if (includeSettings && manifest.settings != null) {
+                settings.update { it.restoring(manifest.settings) }
+                restored += "your settings"
+            }
             val backup = (resolver.openInputStream(uri) ?: error("The file couldn't be opened")).use { input ->
                 BackupArchive.read(input) { name, stream -> File(spool, name).outputStream().use { stream.copyTo(it) } }
-            }
-            val restored = mutableListOf<String>()
-
-            if (includeSettings && backup.settings != null) {
-                settings.update { it.restoring(backup.settings) }
-                restored += "your settings"
             }
 
             val known = verdicts.allSenderRules().mapTo(HashSet()) { it.address }
@@ -429,6 +433,9 @@ class BackupManager(
         }
         return found
     }
+
+    private fun readable(partId: Long): Boolean =
+        runCatching { resolver.openInputStream(ContentUris.withAppendedId(Mms.Part.CONTENT_URI, partId))?.use { true } ?: false }.getOrDefault(false)
 
     private data class PartRow(val id: Long, val contentType: String, val text: String?, val name: String?)
 

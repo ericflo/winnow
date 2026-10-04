@@ -107,6 +107,10 @@ class LocalModelTest {
         assertTrue(hook("+13105550142", "Reply with the 6-digit code we just sent"))
         assertTrue(!hook("72975", "Netflix: Your password was changed. If you didn't do this, visit netflix.com/security"))
         assertTrue(!hook("+14155550199", "Hi, is this David? This is Amy from yoga"))
+        // Missing spaces after a period aren't links.
+        assertTrue(!hook("+14155550199", "Hi.Is this David?"))
+        assertTrue(!hook("+14155550199", "Sorry wrong number.Who is this?"))
+        assertTrue(hook("+14155550199", "Pay the toll at USPS.com-redelivery.top now"))
     }
 
     @Test

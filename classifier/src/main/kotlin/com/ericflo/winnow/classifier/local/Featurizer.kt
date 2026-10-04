@@ -12,7 +12,7 @@ import com.ericflo.winnow.classifier.message.SenderKind
  * retrain (`./gradlew :classifier:trainLocalModel`).
  */
 object Featurizer {
-    const val VERSION = 3
+    const val VERSION = 4
 
     data class Input(val sender: String, val body: String, val senderInContacts: Boolean = false, val userHasMessagedSender: Boolean = false)
 
@@ -190,7 +190,14 @@ object Featurizer {
     private val LENGTHS = intArrayOf(20, 50, 100, 160, 300)
     private val NON_WORD = Regex("[^a-z0-9]+")
     private val EMAIL = Regex("""[\w.+-]+@[\w-]+(?:\.[\w-]+)+""")
-    private val URL = Regex("""(?i)\b(?:https?://)?(?:[a-z0-9-]+\.)+[a-z]{2,}\b(?:/[^\s]*)?""")
+    /**
+     * A link: anything after a scheme or "www.", or a bare domain whose ending is a real,
+     * lowercase top-level domain. So "usps-redelivery.info/track" and "USPS.com" count, but
+     * "Hi.Is this David?" and "wrong number.Who is this" don't.
+     */
+    private val URL = Regex(
+        """(?i:\bhttps?://|\bwww\.)\S+|\b[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9-]+)*\.(?:${TLDS.joinToString("|")})\b(?:/\S*)?""",
+    )
     private val MONEY = Regex("""(?i)[$£€]\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d{2})?\s?(?:usd|dollars)\b""")
     private val PHONE = Regex("""(?:\+?1[\s.-]?)?(?:\(\d{3}\)\s?|\b\d{3}[\s.-])\d{3}[\s.-]\d{4}\b|\b\d{3}-\d{4}\b""")
     private val DIGITS = Regex("""\d+""")
@@ -224,11 +231,17 @@ object Featurizer {
     private val RISKY_TLDS = setOf(
         "top", "xyz", "vip", "icu", "click", "info", "cc", "win", "club", "help", "online", "site", "live", "shop", "buzz", "rest", "cyou", "sbs",
     )
+    private val TLDS get() = listOf(
+        "com", "net", "org", "edu", "gov", "mil", "io", "co", "us", "uk", "ca", "de", "fr", "info", "biz", "app", "dev", "ly", "gl",
+        "to", "tv", "cc", "xyz", "top", "vip", "icu", "click", "online", "site", "live", "shop", "club", "win", "help", "buzz",
+        "rest", "cyou", "sbs", "link", "page", "store", "tech", "ai", "gg", "sh", "la", "ru", "cn", "in", "au", "me", "ws", "pw",
+    )
+
     private val LURE_FEATURES = setOf(MONEY_FEATURE, PHONE_FEATURE, "__email__")
     private val LURE_WORDS = setOf(
         "w:zelle", "w:venmo", "w:paypal", "w:cashapp", "b:cash app", "w:telegram", "w:whatsapp", "w:crypto", "w:bitcoin", "w:invest",
         "w:investment", "w:investing", "w:job", "w:hiring", "w:recruiter", "w:wire", "w:deposit", "w:gift", "w:prize", "w:winner", "w:won",
-        "w:claim", "w:loan", "w:refund", "w:bail", "w:shipping", "w:fee", "w:code", "w:paid", "w:pay", "w:earn", "w:profit", "w:returns",
+        "w:claim", "w:loan", "w:refund", "w:bail", "w:shipping", "w:fee", "w:pay", "w:earn", "w:profit", "w:returns", "b:the code", "b:digit code", "b:verification code",
         "w:pin", "w:ssn", "b:card number", "b:bank details", "b:account number", "b:press 1",
     )
     private val STOPWORDS = setOf(

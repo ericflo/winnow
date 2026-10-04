@@ -69,7 +69,9 @@ reads the unredacted message: nothing leaves the phone, so there's nothing to re
 - **Features** (`Featurizer`): words and word pairs after links, emails, money, phone
   numbers and digit runs are replaced by placeholders. Named signals cover what words
   miss: the kind of sender, the link's TLD, shorteners, a "risky" TLD, deceptive hosts
-  (`sunpass.com-tollpay.vip`), brand words inside a link's host, shouting, length.
+  (`sunpass.com-tollpay.vip`), brand words inside a link's host, shouting, length. A link
+  needs no `https://`: a bare host counts when it ends in a real TLD, so
+  `netflix-billing-help.top` is a link but "e.g." and "3.5" aren't.
 - **Model** (`LocalModel`): softmax regression over 2^15 FNV-1a-hashed buckets, stored as
   int8 with a scale per class (230 KB), and temperature-calibrated.
 - **Training** (`LocalModelTrainer`): AdaGrad with class weighting and a fixed seed, using
@@ -186,7 +188,10 @@ Confidence below `ActionPolicy.minConfidence` (0.7) softens the action one step
   start, or a return after more than a minute away, covers the UI and shows the platform
   `BiometricPrompt` (strong biometric or device credential). The minute's grace means picking a
   photo doesn't trip it. It fails open if the phone can no longer authenticate (the screen
-  lock was removed). `setRecentsScreenshotEnabled(false)` blanks the recents card on 13+.
+  lock was removed). The cover is its own `LockActivity` above the task rather than a
+  composable, so it also hides dialogs, sheets and viewers that were open when Winnow left
+  the screen; Back from it sends the task home instead of revealing them.
+  `setRecentsScreenshotEnabled(false)` blanks the recents card on 13+ (`FLAG_SECURE` below).
 - **Chat bubbles:** message notifications carry `BubbleMetadata` that opens `BubbleActivity`
   (embedded, resizable, one document per conversation) with the same `ThreadScreen`. Reading
   in a bubble marks the conversation read but leaves its notification alone: a bubble lives

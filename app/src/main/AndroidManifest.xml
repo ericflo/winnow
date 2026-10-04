@@ -38,6 +38,10 @@
         android:theme="@style/Theme.Winnow">
 
         <!-- The four components below are what Android requires of a default SMS app. -->
+        <!-- The app lock, stacked on top of whatever is open. -->
+        <activity
+            android:name=".ui.lock.LockActivity"
+            android:exported="false" />
         <!-- A conversation in a chat bubble. Bubbles need an embeddable, resizable activity. -->
         <activity
             android:name=".ui.BubbleActivity"

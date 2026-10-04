@@ -49,7 +49,10 @@ class IncomingMessageHandler(
         val stored = withContext(Dispatchers.IO) { store(address, body, sentAt, subscriptionId) }
         if (stored == null) {
             Log.e(TAG, "Could not store incoming SMS; is Winnow the default SMS app?")
-            notifier.showMessage(-1, listOf(address), displayName(address), displayName(address), body)
+            notifier.showMessage(
+                -1, listOf(address), displayName(address), displayName(address), body,
+                hideOnLockScreen = runCatching { settings.current().hideOnLockScreen }.getOrDefault(false),
+            )
             return
         }
         val (uri, threadId) = stored

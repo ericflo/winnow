@@ -31,7 +31,12 @@ class SmsDeliverReceiver : BroadcastReceiver() {
             } catch (e: Exception) {
                 // Never lose an SMS to a bug downstream: at least tell the user it arrived.
                 Log.e("WinnowSms", "Handling incoming SMS failed", e)
-                runCatching { container.notifier.showMessage(-1, listOf(address), address, address, body) }
+                runCatching {
+                    container.notifier.showMessage(
+                        -1, listOf(address), address, address, body,
+                        hideOnLockScreen = runCatching { container.settings.current().hideOnLockScreen }.getOrDefault(false),
+                    )
+                }
             } finally {
                 pending.finish()
             }

@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import android.provider.Telephony
 import android.telephony.SmsManager
@@ -20,6 +22,7 @@ import com.ericflo.winnow.mms.ResponseStatus
 import com.ericflo.winnow.mms.SendConf
 import com.ericflo.winnow.mms.SendReq
 import com.ericflo.winnow.mms.Smil
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
@@ -73,14 +76,41 @@ class MmsSender(
             .sendMultimediaMessage(context, files.uriFor(file), null, null, sent)
     }
 
-    /** Reads an attachment, shrinking photos so the whole message fits carrier limits (~1 MB). */
+    /**
+     * Reads an attachment, shrinking photos so the whole message fits carrier limits (~1 MB).
+     * Anything else (videos, GIFs, audio) can't be shrunk here, so one over the budget is refused
+     * before it's read, rather than read whole into memory and sent to certain failure.
+     */
     private fun readAttachment(attachment: OutgoingAttachment, index: Int, count: Int): MmsPart? {
-        val raw = context.contentResolver.openInputStream(Uri.parse(attachment.uri))?.use { it.readBytes() } ?: return null
         val budget = MESSAGE_BUDGET_BYTES / count
         val isPhoto = attachment.contentType.startsWith("image/") && attachment.contentType != "image/gif"
+        val raw = readAtMost(Uri.parse(attachment.uri), if (isPhoto) MAX_PHOTO_BYTES else budget) ?: run {
+            val what = when {
+                attachment.contentType.startsWith("video/") -> "That video is"
+                attachment.contentType.startsWith("audio/") -> "That recording is"
+                isPhoto -> "That photo is"
+                else -> "That attachment is"
+            }
+            throw IllegalArgumentException("$what too big to send by MMS (about ${budget / 1000} KB fits)")
+        }
         val (type, data) = if (isPhoto && raw.size > budget) "image/jpeg" to shrink(raw, budget) else attachment.contentType to raw
         val name = "attachment$index.${type.substringAfter('/').substringBefore(';').ifBlank { "bin" }}"
         return MmsPart(contentType = type, data = data, name = name, contentId = "attachment$index", contentLocation = name)
+    }
+
+    /** The content's bytes, or null if there are more than [limit] (checked as it reads, never loading more). */
+    private fun readAtMost(uri: Uri, limit: Int): ByteArray? {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) return out.toByteArray()
+                out.write(buffer, 0, n)
+                if (out.size() > limit) return null
+            }
+        }
+        throw IllegalArgumentException("That attachment can't be read any more")
     }
 
     private fun shrink(image: ByteArray, budget: Int): ByteArray {
@@ -89,6 +119,8 @@ class MmsSender(
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / sample > MAX_EDGE_PX) sample *= 2
         var bitmap = BitmapFactory.decodeByteArray(image, 0, image.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return image
+        // Re-encoding drops EXIF, so bake the camera's orientation into the pixels first.
+        bitmap = upright(bitmap, image)
         var quality = 85
         while (true) {
             val out = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.JPEG, quality, it) }.toByteArray()
@@ -102,9 +134,29 @@ class MmsSender(
         }
     }
 
+    private fun upright(bitmap: Bitmap, image: ByteArray): Bitmap {
+        val orientation = runCatching {
+            ExifInterface(ByteArrayInputStream(image)).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> { matrix.postRotate(90f); matrix.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_TRANSVERSE -> { matrix.postRotate(270f); matrix.postScale(-1f, 1f) }
+            else -> return bitmap
+        }
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    }
+
     private companion object {
         const val MESSAGE_BUDGET_BYTES = 900_000
         const val MAX_EDGE_PX = 1600
+        /** Photos get shrunk, but one bigger than this isn't worth decoding on a phone. */
+        const val MAX_PHOTO_BYTES = 40_000_000
     }
 }
 

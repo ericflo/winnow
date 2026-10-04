@@ -112,7 +112,10 @@ class ActivityViewModel(private val container: AppContainer) : ViewModel() {
     private val window = MutableStateFlow(Window.MONTH)
 
     val state: StateFlow<ActivityUiState> = combine(container.messages.verdictRecords(), window) { records, window ->
-        val since = window.days?.let { System.currentTimeMillis() - it * 24 * 3_600_000 } ?: Long.MIN_VALUE
+        // Whole days, matching the bars: "7 days" is today and the six before it.
+        val since = window.days?.let { days ->
+            LocalDate.now().minusDays(days - 1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        } ?: Long.MIN_VALUE
         summarize(records.filter { it.decidedAt >= since }, window)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ActivityUiState())
 
@@ -145,7 +148,12 @@ class ActivityViewModel(private val container: AppContainer) : ViewModel() {
         val today = LocalDate.now(zone)
         val dates = records.map { Instant.ofEpochMilli(it.decidedAt).atZone(zone).toLocalDate() }
         val spanDays = window.days ?: (ChronoUnit.DAYS.between(dates.minOrNull() ?: today, today) + 1).coerceAtLeast(30)
-        val step = if (spanDays > 60) 7 else 1
+        // Daily up to two months, weekly up to a year, then as wide as it takes to fit 52 bars.
+        val step = when {
+            spanDays <= 60 -> 1
+            spanDays <= 364 -> 7
+            else -> ((spanDays + 51) / 52).toInt()
+        }
         val count = ((spanDays + step - 1) / step).toInt().coerceAtMost(52)
         val first = today.minusDays((count * step - 1).toLong())
         return (0 until count).map { i ->

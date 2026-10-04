@@ -25,7 +25,8 @@ class ClassifierFactory(
             privacy = settings.effectivePrivacy,
             actions = settings.actionPolicy,
             timeoutMillis = timeoutMillis,
-            onDevice = onDevice(),
+            // Without its learned adjustments the model still works; without the model, rules still do.
+            onDevice = runCatching { onDevice() }.getOrNull(),
             decideOnDeviceAbove = SURE.takeIf { settings.decideOnPhoneWhenSure },
         )
 

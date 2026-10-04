@@ -16,6 +16,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ericflo.winnow.WinnowApp
 import com.ericflo.winnow.data.splitAddresses
 import com.ericflo.winnow.ui.lock.AppLock
+import com.ericflo.winnow.ui.lock.LockActivity
 import com.ericflo.winnow.ui.lock.LockScreen
 import com.ericflo.winnow.ui.theme.WinnowTheme
 import com.ericflo.winnow.ui.thread.ThreadScreen
@@ -37,7 +38,7 @@ class BubbleActivity : ComponentActivity() {
         setContent {
             WinnowTheme {
                 val lock by container.appLock.state.collectAsStateWithLifecycle()
-                LaunchedEffect(lock) { if (lock == AppLock.State.LOCKED) container.appLock.authenticate(this@BubbleActivity) }
+                LaunchedEffect(lock) { if (lock == AppLock.State.LOCKED) startActivity(Intent(this@BubbleActivity, LockActivity::class.java)) }
                 Box(Modifier.fillMaxSize()) {
                     ThreadScreen(
                         viewModel = viewModel { ThreadViewModel(container, threadId, splitAddresses(recipients), inBubble = true) },
@@ -54,9 +55,7 @@ class BubbleActivity : ComponentActivity() {
                             )
                         },
                     )
-                    if (lock != AppLock.State.UNLOCKED) {
-                        LockScreen(checking = lock == AppLock.State.CHECKING, onUnlock = { container.appLock.authenticate(this@BubbleActivity) })
-                    }
+                    if (lock == AppLock.State.CHECKING) LockScreen(checking = true, onUnlock = {})
                 }
             }
         }

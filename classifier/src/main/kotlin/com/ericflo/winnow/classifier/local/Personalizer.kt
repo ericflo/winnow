@@ -39,6 +39,12 @@ class Adjustments(internal val weights: Map<Int, FloatArray>) {
  */
 object Personalizer {
     fun train(base: LocalModel, corrections: List<Correction>, epochs: Int = 40, learningRate: Double = 0.5, l2: Double = 1e-3): Adjustments {
+        // Corrections come from storage and backups: drop any that don't fit this model.
+        @Suppress("NAME_SHADOWING")
+        val corrections = corrections
+            .filter { c -> c.label in base.classes.indices }
+            .map { c -> c.copy(buckets = c.buckets.filter { it in 0 until base.buckets }.toIntArray()) }
+            .filter { it.buckets.isNotEmpty() }
         if (corrections.isEmpty()) return Adjustments.NONE
         val k = base.classes.size
         val baseScores = corrections.map { base.scores(it.buckets) }

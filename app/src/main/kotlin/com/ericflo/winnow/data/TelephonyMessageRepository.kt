@@ -215,7 +215,8 @@ class TelephonyMessageRepository(
         dao.setUserAction(threadId, action.name)
         val rule = if (action == Action.ALLOW) SenderRule.ALWAYS_ALLOW else SenderRule.ALWAYS_FILTER
         dao.upsertSenderRule(SenderRuleEntity(normalizeAddress(address), rule.name, System.currentTimeMillis()))
-        newestIncoming(threadId)?.let { onCorrected(threadId, it, action) }
+        // Learning is a bonus; a failure there mustn't undo the user's correction.
+        newestIncoming(threadId)?.let { runCatching { onCorrected(threadId, it, action) } }
     }
 
     /** The thread's newest incoming message, as the classifier saw it. */

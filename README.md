@@ -197,14 +197,14 @@ cross-validation: every text is scored by a model that never saw it.
 
 | Accuracy | Macro F1 | Cohen's κ | MCC | ROC AUC (unwanted vs. wanted) | Avg. precision | Calibration error |
 |---|---|---|---|---|---|---|
-| 91.8% | 0.92 | 0.90 | 0.90 | 0.989 | 0.989 | 0.009 |
+| 91.7% | 0.92 | 0.90 | 0.90 | 0.989 | 0.988 | 0.010 |
 
 Winnow's own filtering rule filters an unwanted category at ≥85% confidence. A scam or
 phishing text only gets filtered if it has a hook: a link off the company's real site, money,
 a number to call, or payment or code talk. Anything without one is silenced instead, because
 a bare "hi, is this David?" reads exactly like a real person on a new number, and "your
 password was changed" has nothing to phish with. Measured that way, the rule filters
-**0.1% of wanted texts** (99.8% precision) and 71.1% of unwanted ones. Counting
+**0.1% of wanted texts** (99.8% precision) and 70.8% of unwanted ones. Counting
 filtered and silenced, **96.2% of unwanted texts never buzz your phone**. Per category,
 F1 runs from 0.97 (political) to 0.79 for "likely scam", whose openers read like real new
 numbers. On 120 more texts written separately and never trained on, it got all 120 right.

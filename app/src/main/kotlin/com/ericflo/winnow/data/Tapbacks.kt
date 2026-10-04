@@ -20,6 +20,15 @@ data class Tapback(
         return text == wanted || (wanted.endsWith("…") && text.startsWith(wanted.dropLast(1).trimEnd()))
     }
 
+    /**
+     * For a reaction to an attachment (`Loved a movie`), whether a message with [contentTypes]
+     * holds what it names. Null when the reaction quotes text instead.
+     */
+    fun matchesAttachments(contentTypes: List<String>): Boolean? {
+        if (quoted !in ATTACHMENT_NAMES) return null
+        return contentTypes.any { quoted == "an attachment" || attachmentName(it) == quoted }
+    }
+
     companion object {
         private val VERBS = linkedMapOf(
             "Liked" to "👍", "Loved" to "❤️", "Disliked" to "👎", "Laughed at" to "😂",
@@ -30,8 +39,9 @@ data class Tapback(
             "an exclamation" to "‼️", "a question mark" to "❓",
         )
         private const val QUOTED = """[“"](.+)[”"]"""
-        // iPhones react to a photo with `Loved an image`, unquoted.
-        private val ADD = Regex("""^(${VERBS.keys.joinToString("|") { Regex.escape(it) }}) (?:$QUOTED|(an image))$""", RegexOption.DOT_MATCHES_ALL)
+        private val ATTACHMENT_NAMES = listOf("an image", "a movie", "an audio message", "an attachment")
+        // iPhones react to a photo with `Loved an image`, unquoted, and likewise for videos and voice messages.
+        private val ADD = Regex("""^(${VERBS.keys.joinToString("|") { Regex.escape(it) }}) (?:$QUOTED|(${ATTACHMENT_NAMES.joinToString("|")}))$""", RegexOption.DOT_MATCHES_ALL)
 
         /** The reactions Winnow offers, in the order iPhones show them. */
         val CHOICES = listOf("❤️", "👍", "👎", "😂", "‼️", "❓")
@@ -41,11 +51,20 @@ data class Tapback(
 
         /**
          * The text that reacts to a message with [emoji]: `Loved “see you soon”`, as iPhones
-         * send and display as a tapback. [body] blank means a photo: `Loved an image`.
+         * send and display as a tapback. [body] blank means an attachment, named by [attachment]:
+         * `Loved an image`.
          */
-        fun compose(emoji: String, body: String): String {
-            val verb = VERBS.entries.firstOrNull { it.value == emoji }?.key ?: return "Reacted $emoji to “${quote(body)}”"
-            return if (body.isBlank()) "$verb an image" else "$verb “${quote(body)}”"
+        fun compose(emoji: String, body: String, attachment: String = "an image"): String {
+            val verb = VERBS.entries.firstOrNull { it.value == emoji }?.key ?: return "Reacted $emoji to “${quote(body.ifBlank { attachment })}”"
+            return if (body.isBlank()) "$verb $attachment" else "$verb “${quote(body)}”"
+        }
+
+        /** How iPhones name an attachment they react to: "an image", "a movie", "an audio message". */
+        fun attachmentName(contentType: String): String = when {
+            contentType.startsWith("image/") -> "an image"
+            contentType.startsWith("video/") -> "a movie"
+            contentType.startsWith("audio/") -> "an audio message"
+            else -> "an attachment"
         }
 
         private fun quote(body: String): String {
