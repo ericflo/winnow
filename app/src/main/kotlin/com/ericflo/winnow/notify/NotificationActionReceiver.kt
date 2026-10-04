@@ -8,6 +8,7 @@ import android.content.Intent
 import android.util.Log
 import androidx.core.app.RemoteInput
 import com.ericflo.winnow.WinnowApp
+import com.ericflo.winnow.data.ReturnedMessages
 import com.ericflo.winnow.data.splitAddresses
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
@@ -33,7 +34,20 @@ class NotificationActionReceiver : BroadcastReceiver() {
         container.appScope.launch {
             try {
                 if (intent.action == ACTION_REPLY && !reply.isNullOrEmpty()) {
-                    container.messages.send(recipients, reply, subscriptionId = container.simFor(threadId))
+                    try {
+                        container.messages.send(recipients, reply, subscriptionId = container.simFor(threadId))
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // Typed on a notification, which can't show an error: keep it in the conversation.
+                        Log.w(TAG, "Reply from a notification failed", e)
+                        if (threadId >= 0) {
+                            val saved = container.conversationStates.get(threadId).draft.orEmpty()
+                            if (!saved.contains(reply)) container.conversationStates.saveDraft(threadId, listOf(saved, reply).filter { it.isNotBlank() }.joinToString("\n"))
+                            container.returnedMessages.put(threadId, ReturnedMessages.Returned(reply, emptyList(), separately = false))
+                        }
+                        container.toast("Couldn't send your reply${e.message?.let { ": $it" }.orEmpty()}. It's saved in the conversation.")
+                    }
                 }
                 // The same correction as "Always filter": the sender's texts go to Filtered from now on,
                 // and the on-phone model learns from this one.
