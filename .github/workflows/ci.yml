@@ -23,6 +23,7 @@ jobs:
           # The default list includes the retired "tools" package, which no longer exists.
           packages: "platform-tools platforms;android-37.0 build-tools;37.0.0"
       - uses: gradle/actions/setup-gradle@v4
-      # Unit tests for every module and a debug build. Live provider tests stay opt-in
-      # (WINNOW_LIVE_TESTS) and never run here.
-      - run: ./gradlew :classifier:test :mms:test :app:testDebugUnitTest :app:assembleDebug
+      # Unit tests for every module, Android lint (it catches API-level mistakes the compiler
+      # doesn't), and a debug build. Live provider tests stay opt-in (WINNOW_LIVE_TESTS) and
+      # never run here.
+      - run: ./gradlew :classifier:test :mms:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug

@@ -155,8 +155,10 @@ fun InboxScreen(
                 )
             }
         },
-    ) { _ ->
-        Box(Modifier.fillMaxSize()) {
+        // The large header draws under the status bar and the list pads for the nav bar itself.
+        contentWindowInsets = WindowInsets(0),
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
                 if (searching) SearchBar(state.query, viewModel::setQuery, onClose = closeSearch)
                 if (state.loading) return@Column

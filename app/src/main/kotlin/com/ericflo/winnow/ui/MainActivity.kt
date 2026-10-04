@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.role.RoleManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -76,8 +77,13 @@ class MainActivity : ComponentActivity() {
      * app, and our own number keeps us out of group MMS participant lists.
      */
     private fun requestCompanionPermissions() {
-        val missing = listOf(Manifest.permission.READ_CONTACTS, Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.READ_PHONE_NUMBERS)
-            .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        // Notifications only became a runtime permission in Android 13.
+        val wanted = listOfNotNull(
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.POST_NOTIFICATIONS.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU },
+            Manifest.permission.READ_PHONE_NUMBERS,
+        )
+        val missing = wanted.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) permissionRequest.launch(missing.toTypedArray())
     }
 
