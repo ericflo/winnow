@@ -243,10 +243,15 @@ class Trash(
     private fun newestDate(threadId: Long): Long {
         val resolver = context.contentResolver
         val args = arrayOf(threadId.toString())
-        val sms = resolver.query(Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.DATE), "${Telephony.Sms.THREAD_ID} = ?", args, "${Telephony.Sms.DATE} DESC LIMIT 1")
-            ?.use { c -> if (c.moveToFirst()) c.getLong(0) else 0 } ?: 0
-        val mms = resolver.query(Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms.DATE), "${Telephony.Mms.THREAD_ID} = ?", args, "${Telephony.Mms.DATE} DESC LIMIT 1")
-            ?.use { c -> if (c.moveToFirst()) c.getLong(0) * 1000 else 0 } ?: 0
+        // Drafts aside (one left by another app, say): they're never what arrived since.
+        val sms = resolver.query(
+            Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.DATE),
+            "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.TYPE} != ${Telephony.Sms.MESSAGE_TYPE_DRAFT}", args, "${Telephony.Sms.DATE} DESC LIMIT 1",
+        )?.use { c -> if (c.moveToFirst()) c.getLong(0) else 0 } ?: 0
+        val mms = resolver.query(
+            Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms.DATE),
+            "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms.MESSAGE_BOX} != ${Telephony.Mms.MESSAGE_BOX_DRAFTS}", args, "${Telephony.Mms.DATE} DESC LIMIT 1",
+        )?.use { c -> if (c.moveToFirst()) c.getLong(0) * 1000 else 0 } ?: 0
         return maxOf(sms, mms)
     }
 
@@ -284,19 +289,32 @@ class Trash(
         if (!item.file.exists()) return@withLock null
         withContext(Dispatchers.IO) {
             val spool = File(context.cacheDir, "trash-restore").apply { deleteRecursively(); mkdirs() }
+            // Each message put back is noted here as it goes, so a restore that's cut short (storage
+            // full, the app killed) and tried again doesn't add those twice.
+            val journal = journalFor(item.file)
             try {
-                val backup = item.file.inputStream().use { input ->
+                val whole = item.file.inputStream().use { input ->
                     BackupArchive.read(input) { name, stream -> File(spool, name).outputStream().use { stream.copyTo(it) } }
                 }
+                // Back already, by an attempt that didn't finish.
+                val done = runCatching { journal.readLines().toSet() }.getOrDefault(emptySet())
+                val backup = if (done.isEmpty()) whole else whole.copy(conversations = whole.conversations.map { c -> c.copy(messages = c.messages.filter { it.was !in done }) })
+                val already = whole.messageCount - backup.messageCount
                 // Not reported to the Backup settings, which may be busy with a backup of their own.
                 val settled = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<MessageBackup, Boolean>())
-                val restored = backups.restoreMessages(backup, spool, report = {}, draftsIntoExisting = true, settled = { settled += it })
+                val restored = journal.appendingWriter().use { notes ->
+                    backups.restoreMessages(backup, spool, report = {}, draftsIntoExisting = true, settled = { m ->
+                        settled += m
+                        m.was?.let { notes.write(it); notes.newLine(); notes.flush() }
+                    })
+                }
                 val complete = restored.covers(backup.messageCount)
                 if (complete) {
                     item.file.delete()
-                } else if (settled.isNotEmpty()) {
-                    // What's back stays back: the file keeps only the rest, so trying again can't add it twice.
-                    keepOnly(item.file, backup, spool) { it !in settled }
+                    journal.delete()
+                } else if (settled.isNotEmpty() || already > 0) {
+                    // What's back stays back: the file keeps only the rest, and the notes have done their job.
+                    if (keepOnly(item.file, backup, spool) { it !in settled }) journal.delete()
                 }
                 Restored(restored.added, complete)
             } finally {
@@ -306,11 +324,16 @@ class Trash(
         }
     }
 
-    /** Rewrites [file] (a [backup] whose media is in [spool]) with just the messages [keep] says. */
-    private fun keepOnly(file: File, backup: WinnowBackup, spool: File, keep: (MessageBackup) -> Boolean) {
+    /** Where [file]'s restore notes which messages are back (see [restore]). */
+    private fun journalFor(file: File) = File(file.parentFile, "${file.name}$JOURNAL")
+
+    private fun File.appendingWriter() = java.io.BufferedWriter(java.io.FileWriter(this, true))
+
+    /** Rewrites [file] (a [backup] whose media is in [spool]) with just the messages [keep] says. Whether it did. */
+    private fun keepOnly(file: File, backup: WinnowBackup, spool: File, keep: (MessageBackup) -> Boolean): Boolean {
         val rest = backup.copy(conversations = backup.conversations.map { c -> c.copy(messages = c.messages.filter(keep)) })
         val partial = File(file.parentFile, "${file.name}.part")
-        runCatching {
+        return runCatching {
             partial.outputStream().use { output ->
                 BackupArchive.write(output, rest) { part ->
                     File(spool, part.file).takeIf { BackupArchive.safeName(part.file) != null && it.isFile }?.inputStream()
@@ -323,13 +346,13 @@ class Trash(
         }.onFailure {
             partial.delete()
             Log.w(TAG, "Couldn't trim a partly restored item", it)
-        }
+        }.isSuccess
     }
 
     /** Gone for good, now rather than after [KEEP_DAYS] days. */
     suspend fun forget(items: Collection<Item>) = lock.withLock {
         withContext(Dispatchers.IO) {
-            items.forEach { it.file.delete() }
+            items.forEach { it.file.delete(); journalFor(it.file).delete() }
             reload()
         }
     }
@@ -338,7 +361,11 @@ class Trash(
     suspend fun purgeExpired() = lock.withLock {
         withContext(Dispatchers.IO) {
             val now = System.currentTimeMillis()
-            dir.listFiles()?.forEach { file -> if (deletedAt(file)?.let { now - it > KEEP_DAYS * DAY_MILLIS } != false) file.delete() }
+            dir.listFiles()?.forEach { file ->
+                // A restore's notes stay as long as what they're about does.
+                val about = if (file.name.endsWith(JOURNAL)) File(file.parentFile, file.name.removeSuffix(JOURNAL)) else file
+                if (deletedAt(about)?.let { now - it > KEEP_DAYS * DAY_MILLIS } != false || !about.exists()) file.delete()
+            }
             reload()
         }
     }
@@ -374,6 +401,8 @@ class Trash(
         const val KEEP_DAYS = 30L
         /** How a file of some messages from a conversation ends, after its time and conversation. */
         private const val SOME_MESSAGES = "-messages.zip"
+        /** A restore's notes, beside the file it's restoring. */
+        private const val JOURNAL = ".restored"
         private const val DAY_MILLIS = 24 * 60 * 60_000L
         private const val ATTEMPTS = 3
         private const val TAG = "WinnowTrash"

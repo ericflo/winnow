@@ -827,11 +827,16 @@ class BackupManager(
     /** [m]'s own row ([MessageBackup.was]) if it's still on the phone, as that message (same time); else null. */
     private fun stillHere(m: MessageBackup): String? {
         val key = m.was ?: return null
-        val sms = ChatMessage.idIn(ChatMessage.Kind.SMS, key)
-        val (uri, column) = if (sms != null) ContentUris.withAppendedId(Sms.CONTENT_URI, sms) to Sms.DATE
-        else ContentUris.withAppendedId(Mms.CONTENT_URI, ChatMessage.idIn(ChatMessage.Kind.MMS, key) ?: return null) to Mms.DATE
-        val date = resolver.query(uri, arrayOf(column), null, null, null)?.use { c -> if (c.moveToFirst()) c.getLong(0) else null } ?: return null
-        return key.takeIf { (if (sms != null) date else date * 1000) == m.date }
+        // Same time, direction and (a text) words: an id the store reused for another message isn't it.
+        ChatMessage.idIn(ChatMessage.Kind.SMS, key)?.let { id ->
+            return resolver.query(ContentUris.withAppendedId(Sms.CONTENT_URI, id), arrayOf(Sms.DATE, Sms.TYPE, Sms.BODY), null, null, null)?.use { c ->
+                key.takeIf { c.moveToFirst() && c.getLong(0) == m.date && (c.getInt(1) != Sms.MESSAGE_TYPE_INBOX) == m.outgoing && c.getString(2).orEmpty() == m.body }
+            }
+        }
+        val id = ChatMessage.idIn(ChatMessage.Kind.MMS, key) ?: return null
+        return resolver.query(ContentUris.withAppendedId(Mms.CONTENT_URI, id), arrayOf(Mms.DATE, Mms.MESSAGE_BOX), null, null, null)?.use { c ->
+            key.takeIf { c.moveToFirst() && c.getLong(0) * 1000 == m.date && (c.getInt(1) != Mms.MESSAGE_BOX_INBOX) == m.outgoing }
+        }
     }
 
     private fun readable(partId: Long): Boolean =

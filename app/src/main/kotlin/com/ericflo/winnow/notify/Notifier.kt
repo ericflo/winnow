@@ -21,6 +21,7 @@ import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import com.ericflo.winnow.R
+import com.ericflo.winnow.classifier.message.SenderKind
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.Member
 import com.ericflo.winnow.data.joinAddresses
@@ -158,7 +159,12 @@ class Notifier(
         /** Let Android offer its own suggested replies on the notification (Settings → Suggested replies). */
         suggestReplies: Boolean = true,
     ) {
-        val choices = quickReplies ?: this.quickReplies
+        // A service, not a person: a named sender (AMAZON) can't be answered at all, and a short
+        // code or a verification code only by a keyword (STOP, YES), never "On my way".
+        val from = recipients.singleOrNull()?.let(SenderKind::of)
+        val canReply = from != SenderKind.ALPHANUMERIC
+        val chatty = code == null && from != SenderKind.SHORT_CODE && from != SenderKind.ALPHANUMERIC
+        val choices = if (!chatty) emptyList() else quickReplies ?: this.quickReplies
         // ContextCompat, not Context: before Android 13 the permission doesn't exist, and the platform calls it denied.
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val id = notificationId(threadId)
@@ -210,7 +216,7 @@ class Notifier(
             .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
             .setShowsUserInterface(false)
             // Android's on-device Smart Reply, beside the user's own quick replies, when they want it.
-            .setAllowGeneratedReplies(suggestReplies)
+            .setAllowGeneratedReplies(suggestReplies && chatty)
             .build()
         val markRead = NotificationCompat.Action.Builder(
             R.drawable.ic_notification,
@@ -243,10 +249,13 @@ class Notifier(
                 putExtra(NotificationActionReceiver.EXTRA_CODE, code)
             }
             builder.addAction(R.drawable.ic_copy, "Copy $code", copy)
+            // Android would offer its own copy chip for the same code beside this one.
+            builder.setAllowSystemGeneratedContextualActions(false)
         }
         // Without a stored thread (the store refused the message) there's nothing to reply into.
         if (threadId >= 0) {
-            builder.addAction(reply).addAction(markRead)
+            if (canReply) builder.addAction(reply)
+            builder.addAction(markRead)
             if (offerSpam) {
                 builder.addAction(R.drawable.ic_block, "Spam", actionIntent(NotificationActionReceiver.ACTION_SPAM, threadId, joined, mutable = false))
             }
