@@ -144,7 +144,10 @@ class ThreadViewModel(
     val ownNumberCardDismissed: StateFlow<Boolean> = container.settings.settings.map { it.ownNumberCardDismissed }
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
-    fun dismissOwnNumberCard() = launch { container.settings.update { it.copy(ownNumberCardDismissed = true) } }
+    fun dismissOwnNumberCard() {
+        // The app's scope: "Not now" then straight back mustn't lose it.
+        container.appScope.launch { container.settings.update { it.copy(ownNumberCardDismissed = true) } }
+    }
 
     /** A quick reply into the composer, after whatever's typed. */
     fun insertQuickReply(text: String) {
@@ -575,6 +578,11 @@ class ThreadViewModel(
             val turned = withContext(Dispatchers.IO) { container.sharedFiles.rotated(current) }
             if (turned == null) {
                 _notices.emit("Couldn't rotate that photo")
+                return@withLock
+            }
+            // Sent (or removed) while it turned: the original is what went, and must stay; the turned copy isn't wanted.
+            if (current !in _attachments.value) {
+                withContext(Dispatchers.IO) { container.sharedFiles.discardCopy(turned) }
                 return@withLock
             }
             keptAs[current] = turned

@@ -1015,7 +1015,7 @@ private fun OwnNumberBanner(onAllow: () -> Unit, onDismiss: () -> Unit) {
             }
             Text(
                 "Without the Phone numbers permission Winnow can't tell, so group texts may list you as one of the people. " +
-                    "Your number stays on this phone.",
+                    "Allowing it fixes new group texts; your number stays on this phone.",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(end = 12.dp),
             )

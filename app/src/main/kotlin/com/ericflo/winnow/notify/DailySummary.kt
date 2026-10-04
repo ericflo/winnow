@@ -34,6 +34,12 @@ class DailySummary(
 ) {
     private val alarms = context.getSystemService(AlarmManager::class.java)
 
+    /** When this process last fired one: trusted even if saving it failed, so a failed save can't mean "due now" again. */
+    @Volatile private var firedAt = 0L
+
+    /** When the last one went out: saved or remembered, whichever is later, and never in the future (a clock set back). */
+    private fun lastAt(saved: Long, now: Long): Long = maxOf(saved, firedAt).takeIf { it <= now } ?: 0L
+
     /**
      * Arms (or disarms) the next summary, as the setting says: this evening's, or straight away if
      * it's past 8 PM and today's hasn't gone out (the app starting late mustn't skip it), else
@@ -50,10 +56,11 @@ class DailySummary(
         val tonight = evening(LocalDate.now(ZoneId.systemDefault()))
         // Not due if one went out lately (before a time-zone change, say): then tomorrow, or this
         // would fire, skip and re-arm for "now" again and again.
-        val due = now - current.dailySummaryLastAt >= MIN_GAP_MILLIS
+        val last = lastAt(current.dailySummaryLastAt, now)
+        val due = now - last >= MIN_GAP_MILLIS
         val at = when {
             now < tonight -> tonight
-            due && current.dailySummaryLastAt < tonight -> now
+            due && last < tonight -> now
             else -> evening(LocalDate.now(ZoneId.systemDefault()).plusDays(1))
         }
         // Not exact: a summary can wait a while, and needs no special permission.
@@ -61,17 +68,25 @@ class DailySummary(
     }
 
     /** The alarm went off: report on what came since the last one (a day at most), then arm the next. */
-    suspend fun fire() {
+    suspend fun fire(force: Boolean = false) {
         val current = settings.current()
         val now = System.currentTimeMillis()
+        val last = lastAt(current.dailySummaryLastAt, now)
         // Off, or twice in one evening (the clock or time zone moved): once is enough.
-        if (!current.dailySummary || now - current.dailySummaryLastAt < MIN_GAP_MILLIS) {
+        if (!force && (!current.dailySummary || now - last < MIN_GAP_MILLIS)) {
             rearm()
             return
         }
+        // A debug run (force) reports the last day and leaves the real schedule alone.
+        if (force) {
+            val (filtered, silenced) = counts(now - DAY_MILLIS)
+            if (filtered + silenced > 0) notifier.showSummary(filtered, silenced)
+            return
+        }
+        firedAt = now
         try {
             if (isDefaultSmsApp()) {
-                val (filtered, silenced) = counts(maxOf(now - DAY_MILLIS, current.dailySummaryLastAt))
+                val (filtered, silenced) = counts(maxOf(now - DAY_MILLIS, last))
                 if (filtered + silenced > 0) notifier.showSummary(filtered, silenced)
             }
         } catch (e: CancellationException) {

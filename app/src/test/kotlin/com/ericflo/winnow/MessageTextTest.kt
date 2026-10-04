@@ -66,6 +66,9 @@ class MessageTextTest {
         assertEquals(listOf("geo:0,0?q=42%20Wallaby%20Way"), links("It's 42 Wallaby Way. See you"))
         assertEquals(listOf("geo:0,0?q=42%20Wallaby%20Way"), links("42 Wallaby Way\nSydney"))
         assertEquals(emptyList<String>(), links("See you at 5 Mom Will Drive"))
+        assertEquals(emptyList<String>(), links("My 2 Kids Dr. Appointments are Monday"))
+        assertEquals(emptyList<String>(), links("Room 3 Building Dr. Kim will see you"))
+        assertEquals(listOf("geo:0,0?q=9%20Elm%20Dr"), links("It's at 9 Elm Dr."))
         assertEquals(emptyList<String>(), links("Top 3 Restaurants Near Times Square"))
     }
 
