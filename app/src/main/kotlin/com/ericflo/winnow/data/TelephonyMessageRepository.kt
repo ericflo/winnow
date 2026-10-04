@@ -342,7 +342,7 @@ class TelephonyMessageRepository(
             dao.upsert(
                 VerdictEntity(
                     messageKey = key, threadId = threadId, address = address, category = null, confidence = 1.0,
-                    action = Action.ALLOW.name, sourceKind = "rule", sourceDetail = "Not classified", model = null,
+                    action = Action.ALLOW.name, sourceKind = "rule", sourceDetail = NOT_CLASSIFIED, model = null,
                     costUsd = 0.0, decidedAt = System.currentTimeMillis(), userAction = action.name,
                 ),
             )
@@ -356,7 +356,8 @@ class TelephonyMessageRepository(
 
     override suspend fun restoreVerdict(previous: PreviousVerdict) {
         val threadId = previous.threadId
-        previous.insertedKey?.let { dao.deleteForMessage(it) }
+        // Only if it's still the one the correction added: classification may have caught up since.
+        previous.insertedKey?.let { key -> if (dao.forKey(key)?.sourceDetail == NOT_CLASSIFIED) dao.deleteForMessage(key) }
         dao.setUserAction(threadId, previous.userAction?.name)
         val address = normalizeAddress(previous.address)
         if (previous.senderRule == null) dao.deleteSenderRule(address)
@@ -651,6 +652,8 @@ class TelephonyMessageRepository(
 
         /** PduHeaders.MESSAGE_TYPE_NOTIFICATION_IND: an MMS announced but not yet downloaded. */
         const val MESSAGE_TYPE_NOTIFICATION_IND = 0x82
+        /** The reason on a verdict a correction had to add for a text never classified. */
+        private const val NOT_CLASSIFIED = "Not classified"
 
         /** PduHeaders.FROM, as stored in the MMS addr table. */
         const val ADDR_TYPE_FROM = 0x89

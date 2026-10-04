@@ -47,6 +47,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -678,7 +679,6 @@ private fun SwipeChoiceRow(title: String, choice: SwipeChoice, onChange: (SwipeC
     }
 }
 
-/** The quick replies, edited in a dialog: take some out, add your own. */
 /** Words that send a stranger's text straight to Filtered, decided on the phone. */
 @Composable
 private fun FilteredPhrasesRow(phrases: List<String>, onSave: (List<String>) -> Unit) {
@@ -696,7 +696,8 @@ private fun FilteredPhrasesRow(phrases: List<String>, onSave: (List<String>) -> 
         modifier = Modifier.clickable { editing = true },
     )
     if (!editing) return
-    var list by remember(phrases) { mutableStateOf(phrases) }
+    // Survives a rotation with the dialog open, edits and all.
+    var list by rememberSaveable(phrases, stateSaver = listSaver<List<String>, String>({ it }, { it })) { mutableStateOf(phrases) }
     var adding by rememberSaveable { mutableStateOf("") }
     fun add() {
         val phrase = FilteredPhrases.normalize(adding)
@@ -744,6 +745,7 @@ private fun FilteredPhrasesRow(phrases: List<String>, onSave: (List<String>) -> 
     )
 }
 
+/** The quick replies, edited in a dialog: take some out, add your own. */
 @Composable
 private fun QuickRepliesRow(replies: List<String>, onSave: (List<String>) -> Unit) {
     var editing by rememberSaveable { mutableStateOf(false) }

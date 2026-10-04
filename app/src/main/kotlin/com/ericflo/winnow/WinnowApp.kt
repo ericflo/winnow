@@ -72,6 +72,8 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
             container.draftAttachments.sweep(container.conversationStates.all().map { it.draftAttachments })
         }
         container.appScope.launch { container.trash.purgeExpired() }
+        // Yesterday's notification photos: their notifications are gone.
+        container.appScope.launch(Dispatchers.IO) { runCatching { container.notifier.purgeImages() } }
     }
 
     /**

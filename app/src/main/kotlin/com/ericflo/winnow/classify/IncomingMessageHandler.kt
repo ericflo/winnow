@@ -67,7 +67,7 @@ class IncomingMessageHandler(
     suspend fun onMmsStored(uri: Uri, threadId: Long, sender: String, recipients: List<String>, text: String, mediaTypes: List<String>) {
         val preview = text.ifBlank { attachmentSummary(mediaTypes) }
         // A media-only message still gets classified, on what little it says.
-        val action = route(uri, ChatMessage.Kind.MMS, threadId, sender, recipients, text.ifBlank { "[photo]" }, preview)
+        val action = route(uri, ChatMessage.Kind.MMS, threadId, sender, recipients, text.ifBlank { "[photo]" }, preview, caption = text)
         // Into the gallery if the user asked: only what reached the inbox (never a filtered or
         // silenced one's), and only from people they know. A classifier that timed out lets a
         // stranger's message through too, and the gallery may back up to the cloud. In a group,
@@ -115,6 +115,8 @@ class IncomingMessageHandler(
         recipients: List<String>,
         text: String,
         preview: String,
+        /** What an MMS said in words, if anything: shown under its photo in the notification. */
+        caption: String? = null,
     ): Action {
         val verdict = try {
             withTimeout(BUDGET_MILLIS) { classify(sender, text, threadId) }
@@ -128,11 +130,14 @@ class IncomingMessageHandler(
             null
         }
 
+        // A correction the user made while this was being classified (Filter sender from the
+        // conversation, say) stands.
+        val key = ChatMessage.messageKey(kind, ContentUris.parseId(uri))
+        val corrected = dao.forKey(key)?.userAction?.let { runCatching { Action.valueOf(it) }.getOrNull() }
         if (verdict != null) {
-            val key = ChatMessage.messageKey(kind, ContentUris.parseId(uri))
-            dao.upsert(VerdictEntity.from(key, threadId, sender, verdict, System.currentTimeMillis()))
+            dao.upsert(VerdictEntity.from(key, threadId, sender, verdict, System.currentTimeMillis()).copy(userAction = corrected?.name))
         }
-        val action = verdict?.action ?: Action.ALLOW
+        val action = corrected ?: verdict?.action ?: Action.ALLOW
         // A new message brings an archived conversation back, unless it's being filtered.
         if (action != Action.FILTER) states.unarchive(threadId)
         if (action != Action.FILTER && visibleThread.value == threadId) {
@@ -155,6 +160,7 @@ class IncomingMessageHandler(
                     quickReplies = settings.current().quickReplies,
                     // The picture itself, from people the user knows: a stranger's never pops up on screen.
                     image = if (kind == ChatMessage.Kind.MMS && knows(sender, recipients, threadId)) withContext(Dispatchers.IO) { firstPhoto(uri) } else null,
+                    caption = caption,
                 )
             }
             Action.SILENCE -> Unit

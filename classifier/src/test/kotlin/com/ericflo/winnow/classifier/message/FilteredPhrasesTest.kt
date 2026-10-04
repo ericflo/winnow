@@ -32,4 +32,16 @@ class FilteredPhrasesTest {
         val friend = classifier.classify(InboundMessage(sender = "+15555550143", body = "The toll road was empty", senderInContacts = true))
         assertEquals(Action.ALLOW, friend.action)
     }
+
+    @Test
+    fun `filtered phrases never touch contacts, known conversations or codes, even when those are classified`() = runTest {
+        val privacy = PrivacyPolicy(classifyContacts = true, classifyKnownConversations = true, classifyVerificationCodes = true)
+        val classifier = MessageClassifier(providers = emptyList(), privacy = privacy, filteredPhrases = FilteredPhrases(listOf("vote", "amazon")))
+        val friend = classifier.classify(InboundMessage(sender = "+15555550143", body = "Did you vote yet?", senderInContacts = true))
+        assertEquals(false, friend.source is VerdictSource.Rule && friend.action == Action.FILTER)
+        val known = classifier.classify(InboundMessage(sender = "+15555550144", body = "Go vote!", userHasMessagedSender = true))
+        assertEquals(false, known.source is VerdictSource.Rule && known.action == Action.FILTER)
+        val code = classifier.classify(InboundMessage(sender = "+15555550145", body = "Your Amazon verification code is 482913"))
+        assertEquals(false, code.source is VerdictSource.Rule && code.action == Action.FILTER)
+    }
 }

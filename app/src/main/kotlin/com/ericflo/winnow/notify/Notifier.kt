@@ -106,6 +106,8 @@ class Notifier(private val context: Context) {
         quickReplies: List<String>? = null,
         /** A received photo (an MMS part) to show in the notification itself. */
         image: Uri? = null,
+        /** The words sent with [image], shown after it; not a summary like "2 photos". */
+        caption: String? = null,
     ) {
         val choices = quickReplies ?: this.quickReplies
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
@@ -116,14 +118,17 @@ class Notifier(private val context: Context) {
         val sender = Person.Builder().setName(senderName).setKey(senderName).apply {
             photo?.let { setIcon(IconCompat.createWithBitmap(it)) }
         }.build()
+        // Before reading what's showing: decoding takes a while, and two texts at once would
+        // otherwise both build on the same old stack, the second dropping the first.
+        val picture = image?.let { notificationImage(it, "$threadId-$timestamp") }
+        synchronized(lockFor(threadId)) {
         val previous = manager.activeNotifications.firstOrNull { it.tag == TAG && it.id == id }
             ?.notification?.let(NotificationCompat.MessagingStyle::extractMessagingStyleFromNotification)
         val style = previous ?: NotificationCompat.MessagingStyle(Person.Builder().setName("You").build())
-        val picture = image?.let { notificationImage(it, "$threadId-$timestamp") }
         if (picture != null) {
             // A message with a picture shows the picture instead of its text; the caption follows it.
             style.addMessage(NotificationCompat.MessagingStyle.Message("Photo", timestamp, sender).setData("image/jpeg", picture))
-            if (body.isNotBlank() && body != "Photo") style.addMessage(body, timestamp, sender)
+            if (!caption.isNullOrBlank()) style.addMessage(caption, timestamp, sender)
         } else {
             style.addMessage(body, timestamp, sender)
         }
@@ -206,32 +211,43 @@ class Notifier(private val context: Context) {
         }
         val notification = builder.build()
         manager.notify(TAG, id, notification)
+        }
     }
+
+    private val locks = java.util.concurrent.ConcurrentHashMap<Long, Any>()
+    private fun lockFor(threadId: Long): Any = locks.computeIfAbsent(threadId) { Any() }
 
     /**
      * A small copy of a received photo that the notification shade may read, or null if it can't
      * be read. Copies from a day ago are no longer showing, and go.
      */
     private fun notificationImage(part: Uri, name: String): Uri? = runCatching {
-        val dir = File(context.cacheDir, "notified").apply { mkdirs() }
-        val now = System.currentTimeMillis()
-        dir.listFiles()?.filter { now - it.lastModified() > DAY_MILLIS }?.forEach { it.delete() }
+        purgeImages()
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(part)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        // However small the file, a picture that claims to be enormous isn't decoded here.
+        if (bounds.outWidth.toLong() * bounds.outHeight > MAX_IMAGE_PIXELS) return null
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= IMAGE_EDGE_PX) sample *= 2
         val bitmap = context.contentResolver.openInputStream(part)
             ?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
             ?: return null
-        val file = File(dir, "$name.jpg")
+        val file = File(imageDir, "$name.jpg")
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
         bitmap.recycle()
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.mms", file)
-        // The shade draws it in System UI's process.
-        context.grantUriPermission(SYSTEM_UI, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        uri
+        // Android grants the shade access to a notification's own URIs, and takes it back when it goes.
+        FileProvider.getUriForFile(context, "${context.packageName}.mms", file)
     }.getOrNull()
+
+    private val imageDir get() = File(context.cacheDir, "notified").apply { mkdirs() }
+
+    /** Drops the photo copies from a day ago (those notifications are long gone), or all of [threadIds]'s. */
+    fun purgeImages(threadIds: Collection<Long> = emptyList()) {
+        val now = System.currentTimeMillis()
+        val prefixes = threadIds.map { "$it-" }
+        imageDir.listFiles()?.filter { f -> now - f.lastModified() > DAY_MILLIS || prefixes.any(f.name::startsWith) }?.forEach { it.delete() }
+    }
 
     /**
      * A long-lived conversation shortcut puts the notification in the shade's Conversations
@@ -331,6 +347,7 @@ class Notifier(private val context: Context) {
     /** Drops notifications and conversation shortcuts for deleted threads. */
     fun forget(threadIds: Collection<Long>) {
         threadIds.forEach(::cancel)
+        runCatching { purgeImages(threadIds) }
         val system = context.getSystemService(NotificationManager::class.java)
         threadIds.forEach { id -> conversationChannel(system, shortcutId(id))?.let { system.deleteNotificationChannel(it.id) } }
         runCatching { ShortcutManagerCompat.removeLongLivedShortcuts(context, threadIds.map(::shortcutId)) }
@@ -367,8 +384,8 @@ class Notifier(private val context: Context) {
         const val CHANNEL_NOT_SENT = "not_sent"
         const val TAG = "thread"
         const val TAG_NOT_SENT = "not_sent"
-        const val SYSTEM_UI = "com.android.systemui"
         const val IMAGE_EDGE_PX = 1024
+        const val MAX_IMAGE_PIXELS = 40_000_000L
         const val DAY_MILLIS = 24 * 60 * 60_000L
     }
 }

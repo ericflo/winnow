@@ -262,6 +262,9 @@ interface VerdictDao {
     @Query("SELECT messageKey FROM verdicts WHERE threadId = :threadId")
     suspend fun keysForThread(threadId: Long): List<String>
 
+    @Query("SELECT * FROM verdicts WHERE messageKey = :messageKey")
+    suspend fun forKey(messageKey: String): VerdictEntity?
+
     @Query("SELECT rule FROM sender_rules WHERE address = :address")
     suspend fun senderRule(address: String): String?
 

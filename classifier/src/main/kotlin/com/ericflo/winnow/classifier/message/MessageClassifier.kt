@@ -36,7 +36,10 @@ class MessageClassifier(
 
     suspend fun classify(message: InboundMessage): Verdict {
         LocalRules.decide(message, privacy)?.let { return it }
-        filteredPhrases.find(message.body)?.let { phrase -> return Verdict.rule(null, Action.FILTER, FilteredPhrases.reason(phrase)) }
+        // Strangers only, whatever the privacy switches say: never a contact, someone the user has
+        // texted, or a verification code (the switches let those reach a provider, not a phrase).
+        val stranger = !message.senderInContacts && !message.userHasMessagedSender && !LocalRules.looksLikeVerificationCode(message.body)
+        if (stranger) filteredPhrases.find(message.body)?.let { phrase -> return Verdict.rule(null, Action.FILTER, FilteredPhrases.reason(phrase)) }
 
         // The model is a fallback as much as a first opinion, so a failure here must not stop classification.
         val local = onDevice?.let { runCatching { it.classify(message) }.getOrNull() }
