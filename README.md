@@ -448,7 +448,10 @@ an update signed with the same key as the installed app.
 keytool -genkeypair -v -keystore winnow-release.jks -alias winnow -keyalg RSA -keysize 4096 -validity 10000
 ```
 
-Add the secrets in the repository's Woodpecker settings, or with the CLI. The keystore
+For this repository they're managed by GitOps: epsilon's CI reconciler
+(`platform/ci/reconcile.py`) activates `ericflo/winnow` on Woodpecker and keeps these five
+secrets in step with its sops-encrypted Secret, where the release keystore lives. For a fork
+or another Woodpecker, add them in the repository's settings, or with the CLI. The keystore
 password goes in the same way as the token:
 
 ```sh
