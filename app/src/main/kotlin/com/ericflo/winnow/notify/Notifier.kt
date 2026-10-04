@@ -12,6 +12,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
 import androidx.core.content.FileProvider
@@ -62,7 +63,8 @@ class Notifier(
 
     /** The evening summary (see DailySummary): quiet, and opens Filtered. */
     fun showSummary(filtered: Int, silenced: Int) {
-        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        // ContextCompat, not Context: before Android 13 the permission doesn't exist, and the platform calls it denied.
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         fun texts(n: Int) = if (n == 1) "1 text" else "$n texts"
         val title = if (filtered > 0) "Kept ${texts(filtered)} out of your inbox today" else "${texts(silenced)} arrived quietly today"
         val detail = when {
@@ -91,7 +93,8 @@ class Notifier(
      * opening the conversation any other way clears it too.
      */
     fun showNotSent(threadId: Long, recipients: List<String>, title: String, body: String, scheduled: Boolean = false, retryKey: String? = null) {
-        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        // ContextCompat, not Context: before Android 13 the permission doesn't exist, and the platform calls it denied.
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val open = Intent(context, MainActivity::class.java)
             .setAction(MainActivity.ACTION_OPEN_THREAD)
             .putExtra(MainActivity.EXTRA_THREAD_ID, threadId)
@@ -156,7 +159,8 @@ class Notifier(
         suggestReplies: Boolean = true,
     ) {
         val choices = quickReplies ?: this.quickReplies
-        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        // ContextCompat, not Context: before Android 13 the permission doesn't exist, and the platform calls it denied.
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val id = notificationId(threadId)
         val photo = personPhoto(senderPhotoUri)
         val sender = Person.Builder().setName(senderName).setKey(senderName).apply {

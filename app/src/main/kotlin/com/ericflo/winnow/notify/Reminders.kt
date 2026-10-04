@@ -13,6 +13,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.ericflo.winnow.R
 import com.ericflo.winnow.WinnowApp
 import com.ericflo.winnow.data.ChatMessage
@@ -38,7 +39,17 @@ class Reminders(
     private val dao: ReminderDao,
     /** A name for an address, as the app shows it. */
     private val displayName: (String) -> String,
+    /** Settings → Hide texts on the lock screen. */
+    private val hideOnLockScreen: suspend () -> Boolean = { false },
+    /** Whether the message (key, sent or received at) is still on the phone, to open the conversation at it. */
+    private val messageExists: suspend (key: String, at: Long) -> Boolean = { _, _ -> true },
 ) {
+    /** A message's reminder as a conversation shows it: when it's due, and which message it's for. */
+    data class Mark(val at: Long, val messageAt: Long) {
+        /** For [message], not another that took its reused id since. */
+        fun isFor(message: ChatMessage) = messageAt == 0L || messageAt == message.timestamp
+    }
+
     private val alarms = context.getSystemService(AlarmManager::class.java)
     private val manager = NotificationManagerCompat.from(context)
 
@@ -49,8 +60,22 @@ class Reminders(
     }
 
     /** When each of [threadId]'s messages is to come back, by message key. */
-    fun observe(threadId: Long): Flow<Map<String, Long>> =
-        dao.observeForThread(threadId).map { rows -> rows.associate { it.messageKey to it.remindAt } }
+    fun observe(threadId: Long): Flow<Map<String, Mark>> =
+        dao.observeForThread(threadId).map { rows -> rows.associate { it.messageKey to Mark(it.remindAt, it.messageAt) } }
+
+    /** Every reminder, by message key (for backups). */
+    suspend fun all(): Map<String, ReminderEntity> = dao.all().associateBy { it.messageKey }
+
+    /**
+     * Whether a reminder can show when it comes due: notifications allowed, and the Reminders
+     * channel not turned off. ContextCompat, not Context: before Android 13 the permission doesn't
+     * exist and the platform calls it denied.
+     */
+    fun canShow(): Boolean {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
+        if (!manager.areNotificationsEnabled()) return false
+        return manager.getNotificationChannel(CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
+    }
 
     suspend fun set(message: ChatMessage, recipients: List<String>, at: Long) {
         val words = subjectAndText(message.subject, message.body)
@@ -63,6 +88,8 @@ class Reminders(
                 remindAt = at,
                 preview = preview,
                 sender = if (message.outgoing) null else message.sender ?: recipients.singleOrNull(),
+                messageAt = message.timestamp,
+                fromMe = message.outgoing,
             ),
         )
         arm(message.key, at)
@@ -76,9 +103,24 @@ class Reminders(
         manager.cancel(tag(key), 0)
     }
 
-    /** Conversations deleted: their reminders go too. */
+    /**
+     * Conversations deleted: their reminders go too, and any showing (whose "In an hour" would
+     * otherwise bring one back). A backup of them keeps the reminders (see BackupManager).
+     */
     suspend fun cancelForThreads(threadIds: Collection<Long>) {
         dao.all().filter { it.threadId in threadIds }.forEach { cancel(it.messageKey) }
+        runCatching {
+            context.getSystemService(NotificationManager::class.java).activeNotifications
+                .filter { it.tag?.startsWith(TAG_PREFIX) == true && it.notification.extras.getLong(EXTRA_THREAD_ID, -1) in threadIds }
+                .forEach { manager.cancel(it.tag, it.id) }
+        }
+    }
+
+    /** A reminder put back from a backup under its message's new key; only one still to come. */
+    suspend fun restore(reminder: ReminderEntity) {
+        if (reminder.remindAt <= System.currentTimeMillis()) return
+        dao.upsert(reminder)
+        arm(reminder.messageKey, reminder.remindAt)
     }
 
     /** Debug builds (DebugSeedReceiver): every reminder due at [at] instead, to see one fire. */
@@ -101,26 +143,29 @@ class Reminders(
         // Moved later since the alarm was set (a race with "Remind me" again): not yet.
         if (reminder.remindAt > System.currentTimeMillis() + EARLY_TOLERANCE_MILLIS) return arm(key, reminder.remindAt)
         dao.delete(key)
-        show(reminder)
+        // Its message gone (deleted, or its id now someone else's): the reminder still shows, from
+        // what it saved, but opens the conversation rather than a message that isn't it.
+        show(reminder, focus = messageExists(key, reminder.messageAt))
     }
 
     /** "In an hour" on the notification. */
-    suspend fun snooze(key: String, recipients: List<String>, threadId: Long, preview: String, sender: String?) {
+    suspend fun snooze(reminder: ReminderEntity) {
         val at = System.currentTimeMillis() + SNOOZE_MILLIS
-        dao.upsert(ReminderEntity(key, threadId, joinAddresses(recipients), at, preview, sender))
-        arm(key, at)
-        manager.cancel(tag(key), 0)
+        dao.upsert(reminder.copy(remindAt = at))
+        arm(reminder.messageKey, at)
+        manager.cancel(tag(reminder.messageKey), 0)
     }
 
     fun dismiss(key: String) = manager.cancel(tag(key), 0)
 
-    private fun show(reminder: ReminderEntity) {
-        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+    private suspend fun show(reminder: ReminderEntity, focus: Boolean) {
+        // ContextCompat, not Context: before Android 13 the permission doesn't exist, and the platform calls it denied.
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val recipients = splitAddresses(reminder.recipients)
         val conversation = displayNameFor(recipients, displayName)
         val who = when {
-            reminder.sender == null -> "You"
-            recipients.size > 1 -> displayName(reminder.sender)
+            reminder.fromMe -> "You"
+            recipients.size > 1 -> reminder.sender?.let(displayName)
             else -> null
         }
         val line = who?.let { "$it: ${reminder.preview}" } ?: reminder.preview
@@ -128,7 +173,7 @@ class Reminders(
             .setAction(MainActivity.ACTION_OPEN_THREAD)
             .putExtra(MainActivity.EXTRA_THREAD_ID, reminder.threadId)
             .putExtra(MainActivity.EXTRA_ADDRESS, reminder.recipients)
-            .putExtra(MainActivity.EXTRA_FOCUS, reminder.messageKey)
+            .apply { if (focus) putExtra(MainActivity.EXTRA_FOCUS, reminder.messageKey) }
             // Its own data, so each reminder's tap opens its own message.
             .setData(Uri.parse("winnow://reminder/${Uri.encode(reminder.messageKey)}"))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -142,8 +187,10 @@ class Reminders(
             .setContentIntent(PendingIntent.getActivity(context, 0, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             .addAction(R.drawable.ic_notification, "In an hour", receiverIntent(ACTION_SNOOZE, reminder))
             .addAction(R.drawable.ic_notification, "Done", receiverIntent(ACTION_DONE, reminder))
-            // What it says stays off the lock screen, as messages' do when the user asks.
-            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .addExtras(android.os.Bundle().apply { putLong(EXTRA_THREAD_ID, reminder.threadId) })
+            // What it says stays off the lock screen; with "Hide texts on the lock screen" on, all of
+            // it does, as messages' notifications.
+            .setVisibility(if (hideOnLockScreen()) NotificationCompat.VISIBILITY_SECRET else NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(
                 NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_notification).setContentTitle("Message reminder").build(),
             )
@@ -153,11 +200,12 @@ class Reminders(
 
     private fun arm(key: String, at: Long) {
         val intent = alarmIntent(key)
-        // As scheduled sends: exact with the "Alarms & reminders" grant, else within ten minutes.
+        // Exact with the "Alarms & reminders" grant; else inexact, but still while the phone is
+        // idle (a plain window waits for Doze's maintenance windows, hours sometimes).
         if (alarms.canScheduleExactAlarms()) {
             alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, intent)
         } else {
-            alarms.setWindow(AlarmManager.RTC_WAKEUP, at, 10 * 60_000L, intent)
+            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, intent)
         }
     }
 
@@ -176,14 +224,16 @@ class Reminders(
             .putExtra(EXTRA_THREAD_ID, reminder.threadId)
             .putExtra(EXTRA_RECIPIENTS, reminder.recipients)
             .putExtra(EXTRA_PREVIEW, reminder.preview)
-            .putExtra(EXTRA_SENDER, reminder.sender),
+            .putExtra(EXTRA_SENDER, reminder.sender)
+            .putExtra(EXTRA_MESSAGE_AT, reminder.messageAt)
+            .putExtra(EXTRA_FROM_ME, reminder.fromMe),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
     /** Each reminder's intents told apart by data, not request code (keys don't fit in an int). */
     private fun keyUri(key: String) = Uri.parse("winnow://reminder/${Uri.encode(key)}")
 
-    private fun tag(key: String) = "reminder:$key"
+    private fun tag(key: String) = "$TAG_PREFIX$key"
 
     companion object {
         const val CHANNEL = "reminders"
@@ -195,6 +245,9 @@ class Reminders(
         const val EXTRA_RECIPIENTS = "recipients"
         const val EXTRA_PREVIEW = "preview"
         const val EXTRA_SENDER = "sender"
+        const val EXTRA_MESSAGE_AT = "message_at"
+        const val EXTRA_FROM_ME = "from_me"
+        private const val TAG_PREFIX = "reminder:"
         private const val SNOOZE_MILLIS = 60 * 60_000L
         /** An alarm a little early (inexact windows) still counts as on time. */
         private const val EARLY_TOLERANCE_MILLIS = 60_000L
@@ -213,11 +266,16 @@ class ReminderReceiver : BroadcastReceiver() {
                     Reminders.ACTION_FIRE -> container.reminders.fire(key)
                     Reminders.ACTION_DONE -> container.reminders.dismiss(key)
                     Reminders.ACTION_SNOOZE -> container.reminders.snooze(
-                        key,
-                        splitAddresses(intent.getStringExtra(Reminders.EXTRA_RECIPIENTS).orEmpty()),
-                        intent.getLongExtra(Reminders.EXTRA_THREAD_ID, -1),
-                        intent.getStringExtra(Reminders.EXTRA_PREVIEW).orEmpty(),
-                        intent.getStringExtra(Reminders.EXTRA_SENDER),
+                        ReminderEntity(
+                            messageKey = key,
+                            threadId = intent.getLongExtra(Reminders.EXTRA_THREAD_ID, -1),
+                            recipients = intent.getStringExtra(Reminders.EXTRA_RECIPIENTS).orEmpty(),
+                            remindAt = 0,
+                            preview = intent.getStringExtra(Reminders.EXTRA_PREVIEW).orEmpty(),
+                            sender = intent.getStringExtra(Reminders.EXTRA_SENDER),
+                            messageAt = intent.getLongExtra(Reminders.EXTRA_MESSAGE_AT, 0),
+                            fromMe = intent.getBooleanExtra(Reminders.EXTRA_FROM_ME, false),
+                        ),
                     )
                 }
             } catch (e: CancellationException) {

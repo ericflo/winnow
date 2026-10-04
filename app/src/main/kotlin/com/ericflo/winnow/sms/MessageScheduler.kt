@@ -104,11 +104,12 @@ class MessageScheduler(
 
     private fun arm(id: Long, at: Long) {
         val intent = alarmIntent(id)
-        // Exact timing needs the user's "Alarms & reminders" grant; otherwise send within ten minutes.
+        // Exact timing needs the user's "Alarms & reminders" grant; otherwise inexact, but still
+        // while the phone is idle (a plain window can wait hours for Doze's maintenance windows).
         if (alarms.canScheduleExactAlarms()) {
             alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, intent)
         } else {
-            alarms.setWindow(AlarmManager.RTC_WAKEUP, at, 10 * 60_000L, intent)
+            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, intent)
         }
     }
 
@@ -129,7 +130,7 @@ class ScheduledSendReceiver : BroadcastReceiver() {
                 when (intent.action) {
                     // Reboots and exact-alarm permission changes both drop or reshape pending alarms.
                     Intent.ACTION_BOOT_COMPLETED, AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> {
-                        container.scheduler.rearmAll()
+                        runCatching { container.scheduler.rearmAll() }
                         runCatching { container.reminders.rearmAll() }
                         // The evening summary's alarm went with the reboot too.
                         runCatching { container.dailySummary.rearm() }

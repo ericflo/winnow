@@ -750,7 +750,7 @@ fun ThreadScreen(
             onDelete = { confirmDeleteOne = message },
             onDetails = { detailsFor = message },
             onStar = { viewModel.toggleStar(message) },
-            reminderAt = reminders[message.key],
+            reminderAt = reminders[message.key]?.takeIf { it.isFor(message) }?.at,
             onRemind = { remindingFor = message },
             onReact = { emoji -> viewModel.react(message, emoji) },
             onSave = { save(message.attachments) },
@@ -814,7 +814,7 @@ fun ThreadScreen(
     }
     remindingFor?.let { message ->
         ReminderDialog(
-            current = reminders[message.key],
+            current = reminders[message.key]?.takeIf { it.isFor(message) }?.at,
             onDismiss = { remindingFor = null },
             onPick = { at, label ->
                 remindingFor = null
@@ -1241,7 +1241,7 @@ private fun MessageList(
     state: ThreadUiState,
     scheduled: List<ScheduledMessageEntity>,
     /** When messages are to come back ("Remind me"), by key. */
-    reminders: Map<String, Long> = emptyMap(),
+    reminders: Map<String, com.ericflo.winnow.notify.Reminders.Mark> = emptyMap(),
     onScheduledSendNow: (Long) -> Unit,
     onScheduledEdit: (ScheduledMessageEntity) -> Unit,
     onScheduledDelete: (Long) -> Unit,
@@ -1396,7 +1396,7 @@ private fun MessageList(
                             onSmartLink = onSmartLink,
                             onPreviewClick = if (selecting) toggle else null,
                             fraud = state.linksOff(item.message),
-                            reminderAt = reminders[item.key],
+                            reminderAt = reminders[item.key]?.takeIf { it.isFor(item.message) }?.at,
                         )
                     }
                 }

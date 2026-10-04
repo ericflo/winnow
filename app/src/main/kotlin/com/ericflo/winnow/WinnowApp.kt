@@ -160,7 +160,9 @@ class AppContainer(private val context: Context) {
     val videoShrinker by lazy { com.ericflo.winnow.data.VideoShrinker(context) }
     val draftAttachments by lazy { com.ericflo.winnow.data.DraftAttachments(context) }
     val linkPreviews by lazy { LinkPreviewFetcher(context, okhttp3.OkHttpClient()) }
-    val codeCleaner by lazy { CodeCleaner(context, verdictDao, starredDao) { isDefaultSmsApp() && settings.current().deleteOldCodes } }
+    val codeCleaner by lazy {
+        CodeCleaner(context, verdictDao, starredDao, reminded = { reminders.all().keys }) { isDefaultSmsApp() && settings.current().deleteOldCodes }
+    }
 
     /** Process-wide, so rotating the screen or reopening the activity doesn't re-lock. */
     val appLock = AppLock().also { lock ->
@@ -236,7 +238,16 @@ class AppContainer(private val context: Context) {
     val widgetUpdates by lazy { com.ericflo.winnow.widget.WidgetUpdates(context, appScope) }
 
     /** "Remind me" on messages. */
-    val reminders by lazy { com.ericflo.winnow.notify.Reminders(context, database.reminders(), messages::displayName) }
+    val reminders by lazy {
+        com.ericflo.winnow.notify.Reminders(
+            context, database.reminders(), messages::displayName,
+            hideOnLockScreen = { settings.current().hideOnLockScreen },
+            messageExists = { key, at ->
+                val found = runCatching { messages.messagesByKey(listOf(key)).firstOrNull()?.message }.getOrNull()
+                found != null && (at == 0L || found.timestamp == at)
+            },
+        )
+    }
 
     val autoBackup by lazy { AutoBackup(context, settings, backups) }
 
@@ -255,6 +266,7 @@ class AppContainer(private val context: Context) {
             canWriteMessages = { isDefaultSmsApp() },
             ownNumbers = { OwnNumbers(context).all() },
             drafts = draftAttachments,
+            reminders = reminders,
         )
     }
 

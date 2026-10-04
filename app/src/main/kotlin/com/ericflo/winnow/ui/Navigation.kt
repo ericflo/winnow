@@ -473,6 +473,8 @@ private suspend fun openInPane(route: ThreadRoute, nav: NavHostController, pane:
         ?: runCatching { container.messages.threadIdFor(splitAddresses(route.recipients)) }.getOrNull()?.takeIf { it >= 0 }
         ?: return false
     nav.popBackStack<InboxRoute>(inclusive = false)
-    pane.open(threadId, route.recipients)
+    // A reminder (or anything else naming a message) opens beside the list at that message.
+    if (route.focus.isNotEmpty()) pane.open(threadId, route.recipients, ThreadViewModel.SearchRequest(null, route.focus))
+    else pane.open(threadId, route.recipients)
     return true
 }

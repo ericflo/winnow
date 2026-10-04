@@ -156,7 +156,7 @@ fun SendButton(enabled: Boolean, onSend: () -> Unit, onSchedule: (at: Long, labe
 fun ReminderDialog(current: Long?, onDismiss: () -> Unit, onPick: (at: Long, label: String) -> Unit, onRemove: () -> Unit) {
     var picking by remember { mutableStateOf(false) }
     if (picking) {
-        PickDateTimeDialog(onDismiss = onDismiss, onPicked = { at -> onPick(at, scheduleLabel(at)) }, initial = current)
+        PickDateTimeDialog(onDismiss = onDismiss, onPicked = { at -> onPick(at, scheduleLabel(at)) }, initial = current, confirmLabel = "Set reminder")
         return
     }
     val inAnHour = System.currentTimeMillis() + 60 * 60_000L
@@ -199,7 +199,7 @@ fun ReminderDialog(current: Long?, onDismiss: () -> Unit, onPick: (at: Long, lab
 /** A date picker, then a time picker, starting at [initial] if given. Only future times are accepted. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PickDateTimeDialog(onDismiss: () -> Unit, onPicked: (Long) -> Unit, initial: Long? = null) {
+fun PickDateTimeDialog(onDismiss: () -> Unit, onPicked: (Long) -> Unit, initial: Long? = null, confirmLabel: String = "Schedule") {
     var date by remember { mutableStateOf<LocalDate?>(null) }
     val todayUtc = LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
     val start = initial?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()) }
@@ -230,7 +230,7 @@ fun PickDateTimeDialog(onDismiss: () -> Unit, onPicked: (Long) -> Unit, initial:
             onDismissRequest = onDismiss,
             title = { Text("Send at") },
             text = { TimePicker(state = timeState) },
-            confirmButton = { TextButton(onClick = { onPicked(at) }, enabled = at > System.currentTimeMillis()) { Text("Schedule") } },
+            confirmButton = { TextButton(onClick = { onPicked(at) }, enabled = at > System.currentTimeMillis()) { Text(confirmLabel) } },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         )
     }

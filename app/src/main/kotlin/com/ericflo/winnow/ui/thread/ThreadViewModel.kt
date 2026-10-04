@@ -166,7 +166,7 @@ class ThreadViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** When messages here are to come back ("Remind me"), by message key. */
-    val reminders: StateFlow<Map<String, Long>> = threadId
+    val reminders: StateFlow<Map<String, com.ericflo.winnow.notify.Reminders.Mark>> = threadId
         .filter { it >= 0 }
         .flatMapLatest { container.reminders.observe(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
@@ -174,7 +174,10 @@ class ThreadViewModel(
     /** Brings [message] back as a notification at [at] (moving a reminder it already has). */
     fun remind(message: ChatMessage, at: Long, label: String) = launch {
         container.reminders.set(message, recipients, at)
-        _notices.emit("Reminder set: $label")
+        _notices.emit(
+            if (container.reminders.canShow()) "Reminder set: $label"
+            else "Reminder set: $label. Notifications are off for Winnow, so it can't show: turn them on in Android's settings.",
+        )
     }
 
     fun cancelReminder(message: ChatMessage) = launch { container.reminders.cancel(message.key) }

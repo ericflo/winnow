@@ -120,6 +120,8 @@ data class MessageBackup(
     val parts: List<PartBackup> = emptyList(),
     val verdict: VerdictBackup? = null,
     val starred: Boolean = false,
+    /** When a "Remind me" on it is due; null for none. */
+    val remindAt: Long? = null,
 ) {
     /** Identifies the message across backup, phone and re-import, to skip duplicates. */
     val fingerprint: String get() = fingerprint(kind, date, outgoing, body, parts.size)

@@ -28,13 +28,14 @@ import kotlinx.coroutines.flow.Flow
         VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class, ScheduledMessageEntity::class,
         CorrectionEntity::class, StarredEntity::class, ReminderEntity::class,
     ],
-    version = 12,
+    version = 13,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
         AutoMigration(from = 9, to = 10, spec = WinnowDatabase.EverythingSummarized::class),
         AutoMigration(from = 10, to = 11),
         AutoMigration(from = 11, to = 12),
+        AutoMigration(from = 12, to = 13),
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
@@ -70,8 +71,12 @@ data class ReminderEntity(
     val remindAt: Long,
     /** The message's words (or what it carries), for the notification. */
     val preview: String,
-    /** Who wrote it: null for the user's own. */
+    /** Who wrote it, if known (null for the user's own, or a group sender the store didn't name). */
     val sender: String? = null,
+    /** When the message was sent or received: a reused message id isn't this message. 0 when unknown. */
+    @ColumnInfo(defaultValue = "0") val messageAt: Long = 0,
+    /** The user's own message. */
+    @ColumnInfo(defaultValue = "0") val fromMe: Boolean = false,
 )
 
 @Dao

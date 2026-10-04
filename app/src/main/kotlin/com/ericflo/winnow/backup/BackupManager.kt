@@ -32,6 +32,10 @@ import com.ericflo.winnow.data.splitAddresses
 import com.ericflo.winnow.data.threadRecipients
 import com.ericflo.winnow.data.DraftAttachments
 import com.ericflo.winnow.data.OutgoingAttachment
+import com.ericflo.winnow.data.db.ReminderEntity
+import com.ericflo.winnow.data.subjectAndText
+import com.ericflo.winnow.data.attachmentSummary
+import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.mms.ContentTypes
 import com.ericflo.winnow.mms.MmsCharsets
 import com.ericflo.winnow.mms.MmsPart
@@ -96,6 +100,8 @@ class BackupManager(
     private val ownNumbers: () -> Set<String> = { emptySet() },
     /** Where drafts keep their attachments; null leaves them out. */
     private val drafts: DraftAttachments? = null,
+    /** "Remind me"s, kept with their messages; null leaves them out. */
+    private val reminders: com.ericflo.winnow.notify.Reminders? = null,
 ) {
     private val resolver = context.contentResolver
     private val _status = MutableStateFlow<BackupStatus>(BackupStatus.Idle)
@@ -277,6 +283,9 @@ class BackupManager(
         val recipients = resolver.threadRecipients()
         val verdictsByKey = verdicts.all().associateBy { it.messageKey }
         val stars = starred.all().mapTo(HashSet()) { it.messageKey }
+        // Reminders still to come, for the message they were set on (not another that took its id).
+        val reminded = reminders?.all().orEmpty()
+        fun remindAt(key: String, date: Long) = reminded[key]?.takeIf { it.messageAt == 0L || it.messageAt == date }?.remindAt
         val byThread = HashMap<Long, MutableList<MessageBackup>>()
 
         resolver.query(
@@ -305,6 +314,7 @@ class BackupManager(
                     to = address.takeIf { !incoming && recipients[threadId].orEmpty().size > 1 },
                     verdict = verdictsByKey[ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0))]?.toBackup(),
                     starred = ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)) in stars,
+                    remindAt = remindAt(ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)), c.getLong(4)),
                 )
             }
         }
@@ -349,6 +359,7 @@ class BackupManager(
                 },
                 verdict = verdictsByKey[ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id)]?.toBackup(),
                 starred = ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id) in stars,
+                remindAt = remindAt(ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id), row.date * 1000),
             )
         }
 
@@ -467,6 +478,8 @@ class BackupManager(
                     val (key, inThread) = textsEverywhere.getValue(textKey(m)!!)
                     if (key !in classified) restoreVerdict(m, conversation, inThread, key)
                     if (m.starred) starred.star(StarredEntity(key, inThread, System.currentTimeMillis()))
+                restoreReminder(m, key, inThread, conversation)
+                    restoreReminder(m, key, inThread, conversation)
                 }
                 present += knownTexts.size
                 done += knownTexts.size
@@ -495,6 +508,7 @@ class BackupManager(
                     added++
                     restoreVerdict(m, conversation, threadId, ChatMessage.messageKey(ChatMessage.Kind.SMS, id))
                     if (m.starred) starred.star(StarredEntity(ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId, System.currentTimeMillis()))
+                    restoreReminder(m, ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId, conversation)
                 }
                 done += chunk.size
                 report(BackupStatus.Working("Restoring messages", done, total))
@@ -513,6 +527,7 @@ class BackupManager(
                     added++
                     restoreVerdict(m, conversation, threadId, ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)))
                     if (m.starred) starred.star(StarredEntity(ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)), threadId, System.currentTimeMillis()))
+                    restoreReminder(m, ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)), threadId, conversation)
                 }
                 report(BackupStatus.Working("Restoring messages", ++done, total))
             }
@@ -610,6 +625,24 @@ class BackupManager(
         // (UTF-8 bytes as characters); decoded text comes through this unchanged.
         val subject = m.subject?.let { MmsCharsets.fromStore(it, MmsCharsets.UTF_8) }
         return mmsStore.insertRestored(threadId, box, m.date / 1000, m.read, subject, m.sender, to, listOf(Smil.forParts(parts)) + parts)
+    }
+
+    /** A reminder on [m], under the key it has on this phone now; only one still to come. */
+    private suspend fun restoreReminder(m: MessageBackup, key: String, threadId: Long, conversation: ConversationBackup) {
+        val at = m.remindAt ?: return
+        val words = subjectAndText(m.subject, m.body)
+        reminders?.restore(
+            ReminderEntity(
+                messageKey = key,
+                threadId = threadId,
+                recipients = joinAddresses(conversation.recipients),
+                remindAt = at,
+                preview = words.ifBlank { attachmentSummary(m.parts.map { it.contentType }) },
+                sender = if (m.outgoing) null else m.sender ?: conversation.recipients.singleOrNull(),
+                messageAt = m.date,
+                fromMe = m.outgoing,
+            ),
+        )
     }
 
     private suspend fun restoreVerdict(m: MessageBackup, conversation: ConversationBackup, threadId: Long, key: String) {

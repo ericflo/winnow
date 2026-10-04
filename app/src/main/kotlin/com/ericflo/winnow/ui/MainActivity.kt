@@ -57,9 +57,10 @@ class MainActivity : ComponentActivity() {
             container.mmsFiles.cleanUp()
             container.sharedFiles.cleanUp()
             container.codeCleaner.clean()
-            // A force-stop cancels alarms without a reboot to re-arm them.
-            container.scheduler.rearmAll()
-            container.reminders.rearmAll()
+            // A force-stop cancels alarms without a reboot to re-arm them. Each on its own: one
+            // failing mustn't leave the others unarmed.
+            runCatching { container.scheduler.rearmAll() }
+            runCatching { container.reminders.rearmAll() }
             runCatching { container.autoBackup.ensureScheduled() }
         }
         // With app lock on, recents shows a blank card instead of the conversation list. Android 12

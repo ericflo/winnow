@@ -21,12 +21,14 @@ class CodeCleaner(
     private val context: Context,
     private val verdicts: VerdictDao,
     private val starred: StarredDao,
+    /** Messages with a reminder set: kept, like starred ones, until it's done. */
+    private val reminded: suspend () -> Set<String> = { emptySet() },
     /** Deleting needs the SMS role, and the user's say-so. */
     private val enabled: suspend () -> Boolean,
 ) {
     suspend fun clean(now: Long = System.currentTimeMillis()): Int = withContext(Dispatchers.IO) {
         if (!enabled()) return@withContext 0
-        val keep = starred.all().mapTo(HashSet()) { it.messageKey }
+        val keep = starred.all().mapTo(HashSet()) { it.messageKey } + reminded()
         val doomed = mutableListOf<Long>()
         context.contentResolver.query(
             Sms.CONTENT_URI, arrayOf(Sms._ID, Sms.ADDRESS, Sms.BODY),
