@@ -69,6 +69,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.heightIn
 
 data class NewChatUiState(
     val query: String = "",
@@ -181,11 +184,22 @@ fun NewChatScreen(viewModel: NewChatViewModel, onBack: () -> Unit, onStart: (rec
                 // From what's typed right now; the ViewModel's view of it can be a frame behind.
                 ToField(typed, type, onDone = { dialable(typed)?.let { choose(ContactEntry(ContactLookup.formatAddress(it), it)) } })
             }
-            if (state.groupMode && state.picked.isNotEmpty()) {
+            if (state.groupMode) {
+                // Always there in a new group, a hint until someone is picked: the first pick
+                // mustn't push the list down, under a finger already reaching for the next.
                 item("picked") {
+                    if (state.picked.isEmpty()) {
+                        Text(
+                            "Pick two or more people",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 32.dp, vertical = 4.dp).heightIn(min = PICKED_ROW_HEIGHT).wrapContentHeight(Alignment.CenterVertically),
+                        )
+                        return@item
+                    }
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp).heightIn(min = PICKED_ROW_HEIGHT),
                     ) {
                         state.picked.forEach { contact ->
                             InputChip(
@@ -280,17 +294,19 @@ fun NewChatScreen(viewModel: NewChatViewModel, onBack: () -> Unit, onStart: (rec
 private fun ToField(query: String, onQueryChange: (String) -> Unit, onDone: () -> Unit) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
+    // Letters for names, or the dial pad for a number, as Messages offers.
+    var dialPad by rememberSaveable { mutableStateOf(false) }
     Surface(
         shape = CircleShape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).height(64.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 24.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 24.dp, end = 8.dp)) {
             Text("To:", style = MaterialTheme.typography.bodyLarge)
             Spacer(Modifier.width(16.dp))
             Box(Modifier.weight(1f)) {
                 if (query.isEmpty()) {
-                    Text("Type name or phone number", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (dialPad) "Phone number" else "Type name or phone number", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 BasicTextField(
                     value = query,
@@ -298,14 +314,23 @@ private fun ToField(query: String, onQueryChange: (String) -> Unit, onDone: () -
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                    keyboardOptions = KeyboardOptions(keyboardType = if (dialPad) KeyboardType.Phone else KeyboardType.Text, imeAction = ImeAction.Go),
                     keyboardActions = KeyboardActions(onGo = { onDone() }),
                     modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                )
+            }
+            IconButton(onClick = { dialPad = !dialPad; focus.requestFocus() }) {
+                Icon(
+                    painterResource(if (dialPad) R.drawable.ic_keyboard else R.drawable.ic_dialpad),
+                    contentDescription = if (dialPad) "Type a name" else "Dial a number",
                 )
             }
         }
     }
 }
+
+/** The picked people's row in a new group: one line of chips (an InputChip is 32dp, plus its touch margin). */
+private val PICKED_ROW_HEIGHT = 48.dp
 
 /** Grouped-list corners: rounded outer edges, tight seams between neighbors. */
 private fun groupShape(index: Int, count: Int): RoundedCornerShape {
