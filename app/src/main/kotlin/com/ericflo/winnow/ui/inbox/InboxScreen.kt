@@ -217,10 +217,13 @@ fun InboxScreen(
                     // takes a moment), not a blank screen with only the Start chat button on it.
                     // The list itself waits, so it comes back to where it was scrolled.
                     if (!searching) {
-                        if (LocalConfiguration.current.screenHeightDp < SHORT_SCREEN_DP) {
-                            CompactBar(onSearch = { searching = true }, onMenu = { menuOpen = true })
-                        } else {
-                            LargeHeader(onSearch = { searching = true }, onMenu = { menuOpen = true })
+                        // The list's own side padding, so nothing moves when it arrives.
+                        Box(Modifier.padding(start = navBar.calculateStartPadding(direction), end = navBar.calculateEndPadding(direction))) {
+                            if (LocalConfiguration.current.screenHeightDp < SHORT_SCREEN_DP) {
+                                CompactBar(onSearch = { searching = true }, onMenu = { menuOpen = true })
+                            } else {
+                                LargeHeader(onSearch = { searching = true }, onMenu = { menuOpen = true })
+                            }
                         }
                     }
                     return@Column

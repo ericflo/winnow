@@ -116,7 +116,13 @@ data class VerdictRecord(
 )
 
 /** A starred message with enough about its conversation to show it in the Starred list. */
-data class StarredMessage(val message: ChatMessage, val recipients: List<String>, val conversationName: String)
+data class StarredMessage(
+    val message: ChatMessage,
+    val recipients: List<String>,
+    val conversationName: String,
+    /** A group's two faces (see groupFaces). */
+    val members: List<Member> = emptyList(),
+)
 
 /** A message match from Search. */
 /** A photo or video from some conversation, for browsing them all at once. */

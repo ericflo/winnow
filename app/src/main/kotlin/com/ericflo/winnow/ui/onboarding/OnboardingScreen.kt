@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,13 +62,17 @@ fun OnboardingScreen(
     isDefault: () -> Boolean,
     onMakeDefault: () -> Unit,
     onChooseClassifier: (ProviderKind, apiKey: String) -> Unit,
+    /** The classifier settings hold now. */
+    initialClassifier: ProviderKind = ProviderKind.ON_DEVICE,
     onFinish: () -> Unit,
     backups: BackupManager,
 ) {
     var step by rememberSaveable { mutableIntStateOf(0) }
-    // Up here, not in the step: Back and Next again must show what was chosen (and saved).
-    var classifier by rememberSaveable { mutableStateOf(ProviderKind.ON_DEVICE) }
-    var apiKey by rememberSaveable { mutableStateOf("") }
+    // Up here, not in the step: Back and Next again must show what was chosen (and saved). It
+    // starts from what settings say, so a backup restored on the step before shows its choice.
+    // The key isn't kept in saved state: it's saved to settings as it's typed.
+    var classifier by rememberSaveable(initialClassifier) { mutableStateOf(initialClassifier) }
+    var apiKey by remember { mutableStateOf("") }
     // Back goes to the step before, as a swipe back through a setup flow does; from the first, it leaves.
     BackHandler(enabled = step > 0) { step-- }
     var defaultNow by rememberSaveable { mutableStateOf(isDefault()) }

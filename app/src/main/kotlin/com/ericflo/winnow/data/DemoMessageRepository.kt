@@ -91,7 +91,10 @@ class DemoMessageRepository(private val packageName: String) : MessageRepository
     override suspend fun search(query: String): List<SearchHit> =
         threads.value.flatMap { t ->
             t.messages.filter { it.body.contains(query, ignoreCase = true) }.map {
-                SearchHit(t.threadId, t.recipients, displayNameFor(t.recipients, ::displayName), it.body, it.timestamp)
+                SearchHit(
+                    t.threadId, t.recipients, displayNameFor(t.recipients, ::displayName), it.body, it.timestamp,
+                    members = if (t.recipients.size > 1) groupFaces(t.recipients.map { r -> Member(r, displayName(r), null) }) else emptyList(),
+                )
             }
         }.sortedByDescending { it.timestamp }
 

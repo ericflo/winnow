@@ -39,6 +39,8 @@ import com.ericflo.winnow.AppContainer
 import com.ericflo.winnow.data.StarredMessage
 import com.ericflo.winnow.ui.components.Avatar
 import com.ericflo.winnow.ui.components.shortTimestamp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -55,8 +57,12 @@ class StarredViewModel(private val container: AppContainer) : ViewModel() {
     /** Newest star first; null while loading. */
     val starred: StateFlow<List<StarredMessage>?> = container.starredDao.observeAll().map { rows ->
         val byKey = container.messages.messagesByKey(rows.map { it.messageKey }).associateBy { it.message.key }
-        rows.mapNotNull { byKey[it.messageKey] }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        // A group's faces looked up here, off the main thread, once per conversation.
+        val faces = HashMap<List<String>, List<Member>>()
+        rows.mapNotNull { byKey[it.messageKey] }.map { s ->
+            if (s.recipients.size < 2) s else s.copy(members = faces.getOrPut(s.recipients) { faces(s.recipients) })
+        }
+    }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     fun unstar(message: StarredMessage) {
         viewModelScope.launch { container.starredDao.unstar(message.message.key) }
@@ -64,8 +70,8 @@ class StarredViewModel(private val container: AppContainer) : ViewModel() {
 
     fun displayName(address: String): String = container.messages.displayName(address)
 
-    /** A group's two faces for its avatar (see groupFaces); cached lookups, as the names'. */
-    fun faces(recipients: List<String>): List<Member> =
+    /** A group's two faces for its avatar (see groupFaces). */
+    private fun faces(recipients: List<String>): List<Member> =
         groupFaces(recipients.take(GROUP_FACE_CANDIDATES).map { Member(it, container.messages.displayName(it), container.messages.photoUri(it)) })
 
     fun photoUri(address: String): String? = container.messages.photoUri(address)
@@ -116,7 +122,7 @@ fun StarredScreen(
                     leadingContent = {
                         if (item.recipients.size > 1) {
                             // The group's faces, as the inbox shows it.
-                            GroupAvatar(viewModel.faces(item.recipients), 44.dp)
+                            GroupAvatar(item.members, 44.dp)
                         } else {
                             Avatar(item.conversationName, seed = item.recipients.firstOrNull().orEmpty(), size = 44.dp, photoUri = item.recipients.singleOrNull()?.let(viewModel::photoUri))
                         }

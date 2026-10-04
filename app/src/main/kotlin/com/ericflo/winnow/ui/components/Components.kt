@@ -95,14 +95,15 @@ fun Avatar(name: String, seed: String, size: Dp = 52.dp, modifier: Modifier = Mo
         // Drawn over the initial, so a missing or unreadable photo just shows the initial. At
         // this size and up the 96-pixel thumbnail is soft: the full photo instead, if there is one.
         if (photoUri != null) {
-            // Back to the thumbnail if the full photo won't load (it was removed since, say).
-            var largeFailed by remember(photoUri) { mutableStateOf(false) }
-            val large = ContactLookup.displayPhoto(photoUri)?.takeIf { size >= SHARP_PHOTO_SIZE && !largeFailed }
+            // Back to the thumbnail if the full photo won't load (it was removed since, say); a
+            // new full photo for the same contact is tried afresh.
+            var failed by remember(photoUri) { mutableStateOf<String?>(null) }
+            val large = ContactLookup.displayPhoto(photoUri)?.takeIf { size >= SHARP_PHOTO_SIZE && it != failed }
             AsyncImage(
                 model = large ?: photoUri,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                onError = { if (large != null) largeFailed = true },
+                onError = { if (large != null) failed = large },
                 modifier = Modifier.size(size).clip(CircleShape),
             )
         }

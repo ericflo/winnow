@@ -189,6 +189,7 @@ fun WinnowNavHost(
             OnboardingScreen(
                 isDefault = container::isDefaultSmsApp,
                 onMakeDefault = onMakeDefault,
+                initialClassifier = settings?.provider ?: com.ericflo.winnow.data.ProviderKind.ON_DEVICE,
                 onChooseClassifier = { kind, key ->
                     scope.launch {
                         container.settings.update { s ->

@@ -1,0 +1,7 @@
+<resources>
+    <!-- Android 14+ names the surface Compose's dynamic colors use; the window matches it exactly. -->
+    <style name="Theme.Winnow" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/system_surface_light</item>
+        <item name="android:windowSplashScreenBackground">@android:color/system_surface_light</item>
+    </style>
+</resources>
