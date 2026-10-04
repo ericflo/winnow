@@ -330,6 +330,16 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     }
                 }
             }
+
+            section("About")
+            item("version") {
+                // What a bug report needs first.
+                val info = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull() }
+                ListItem(
+                    headlineContent = { Text("Winnow ${info?.versionName.orEmpty()}") },
+                    supportingContent = { Text("Build ${info?.longVersionCode ?: "?"} · ${context.packageName}") },
+                )
+            }
             item { Spacer(Modifier.height(32.dp)) }
         }
     }
