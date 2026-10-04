@@ -31,6 +31,7 @@ import com.ericflo.winnow.data.db.VerdictDao
 import com.ericflo.winnow.data.splitAddresses
 import com.ericflo.winnow.data.threadRecipients
 import com.ericflo.winnow.mms.ContentTypes
+import com.ericflo.winnow.mms.MmsCharsets
 import com.ericflo.winnow.mms.MmsPart
 import com.ericflo.winnow.mms.Smil
 import com.ericflo.winnow.sms.MessageScheduler
@@ -483,9 +484,9 @@ class BackupManager(
             }
 
             missing.filter { it.kind == KIND_MMS }.forEach { m ->
-                // No text and none of its media in the file (say, a part no app could read): there's
-                // nothing to put back, and no point trying again later.
-                if (m.body.isEmpty() && m.parts.none { File(spool, it.file).isFile }) {
+                // No text, no subject and none of its media in the file (say, a part no app could
+                // read): there's nothing to put back, and no point trying again later.
+                if (m.body.isEmpty() && m.subject.isNullOrBlank() && m.parts.none { File(spool, it.file).isFile }) {
                     empty++
                     report(BackupStatus.Working("Restoring messages", ++done, total))
                     return@forEach
@@ -543,6 +544,8 @@ class BackupManager(
                 val file = File(spool, p.file).takeIf { it.isFile } ?: return@forEach
                 add(MmsPart(contentType = p.contentType, data = file.readBytes(), name = p.name ?: p.file, contentLocation = p.name ?: p.file))
             }
+            // A subject alone is carried by an empty text, as it was sent (see MmsSender).
+            if (isEmpty() && !m.subject.isNullOrBlank()) add(MmsPart.plainText(""))
         }
         if (parts.isEmpty()) return null
         val box = when {
@@ -552,7 +555,10 @@ class BackupManager(
         }
         // Received group messages went to everyone else in the conversation; sent ones to everyone.
         val to = if (m.outgoing) conversation.recipients else conversation.recipients.filter { it != m.sender }
-        return mmsStore.insertRestored(threadId, box, m.date / 1000, m.read, m.subject, m.sender, to, listOf(Smil.forParts(parts)) + parts)
+        // Backups made before subjects were decoded on the way out hold the store's own form
+        // (UTF-8 bytes as characters); decoded text comes through this unchanged.
+        val subject = m.subject?.let { MmsCharsets.fromStore(it, MmsCharsets.UTF_8) }
+        return mmsStore.insertRestored(threadId, box, m.date / 1000, m.read, subject, m.sender, to, listOf(Smil.forParts(parts)) + parts)
     }
 
     private suspend fun restoreVerdict(m: MessageBackup, conversation: ConversationBackup, threadId: Long, key: String) {

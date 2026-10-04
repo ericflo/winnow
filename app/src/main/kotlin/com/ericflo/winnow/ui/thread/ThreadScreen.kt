@@ -261,6 +261,8 @@ fun ThreadScreen(
     val sendSeparately by viewModel.sendSeparately.collectAsStateWithLifecycle()
     val subjectShown by viewModel.subjectShown.collectAsStateWithLifecycle()
     val subject = viewModel.subjectField.takeIf { subjectShown }
+    // Only whether it's blank: reading the text itself here would redraw the screen per keystroke.
+    val subjectBlank by remember(subject) { derivedStateOf { subject?.text.isNullOrBlank() } }
     // A permission was refused, maybe for good (then asking again shows nothing): say what it's for.
     var refused by remember { mutableStateOf<String?>(null) }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -619,7 +621,7 @@ fun ThreadScreen(
                 onAddSubject = viewModel::addSubject,
                 onRemoveSubject = viewModel::removeSubject,
                 // Sent separately, each person gets a plain text; a subject makes it an MMS (an empty one is left off).
-                isSms = (single != null || sendSeparately) && attachments.isEmpty() && subject?.text.isNullOrBlank(),
+                isSms = (single != null || sendSeparately) && attachments.isEmpty() && subjectBlank,
                 sendsAsMms = viewModel.sendsAsMms.collectAsStateWithLifecycle().value,
                 onSend = viewModel::send,
                 enterToSend = enterToSend,
@@ -2100,18 +2102,36 @@ private fun Composer(
 }
 
 /**
- * A subject is one short line: line breaks become spaces, and it stops at MAX_SUBJECT characters
- * without cutting an emoji (or any other character) in half.
+ * A subject is one short line: line breaks become spaces, and what's typed or pasted stops at
+ * MAX_SUBJECT characters, cut from its own end (never the subject's, and never through an
+ * emoji). One already longer (two joined when a message came back) can shrink, not grow.
  */
+@OptIn(ExperimentalFoundationApi::class) // TextFieldBuffer.changes
 private object SubjectInput : InputTransformation {
     override fun TextFieldBuffer.transformInput() {
-        val text = asCharSequence()
-        for (i in text.indices) if (text[i] == '\n' || text[i] == '\r') replace(i, i + 1, " ")
-        if (length > ThreadViewModel.MAX_SUBJECT) {
-            val characters = android.icu.text.BreakIterator.getCharacterInstance().apply { setText(asCharSequence().toString()) }
-            val end = characters.preceding(ThreadViewModel.MAX_SUBJECT + 1).coerceAtLeast(0)
-            replace(end, length, "")
+        // Backwards, so a "\r\n" becoming one space doesn't move what's still to look at.
+        var i = length - 1
+        while (i >= 0) {
+            val c = asCharSequence()[i]
+            if (c == '\n' && i > 0 && asCharSequence()[i - 1] == '\r') {
+                replace(i - 1, i + 1, " ")
+                i -= 2
+                continue
+            }
+            if (c == '\n' || c == '\r') replace(i, i + 1, " ")
+            i--
         }
+        val over = length - maxOf(ThreadViewModel.MAX_SUBJECT, originalText.length)
+        if (over <= 0) return
+        val inserted = if (changes.changeCount > 0) changes.getRange(changes.changeCount - 1) else null
+        if (inserted == null || inserted.length < over) {
+            revertAllChanges()
+            return
+        }
+        val characters = android.icu.text.BreakIterator.getCharacterInstance().apply { setText(asCharSequence().toString()) }
+        val wanted = inserted.end - over
+        val cut = if (characters.isBoundary(wanted)) wanted else characters.preceding(wanted)
+        if (cut < inserted.start) revertAllChanges() else replace(cut, inserted.end, "")
     }
 }
 

@@ -116,5 +116,12 @@ class HelpersTest {
         // Latin-1 bytes are their own characters; no charset, nothing to undo.
         assertEquals("Ä", MmsCharsets.fromStore("Ä", MmsCharsets.ISO_8859_1))
         assertEquals("GrÃ¼ÃŸe", MmsCharsets.fromStore("GrÃ¼ÃŸe", null))
+        // No charset at all reads as UTF-8, as Android's MMS code reads it.
+        assertEquals(subject, MmsCharsets.fromStore(stored, null))
+        assertEquals(subject, MmsCharsets.fromStore(stored, 0))
+        // UCS-2 and UTF-16 bytes, which can look like ASCII.
+        val ucs2 = String("你好 Hi".toByteArray(Charsets.UTF_16BE), Charsets.ISO_8859_1)
+        assertEquals("你好 Hi", MmsCharsets.fromStore(ucs2, 1000))
+        assertEquals("Hi", MmsCharsets.fromStore(String("Hi".toByteArray(Charsets.UTF_16BE), Charsets.ISO_8859_1), 1013))
     }
 }

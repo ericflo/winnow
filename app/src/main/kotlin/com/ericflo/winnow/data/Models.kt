@@ -205,11 +205,15 @@ fun showsInitial(name: String): Boolean = name.firstOrNull()?.isLetter() == true
 
 /**
  * The two faces a group's avatar shows, front one first: people with a photo, then people with
- * a name (an initial), so it isn't two blank glyphs while a friend is in the group. Ties keep
- * the conversation's own order, so the list, the conversation and its details agree.
+ * a name (an initial), so it isn't two blank glyphs while a friend is in the group. Ties go by
+ * number, not by the order they came in (a notification lists the sender first), so the list,
+ * the conversation, its details and its notification icon all agree.
  */
 fun groupFaces(members: List<Member>): List<Member> =
-    members.sortedByDescending { if (it.photoUri != null) 2 else if (showsInitial(it.name)) 1 else 0 }.take(2)
+    members.sortedWith(
+        compareByDescending<Member> { if (it.photoUri != null) 2 else if (showsInitial(it.name)) 1 else 0 }
+            .thenBy { normalizeAddress(it.address) },
+    ).take(2)
 
 /** At most this many of a group's people are looked at for its avatar, so a huge group doesn't cost a lookup each. */
 const val GROUP_FACE_CANDIDATES = 12

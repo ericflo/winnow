@@ -178,7 +178,8 @@ class ConversationDetailsViewModel(
     }
 
     /** Android's notification settings for this conversation alone. */
-    fun notificationSettings(title: String) = container.notifier.conversationSettings(threadId, recipients, title)
+    fun notificationSettings(title: String) =
+        container.notifier.conversationSettings(threadId, recipients, title, recipients.singleOrNull()?.let(repo::photoUri))
 
     suspend fun save(attachment: Attachment): String =
         withContext(Dispatchers.IO) { container.mediaExport.save(attachment) }?.let { "Saved to $it" } ?: "Couldn't save that"

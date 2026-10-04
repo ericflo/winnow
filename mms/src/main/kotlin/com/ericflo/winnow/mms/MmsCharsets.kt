@@ -10,6 +10,7 @@ object MmsCharsets {
     const val ISO_8859_1 = 4
     const val UTF_8 = 106
     const val UTF_16 = 1015
+    internal const val ISO_2022_JP = 39
 
     // Ordered so reverse lookups prefer the modern number (UTF-16BE is 1013, not UCS-2's 1000).
     private val names = linkedMapOf(
@@ -71,10 +72,16 @@ object MmsCharsets {
      * that isn't (an app that stored plain text, as Winnow once did) is returned as it is.
      */
     fun fromStore(raw: String, mib: Int?): String {
-        // Plain ASCII reads the same either way; anything past U+00FF can't be bytes.
-        if (raw.all { it.code < 0x80 } || raw.any { it.code > 0xFF }) return raw
-        val charset = names[mib]?.let { runCatching { Charset.forName(it) }.getOrNull() } ?: return raw
-        if (charset == Charsets.ISO_8859_1) return raw
+        // Anything past U+00FF can't be bytes.
+        if (raw.any { it.code > 0xFF }) return raw
+        // UTF-16's bytes are often below 0x80 (00 48 is "H"), and ISO-2022-JP is 7-bit escapes:
+        // for those, ASCII-looking text is still bytes to decode. For the rest it reads the same.
+        val wide = mib != null && isWide(mib)
+        if (!wide && mib != ISO_2022_JP && raw.all { it.code < 0x80 }) return raw
+        if (wide && raw.length % 2 != 0) return raw
+        // No charset (null, or 0 for "any") is what Android's own MMS code reads as UTF-8.
+        val charset = if (mib == null || mib == 0) Charsets.UTF_8 else names[mib]?.let { runCatching { Charset.forName(it) }.getOrNull() } ?: return raw
+        if (charset == Charsets.ISO_8859_1 || charset == Charsets.US_ASCII) return raw
         return runCatching {
             charset.newDecoder()
                 .onMalformedInput(CodingErrorAction.REPORT)

@@ -235,11 +235,18 @@ class ThreadViewModel(
             val saved = states.get(id)
             // A forwarded or shared draft joins what was already waiting here, rather than replacing it.
             saved.draft?.let { text -> setDraft(if (currentDraft().isEmpty()) text else ReturnedMessages.appendTo(text, currentDraft())) }
-            if (!_subjectShown.value) saved.draftSubject?.let(::setSubject)
+            // Joined to one opened (or typed) before this ran, never dropped for it.
+            saved.draftSubject?.let { s -> setSubject(if (_subjectShown.value) ReturnedMessages.mergeSubjects(s, currentSubject()) else s) }
             subjectLoaded = true
-            // The subject is kept with the draft from here on, whatever it is now (typed before
-            // this ran, or just restored: saving the same again is harmless).
-            launch(start = CoroutineStart.UNDISPATCHED) { subjectChanges().debounce(400).collect { states.saveDraftSubject(id, it) } }
+            // The subject is kept with the draft from here on: whatever it is now (typed before
+            // this ran), then every change, but not the saved one written back again.
+            var savedSubject = saved.draftSubject
+            launch(start = CoroutineStart.UNDISPATCHED) {
+                subjectChanges().debounce(400).collect {
+                    if (it != savedSubject) states.saveDraftSubject(id, it)
+                    savedSubject = it
+                }
+            }
             val kept = withContext(Dispatchers.IO) { drafts.decode(saved.draftAttachments) }
             if (kept.isNotEmpty()) _attachments.value = kept + _attachments.value.filter { a -> kept.none { it.uri == a.uri } }
             // From here on every change to the attachments is kept, the first included: a share's
@@ -647,7 +654,8 @@ class ThreadViewModel(
         combine(_subjectShown, snapshotFlow { subjectField.text.toString() }) { shown, text -> if (shown) text else null }.distinctUntilChanged()
 
     private fun setSubject(value: String?) {
-        subjectField.setTextAndPlaceCursorAtEnd(value.orEmpty())
+        // Set, not typed, so the field's own filter never sees it: one line here too.
+        subjectField.setTextAndPlaceCursorAtEnd(value.orEmpty().replace("\r\n", " ").replace('\n', ' ').replace('\r', ' '))
         _subjectShown.value = value != null
     }
 

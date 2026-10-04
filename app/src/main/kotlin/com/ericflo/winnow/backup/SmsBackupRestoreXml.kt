@@ -140,7 +140,7 @@ object SmsBackupRestoreXml {
                     val participants = listed.ifEmpty { addrs.filter { it.first in setOf(ADDR_FROM, ADDR_TO, ADDR_CC) }.map { it.second } }
                         .filter { normalizeAddress(it) !in own }
                         .distinctBy(::normalizeAddress)
-                    if (box == null || box == MMS_DRAFT || date == null || participants.isEmpty() || (texts.isEmpty() && parts.isEmpty())) {
+                    if (box == null || box == MMS_DRAFT || date == null || participants.isEmpty() || (texts.isEmpty() && parts.isEmpty() && subject.isNullOrBlank())) {
                         skipped++
                     } else {
                         add(
@@ -234,14 +234,17 @@ object SmsBackupRestoreXml {
         out.attr("m_type", if (m.outgoing) M_SEND_REQ else M_RETRIEVE_CONF)
         out.attr("read", if (m.read) 1 else 0)
         out.attr("seen", 1)
-        out.attr("sub", m.subject)
+        // As the store keeps it, with its charset, so the app restoring it stores it the same way.
+        out.attr("sub", m.subject?.let(MmsCharsets::forStore))
+        out.attr("sub_cs", m.subject?.let { MmsCharsets.UTF_8 })
         out.attr("ct_t", "application/vnd.wap.multipart.related")
         out.attr("text_only", if (files.isEmpty()) 1 else 0)
         out.attr("locked", 0)
         out.attr("date_sent", 0)
         out.startTag(null, "parts")
         var seq = 0
-        if (m.body.isNotEmpty()) {
+        // A subject alone still gets its (empty) text, as it was sent.
+        if (m.body.isNotEmpty() || (files.isEmpty() && !m.subject.isNullOrBlank())) {
             out.startTag(null, "part")
             out.attr("seq", seq++)
             out.attr("ct", "text/plain")

@@ -60,6 +60,6 @@ class ReturnedMessagesTest {
         val returned = ReturnedMessages()
         returned.put(7, ReturnedMessages.Returned("first", emptyList(), separately = false, subject = "Dinner"))
         returned.put(7, ReturnedMessages.Returned("second", emptyList(), separately = false, subject = "Movie"))
-        assertEquals("Movie · Dinner", returned.take(7)!!.subject)
+        assertEquals("Dinner · Movie", returned.take(7)!!.subject)
     }
 }

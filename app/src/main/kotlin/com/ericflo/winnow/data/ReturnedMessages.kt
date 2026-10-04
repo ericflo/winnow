@@ -32,7 +32,8 @@ class ReturnedMessages {
                 a.attachments + b.attachments,
                 a.separately || b.separately,
                 a.shared && b.shared,
-                mergeSubjects(b.subject, a.subject),
+                // In the order they were sent, as the text is.
+                mergeSubjects(a.subject, b.subject),
             )
         }
         _arrived.tryEmit(threadId)

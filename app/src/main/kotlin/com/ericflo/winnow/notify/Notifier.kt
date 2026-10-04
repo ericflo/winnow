@@ -374,6 +374,7 @@ class Notifier(
             paint.shader = android.graphics.BitmapShader(photo, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP)
                 .apply { setLocalMatrix(matrix) }
             canvas.drawCircle(cx, cy, radius, paint)
+            photo.recycle()
             return
         }
         if (showsInitial(member.name)) {
@@ -439,8 +440,14 @@ class Notifier(
      * Android's own notification settings for one conversation: its sound, vibration, priority
      * and bubble. Those settings hang off the conversation's shortcut, so it's made first.
      */
-    fun conversationSettings(threadId: Long, recipients: List<String>, title: String): Intent {
-        val shortcutId = pushShortcut(threadId, joinAddresses(recipients), title, Person.Builder().setName(title).setKey(title).build(), null)
+    fun conversationSettings(threadId: Long, recipients: List<String>, title: String, photoUri: String? = null): Intent {
+        // The same shortcut as the conversation's own (its photo too), or this would replace it.
+        val photo = photoUri?.let { uri ->
+            runCatching { context.contentResolver.openInputStream(Uri.parse(uri))?.use(BitmapFactory::decodeStream) }.getOrNull()
+        }
+        val joined = joinAddresses(recipients)
+        val person = Person.Builder().setName(title).setKey(joined).apply { photo?.let { setIcon(IconCompat.createWithBitmap(it)) } }.build()
+        val shortcutId = pushShortcut(threadId, joined, title, person, photo)
         // Settings shows the general Messages page until the conversation has a channel of its
         // own. Notifications for this conversation move to it automatically, by shortcut ID.
         val system = context.getSystemService(NotificationManager::class.java)

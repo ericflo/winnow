@@ -123,8 +123,10 @@ class ModelsTest {
         assertEquals(listOf(morgan, casey), faces(listOf(stranger1, casey, stranger2, morgan)))
         // A named contact before a bare number.
         assertEquals(listOf(casey, stranger1), faces(listOf(stranger1, stranger2, casey)))
-        // All alike: the conversation's own order.
-        assertEquals(listOf(stranger1, stranger2), faces(listOf(stranger1, stranger2, m("+12065550152", "(206) 555-0152"))))
+        // All alike: by number, whatever order they come in.
+        val stranger3 = m("+12065550152", "(206) 555-0152")
+        assertEquals(listOf(stranger1, stranger2), faces(listOf(stranger3, stranger2, stranger1)))
+        assertEquals(faces(listOf(casey, morgan, stranger1)), faces(listOf(stranger1, morgan, casey)))
     }
 
     @Test
