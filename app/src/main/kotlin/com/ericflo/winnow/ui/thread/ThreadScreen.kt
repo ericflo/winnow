@@ -831,7 +831,7 @@ fun ThreadScreen(
                 uri = photo.uri,
                 width = width,
                 height = height,
-                onCrop = { box -> viewModel.cropAttachment(photo, box); cropping = null },
+                onDone = { box, strokes -> viewModel.editPhoto(photo, box, strokes); cropping = null },
                 onDismiss = { cropping = null },
             )
         }
@@ -2153,7 +2153,7 @@ private fun Composer(
                             attachment.contentType,
                             attachment.name,
                             Modifier.size(88.dp).clip(RoundedCornerShape(16.dp))
-                                .then(if (editable) Modifier.clickable(onClickLabel = "Crop photo") { onEditAttachment(attachment) } else Modifier),
+                                .then(if (editable) Modifier.clickable(onClickLabel = "Edit photo") { onEditAttachment(attachment) } else Modifier),
                         )
                         // A plain circle, not an IconButton, which would grow itself to a 48dp target and cover the photo.
                         Box(

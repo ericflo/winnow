@@ -705,11 +705,12 @@ class ThreadViewModel(
         editAttachment(attachment, "Couldn't rotate that photo", afterEdits = true) { container.sharedFiles.rotated(it) }
 
     /**
-     * Cuts a photo in the composer to [box] (see PhotoCrop), in its place. The box was drawn on
-     * that picture, so it follows only a draft copy: a photo turned meanwhile isn't cut.
+     * Cuts a photo in the composer to [box] and draws [strokes] on it (see PhotoCrop), in its
+     * place. Both were drawn on that picture, so it follows only a draft copy: a photo turned
+     * meanwhile isn't changed.
      */
-    fun cropAttachment(attachment: OutgoingAttachment, box: PhotoCrop.Box) =
-        editAttachment(attachment, "Couldn't crop that photo", afterEdits = false) { container.sharedFiles.cropped(it, box) }
+    fun editPhoto(attachment: OutgoingAttachment, box: PhotoCrop.Box, strokes: List<PhotoCrop.Stroke>) =
+        editAttachment(attachment, "Couldn't edit that photo", afterEdits = false) { container.sharedFiles.cropped(it, box, strokes) }
 
     /**
      * Replaces a photo in the composer with [edit]'s copy of it. Edits queue: each follows the
@@ -729,7 +730,7 @@ class ThreadViewModel(
             repeat(MAX_KEPT_HOPS) {
                 if (current !in _attachments.value) {
                     current = hops[current] ?: run {
-                        if (!afterEdits && current in keptAs) _notices.emit("That photo changed before it was cropped. Crop it again.")
+                        if (!afterEdits && current in keptAs) _notices.emit("That photo changed before your edit was saved. Edit it again.")
                         return@withLock
                     }
                 }

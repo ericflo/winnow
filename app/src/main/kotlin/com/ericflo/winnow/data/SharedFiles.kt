@@ -4,7 +4,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
+import android.graphics.Canvas
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Rect
 import android.media.ExifInterface
 import android.net.Uri
@@ -159,10 +162,11 @@ class SharedFiles(private val context: Context) {
 
     /**
      * A copy of the photo [attachment] cut to [box] (fractions of it as it's shown, upright),
-     * for the composer's Crop. Cut from the full-size file, so a small crop stays sharp; at most
-     * [ROTATED_EDGE_PX] on a side. A PNG stays a PNG (screenshots); anything else becomes a JPEG.
+     * with [strokes] drawn on it, for the composer's photo editor. Cut from the full-size file,
+     * so a small crop stays sharp; at most [ROTATED_EDGE_PX] on a side. A PNG stays a PNG
+     * (screenshots); anything else becomes a JPEG.
      */
-    fun cropped(attachment: OutgoingAttachment, box: PhotoCrop.Box): OutgoingAttachment? = runCatching {
+    fun cropped(attachment: OutgoingAttachment, box: PhotoCrop.Box, strokes: List<PhotoCrop.Stroke> = emptyList()): OutgoingAttachment? = runCatching {
         val uri = Uri.parse(attachment.uri)
         val resolver = context.contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -191,17 +195,42 @@ class SharedFiles(private val context: Context) {
             }
         } ?: return null
         val shown = Bitmap.createBitmap(piece, 0, 0, piece.width, piece.height, upright(orientation), true)
+        val drawn = if (strokes.isEmpty()) shown else draw(shown, strokes.map { it.inBox(box) })
         val png = attachment.contentType.equals("image/png", ignoreCase = true)
         val file = File(dir, "${UUID.randomUUID()}.${if (png) "png" else "jpg"}")
-        file.outputStream().use { shown.compress(if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, it) }
-        if (shown !== piece) shown.recycle()
-        piece.recycle()
+        file.outputStream().use { drawn.compress(if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, it) }
+        // Each of these may be the one before it, unchanged.
+        setOf(piece, shown, drawn).forEach(Bitmap::recycle)
         OutgoingAttachment(
             Uri.fromFile(file).toString(),
             if (png) "image/png" else "image/jpeg",
             attachment.name?.substringBeforeLast('.')?.let { "$it.${if (png) "png" else "jpg"}" },
         )
     }.onFailure { Log.w(TAG, "Couldn't crop a photo", it) }.getOrNull()
+
+    /** [strokes] (in fractions of [bitmap]) drawn on [bitmap], or on a copy of it if it can't be drawn on. */
+    private fun draw(bitmap: Bitmap, strokes: List<PhotoCrop.Stroke>): Bitmap {
+        val target = if (bitmap.isMutable) bitmap else bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(target)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        for (stroke in strokes) {
+            val first = stroke.points.firstOrNull() ?: continue
+            paint.color = stroke.argb
+            paint.strokeWidth = stroke.width * target.width
+            val path = Path().apply {
+                moveTo(first.x * target.width, first.y * target.height)
+                stroke.points.drop(1).forEach { lineTo(it.x * target.width, it.y * target.height) }
+                // A single touch is a dot.
+                if (stroke.points.size == 1) lineTo(first.x * target.width + 0.1f, first.y * target.height)
+            }
+            canvas.drawPath(path, paint)
+        }
+        return target
+    }
 
     /** Turns a photo stored with EXIF [orientation] upright, mirrors and all. */
     private fun upright(orientation: Int) = Matrix().apply {

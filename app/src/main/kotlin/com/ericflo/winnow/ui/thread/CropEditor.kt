@@ -13,6 +13,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.layout.size
@@ -51,22 +66,26 @@ import com.ericflo.winnow.data.PhotoCrop
 import kotlin.math.roundToInt
 
 /**
- * Crops a photo in the composer: drag the corners or edges, or the box itself. [width] and
- * [height] are the photo's upright size, which is how it's shown and what [onCrop]'s box is in.
+ * Edits a photo in the composer: crop it (drag the corners or edges, or the box itself) and draw
+ * on it. [width] and [height] are the photo's upright size, which is how it's shown and what
+ * [onDone]'s box and strokes are in.
  */
 @Composable
-fun CropEditor(uri: String, width: Int, height: Int, onCrop: (PhotoCrop.Box) -> Unit, onDismiss: () -> Unit) {
+fun CropEditor(uri: String, width: Int, height: Int, onDone: (PhotoCrop.Box, List<PhotoCrop.Stroke>) -> Unit, onDismiss: () -> Unit) {
     var box by remember(uri) { mutableStateOf(PhotoCrop.Box.FULL) }
     // A square, in fractions of this photo: as much of its width as of its height times height/width.
     val squareAspect = height.toFloat() / width
     var square by remember(uri) { mutableStateOf(false) }
+    var drawing by remember(uri) { mutableStateOf(false) }
+    val strokes = remember(uri) { mutableStateListOf<PhotoCrop.Stroke>() }
+    var color by remember { mutableIntStateOf(PEN_COLORS.first().second.toArgb()) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Color.Black).safeDrawingPadding()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
                 IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Cancel", tint = Color.White) }
-                Text("Crop", style = MaterialTheme.typography.titleLarge, color = Color.White)
+                Text("Edit photo", style = MaterialTheme.typography.titleLarge, color = Color.White)
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { onCrop(box) }, enabled = box != PhotoCrop.Box.FULL) { Text("Done") }
+                TextButton(onClick = { onDone(box, strokes.toList()) }, enabled = box != PhotoCrop.Box.FULL || strokes.isNotEmpty()) { Text("Done") }
             }
             // Inset from the screen's sides, where a drag would be the back gesture.
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
@@ -79,13 +98,23 @@ fun CropEditor(uri: String, width: Int, height: Int, onCrop: (PhotoCrop.Box) -> 
                 Box(Modifier.size(with(density) { shownWidth.roundToInt().toDp() }, with(density) { shownHeight.roundToInt().toDp() })) {
                     AsyncImage(
                         model = uri,
-                        contentDescription = "Photo being cropped",
+                        contentDescription = "Photo being edited",
                         contentScale = ContentScale.FillBounds,
                         modifier = Modifier.padding(REACH).fillMaxSize(),
+                    )
+                    // Under the crop box, so lines outside it are dimmed with the rest; each layer
+                    // takes touches only in its own mode, so the one beneath still gets them.
+                    DrawLayer(
+                        strokes = strokes,
+                        color = color,
+                        enabled = drawing,
+                        onStroke = { strokes += it },
+                        modifier = Modifier.fillMaxSize(),
                     )
                     CropOverlay(
                         box = box,
                         aspect = if (square) squareAspect else null,
+                        enabled = !drawing,
                         onBox = { box = it },
                         modifier = Modifier.fillMaxSize().semantics {
                             contentDescription = "Crop area"
@@ -94,26 +123,117 @@ fun CropEditor(uri: String, width: Int, height: Int, onCrop: (PhotoCrop.Box) -> 
                     )
                 }
             }
+            val chipColors = FilterChipDefaults.filterChipColors(labelColor = Color.White, selectedLabelColor = Color.White)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp),
             ) {
-                val chipColors = FilterChipDefaults.filterChipColors(labelColor = Color.White, selectedLabelColor = Color.White)
-                FilterChip(selected = !square, onClick = { square = false }, label = { Text("Free") }, colors = chipColors)
-                FilterChip(
-                    selected = square,
-                    onClick = {
-                        square = true
-                        box = PhotoCrop.fit(box, squareAspect)
-                    },
-                    label = { Text("Square") },
-                    colors = chipColors,
-                )
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = { box = if (square) PhotoCrop.fit(PhotoCrop.Box.FULL, squareAspect) else PhotoCrop.Box.FULL }) { Text("Reset") }
+                if (drawing) {
+                    PEN_COLORS.forEach { (name, swatch) ->
+                        val selected = swatch.toArgb() == color
+                        Box(
+                            Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(if (selected) Color.White else Color.Transparent)
+                                .padding(if (selected) 3.dp else 4.dp)
+                                .clip(CircleShape)
+                                // A dark pen shows against the black around it.
+                                .background(Color.Gray)
+                                .padding(1.dp)
+                                .clip(CircleShape)
+                                .background(swatch)
+                                .selectable(selected = selected, role = Role.RadioButton) { color = swatch.toArgb() }
+                                .semantics { contentDescription = name },
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { strokes.removeAt(strokes.lastIndex) }, enabled = strokes.isNotEmpty()) { Text("Undo") }
+                } else {
+                    FilterChip(selected = !square, onClick = { square = false }, label = { Text("Free") }, colors = chipColors)
+                    FilterChip(
+                        selected = square,
+                        onClick = {
+                            square = true
+                            box = PhotoCrop.fit(box, squareAspect)
+                        },
+                        label = { Text("Square") },
+                        colors = chipColors,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { box = if (square) PhotoCrop.fit(PhotoCrop.Box.FULL, squareAspect) else PhotoCrop.Box.FULL }) { Text("Reset") }
+                }
+            }
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
+                listOf(false to "Crop", true to "Draw").forEachIndexed { i, (draws, label) ->
+                    SegmentedButton(
+                        selected = drawing == draws,
+                        onClick = { drawing = draws },
+                        shape = SegmentedButtonDefaults.itemShape(i, 2),
+                        colors = SegmentedButtonDefaults.colors(inactiveContentColor = Color.White, inactiveContainerColor = Color.Black),
+                    ) { Text(label) }
+                }
             }
         }
+    }
+}
+
+/** The pens: a name for TalkBack, and the color. */
+private val PEN_COLORS = listOf(
+    "Red" to Color(0xFFF44336),
+    "Yellow" to Color(0xFFFFEB3B),
+    "Green" to Color(0xFF4CAF50),
+    "Blue" to Color(0xFF2196F3),
+    "White" to Color.White,
+    "Black" to Color.Black,
+)
+
+/** A pen line's width, on the screen; on the photo it's the same share of its width. */
+private val PEN_WIDTH = 5.dp
+
+/**
+ * What's drawn on the photo, and (when [enabled]) a finger drawing more: each line goes to
+ * [onStroke] when the finger lifts. Like [CropOverlay], it's [REACH] bigger than the photo all round.
+ */
+@Composable
+private fun DrawLayer(strokes: List<PhotoCrop.Stroke>, color: Int, enabled: Boolean, onStroke: (PhotoCrop.Stroke) -> Unit, modifier: Modifier = Modifier) {
+    val reach = with(LocalDensity.current) { REACH.toPx() }
+    val pen = with(LocalDensity.current) { PEN_WIDTH.toPx() }
+    val drawing = remember { mutableStateListOf<PhotoCrop.Point>() }
+    val currentColor by rememberUpdatedState(color)
+    // Only while drawing does it take touches at all: otherwise they go to the crop box beneath.
+    Canvas(
+        modifier.then(if (!enabled) Modifier else Modifier.pointerInput(Unit) {
+            val w = size.width - 2 * reach
+            val h = size.height - 2 * reach
+            fun at(o: Offset) = PhotoCrop.Point(((o.x - reach) / w).coerceIn(0f, 1f), ((o.y - reach) / h).coerceIn(0f, 1f))
+            detectDragGestures(
+                onDragStart = { drawing.clear(); drawing += at(it) },
+                onDragEnd = {
+                    if (drawing.isNotEmpty()) onStroke(PhotoCrop.Stroke(drawing.toList(), currentColor, pen / w))
+                    drawing.clear()
+                },
+                onDragCancel = { drawing.clear() },
+            ) { change, _ ->
+                change.consume()
+                drawing += at(change.position)
+            }
+        }),
+    ) {
+        val w = size.width - 2 * reach
+        val h = size.height - 2 * reach
+        fun line(points: List<PhotoCrop.Point>, argb: Int, width: Float) {
+            if (points.isEmpty()) return
+            val path = Path().apply {
+                moveTo(reach + points[0].x * w, reach + points[0].y * h)
+                points.drop(1).forEach { lineTo(reach + it.x * w, reach + it.y * h) }
+                if (points.size == 1) lineTo(reach + points[0].x * w + 0.1f, reach + points[0].y * h)
+            }
+            drawPath(path, Color(argb), style = Stroke(width = width * w, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
+        strokes.forEach { line(it.points, it.argb, it.width) }
+        line(drawing, currentColor, pen / w)
     }
 }
 
@@ -125,7 +245,7 @@ private val REACH = 28.dp
  * [REACH] bigger than the photo all round, so a handle on the photo's edge can be taken from outside.
  */
 @Composable
-private fun CropOverlay(box: PhotoCrop.Box, aspect: Float?, onBox: (PhotoCrop.Box) -> Unit, modifier: Modifier = Modifier) {
+private fun CropOverlay(box: PhotoCrop.Box, aspect: Float?, enabled: Boolean, onBox: (PhotoCrop.Box) -> Unit, modifier: Modifier = Modifier) {
     val current = remember { mutableStateOf(box) }
     current.value = box
     val reach = with(LocalDensity.current) { REACH.toPx() }
@@ -150,7 +270,7 @@ private fun CropOverlay(box: PhotoCrop.Box, aspect: Float?, onBox: (PhotoCrop.Bo
         }
     }
     Canvas(
-        Modifier.fillMaxSize().pointerInput(aspect) {
+        Modifier.fillMaxSize().then(if (!enabled) Modifier else Modifier.pointerInput(aspect) {
             var handle: PhotoCrop.Handle? = null
             val w = size.width - 2 * reach
             val h = size.height - 2 * reach
@@ -169,7 +289,7 @@ private fun CropOverlay(box: PhotoCrop.Box, aspect: Float?, onBox: (PhotoCrop.Bo
                 current.value = next
                 onBox(next)
             }
-        },
+        }),
     ) {
         // The photo's area, inside the reach around it.
         val photoLeft = reach

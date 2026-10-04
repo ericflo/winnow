@@ -14,6 +14,22 @@ object PhotoCrop {
         }
     }
 
+    /** A point on the photo, in fractions of it. */
+    data class Point(val x: Float, val y: Float)
+
+    /**
+     * A line drawn on the photo: its points, its color (ARGB), and its [width] as a fraction of
+     * the photo's width, so it looks the same however big the photo comes out.
+     */
+    data class Stroke(val points: List<Point>, val argb: Int, val width: Float) {
+        /** This stroke in [box]'s own fractions (the box being what's kept): where it lands on the cropped photo. */
+        fun inBox(box: Box): Stroke = Stroke(
+            points.map { Point((it.x - box.left) / box.width, (it.y - box.top) / box.height) },
+            argb,
+            width / box.width,
+        )
+    }
+
     /** What a drag takes hold of: the whole box, a corner or an edge. */
     enum class Handle(val left: Boolean = false, val top: Boolean = false, val right: Boolean = false, val bottom: Boolean = false) {
         MOVE,
