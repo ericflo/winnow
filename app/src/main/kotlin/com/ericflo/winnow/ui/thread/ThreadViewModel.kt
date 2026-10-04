@@ -263,13 +263,21 @@ class ThreadViewModel(
     }
 
     /** A sent message waiting out the undo window; null when nothing is pending. */
-    data class PendingSend(val text: String, val attachments: List<OutgoingAttachment>, val sendsAt: Long, val windowMillis: Long)
+    data class PendingSend(
+        val text: String,
+        val attachments: List<OutgoingAttachment>,
+        val sendsAt: Long,
+        val windowMillis: Long,
+        /** To each group member as their own text, rather than to the group. */
+        val separately: Boolean = false,
+    )
 
     private val _pending = MutableStateFlow<PendingSend?>(null)
     val pending: StateFlow<PendingSend?> = _pending.asStateFlow()
     private var pendingJob: Job? = null
 
-    fun send() {
+    /** [separately]: in a group, each person gets their own text and replies come back one to one. */
+    fun send(separately: Boolean = false) {
         val text = _draft.value.trim()
         val files = _attachments.value
         if (text.isEmpty() && files.isEmpty() || _pending.value != null) return
@@ -281,13 +289,13 @@ class ThreadViewModel(
         viewModelScope.launch {
             states.saveDraft(threadId.value, "")
             val window = container.settings.current().undoSendSeconds * 1000L
-            if (window <= 0) return@launch deliver(text, files, sim)
-            _pending.value = PendingSend(text, files, System.currentTimeMillis() + window, window)
+            if (window <= 0) return@launch deliver(text, files, sim, separately)
+            _pending.value = PendingSend(text, files, System.currentTimeMillis() + window, window, separately)
             // The app scope, not this ViewModel's: leaving the conversation must not lose the message.
             pendingJob = container.appScope.launch {
                 delay(window)
                 _pending.value = null
-                deliver(text, files, sim)
+                deliver(text, files, sim, separately)
             }
         }
     }
@@ -302,7 +310,8 @@ class ThreadViewModel(
         _attachments.value = pending.attachments
     }
 
-    private suspend fun deliver(text: String, files: List<OutgoingAttachment>, sim: Int?) {
+    private suspend fun deliver(text: String, files: List<OutgoingAttachment>, sim: Int?, separately: Boolean = false) {
+        if (separately && recipients.size > 1) return deliverSeparately(text, files, sim)
         try {
             repo.send(recipients, text, files, sim)
         } catch (e: CancellationException) {
@@ -312,6 +321,31 @@ class ThreadViewModel(
             _draft.value = text
             _attachments.value = files
             _notices.emit("Couldn't send: ${e.message ?: "unknown error"}")
+        }
+    }
+
+    /** One text per person, each in its own one-to-one conversation; the group thread doesn't get a copy. */
+    private suspend fun deliverSeparately(text: String, files: List<OutgoingAttachment>, sim: Int?) {
+        val failed = recipients.filter { person ->
+            try {
+                repo.send(listOf(person), text, files, sim)
+                false
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                true
+            }
+        }
+        if (failed.size == recipients.size) {
+            _draft.value = text
+            _attachments.value = files
+            _notices.emit("Couldn't send")
+        } else {
+            val sent = recipients.size - failed.size
+            _notices.emit(
+                if (failed.isEmpty()) "Sent separately to $sent people. Replies come back one to one."
+                else "Sent to $sent; couldn't send to ${failed.joinToString { repo.displayName(it) }}",
+            )
         }
     }
 

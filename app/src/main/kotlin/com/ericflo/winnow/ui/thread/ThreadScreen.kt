@@ -435,6 +435,7 @@ fun ThreadScreen(
                 isSms = single != null && attachments.isEmpty(),
                 onSend = viewModel::send,
                 enterToSend = enterToSend,
+                onSendSeparately = if (state.isGroup) ({ viewModel.send(separately = true) }) else null,
                 onSchedule = viewModel::schedule,
             )
             }
@@ -1336,6 +1337,7 @@ private fun Composer(
     onSend: () -> Unit,
     onSchedule: (at: Long, label: String) -> Unit,
     enterToSend: Boolean = false,
+    onSendSeparately: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().background(colors.surface).navigationBarsPadding().imePadding()) {
@@ -1403,7 +1405,7 @@ private fun Composer(
                 }
             }
             Spacer(Modifier.width(8.dp))
-            SendButton(enabled = draft.isNotBlank() || attachments.isNotEmpty(), onSend = onSend, onSchedule = onSchedule)
+            SendButton(enabled = draft.isNotBlank() || attachments.isNotEmpty(), onSend = onSend, onSchedule = onSchedule, onSendSeparately = onSendSeparately)
         }
     }
 }
@@ -1496,7 +1498,7 @@ private fun UndoBar(pending: ThreadViewModel.PendingSend, onUndo: () -> Unit) {
             )
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, end = 8.dp)) {
                 Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
-                    Text("Sending in $left…", style = MaterialTheme.typography.labelLarge)
+                    Text(if (pending.separately) "Sending to each person in $left…" else "Sending in $left…", style = MaterialTheme.typography.labelLarge)
                     Text(
                         pending.text.ifBlank { attachmentSummary(pending.attachments.map { it.contentType }) },
                         style = MaterialTheme.typography.bodySmall,

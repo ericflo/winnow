@@ -49,6 +49,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.time.temporal.ChronoUnit
+import androidx.compose.material3.HorizontalDivider
 
 /** "Today, 6:00 PM", "Tomorrow, 8:00 AM", "Tue, Oct 7, 9:30 AM". */
 fun scheduleLabel(at: Long, today: LocalDate = LocalDate.now()): String {
@@ -76,7 +77,7 @@ private fun quickTimes(now: LocalDateTime = LocalDateTime.now()): List<Long> {
 /** Send on tap; long-press for scheduling, like Messages. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SendButton(enabled: Boolean, onSend: () -> Unit, onSchedule: (at: Long, label: String) -> Unit) {
+fun SendButton(enabled: Boolean, onSend: () -> Unit, onSchedule: (at: Long, label: String) -> Unit, onSendSeparately: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     var picking by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
@@ -96,6 +97,23 @@ fun SendButton(enabled: Boolean, onSend: () -> Unit, onSchedule: (at: Long, labe
             )
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            // Groups only: each person gets their own text instead of a group message.
+            if (onSendSeparately != null) {
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("Send separately")
+                            Text("Everyone gets their own text; replies come back one to one", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
+                    onClick = {
+                        menu = false
+                        onSendSeparately()
+                    },
+                )
+                HorizontalDivider()
+            }
             Text(
                 "Schedule send",
                 style = MaterialTheme.typography.titleSmall,

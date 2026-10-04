@@ -79,7 +79,8 @@ messages can't be tapped.
   Archived. Archiving and "not spam" can be undone, and deleting asks first. Opening a conversation marks where its **new messages** begin. Full-text search covers SMS and MMS, and each conversation can be searched on its own,
   with matches highlighted. Settings links to Android's blocked-numbers list.
 - **Composing:** New chat with your contacts and Create group, photos from the gallery or the
-  camera, drafts that stick, an SMS segment counter, **scheduled send** (long-press Send; the menu lists everything scheduled), and
+  camera, drafts that stick, an SMS segment counter, **scheduled send** (long-press Send; the menu lists everything scheduled), **send
+  separately** in a group (each person gets their own text, so replies come back one to one), and
   optional **undo send** (5 or 10 seconds to take a message back).
 - **Dual SIM:** on a phone with two SIMs, a badge in the composer shows which one a text
   goes out on, and tapping it switches. Each conversation remembers its SIM. Otherwise it
