@@ -12,3 +12,5 @@ captures/
 *.aab
 *.keystore
 *.jks
+# Woodpecker caches (SDK, Gradle, HOME) when the pipeline runs locally
+.ci/

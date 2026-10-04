@@ -1,0 +1,69 @@
+# Winnow CI on Woodpecker.
+#
+# Every push to the default branch runs the full gate: unit tests for all three
+# modules, Android lint and a debug build. A vMAJOR.MINOR.PATCH tag runs the
+# gate, then builds the release APK, signs it and attaches it to the GitHub
+# Release for that tag (scripts/ci/release.sh). Secrets: "Releases" in README.md.
+# Live provider tests stay opt-in (WINNOW_LIVE_TESTS) and never run here.
+
+variables:
+  - &jdk_image docker.io/library/eclipse-temurin:21-jdk@sha256:3e3c176ffed168beb42c607be9bc1639b466cf00261a0fb04425562c9d0c5c2b
+  # The steps run unprivileged, so HOME, the Gradle cache and the Android SDK
+  # live in the workspace. The release step reuses what the gate downloaded.
+  - &workspace_env >-
+    export HOME="$${CI_WORKSPACE}/.ci/home"
+    GRADLE_USER_HOME="$${CI_WORKSPACE}/.ci/gradle"
+    ANDROID_HOME="$${CI_WORKSPACE}/.ci/android-sdk"
+    && mkdir -p "$${HOME}"
+  - &backend
+    kubernetes:
+      resources:
+        # Gradle gets -Xmx4g (gradle.properties); lint and the Kotlin compiler need room beside it.
+        requests: {cpu: "1", memory: 4Gi, ephemeral-storage: 1Gi}
+        limits: {cpu: "4", memory: 8Gi, ephemeral-storage: 4Gi}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: {type: RuntimeDefault}
+        allowPrivilegeEscalation: false
+        capabilities: {drop: [ALL]}
+
+steps:
+  - name: gate
+    image: *jdk_image
+    commands:
+      - *workspace_env
+      - sh scripts/ci/android-sdk.sh
+      - ./gradlew --no-daemon --stacktrace :classifier:test :mms:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+    backend_options: *backend
+
+  - name: release
+    image: *jdk_image
+    depends_on: [gate]
+    when:
+      - event: tag
+        ref: refs/tags/v*
+    environment:
+      GH_TOKEN:
+        from_secret: winnow_github_token
+      WINNOW_KEYSTORE_BASE64:
+        from_secret: winnow_keystore_base64
+      WINNOW_KEYSTORE_PASSWORD:
+        from_secret: winnow_keystore_password
+      WINNOW_KEY_ALIAS:
+        from_secret: winnow_key_alias
+      WINNOW_KEY_PASSWORD:
+        from_secret: winnow_key_password
+    commands:
+      - *workspace_env
+      - bash scripts/ci/release.sh
+    backend_options: *backend
+
+when:
+  - event: push
+    evaluate: 'CI_COMMIT_BRANCH == CI_REPO_DEFAULT_BRANCH'
+  - event: tag
+    ref: refs/tags/v*

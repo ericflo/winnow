@@ -15,8 +15,9 @@ android {
         // 31: SmsManager via getSystemService, dynamic color everywhere, RoleManager for the SMS role.
         minSdk = 31
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        // Release builds take these from the tag (scripts/ci/release.sh); everything else is 0.1.0.
+        versionCode = (findProperty("winnow.versionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("winnow.versionName") as String?) ?: "0.1.0"
     }
 
     buildTypes {

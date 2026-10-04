@@ -320,6 +320,68 @@ WINNOW_LIVE_TESTS=1 ./gradlew :classifier:test --tests '*LiveProviderTest*' --re
 
 It uses `OPENROUTER_API_KEY` and/or `TYPESAFE_API_KEY`.
 
+## CI and releases
+
+CI runs on [Woodpecker](https://woodpecker-ci.org/) from `.woodpecker.yml`. Every push to
+`main` runs the full gate: unit tests for `:classifier`, `:mms` and `:app`, Android lint, and
+a debug build. It runs in `eclipse-temurin:21-jdk` as an unprivileged user.
+`scripts/ci/android-sdk.sh` installs the Android SDK (command-line tools pinned by checksum) and
+the Gradle cache into the workspace. The same gate locally:
+
+```sh
+./gradlew :classifier:test :mms:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+docker run --rm -v "$PWD":/repo -w /repo woodpeckerci/woodpecker-cli:v3.18.1 lint .woodpecker.yml
+```
+
+### Cutting a release
+
+Push a tag named `vMAJOR.MINOR.PATCH`. A suffix, as in `v0.2.0-rc1`, makes it a pre-release.
+
+```sh
+git tag -a v0.2.0 -m "Winnow 0.2.0"
+git push origin v0.2.0
+```
+
+The tag's pipeline runs the gate, then `scripts/ci/release.sh`, which:
+
+- Builds `:app:assembleRelease` with versionName `0.2.0` from the tag. The versionCode is
+  MAJOR×10000 + MINOR×100 + PATCH, so minor and patch stay under 100 and every release
+  upgrades the last.
+- Aligns and signs the APK with the release key.
+- Attaches `winnow-0.2.0.apk` and its `.sha256` to the GitHub Release for the tag. The release
+  is created with generated notes if it doesn't exist. Re-running the pipeline replaces the
+  files.
+
+### Woodpecker secrets
+
+The release step needs five repository secrets. Limit each one to the `tag` event, so ordinary
+pushes never see them.
+
+| Secret | What it holds |
+|---|---|
+| `winnow_github_token` | A fine-grained GitHub token for `ericflo/winnow` only, with Contents: read and write. Creating releases and uploading assets needs nothing more. |
+| `winnow_keystore_base64` | The release keystore, base64-encoded on one line |
+| `winnow_keystore_password` | The keystore's password |
+| `winnow_key_alias` | The signing key's alias |
+| `winnow_key_password` | The signing key's password |
+
+Make the keystore once, and keep it and both passwords somewhere safe. Android only installs
+an update signed with the same key as the installed app.
+
+```sh
+keytool -genkeypair -v -keystore winnow-release.jks -alias winnow -keyalg RSA -keysize 4096 -validity 10000
+```
+
+Add the secrets in the repository's Woodpecker settings, or with the CLI. The keystore
+password goes in the same way as the token:
+
+```sh
+woodpecker-cli repo secret add --repository ericflo/winnow --event tag \
+  --name winnow_keystore_base64 --value "$(base64 -w0 winnow-release.jks)"
+woodpecker-cli repo secret add --repository ericflo/winnow --event tag \
+  --name winnow_github_token --value "$GITHUB_RELEASE_TOKEN"
+```
+
 ## Project layout
 
 ```
@@ -328,7 +390,7 @@ mms/          Pure Kotlin/JVM: MMS PDU encoder/decoder (OMA-MMS-ENC over WSP), t
 app/          The Android app: Compose + Material 3; Room for verdicts, conversation state and
               scheduled sends; DataStore for settings; the system SMS/MMS store for messages.
 docs/         Architecture notes and screenshots.
-scripts/      Emulator smoke test.
+scripts/      Emulator smoke test; ci/ holds the Woodpecker SDK setup and release scripts.
 ```
 
 ## Status
