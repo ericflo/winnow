@@ -116,6 +116,8 @@ data class SearchHit(
     val displayName: String,
     val body: String,
     val timestamp: Long,
+    /** The message's [ChatMessage.key], so opening the hit can show that message. */
+    val key: String? = null,
 )
 
 /** Canonical form of a sender address, for sender rules. */

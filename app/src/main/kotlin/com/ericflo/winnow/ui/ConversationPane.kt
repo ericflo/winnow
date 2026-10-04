@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewModelScope
+import com.ericflo.winnow.ui.thread.ThreadViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +33,20 @@ class ConversationPane(private val saved: SavedStateHandle, deletedThreads: Flow
     }
 
     fun open(threadId: Long, recipients: String) = set(Open(threadId, recipients))
+
+    private val _searchRequest = MutableStateFlow<ThreadViewModel.SearchRequest?>(null)
+    /** For the conversation being opened: a message to show, handed to its ViewModel once it exists. */
+    val searchRequest: StateFlow<ThreadViewModel.SearchRequest?> = _searchRequest.asStateFlow()
+
+    /** Opens the conversation (keeping it as it is if it's already open) onto a particular message. */
+    fun open(threadId: Long, recipients: String, request: ThreadViewModel.SearchRequest) {
+        open(threadId, recipients)
+        _searchRequest.value = request
+    }
+
+    fun searchRequestHandled() {
+        _searchRequest.value = null
+    }
 
     fun close() = set(null)
 

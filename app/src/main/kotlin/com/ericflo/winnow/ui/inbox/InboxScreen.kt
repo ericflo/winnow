@@ -102,6 +102,8 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 fun InboxScreen(
     viewModel: InboxViewModel,
     onOpenThread: (threadId: Long, recipients: List<String>) -> Unit,
+    /** A message found by search: its conversation, opened onto it with the words still searched for. */
+    onOpenSearchHit: (hit: SearchHit, query: String) -> Unit = { hit, _ -> onOpenThread(hit.threadId, hit.recipients) },
     onNewChat: () -> Unit,
     onOpenFiltered: () -> Unit,
     onOpenArchived: () -> Unit,
@@ -240,7 +242,7 @@ fun InboxScreen(
                     if (searching && state.messageHits.isNotEmpty()) {
                         item("h-messages") { SectionHeader("Messages") }
                         items(state.messageHits, key = { "hit-${it.threadId}-${it.timestamp}" }) { hit ->
-                            SearchHitRow(hit, onClick = { onOpenThread(hit.threadId, hit.recipients) })
+                            SearchHitRow(hit, onClick = { onOpenSearchHit(hit, state.query.trim()) })
                         }
                     }
                     if (state.conversations.isEmpty() && state.messageHits.isEmpty()) {

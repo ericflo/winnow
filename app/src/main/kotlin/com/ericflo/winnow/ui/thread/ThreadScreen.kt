@@ -322,6 +322,35 @@ fun ThreadScreen(
     var matchIndex by rememberSaveable(query) { mutableIntStateOf(0) }
     val focusKey = matches.getOrNull(matchIndex)
     BackHandler(enabled = searching) { searching = false; query = "" }
+    // Opened from a search result or a starred message: show that message.
+    val searchRequest by viewModel.searchRequest.collectAsStateWithLifecycle()
+    var pendingMatch by remember { mutableStateOf<String?>(null) }
+    var jumpTo by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(searchRequest) {
+        val request = searchRequest ?: return@LaunchedEffect
+        viewModel.searchRequestHandled()
+        if (request.query != null) {
+            searching = true
+            query = request.query
+            pendingMatch = request.focusKey
+        } else {
+            jumpTo = request.focusKey
+        }
+    }
+    // Once the conversation has loaded: the tapped result among the matches (else the newest stays).
+    LaunchedEffect(matches, pendingMatch) {
+        val key = pendingMatch ?: return@LaunchedEffect
+        if (state.messages.isEmpty()) return@LaunchedEffect
+        matches.indexOf(key).takeIf { it >= 0 }?.let { matchIndex = it }
+        pendingMatch = null
+    }
+    // A starred message is highlighted for a moment, then the conversation is just a conversation.
+    LaunchedEffect(jumpTo, state.messages.isNotEmpty()) {
+        if (jumpTo != null && state.messages.isNotEmpty()) {
+            delay(2_500)
+            jumpTo = null
+        }
+    }
 
     // Several messages at once: "Select" in a message's sheet starts it, taps add and remove.
     var selected by remember { mutableStateOf(emptySet<String>()) }
@@ -523,7 +552,7 @@ fun ThreadScreen(
                 onRetry = viewModel::retry,
                 onCopyCode = { copy(it, "Code copied") },
                 highlight = query.trim().takeIf { searching && it.length >= 2 },
-                focusKey = focusKey.takeIf { searching },
+                focusKey = if (searching) focusKey else jumpTo,
                 onMessageNumber = onMessageNumber,
                 unreadOnOpen = unreadOnOpen,
                 linkPreviewSenders = linkPreviewSenders,
@@ -858,6 +887,8 @@ private fun MessageList(
     // Opening onto more new messages than fit on screen starts at the first of them, not the last.
     var jumpedToNew by remember { mutableStateOf(false) }
     LaunchedEffect(unreadOnOpen, items) {
+        // Opening onto a particular message wins.
+        if (focusKey != null) jumpedToNew = true
         if (jumpedToNew || unreadOnOpen.size < NEW_MESSAGES_JUMP) return@LaunchedEffect
         val index = items.indexOfFirst { it is ListItem.NewMessages }
         if (index < 0) return@LaunchedEffect
@@ -865,10 +896,11 @@ private fun MessageList(
         // Reversed list: the divider lands near the top, the new messages below it.
         listState.scrollToItem(scheduled.size + index, -listState.layoutInfo.viewportSize.height * 2 / 3)
     }
-    LaunchedEffect(focusKey) {
-        val index = items.indexOfFirst { it.key == focusKey }
+    val focusIndex = remember(items, focusKey) { items.indexOfFirst { it.key == focusKey } }
+    // Again once it's there: a conversation opened onto a message may still be loading.
+    LaunchedEffect(focusKey, focusIndex >= 0) {
         // Reversed list: a negative offset lifts the match off the composer, a third of the way up.
-        if (focusKey != null && index >= 0) listState.animateScrollToItem(scheduled.size + index, -listState.layoutInfo.viewportSize.height / 3)
+        if (focusKey != null && focusIndex >= 0) listState.animateScrollToItem(scheduled.size + focusIndex, -listState.layoutInfo.viewportSize.height / 3)
     }
     LazyColumn(
         state = listState,

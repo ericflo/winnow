@@ -89,6 +89,10 @@ data class ThreadRoute(
     val draft: String = "",
     /** Shared photos or videos to attach, as [SharedAttachments.encode] wrote them. */
     val attachments: String = "",
+    /** Find-in-conversation to open with, from a search result. */
+    val search: String = "",
+    /** The message to show first: the search result tapped, or a starred message. */
+    val focus: String = "",
 )
 
 @Serializable
@@ -161,6 +165,9 @@ fun WinnowNavHost(
         }
     }
     val openThread = { threadId: Long, recipients: List<String> -> nav.navigate(ThreadRoute(threadId, joinAddresses(recipients))) }
+    val openMessage = { threadId: Long, recipients: List<String>, key: String ->
+        nav.navigate(ThreadRoute(threadId, joinAddresses(recipients), focus = key))
+    }
 
     // Every Back below is dropUnlessResumed: a second tap during the exit animation would
     // otherwise pop the screen underneath too, down to an empty, blank app.
@@ -194,6 +201,13 @@ fun WinnowNavHost(
                     InboxScreen(
                         viewModel = viewModel { InboxViewModel(container, ListMode.INBOX) },
                         onOpenThread = if (twoPane) { id, recipients -> pane.open(id, joinAddresses(recipients)) } else openThread,
+                        onOpenSearchHit = { hit, query ->
+                            if (twoPane) {
+                                pane.open(hit.threadId, joinAddresses(hit.recipients), ThreadViewModel.SearchRequest(query, hit.key))
+                            } else {
+                                nav.navigate(ThreadRoute(hit.threadId, joinAddresses(hit.recipients), search = query, focus = hit.key.orEmpty()))
+                            }
+                        },
                         onNewChat = { nav.navigate(NewChatRoute()) },
                         onOpenFiltered = { nav.navigate(FilteredRoute) },
                         onOpenArchived = { nav.navigate(ArchivedRoute) },
@@ -225,8 +239,13 @@ fun WinnowNavHost(
                             // message) carries over from the last conversation.
                             key(open) {
                                 ProvideViewModelStore(remember(open) { pane.storeFor(open) }) {
+                                    val thread = viewModel { ThreadViewModel(container, open.threadId, splitAddresses(open.recipients)) }
+                                    val searchRequest by pane.searchRequest.collectAsStateWithLifecycle()
+                                    LaunchedEffect(searchRequest) {
+                                        searchRequest?.let { thread.requestSearch(it); pane.searchRequestHandled() }
+                                    }
                                     ThreadScreen(
-                                        viewModel = viewModel { ThreadViewModel(container, open.threadId, splitAddresses(open.recipients)) },
+                                        viewModel = thread,
                                         onBack = pane::close,
                                         onForward = whenResumed { text -> nav.navigate(NewChatRoute(draft = text)) },
                                         onReportSpam = whenResumed { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
@@ -245,7 +264,7 @@ fun WinnowNavHost(
             ScheduledScreen(viewModel = viewModel { ScheduledViewModel(container) }, onBack = dropUnlessResumed { nav.popBackStack() }, onOpenThread = openThread)
         }
         composable<StarredRoute> {
-            StarredScreen(viewModel = viewModel { StarredViewModel(container) }, onBack = dropUnlessResumed { nav.popBackStack() }, onOpenThread = openThread)
+            StarredScreen(viewModel = viewModel { StarredViewModel(container) }, onBack = dropUnlessResumed { nav.popBackStack() }, onOpenMessage = openMessage)
         }
         composable<FilteredRoute> {
             ConversationListScreen(
@@ -286,6 +305,9 @@ fun WinnowNavHost(
                 viewModel = viewModel(key = "thread:${route.threadId}:${route.recipients}") {
                     ThreadViewModel(container, route.threadId, splitAddresses(route.recipients)).also { vm ->
                         if (route.draft.isNotEmpty()) vm.setDraft(route.draft)
+                        if (route.search.isNotEmpty() || route.focus.isNotEmpty()) {
+                            vm.requestSearch(ThreadViewModel.SearchRequest(route.search.ifEmpty { null }, route.focus.ifEmpty { null }))
+                        }
                         SharedAttachments.decode(route.attachments).forEach(vm::addAttachment)
                     }
                 },

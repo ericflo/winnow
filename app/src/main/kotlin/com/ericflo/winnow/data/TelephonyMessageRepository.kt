@@ -210,10 +210,10 @@ class TelephonyMessageRepository(
         val recipients = resolver.threadRecipients()
         val hits = mutableListOf<SearchHit>()
         resolver.query(
-            Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.THREAD_ID, Telephony.Sms.BODY, Telephony.Sms.DATE),
+            Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.THREAD_ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms._ID),
             "${Telephony.Sms.BODY} LIKE ? ESCAPE '\\'", arrayOf(like), "${Telephony.Sms.DATE} DESC LIMIT 50",
         )?.use { c ->
-            while (c.moveToNext()) hits += hit(c.getLong(0), recipients, c.getString(1).orEmpty(), c.getLong(2))
+            while (c.moveToNext()) hits += hit(c.getLong(0), recipients, c.getString(1).orEmpty(), c.getLong(2), ChatMessage.messageKey(Kind.SMS, c.getLong(3)))
         }
         val mmsText = HashMap<Long, String>()
         resolver.query(
@@ -225,15 +225,15 @@ class TelephonyMessageRepository(
                 Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.THREAD_ID, Telephony.Mms.DATE),
                 "${Telephony.Mms._ID} IN (${mmsText.keys.joinToString(",")})", null, null,
             )?.use { c ->
-                while (c.moveToNext()) hits += hit(c.getLong(1), recipients, mmsText[c.getLong(0)].orEmpty(), c.getLong(2) * 1000)
+                while (c.moveToNext()) hits += hit(c.getLong(1), recipients, mmsText[c.getLong(0)].orEmpty(), c.getLong(2) * 1000, ChatMessage.messageKey(Kind.MMS, c.getLong(0)))
             }
         }
         hits.sortedByDescending { it.timestamp }.take(50)
     }
 
-    private fun hit(threadId: Long, recipients: Map<Long, List<String>>, body: String, date: Long): SearchHit {
+    private fun hit(threadId: Long, recipients: Map<Long, List<String>>, body: String, date: Long, key: String): SearchHit {
         val people = recipients[threadId].orEmpty()
-        return SearchHit(threadId, people, displayNameFor(people, ::displayName), body, date)
+        return SearchHit(threadId, people, displayNameFor(people, ::displayName), body, date, key)
     }
 
     override suspend fun overrideVerdict(threadId: Long, address: String, action: Action): PreviousVerdict {

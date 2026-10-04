@@ -69,7 +69,12 @@ class StarredViewModel(private val container: AppContainer) : ViewModel() {
 /** Every starred message, across conversations. Tapping one opens its conversation. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StarredScreen(viewModel: StarredViewModel, onBack: () -> Unit, onOpenThread: (threadId: Long, recipients: List<String>) -> Unit) {
+fun StarredScreen(
+    viewModel: StarredViewModel,
+    onBack: () -> Unit,
+    /** Opens the message's conversation scrolled to it. */
+    onOpenMessage: (threadId: Long, recipients: List<String>, key: String) -> Unit,
+) {
     val starred by viewModel.starred.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
@@ -134,7 +139,7 @@ fun StarredScreen(viewModel: StarredViewModel, onBack: () -> Unit, onOpenThread:
                             Icon(Icons.Filled.Star, contentDescription = "Unstar", tint = MaterialTheme.colorScheme.tertiary)
                         }
                     },
-                    modifier = Modifier.clickable { onOpenThread(m.threadId, item.recipients) },
+                    modifier = Modifier.clickable { onOpenMessage(m.threadId, item.recipients, m.key) },
                 )
             }
         }

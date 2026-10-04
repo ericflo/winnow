@@ -138,6 +138,24 @@ class ThreadViewModel(
     /** The SIM this conversation's texts go out on; null for Android's default. */
     val selectedSim: StateFlow<Int?> = _selectedSim.asStateFlow()
 
+    /**
+     * Opening onto a particular message: find-in-conversation for [query] with [focusKey] in view
+     * (from a search result), or with no query just that message, briefly highlighted (from Starred).
+     */
+    data class SearchRequest(val query: String?, val focusKey: String?)
+
+    private val _searchRequest = MutableStateFlow<SearchRequest?>(null)
+    /** One-shot: the screen acts on it, then calls [searchRequestHandled]. */
+    val searchRequest: StateFlow<SearchRequest?> = _searchRequest.asStateFlow()
+
+    fun requestSearch(request: SearchRequest) {
+        _searchRequest.value = request
+    }
+
+    fun searchRequestHandled() {
+        _searchRequest.value = null
+    }
+
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
     /** One-off messages for a snackbar. */
     val notices: SharedFlow<String> = _notices
