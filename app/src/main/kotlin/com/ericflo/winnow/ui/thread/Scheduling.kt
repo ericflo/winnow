@@ -199,14 +199,13 @@ fun ScheduledBubble(
     if (picking) PickDateTimeDialog(onDismiss = { picking = false }, onPicked = { picking = false; onReschedule(it) }, initial = message.sendAt)
     val colors = MaterialTheme.colorScheme
     Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-        Box {
+        // The menu anchors to this box, so it hugs the bubble rather than spanning the row.
+        Box(Modifier.fillMaxWidth(0.8f).wrapContentWidth(Alignment.End)) {
             Text(
                 message.body,
                 style = MaterialTheme.typography.bodyLarge,
                 color = colors.onSurface,
                 modifier = Modifier
-                    .fillMaxWidth(0.8f)
-                    .wrapContentWidth(Alignment.End)
                     .clip(RoundedCornerShape(22.dp))
                     .border(BorderStroke(1.dp, colors.outline), RoundedCornerShape(22.dp))
                     .combinedClickable(onClick = { menu = true }, onLongClick = { menu = true })
