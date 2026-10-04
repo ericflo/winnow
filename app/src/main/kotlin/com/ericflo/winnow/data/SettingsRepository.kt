@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.ericflo.winnow.classifier.DataHandling
@@ -112,6 +113,11 @@ data class WinnowSettings(
     val autoDownloadMms: Boolean = true,
     /** The same while roaming, where data can cost extra. Off by default, as in Messages. */
     val autoDownloadMmsRoaming: Boolean = false,
+    /** A folder (SAF tree URI) for weekly automatic backups; this phone's only, never backed up. */
+    val autoBackupFolder: String? = null,
+    val autoBackupLast: Long = 0,
+    /** Why the last automatic backup failed, until one succeeds. */
+    val autoBackupError: String? = null,
     val theme: ThemeMode = ThemeMode.SYSTEM,
     /** Swiping an inbox conversation toward the end (right, in left-to-right languages). */
     val swipeRight: SwipeChoice = SwipeChoice.ARCHIVE,
@@ -182,6 +188,9 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             deliveryReports = this[DELIVERY_REPORTS] ?: false,
             autoDownloadMms = this[AUTO_DOWNLOAD_MMS] ?: true,
             autoDownloadMmsRoaming = this[AUTO_DOWNLOAD_MMS_ROAMING] ?: false,
+            autoBackupFolder = this[AUTO_BACKUP_FOLDER],
+            autoBackupLast = this[AUTO_BACKUP_LAST] ?: 0,
+            autoBackupError = this[AUTO_BACKUP_ERROR],
             theme = this[THEME]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: defaults.theme,
             textScale = TextScale.clamp(this[TEXT_SCALE] ?: 1f),
             swipeRight = this[SWIPE_RIGHT]?.let { runCatching { SwipeChoice.valueOf(it) }.getOrNull() } ?: defaults.swipeRight,
@@ -218,6 +227,9 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[DELIVERY_REPORTS] = s.deliveryReports
         this[AUTO_DOWNLOAD_MMS] = s.autoDownloadMms
         this[AUTO_DOWNLOAD_MMS_ROAMING] = s.autoDownloadMmsRoaming
+        s.autoBackupFolder?.let { this[AUTO_BACKUP_FOLDER] = it } ?: remove(AUTO_BACKUP_FOLDER)
+        this[AUTO_BACKUP_LAST] = s.autoBackupLast
+        s.autoBackupError?.let { this[AUTO_BACKUP_ERROR] = it } ?: remove(AUTO_BACKUP_ERROR)
         this[THEME] = s.theme.name
         this[TEXT_SCALE] = TextScale.clamp(s.textScale)
         this[SWIPE_RIGHT] = s.swipeRight.name
@@ -245,6 +257,9 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val DELIVERY_REPORTS = booleanPreferencesKey("sms.delivery_reports")
         val AUTO_DOWNLOAD_MMS = booleanPreferencesKey("mms.auto_download")
         val AUTO_DOWNLOAD_MMS_ROAMING = booleanPreferencesKey("mms.auto_download_roaming")
+        val AUTO_BACKUP_FOLDER = stringPreferencesKey("backup.auto_folder")
+        val AUTO_BACKUP_LAST = longPreferencesKey("backup.auto_last")
+        val AUTO_BACKUP_ERROR = stringPreferencesKey("backup.auto_error")
         val THEME = stringPreferencesKey("display.theme")
         val TEXT_SCALE = floatPreferencesKey("display.text_scale")
         val SWIPE_RIGHT = stringPreferencesKey("inbox.swipe_right")

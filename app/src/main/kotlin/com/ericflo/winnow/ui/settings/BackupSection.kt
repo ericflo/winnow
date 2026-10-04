@@ -16,6 +16,9 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.ericflo.winnow.backup.AutoBackup
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +57,7 @@ fun BackupSection(status: BackupStatus, isDefault: Boolean, canBackUpMessages: B
             },
             modifier = Modifier.clickable(enabled = !busy) { create.launch("winnow-backup-${LocalDate.now()}.zip") },
         )
+        AutoBackupRow(viewModel)
         ListItem(
             headlineContent = { Text("Restore from a file") },
             supportingContent = { Text("Adds whatever is missing from a Winnow backup. Nothing on this phone is deleted.") },
@@ -67,6 +71,44 @@ fun BackupSection(status: BackupStatus, isDefault: Boolean, canBackUpMessages: B
         )
     }
 }
+
+/** Weekly backups into a folder, with when the last one ran (or why it didn't) and "Back up now". */
+@Composable
+private fun AutoBackupRow(viewModel: SettingsViewModel) {
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val folderName by viewModel.autoBackupFolderName.collectAsStateWithLifecycle()
+    val running by viewModel.autoBackupRunning.collectAsStateWithLifecycle()
+    val notice by viewModel.autoBackupNotice.collectAsStateWithLifecycle()
+    val s = settings ?: return
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> uri?.let(viewModel::enableAutoBackup) }
+    val on = s.autoBackupFolder != null
+    val toggle = { if (on) viewModel.disableAutoBackup() else pickFolder.launch(null) }
+    ListItem(
+        headlineContent = { Text("Back up automatically") },
+        supportingContent = {
+            Text(
+                when {
+                    !on -> "Every week while charging, into a folder you choose. The newest ${AutoBackup.KEEP} are kept."
+                    s.autoBackupError != null -> "The last one failed: ${s.autoBackupError}"
+                    s.autoBackupLast > 0 -> "Every week while charging, to ${folderName.orEmpty()}. Last: ${dateTime(s.autoBackupLast)}"
+                    else -> "Every week while charging, to ${folderName.orEmpty()}. None yet."
+                },
+                color = if (on && s.autoBackupError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        trailingContent = { Switch(checked = on, onCheckedChange = { toggle() }) },
+        modifier = Modifier.clickable { toggle() },
+    )
+    if (on) {
+        TextButton(onClick = viewModel::backUpNow, enabled = !running, modifier = Modifier.padding(start = 8.dp)) {
+            Text(if (running) "Backing up…" else "Back up now")
+        }
+    }
+    notice?.let { Outcome(it, isError = it.startsWith("Couldn't"), onDismiss = viewModel::dismissAutoBackupNotice) }
+}
+
+private fun dateTime(millis: Long): String =
+    Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT))
 
 /** Progress, the outcome, or the confirm dialog for a backup or restore in flight. Shared with onboarding. */
 @Composable

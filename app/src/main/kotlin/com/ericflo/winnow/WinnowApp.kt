@@ -8,6 +8,7 @@ import android.app.role.RoleManager
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.room.Room
+import com.ericflo.winnow.backup.AutoBackup
 import com.ericflo.winnow.backup.BackupManager
 import com.ericflo.winnow.classifier.http.OkHttpTransport
 import com.ericflo.winnow.classify.ClassifierFactory
@@ -156,6 +157,8 @@ class AppContainer(private val context: Context) {
     val historyReviewer by lazy { HistoryReviewer(context, appScope, verdictDao, contacts, settings, classifiers) }
     // Scheduled texts only ever go out through the real store, never the sample conversations.
     val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages.takeIf { isDefaultSmsApp() } } }
+
+    val autoBackup by lazy { AutoBackup(context, settings, backups) }
 
     val backups by lazy {
         BackupManager(

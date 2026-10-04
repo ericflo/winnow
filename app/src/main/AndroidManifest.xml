@@ -108,6 +108,12 @@
             </intent-filter>
         </receiver>
 
+        <!-- Weekly automatic backups (Settings → Backup), run by JobScheduler while charging. -->
+        <service
+            android:name=".backup.AutoBackupJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
         <service
             android:name=".sms.HeadlessSmsSendService"
             android:exported="true"

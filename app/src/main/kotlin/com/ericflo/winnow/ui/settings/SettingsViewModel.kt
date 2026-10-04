@@ -24,6 +24,10 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import com.ericflo.winnow.data.SwipeChoice
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 sealed interface TrialState {
     data object Idle : TrialState
@@ -71,6 +75,41 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun restoreBackup(uri: Uri, includeSettings: Boolean) = container.backups.restore(uri, includeSettings)
 
     fun dismissBackup() = container.backups.dismiss()
+
+    /** The automatic-backup folder's name, for display; null when off. */
+    val autoBackupFolderName: StateFlow<String?> = container.settings.settings
+        .map { it.autoBackupFolder }
+        .distinctUntilChanged()
+        .map { folder -> folder?.let { withContext(Dispatchers.IO) { container.autoBackup.folderName(it) } ?: "the chosen folder" } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private val _autoBackupRunning = MutableStateFlow(false)
+    val autoBackupRunning: StateFlow<Boolean> = _autoBackupRunning.asStateFlow()
+
+    private val _autoBackupNotice = MutableStateFlow<String?>(null)
+    /** The outcome of "Back up now", until the user dismisses it. */
+    val autoBackupNotice: StateFlow<String?> = _autoBackupNotice.asStateFlow()
+
+    fun enableAutoBackup(folder: Uri) {
+        viewModelScope.launch { runCatching { container.autoBackup.enable(folder) }.onFailure { _autoBackupNotice.value = "Couldn't use that folder" } }
+    }
+
+    fun disableAutoBackup() {
+        viewModelScope.launch { container.autoBackup.disable() }
+    }
+
+    fun backUpNow() {
+        if (_autoBackupRunning.value) return
+        _autoBackupRunning.value = true
+        viewModelScope.launch {
+            _autoBackupNotice.value = runCatching { container.autoBackup.runNow() }.getOrElse { "Couldn't back up: ${it.message ?: "unknown error"}" }
+            _autoBackupRunning.value = false
+        }
+    }
+
+    fun dismissAutoBackupNotice() {
+        _autoBackupNotice.value = null
+    }
 
     fun startReview() = container.historyReviewer.start()
 

@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
             container.codeCleaner.clean()
             // A force-stop cancels alarms without a reboot to re-arm them.
             container.scheduler.rearmAll()
+            runCatching { container.autoBackup.ensureScheduled() }
         }
         // With app lock on, recents shows a blank card instead of the conversation list. Android 12
         // has no per-app switch for that, so there it's FLAG_SECURE (which also blocks screenshots).

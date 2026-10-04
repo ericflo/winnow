@@ -97,7 +97,9 @@ messages can't be tapped.
 - **Backup and restore:** messages, photos, Winnow's decisions, conversation state, sender
   rules and settings go into one zip file that you choose where to keep. API keys are never
   included. Restoring onto a new phone, or the same one, only adds what's missing, so
-  restoring twice is harmless. A new phone can restore right from onboarding.
+  restoring twice is harmless. A new phone can restore right from onboarding. **Back up
+  automatically** writes one every week while the phone charges, into a folder you pick
+  once, such as one your cloud drive syncs. It keeps the newest four.
 - **Display:** light, dark or the system theme, and a message text size. Pinch a
   conversation to zoom its text; it snaps back to normal near 100%.
 - **Getting started:** onboarding explains the RCS trade-off before it asks to become your

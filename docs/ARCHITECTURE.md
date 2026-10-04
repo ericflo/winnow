@@ -233,6 +233,12 @@ only if the user ticks the box, and keys already on the phone are kept. Messages
 restored while Winnow is the default SMS app. Restored messages are marked seen, so they
 don't announce themselves. Outbox and queued texts come back as failed, ready to retry.
 
+- **Automatic backups** (`backup/AutoBackup`): a persisted JobScheduler job (weekly, while
+  charging and not low on battery) writes `winnow-auto-backup-<time>.zip` into a SAF folder
+  the user granted lasting access to, through the same export as a manual backup but without
+  touching the Settings progress UI. It prunes all but the newest four of its own files. The
+  folder is this phone's alone and never goes into a backup.
+
 ## MMS
 
 `mms/` is a standalone PDU codec. The app uses it like this:

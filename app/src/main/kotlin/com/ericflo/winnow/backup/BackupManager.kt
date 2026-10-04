@@ -94,6 +94,16 @@ class BackupManager(
 
     fun export(uri: Uri) = start("Couldn't back up") { exportTo(uri) }
 
+    /**
+     * A backup written without touching [status], for automatic backups that run while nobody's
+     * watching. Returns the same summary a manual backup shows.
+     */
+    suspend fun exportQuietly(uri: Uri): String {
+        var summary = ""
+        exportTo(uri) { if (it is BackupStatus.Done) summary = it.message }
+        return summary
+    }
+
     /** Reads a backup's summary so the user can confirm before anything is written. */
     fun open(uri: Uri) = start("Couldn't read that file") {
         _status.value = BackupStatus.Working("Reading backup")
@@ -127,8 +137,8 @@ class BackupManager(
 
     // --- Export ----------------------------------------------------------------------------
 
-    private suspend fun exportTo(uri: Uri) {
-        _status.value = BackupStatus.Working("Gathering messages")
+    private suspend fun exportTo(uri: Uri, report: (BackupStatus) -> Unit = { _status.value = it }) {
+        report(BackupStatus.Working("Gathering messages"))
         val media = HashMap<String, Long>()
         val backup = WinnowBackup(
             createdAt = System.currentTimeMillis(),
@@ -141,21 +151,21 @@ class BackupManager(
             },
         )
         var saved = 0
-        _status.value = BackupStatus.Working("Saving the backup", 0, media.size)
+        report(BackupStatus.Working("Saving the backup", 0, media.size))
         (resolver.openOutputStream(uri, "wt") ?: error("The file couldn't be opened")).use { output ->
             BackupArchive.write(output, backup) { part ->
                 val partId = media[part.file] ?: return@write null
-                _status.value = BackupStatus.Working("Saving photos and videos", ++saved, media.size)
+                report(BackupStatus.Working("Saving photos and videos", ++saved, media.size))
                 runCatching { resolver.openInputStream(ContentUris.withAppendedId(Mms.Part.CONTENT_URI, partId)) }.getOrNull()
             }
         }
-        _status.value = BackupStatus.Done(
+        report(BackupStatus.Done(
             if (backup.conversations.isEmpty()) {
                 "Backed up settings and ${plural(backup.senderRules.size, "sender rule")}. Messages weren't included because Winnow can't read them yet."
             } else {
                 "Backed up ${plural(backup.messageCount, "message")} in ${plural(backup.conversations.size, "conversation")}."
             },
-        )
+        ))
     }
 
     private suspend fun readConversations(media: MutableMap<String, Long>): List<ConversationBackup> {
