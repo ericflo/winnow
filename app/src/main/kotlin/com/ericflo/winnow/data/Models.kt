@@ -130,6 +130,10 @@ data class SearchHit(
     val timestamp: Long,
     /** The message's [ChatMessage.key], so opening the hit can show that message. */
     val key: String? = null,
+    /** The person's photo, for a 1:1 conversation. */
+    val photoUri: String? = null,
+    /** A group's two faces (see groupFaces). */
+    val members: List<Member> = emptyList(),
 )
 
 /** Canonical form of a sender address, for sender rules. */

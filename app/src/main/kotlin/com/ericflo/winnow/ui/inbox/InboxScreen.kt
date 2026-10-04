@@ -102,6 +102,7 @@ import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.data.ConversationSummary
 import com.ericflo.winnow.data.SearchHit
 import com.ericflo.winnow.ui.components.Avatar
+import com.ericflo.winnow.ui.components.GroupAvatar
 import com.ericflo.winnow.ui.review.ReviewInboxCard
 import com.ericflo.winnow.ui.components.shortTimestamp
 import kotlinx.coroutines.launch
@@ -656,7 +657,8 @@ private fun SearchHitRow(hit: SearchHit, query: String, filtered: Boolean = fals
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        Avatar(hit.displayName, seed = hit.recipients.firstOrNull().orEmpty(), size = 44.dp)
+        if (hit.members.size > 1) GroupAvatar(hit.members, 44.dp)
+        else Avatar(hit.displayName, seed = hit.recipients.firstOrNull().orEmpty(), size = 44.dp, photoUri = hit.photoUri)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

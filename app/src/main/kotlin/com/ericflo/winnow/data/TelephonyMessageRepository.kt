@@ -349,7 +349,11 @@ class TelephonyMessageRepository(
 
     private fun hit(threadId: Long, recipients: Map<Long, List<String>>, body: String, date: Long, key: String): SearchHit {
         val people = recipients[threadId].orEmpty()
-        return SearchHit(threadId, people, displayNameFor(people, ::displayName), body, date, key)
+        return SearchHit(
+            threadId, people, displayNameFor(people, ::displayName), body, date, key,
+            photoUri = people.singleOrNull()?.let(contacts::photoUri),
+            members = if (people.size > 1) groupFaces(people.take(GROUP_FACE_CANDIDATES).map { Member(it, displayName(it), contacts.photoUri(it)) }) else emptyList(),
+        )
     }
 
     override suspend fun overrideVerdict(threadId: Long, address: String, action: Action): PreviousVerdict {
