@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Auto reads Winnow's message notifications aloud and sends spoken replies through
+     their Reply and Mark as read actions; no car UI of our own. -->
+<automotiveApp>
+    <uses name="notification" />
+</automotiveApp>

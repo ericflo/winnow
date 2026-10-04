@@ -37,7 +37,11 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Winnow">
 
-        <!-- The four components below are what Android requires of a default SMS app. -->
+        <!-- Messages in Android Auto: notifications only (MessagingStyle, Reply, Mark as read). -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
         <!-- The app lock, stacked on top of whatever is open. -->
         <activity
             android:name=".ui.lock.LockActivity"
@@ -51,6 +55,8 @@
             android:exported="false"
             android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize" />
+        <!-- MainActivity's SENDTO filter, the SMS and WAP push receivers, and the respond-via-message
+             service are the four things Android requires of a default SMS app. -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
