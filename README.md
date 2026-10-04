@@ -68,7 +68,7 @@ messages can't be tapped.
   reports are opt-in, and MMS auto-download can be turned off (it's off while roaming unless
   you allow it), leaving "Tap to download" in the conversation.
 - **Conversations:** pin, archive, mute, mark read/unread, delete, block (Android's system
-  block list), name a group (just for you), a **Photos & videos** strip in Details, an **Unread** filter, and multi-select.
+  block list), name a group (just for you), a **Photos & videos** strip in Details, **Export** to a text file, an **Unread** filter, and multi-select.
   Optionally, one-time codes from services are deleted a day after they arrive. That's off by
   default, never applies to texts from people, and keeps starred codes. Swipe to archive in the inbox (or set each direction to delete,
   mark read/unread, pin, or nothing), to mark not spam in Filtered, or to unarchive in

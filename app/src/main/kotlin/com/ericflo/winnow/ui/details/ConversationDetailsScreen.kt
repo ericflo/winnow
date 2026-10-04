@@ -67,6 +67,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.ericflo.winnow.data.Attachment
+import kotlinx.coroutines.flow.first
+import com.ericflo.winnow.data.Transcript
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -121,6 +123,15 @@ class ConversationDetailsViewModel(
     val media: StateFlow<List<Attachment>> = (if (threadId >= 0) repo.messages(threadId) else flowOf(emptyList()))
         .map { messages -> messages.flatMap { m -> m.attachments.filter { it.isImage || it.isVideo } }.asReversed() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The whole conversation as a text file, in a share sheet. */
+    suspend fun exportIntent(title: String): Intent? = withContext(Dispatchers.IO) {
+        val messages = repo.messages(threadId).first()
+        val text = Transcript.render(title, messages, nameOf = { m ->
+            if (m.outgoing) "You" else repo.displayName(m.sender ?: recipients.firstOrNull().orEmpty())
+        })
+        container.mediaExport.shareText("Winnow - $title", text)
+    }
 
     /** Android's notification settings for this conversation alone. */
     fun notificationSettings(title: String) = container.notifier.conversationSettings(threadId, recipients, title)
@@ -321,6 +332,20 @@ fun ConversationDetailsScreen(viewModel: ConversationDetailsViewModel, onBack: (
                 }
             }
 
+            if (viewModel.hasThread) {
+                item("export") {
+                    ListItem(
+                        headlineContent = { Text("Export conversation") },
+                        supportingContent = { Text("Share it as a text file") },
+                        modifier = Modifier.clickable {
+                            scope.launch {
+                                val intent = viewModel.exportIntent(state.title)
+                                if (intent == null || runCatching { context.startActivity(intent) }.isFailure) toast("Couldn't export this conversation")
+                            }
+                        },
+                    )
+                }
+            }
             item("delete") {
                 HorizontalDivider(Modifier.padding(top = 8.dp))
                 TextButton(onClick = { confirmDelete = true }, modifier = Modifier.padding(16.dp)) {

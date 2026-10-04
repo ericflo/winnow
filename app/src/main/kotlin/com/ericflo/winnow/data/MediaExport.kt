@@ -77,6 +77,21 @@ class MediaExport(private val context: Context) {
         return Intent.createChooser(send, null)
     }
 
+    /** A share sheet for [text] as a .txt file named [fileName], for exporting a conversation. */
+    fun shareText(fileName: String, text: String): Intent? = runCatching {
+        val safe = fileName.replace(Regex("""[/\\:*?"<>|\u0000-\u001f]"""), " ").trim().ifEmpty { "Conversation" }
+        val file = File(File(outbox, UUID.randomUUID().toString()).apply { mkdirs() }, "$safe.txt")
+        file.writeText(text)
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.mms", file)
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .putExtra(Intent.EXTRA_SUBJECT, safe)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        send.clipData = ClipData.newRawUri(null, uri)
+        Intent.createChooser(send, null)
+    }.onFailure { Log.w(TAG, "Couldn't write a transcript", it) }.getOrNull()
+
     private fun copyOut(attachment: Attachment): Uri? {
         val type = attachment.contentType.substringBefore(';').trim().lowercase()
         val file = File(File(outbox, UUID.randomUUID().toString()).apply { mkdirs() }, fileName(attachment, type))
