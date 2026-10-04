@@ -246,11 +246,11 @@ class ThreadViewModel(
     private var pendingJob: Job? = null
 
     fun send() {
-        // Replying means the new messages have been read; the divider has done its job.
-        _unreadOnOpen.value = emptyList()
         val text = _draft.value.trim()
         val files = _attachments.value
         if (text.isEmpty() && files.isEmpty() || _pending.value != null) return
+        // Replying means the new messages have been read; the divider has done its job.
+        _unreadOnOpen.value = emptyList()
         _draft.value = ""
         _attachments.value = emptyList()
         val sim = _selectedSim.value
