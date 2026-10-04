@@ -1,0 +1,47 @@
+package com.ericflo.winnow.data
+
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.util.Log
+import android.webkit.MimeTypeMap
+import java.io.File
+import java.util.UUID
+
+/**
+ * Photos and videos other apps share into Winnow. They're copied into the cache right away,
+ * because the sharing app's permission to read them can end before the user picks who to
+ * send them to.
+ */
+class SharedFiles(private val context: Context) {
+    private val dir = File(context.cacheDir, "shared").apply { mkdirs() }
+
+    /** [fallbackType] is the share intent's own type, for providers that won't say; a wildcard like image/any gets a typical type. */
+    fun import(uri: Uri, fallbackType: String? = null): OutgoingAttachment? {
+        val resolver = context.contentResolver
+        val type = runCatching { resolver.getType(uri) }.getOrNull()
+            ?: fallbackType?.takeIf { !it.endsWith("/*") }
+            ?: fallbackType?.let { if (it.startsWith("video/")) "video/mp4" else if (it.startsWith("image/")) "image/jpeg" else null }
+            ?: return null.also { Log.w(TAG, "Shared item has no type: $uri") }
+        if (!type.startsWith("image/") && !type.startsWith("video/")) return null
+        val name = runCatching {
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }.getOrNull()
+        val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(type) ?: "bin"
+        val file = File(dir, "${UUID.randomUUID()}.$extension")
+        val copied = runCatching {
+            resolver.openInputStream(uri)?.use { input -> file.outputStream().use { input.copyTo(it) } } != null
+        }.onFailure { Log.w(TAG, "Couldn't read a shared $type", it) }.getOrDefault(false)
+        return if (copied) OutgoingAttachment(Uri.fromFile(file).toString(), type, name) else null
+    }
+
+    private companion object {
+        const val TAG = "WinnowShare"
+    }
+
+    /** Drops shares the user never sent. */
+    fun cleanUp(olderThanMillis: Long = 24 * 60 * 60_000L) {
+        val cutoff = System.currentTimeMillis() - olderThanMillis
+        dir.listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.delete() }
+    }
+}

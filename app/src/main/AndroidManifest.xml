@@ -55,6 +55,15 @@
                 <data android:scheme="mms" />
                 <data android:scheme="mmsto" />
             </intent-filter>
+            <!-- Share text, photos and videos from other apps: pick who to send them to. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
         </activity>
 
         <receiver

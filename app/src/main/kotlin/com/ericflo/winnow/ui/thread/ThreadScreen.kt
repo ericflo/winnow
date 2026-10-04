@@ -823,9 +823,12 @@ private fun Composer(
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.size(88.dp).clip(RoundedCornerShape(16.dp)),
                         )
-                        IconButton(
-                            onClick = { onRemoveAttachment(attachment) },
-                            modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(24.dp).background(colors.surface.copy(alpha = 0.8f), CircleShape),
+                        // A plain circle, not an IconButton, which would grow itself to a 48dp target and cover the photo.
+                        Box(
+                            Modifier.align(Alignment.TopEnd).padding(4.dp).size(26.dp).clip(CircleShape)
+                                .background(colors.surface.copy(alpha = 0.85f))
+                                .clickable(onClickLabel = "Remove attachment") { onRemoveAttachment(attachment) },
+                            contentAlignment = Alignment.Center,
                         ) { Icon(Icons.Filled.Close, contentDescription = "Remove attachment", modifier = Modifier.size(16.dp)) }
                     }
                 }

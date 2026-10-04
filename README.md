@@ -73,6 +73,8 @@ messages can't be tapped.
   uses the SIM their last text arrived on, then your default. Replies from notifications and
   scheduled texts use the same SIM, and message details say which SIM a text came in on.
 - **Messages:** copy, forward, delete, details, and "Copy code" for verification codes.
+- **Share to Winnow:** text, photos and videos shared from any app open New chat with them
+  attached.
 - **Notifications:** Android conversation notifications (Conversations section, priority),
   stacked per thread, with inline **Reply**, **Mark as read** and **Copy code**.
 - **Backup and restore:** messages, photos, Winnow's decisions, conversation state, sender

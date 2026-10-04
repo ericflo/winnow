@@ -20,7 +20,9 @@ import com.ericflo.winnow.data.DemoMessageRepository
 import com.ericflo.winnow.data.MessageRepository
 import com.ericflo.winnow.data.OwnNumbers
 import com.ericflo.winnow.data.SecretBox
+import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.data.SettingsRepository
+import com.ericflo.winnow.data.SharedFiles
 import com.ericflo.winnow.data.SimCards
 import com.ericflo.winnow.data.SimChoice
 import com.ericflo.winnow.data.SwitchingMessageRepository
@@ -70,6 +72,11 @@ class AppContainer(private val context: Context) {
     }
     // Read when sending, not cached at startup, so a cold process honors the saved setting.
     val smsSender by lazy { SmsSender(context, { settings.current().deliveryReports }, sims::forSending) }
+
+    val sharedFiles by lazy { SharedFiles(context) }
+
+    /** Photos shared into Winnow, waiting for the user to pick a conversation. */
+    val pendingShare = MutableStateFlow<List<OutgoingAttachment>>(emptyList())
 
     /** The conversation on screen right now, which shouldn't raise notifications for itself. */
     val visibleThread = MutableStateFlow<Long?>(null)

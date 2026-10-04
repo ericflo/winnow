@@ -5,11 +5,14 @@ import android.app.role.RoleManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.IntentCompat
+import androidx.lifecycle.lifecycleScope
 import com.ericflo.winnow.WinnowApp
 import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.sms.recipientsOf
@@ -18,10 +21,12 @@ import com.ericflo.winnow.ui.theme.WinnowTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { (application as WinnowApp).container }
-    private val pendingRoute = MutableStateFlow<ThreadRoute?>(null)
+    /** A screen to open from an intent: a [ThreadRoute] or a [NewChatRoute]. */
+    private val pendingRoute = MutableStateFlow<Any?>(null)
 
     private val roleRequest = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         container.refreshAccess()
@@ -38,6 +43,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) handleIntent(intent)
         container.appScope.launch(Dispatchers.IO) {
             container.mmsFiles.cleanUp()
+            container.sharedFiles.cleanUp()
             // A force-stop cancels alarms without a reboot to re-arm them.
             container.scheduler.rearmAll()
         }
@@ -95,13 +101,32 @@ class MainActivity : ComponentActivity() {
                 val recipients = intent.getStringExtra(EXTRA_ADDRESS) ?: return
                 pendingRoute.value = ThreadRoute(intent.getLongExtra(EXTRA_THREAD_ID, -1), recipients)
             }
-            Intent.ACTION_SENDTO, Intent.ACTION_SEND -> {
-                val recipients = intent.data?.let(::recipientsOf).orEmpty().ifEmpty { return }
+            Intent.ACTION_SENDTO, Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE -> {
+                val recipients = intent.data?.let(::recipientsOf).orEmpty()
+                // Shared from another app with no one to send to yet: pick who in New chat.
+                if (recipients.isEmpty() && intent.action != Intent.ACTION_SENDTO) return share(intent)
+                if (recipients.isEmpty()) return
                 val body = intent.getStringExtra("sms_body")
                     ?: intent.data?.let(::smsBodyOf)
                     ?: intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
                 pendingRoute.value = ThreadRoute(-1, joinAddresses(recipients), body)
             }
+        }
+    }
+
+    private fun share(intent: Intent) {
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+        // IntentCompat: the typed getters are Android 13+, and Winnow supports 12.
+        val streams = if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+        } else {
+            listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
+        }
+        lifecycleScope.launch {
+            val attachments = withContext(Dispatchers.IO) { streams.mapNotNull { container.sharedFiles.import(it, intent.type) } }
+            if (text.isBlank() && attachments.isEmpty()) return@launch
+            container.pendingShare.value = attachments
+            pendingRoute.value = NewChatRoute(draft = text, shared = attachments.isNotEmpty())
         }
     }
 

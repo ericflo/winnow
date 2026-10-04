@@ -84,14 +84,43 @@ class HeadlessSmsSendService : Service() {
     }
 }
 
-/** `sms:+15551234567?body=Hello%20there` → "Hello there", as browsers and other apps link it. */
-fun smsBodyOf(uri: Uri): String? =
-    uri.schemeSpecificPart.orEmpty().substringAfter('?', "").split('&')
-        .firstOrNull { it.startsWith("body=") }?.removePrefix("body=")?.let(Uri::decode)
+/** `sms:+15551234567?body=hi` → "hi". Null for anything but an sms:, smsto:, mms: or mmsto: URI. */
+fun smsBodyOf(uri: Uri): String? = SmsUris.body(uri.scheme, uri.encodedSchemeSpecificPart)
 
-/** `smsto:+15551234567,+15557654321?body=hi` → the recipient addresses. */
-fun recipientsOf(uri: Uri): List<String> =
-    Uri.decode(uri.schemeSpecificPart.orEmpty().substringBefore('?'))
-        .split(',', ';')
-        .map { it.trim() }
-        .filter { it.isNotEmpty() }
+/**
+ * `smsto:+15551234567,+15557654321?body=hi` → the recipient addresses. Empty for any other
+ * scheme: a photo shared from the Files app carries its content:// URI in the same field.
+ */
+fun recipientsOf(uri: Uri): List<String> = SmsUris.recipients(uri.scheme, uri.encodedSchemeSpecificPart)
+
+/** Parses sms:-style URIs as plain strings, so it's testable without Android. */
+object SmsUris {
+    private val SCHEMES = setOf("sms", "smsto", "mms", "mmsto")
+
+    fun recipients(scheme: String?, encodedPart: String?): List<String> {
+        if (scheme?.lowercase() !in SCHEMES) return emptyList()
+        return decode(encodedPart.orEmpty().substringBefore('?')).split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    fun body(scheme: String?, encodedPart: String?): String? {
+        if (scheme?.lowercase() !in SCHEMES) return null
+        return encodedPart.orEmpty().substringAfter('?', "").split('&').firstOrNull { it.startsWith("body=") }?.removePrefix("body=")?.let(::decode)
+    }
+
+    /** Percent-decoding that leaves "+" alone, since it starts phone numbers. */
+    private fun decode(s: String): String {
+        val out = java.io.ByteArrayOutputStream()
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (c == '%' && i + 2 <= s.lastIndex && s.substring(i + 1, i + 3).all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
+                out.write(s.substring(i + 1, i + 3).toInt(16))
+                i += 3
+            } else {
+                out.write(c.toString().toByteArray())
+                i++
+            }
+        }
+        return out.toString(Charsets.UTF_8.name())
+    }
+}
