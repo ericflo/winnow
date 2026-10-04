@@ -206,7 +206,7 @@ class AppContainer(private val context: Context) {
     val autoBackup by lazy { AutoBackup(context, settings, backups) }
 
     /** Recently deleted: conversations kept 30 days after the user deletes them. */
-    val trash by lazy { com.ericflo.winnow.backup.Trash(context, backups, messages, conversationStates, notifier) }
+    val trash by lazy { com.ericflo.winnow.backup.Trash(context, backups, messages, conversationStates, notifier, canWrite = ::isDefaultSmsApp) }
 
     val backups by lazy {
         BackupManager(

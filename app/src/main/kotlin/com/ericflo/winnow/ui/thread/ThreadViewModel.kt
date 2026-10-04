@@ -743,8 +743,8 @@ class ThreadViewModel(
         container.appScope.launch {
             try {
                 // Kept in Recently deleted for 30 days first.
-                if (!container.trash.delete(setOf(id)).ok) {
-                    _notices.emit("Couldn't keep it in Recently deleted, so it wasn't deleted")
+                container.trash.delete(setOf(id)).problem?.let {
+                    _notices.emit(it)
                     return@launch
                 }
                 withContext(Dispatchers.Main) { onDone() }

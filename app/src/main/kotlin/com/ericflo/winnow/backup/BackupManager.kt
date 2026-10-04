@@ -417,9 +417,14 @@ class BackupManager(
 
     /**
      * Adds the messages this phone doesn't have yet, and Winnow's verdicts for messages it has
-     * but never classified (after a reinstall, say). Returns (added, already present).
+     * but never classified (after a reinstall, say). Returns (added, already present). Progress
+     * goes to [report]: the Backup settings' status unless the caller says otherwise.
      */
-    internal suspend fun restoreMessages(backup: WinnowBackup, spool: File): Pair<Int, Int> {
+    internal suspend fun restoreMessages(
+        backup: WinnowBackup,
+        spool: File,
+        report: (BackupStatus) -> Unit = { _status.value = it },
+    ): Pair<Int, Int> {
         val total = backup.messageCount
         val classified = verdicts.all().mapTo(HashSet()) { it.messageKey }
         var done = 0
@@ -467,7 +472,7 @@ class BackupManager(
                     if (m.starred) starred.star(StarredEntity(ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId, System.currentTimeMillis()))
                 }
                 done += chunk.size
-                _status.value = BackupStatus.Working("Restoring messages", done, total)
+                report(BackupStatus.Working("Restoring messages", done, total))
             }
 
             missing.filter { it.kind == KIND_MMS }.forEach { m ->
@@ -477,9 +482,9 @@ class BackupManager(
                     restoreVerdict(m, conversation, threadId, ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)))
                     if (m.starred) starred.star(StarredEntity(ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)), threadId, System.currentTimeMillis()))
                 }
-                _status.value = BackupStatus.Working("Restoring messages", ++done, total)
+                report(BackupStatus.Working("Restoring messages", ++done, total))
             }
-            _status.value = BackupStatus.Working("Restoring messages", done, total)
+            report(BackupStatus.Working("Restoring messages", done, total))
 
             restoreState(threadId, conversation)
         }

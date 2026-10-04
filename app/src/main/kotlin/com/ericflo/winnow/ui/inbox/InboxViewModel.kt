@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.shareIn
@@ -225,12 +226,29 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     /** Into Recently deleted, for 30 days, then gone. [onDone] gets what Undo would put back. */
     fun delete(threadIds: Set<Long>, onDone: (List<Trash.Item>) -> Unit = {}) = launch {
         val deleted = container.trash.delete(threadIds)
-        if (!deleted.ok) container.toast("Couldn't keep a conversation in Recently deleted, so it wasn't deleted")
+        deleted.problem?.let(container::toast)
         if (deleted.items.isNotEmpty()) onDone(deleted.items)
     }
 
     /** Undo for [delete]: back out of Recently deleted. */
-    fun restore(items: List<Trash.Item>) = launch { items.forEach { container.trash.restore(it) } }
+    fun restore(items: List<Trash.Item>) {
+        // In the app scope: leaving the inbox mustn't stop it halfway.
+        container.appScope.launch {
+            if (!container.isDefaultSmsApp()) {
+                container.toast("Make Winnow your SMS app to restore conversations")
+                return@launch
+            }
+            try {
+                if (items.any { container.trash.restore(it)?.complete == false }) {
+                    container.toast("Some messages couldn't be put back, so it's still in Recently deleted")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                container.toast("Couldn't restore it: ${e.message ?: e::class.simpleName}")
+            }
+        }
+    }
 
     /** "Not spam" for a filtered 1:1 conversation: always allow its sender. */
     fun allow(conversation: ConversationSummary, onDone: (PreviousVerdict) -> Unit = {}) = launch {

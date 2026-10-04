@@ -38,7 +38,10 @@ import com.ericflo.winnow.AppContainer
 import com.ericflo.winnow.backup.Trash
 import com.ericflo.winnow.ui.components.Avatar
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -48,19 +51,33 @@ class RecentlyDeletedViewModel(private val container: AppContainer) : ViewModel(
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val notices: SharedFlow<String> = _notices
 
-    /** Putting messages back needs Winnow to be the SMS app, as writing any message does. */
-    fun restore(item: Trash.Item) = viewModelScope.launch {
+    private val _restoring = MutableStateFlow<Set<String>>(emptySet())
+    /** The files being put back right now, by name; their buttons wait. */
+    val restoring: StateFlow<Set<String>> = _restoring
+
+    /**
+     * Putting messages back needs Winnow to be the SMS app, as writing any message does. It runs
+     * in the app scope, so leaving this screen doesn't stop it halfway.
+     */
+    fun restore(item: Trash.Item) {
+        if (item.file.name in _restoring.value) return
         if (!container.isDefaultSmsApp()) {
-            _notices.emit("Make Winnow your SMS app to restore conversations")
-            return@launch
+            _notices.tryEmit("Make Winnow your SMS app to restore conversations")
+            return
         }
-        try {
-            val added = container.trash.restore(item)
-            _notices.emit(if (added == 1) "Restored 1 message" else "Restored $added messages")
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            _notices.emit("Couldn't restore it: ${e.message ?: e::class.simpleName}")
+        _restoring.update { it + item.file.name }
+        container.appScope.launch {
+            try {
+                val restored = container.trash.restore(item) ?: return@launch
+                val added = if (restored.added == 1) "Restored 1 message" else "Restored ${restored.added} messages"
+                _notices.emit(if (restored.complete) added else "$added. Some couldn't be put back, so it's still here to try again.")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _notices.emit("Couldn't restore it: ${e.message ?: e::class.simpleName}")
+            } finally {
+                _restoring.update { it - item.file.name }
+            }
         }
     }
 
@@ -72,6 +89,7 @@ class RecentlyDeletedViewModel(private val container: AppContainer) : ViewModel(
 @Composable
 fun RecentlyDeletedScreen(viewModel: RecentlyDeletedViewModel, onBack: () -> Unit) {
     val items by viewModel.items.collectAsStateWithLifecycle()
+    val restoring by viewModel.restoring.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(viewModel) { viewModel.notices.collect { snackbar.showSnackbar(it) } }
     // Gone for good: one item, or all of them.
@@ -131,12 +149,18 @@ fun RecentlyDeletedScreen(viewModel: RecentlyDeletedViewModel, onBack: () -> Uni
                     },
                     trailingContent = {
                         Column {
-                            TextButton(onClick = { viewModel.restore(item) }) { Text("Restore") }
+                            TextButton(onClick = { viewModel.restore(item) }, enabled = item.file.name !in restoring) {
+                                Text(if (item.file.name in restoring) "Restoring…" else "Restore")
+                            }
                         }
                     },
                 )
                 // A smaller way to let one go now.
-                TextButton(onClick = { forgetting = listOf(item) }, modifier = Modifier.padding(start = 72.dp)) {
+                TextButton(
+                    onClick = { forgetting = listOf(item) },
+                    enabled = item.file.name !in restoring,
+                    modifier = Modifier.padding(start = 72.dp),
+                ) {
                     Icon(Icons.Filled.Delete, contentDescription = null)
                     Text(" Delete now")
                 }
