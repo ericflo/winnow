@@ -573,7 +573,8 @@ class BackupManager(
         val textsEverywhere = existingTextsEverywhere()
         for (conversation in backup.conversations) {
             fun textKey(m: MessageBackup) = if (m.kind == KIND_SMS) textKey(m.fingerprint, (if (m.outgoing) m.to else m.sender) ?: conversation.recipients.singleOrNull()) else null
-            val knownTexts = conversation.messages.filter { m -> textKey(m)?.let { it in textsEverywhere } == true }
+            // A text with lookalikes left beside it can't be told present by a lookup; it's counted below.
+            val knownTexts = conversation.messages.filter { m -> m.alongside == 0 && textKey(m)?.let { it in textsEverywhere } == true }
             if (knownTexts.size == conversation.messages.size) {
                 // All already here: nothing to add, and no empty conversation to create for them.
                 knownTexts.forEach { m ->
@@ -591,10 +592,10 @@ class BackupManager(
             }
             val threadId = Telephony.Threads.getOrCreateThreadId(context, conversation.recipients.toSet())
             val existing = existingMessages(threadId)
-            val (here, missing) = conversation.messages.partition { m -> m.fingerprint in existing || textKey(m)?.let { it in textsEverywhere } == true }
+            val (here, missing) = matchExisting(conversation.messages, threadId, existing) { m -> textKey(m)?.let { textsEverywhere[it] } }
 
-            here.forEach { m ->
-                val (key, inThread) = existing[m.fingerprint]?.let { it to threadId } ?: textsEverywhere.getValue(textKey(m)!!)
+            here.forEach { (m, at) ->
+                val (key, inThread) = at
                 if (key !in classified) restoreVerdict(m, conversation, inThread, key)
                 if (m.starred) starred.star(StarredEntity(key, inThread, System.currentTimeMillis()))
                 restoreReminder(m, key, inThread, conversation)
@@ -780,8 +781,9 @@ class BackupManager(
         return found
     }
 
-    private fun existingMessages(threadId: Long): Map<String, String> {
-        val found = HashMap<String, String>()
+    /** [threadId]'s messages by [MessageBackup.fingerprint]: lookalikes (same second, same text) share one, in a list. */
+    private fun existingMessages(threadId: Long): Map<String, List<String>> {
+        val found = HashMap<String, MutableList<String>>()
         val args = arrayOf(threadId.toString())
         resolver.query(
             Sms.CONTENT_URI, arrayOf(Sms._ID, Sms.DATE, Sms.TYPE, Sms.BODY),
@@ -789,7 +791,7 @@ class BackupManager(
         )?.use { c ->
             while (c.moveToNext()) {
                 val print = MessageBackup.fingerprint(KIND_SMS, c.getLong(1), c.getInt(2) != Sms.MESSAGE_TYPE_INBOX, c.getString(3).orEmpty(), 0)
-                found[print] = ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0))
+                found.getOrPut(print, ::mutableListOf) += ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0))
             }
         }
         val mms = mutableListOf<Triple<Long, Long, Boolean>>()
@@ -801,11 +803,14 @@ class BackupManager(
             val parts = mmsParts("${Mms.Part.MSG_ID} IN (${mms.joinToString(",") { it.first.toString() }})")
             mms.forEach { (id, date, outgoing) ->
                 val own = parts[id].orEmpty()
-                found[MessageBackup.fingerprint(KIND_MMS, date, outgoing, own.textBody(), own.media().size)] = ChatMessage.messageKey(ChatMessage.Kind.MMS, id)
+                found.getOrPut(MessageBackup.fingerprint(KIND_MMS, date, outgoing, own.textBody(), own.media().size), ::mutableListOf) += ChatMessage.messageKey(ChatMessage.Kind.MMS, id)
             }
         }
         return found
     }
+
+    /** How many of [threadId]'s messages share each fingerprint, for Recently deleted's [MessageBackup.alongside]. */
+    internal fun fingerprintCounts(threadId: Long): Map<String, Int> = existingMessages(threadId).mapValues { it.value.size }
 
     private fun readable(partId: Long): Boolean =
         runCatching { resolver.openInputStream(ContentUris.withAppendedId(Mms.Part.CONTENT_URI, partId))?.use { true } ?: false }.getOrDefault(false)

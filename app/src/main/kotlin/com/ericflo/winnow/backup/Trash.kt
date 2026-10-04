@@ -37,6 +37,8 @@ class Trash(
     private val canWrite: () -> Boolean,
     /** Conversations deleted for real: what else is kept about them goes (reminders). */
     private val onGone: suspend (Collection<Long>) -> Unit = {},
+    /** The same for messages, by key: their reminders, which are kept with them here. */
+    private val onMessagesGone: suspend (Collection<String>) -> Unit = {},
 ) {
     data class Item(
         val file: File,
@@ -117,22 +119,33 @@ class Trash(
     /**
      * Keeps [messages] (from conversation [threadId]) in Recently deleted, then deletes them from
      * the phone. None are deleted if they couldn't be kept. One that was never downloaded has
-     * nothing to keep, and is just deleted.
+     * nothing to keep, and is just deleted; one that's gone already is left alone.
      */
     suspend fun deleteMessages(threadId: Long, messages: List<ChatMessage>): Deleted = lock.withLock {
         if (!canWrite()) return@withLock Deleted("Make Winnow your SMS app to delete messages", emptyList())
         withContext(Dispatchers.IO) {
             val file = File(dir, "${System.currentTimeMillis()}-$threadId$SOME_MESSAGES")
             val partial = File(dir, "${file.name}.part")
+            val doomed: List<ChatMessage>
             try {
                 val media = HashMap<String, android.net.Uri>()
                 // Just these messages: the conversation's draft stays in the conversation.
-                val conversation = backups.readConversations(media, only = setOf(threadId), messages = messages.mapTo(HashSet()) { it.key })
-                    .singleOrNull()
-                    ?.copy(draft = null, draftSubject = null, draftAttachments = emptyList())
-                if (conversation == null && messages.any { !it.isPlaceholder }) {
+                val read = backups.readConversations(media, only = setOf(threadId), messages = messages.mapTo(HashSet()) { it.key }).singleOrNull()
+                // Each message as it was read, by kind and time: a key whose row is now another
+                // message (the SMS table reuses ids) doesn't match, and isn't deleted.
+                val found = read?.messages.orEmpty().mapTo(HashSet()) { it.kind to it.date }
+                fun kept(m: ChatMessage) = ((if (m.kind == ChatMessage.Kind.SMS) KIND_SMS else KIND_MMS) to m.timestamp) in found
+                doomed = messages.filter { it.isPlaceholder || kept(it) }
+                if (read == null && messages.any { !it.isPlaceholder && stillThere(it) }) {
                     return@withContext Deleted("Couldn't keep those messages in Recently deleted, so they weren't deleted", emptyList())
                 }
+                // How many lookalikes of each stay behind, so putting it back doesn't take one of them for it.
+                val counts = if (read == null) emptyMap() else backups.fingerprintCounts(threadId)
+                val chosen = read?.messages.orEmpty().groupingBy { it.fingerprint }.eachCount()
+                val conversation = read?.copy(
+                    draft = null, draftSubject = null, draftAttachments = emptyList(),
+                    messages = read.messages.map { m -> m.copy(alongside = ((counts[m.fingerprint] ?: 0) - (chosen[m.fingerprint] ?: 0)).coerceAtLeast(0)) },
+                )
                 if (conversation != null) {
                     partial.outputStream().use { output ->
                         BackupArchive.write(output, WinnowBackup(createdAt = System.currentTimeMillis(), conversations = listOf(conversation))) { part ->
@@ -151,12 +164,23 @@ class Trash(
                 return@withContext Deleted("Couldn't keep those messages in Recently deleted, so they weren't deleted", emptyList())
             }
             try {
-                withContext(NonCancellable) { messages.forEach { repo.deleteMessage(it) } }
+                withContext(NonCancellable) {
+                    doomed.forEach { repo.deleteMessage(it) }
+                    runCatching { onMessagesGone(doomed.map { it.key }) }
+                }
             } finally {
                 withContext(NonCancellable) { reload() }
             }
             Deleted(null, _items.value.filter { it.file == file })
         }
+    }
+
+    /** Whether [message]'s row is still in the store (as that message: same time). */
+    private fun stillThere(message: ChatMessage): Boolean {
+        val (table, column) = if (message.kind == ChatMessage.Kind.SMS) Telephony.Sms.CONTENT_URI to Telephony.Sms.DATE else Telephony.Mms.CONTENT_URI to Telephony.Mms.DATE
+        return context.contentResolver.query(android.content.ContentUris.withAppendedId(table, message.id), arrayOf(column), null, null, null)?.use { c ->
+            c.moveToFirst() && (if (message.kind == ChatMessage.Kind.SMS) c.getLong(0) else c.getLong(0) * 1000) == message.timestamp
+        } == true
     }
 
     /** A conversation kept (in [file], or nothing worth keeping), and its messages as they were. */

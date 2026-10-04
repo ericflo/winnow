@@ -284,6 +284,7 @@ class AppContainer(private val context: Context) {
         com.ericflo.winnow.backup.Trash(
             context, backups, messages, conversationStates, notifier, canWrite = ::isDefaultSmsApp,
             onGone = { reminders.cancelForThreads(it) },
+            onMessagesGone = { keys -> keys.forEach { reminders.cancel(it) } },
         )
     }
 

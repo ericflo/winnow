@@ -1019,7 +1019,10 @@ class ThreadViewModel(
     /** Messages just moved to Recently deleted, for an Undo. */
     val deleted: SharedFlow<List<Trash.Item>> = _deleted
 
-    /** Moves [messages] to Recently deleted (in the app's scope: leaving doesn't stop it halfway). */
+    /**
+     * Moves [messages] to Recently deleted (in the app's scope: leaving doesn't stop it halfway).
+     * Their reminders are kept with them, and come back if they do.
+     */
     fun deleteMessages(messages: List<ChatMessage>) = launch {
         val kept = mutableListOf<Trash.Item>()
         for ((thread, some) in messages.groupBy { it.threadId }) {
@@ -1029,10 +1032,17 @@ class ThreadViewModel(
                 return@launch
             }
             kept += result.items
-            // Their reminders are kept with them, and come back if they do.
-            some.forEach { container.reminders.cancel(it.key) }
         }
         if (kept.isNotEmpty()) _deleted.emit(kept)
+    }
+
+    /**
+     * Whether deleting [messages] would leave the conversation empty: then it's the conversation
+     * that goes (draft, pin and all, see [deleteConversation]), since Android drops an empty one.
+     */
+    fun isEverything(messages: Collection<ChatMessage>): Boolean {
+        val all = state.value.messages
+        return all.isNotEmpty() && messages.mapTo(HashSet()) { it.key }.containsAll(all.map { it.key })
     }
 
     /** Undo: what [deleteMessages] moved to Recently deleted, back in the conversation. */

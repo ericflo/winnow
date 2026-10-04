@@ -849,33 +849,26 @@ fun ThreadScreen(
         )
     }
     confirmDeleteOne?.let { message ->
-        AlertDialog(
-            onDismissRequest = { confirmDeleteOne = null },
-            title = { Text("Delete this message?") },
-            text = { Text("It stays in Recently deleted for ${Trash.KEEP_DAYS} days, in case you want it back.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.delete(message)
-                    confirmDeleteOne = null
-                }) { Text("Delete") }
+        DeleteMessagesDialog(
+            count = 1,
+            everything = viewModel.isEverything(listOf(message)),
+            onConfirm = {
+                if (viewModel.isEverything(listOf(message))) viewModel.deleteConversation(onBack) else viewModel.delete(message)
+                confirmDeleteOne = null
             },
-            dismissButton = { TextButton(onClick = { confirmDeleteOne = null }) { Text("Cancel") } },
+            onDismiss = { confirmDeleteOne = null },
         )
     }
     if (confirmDeleteSelected) {
-        val n = selected.size
-        AlertDialog(
-            onDismissRequest = { confirmDeleteSelected = false },
-            title = { Text(if (n == 1) "Delete this message?" else "Delete $n messages?") },
-            text = { Text("${if (n == 1) "It stays" else "They stay"} in Recently deleted for ${Trash.KEEP_DAYS} days, in case you want ${if (n == 1) "it" else "them"} back.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteMessages(selectedMessages)
-                    selected = emptySet()
-                    confirmDeleteSelected = false
-                }) { Text("Delete") }
+        DeleteMessagesDialog(
+            count = selected.size,
+            everything = viewModel.isEverything(selectedMessages),
+            onConfirm = {
+                if (viewModel.isEverything(selectedMessages)) viewModel.deleteConversation(onBack) else viewModel.deleteMessages(selectedMessages)
+                selected = emptySet()
+                confirmDeleteSelected = false
             },
-            dismissButton = { TextButton(onClick = { confirmDeleteSelected = false }) { Text("Cancel") } },
+            onDismiss = { confirmDeleteSelected = false },
         )
     }
     remindingFor?.let { message ->
@@ -2538,6 +2531,29 @@ private fun ThreadSearchBar(
                 Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Newer match")
             }
         },
+    )
+}
+
+/**
+ * Confirms deleting [count] messages, which wait in Recently deleted. When they're [everything]
+ * in the conversation, it's the conversation that's deleted (Android drops an empty one).
+ */
+@Composable
+private fun DeleteMessagesDialog(count: Int, everything: Boolean, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (everything) "Delete this conversation?" else if (count == 1) "Delete this message?" else "Delete $count messages?") },
+        text = {
+            Text(
+                if (everything) {
+                    "That's every message in it, so the conversation goes too. It stays in Recently deleted for ${Trash.KEEP_DAYS} days, in case you want it back."
+                } else {
+                    "${if (count == 1) "It stays" else "They stay"} in Recently deleted for ${Trash.KEEP_DAYS} days, in case you want ${if (count == 1) "it" else "them"} back."
+                },
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
