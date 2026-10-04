@@ -127,10 +127,11 @@ data class MessageBackup(
     /** When a "Remind me" on it is due; null for none. */
     val remindAt: Long? = null,
     /**
-     * Recently deleted keeping some messages: how many just like this one (same [fingerprint])
-     * stayed in the conversation. That many on the phone aren't it, so it's still put back.
+     * Recently deleted only: the message's own key on this phone when it was kept. Putting it
+     * back, it's there already only if that very row is (the delete didn't happen), whatever
+     * lookalikes are: two photos sent in the same second are each their own.
      */
-    val alongside: Int = 0,
+    val was: String? = null,
 ) {
     /** Identifies the message across backup, phone and re-import, to skip duplicates. */
     val fingerprint: String get() = fingerprint(kind, date, outgoing, body, parts.size)

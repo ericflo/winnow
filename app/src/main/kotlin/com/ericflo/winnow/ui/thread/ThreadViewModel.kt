@@ -1038,6 +1038,29 @@ class ThreadViewModel(
     }
 
     /**
+     * Deletes the conversation when [messages] are all of it (see [isEverything]), unless a text
+     * came in since: then just [messages] go, and the conversation stays open.
+     */
+    fun deleteEverything(messages: List<ChatMessage>, onDone: () -> Unit) {
+        val id = threadId.value
+        val newest = messages.maxOfOrNull { it.timestamp } ?: return
+        container.appScope.launch {
+            try {
+                val result = container.trash.delete(setOf(id), unlessNewerThan = newest)
+                result.problem?.let {
+                    _notices.emit(it)
+                    return@launch
+                }
+                if (id in result.skipped) deleteMessages(messages) else withContext(Dispatchers.Main) { onDone() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _notices.emit("Couldn't delete: ${e.message ?: e::class.simpleName}")
+            }
+        }
+    }
+
+    /**
      * Whether deleting [messages] would leave the conversation empty: then it's the conversation
      * that goes (draft, pin and all, see [deleteConversation]), since Android drops an empty one.
      */

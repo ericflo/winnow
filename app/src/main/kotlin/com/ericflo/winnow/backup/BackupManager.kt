@@ -371,7 +371,13 @@ class BackupManager(
      * [only], when given, limits it to those conversations (Recently deleted keeps one at a time),
      * and [messages] to those messages, by [ChatMessage.key] (Recently deleted keeping some).
      */
-    internal suspend fun readConversations(media: MutableMap<String, Uri>, only: Set<Long>? = null, messages: Set<String>? = null): List<ConversationBackup> {
+    internal suspend fun readConversations(
+        media: MutableMap<String, Uri>,
+        only: Set<Long>? = null,
+        messages: Set<String>? = null,
+        /** Recently deleted: each message carries its own key ([MessageBackup.was]). Never for a backup, which may go to another phone. */
+        keepIdentity: Boolean = false,
+    ): List<ConversationBackup> {
         // The rows of one table [messages] names: "AND 0" for none of them.
         fun picked(kind: ChatMessage.Kind, column: String): String = messages?.let { keys ->
             val ids = keys.mapNotNull { ChatMessage.idIn(kind, it) }
@@ -413,6 +419,7 @@ class BackupManager(
                     verdict = verdictsByKey[ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0))]?.toBackup(),
                     starred = ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)) in stars,
                     remindAt = remindAt(ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)), c.getLong(4)),
+                    was = ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)).takeIf { keepIdentity },
                 )
             }
         }
@@ -458,6 +465,7 @@ class BackupManager(
                 verdict = verdictsByKey[ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id)]?.toBackup(),
                 starred = ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id) in stars,
                 remindAt = remindAt(ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id), row.date * 1000),
+                was = ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id).takeIf { keepIdentity },
             )
         }
 
@@ -561,6 +569,8 @@ class BackupManager(
          * gone was most likely sent, and anything already here is kept.
          */
         draftsIntoExisting: Boolean = false,
+        /** Each message that's on the phone now (added, or there already) or has nothing to put back. */
+        settled: (MessageBackup) -> Unit = {},
     ): RestoreCount {
         val total = backup.messageCount
         val classified = verdicts.all().mapTo(HashSet()) { it.messageKey }
@@ -573,8 +583,8 @@ class BackupManager(
         val textsEverywhere = existingTextsEverywhere()
         for (conversation in backup.conversations) {
             fun textKey(m: MessageBackup) = if (m.kind == KIND_SMS) textKey(m.fingerprint, (if (m.outgoing) m.to else m.sender) ?: conversation.recipients.singleOrNull()) else null
-            // A text with lookalikes left beside it can't be told present by a lookup; it's counted below.
-            val knownTexts = conversation.messages.filter { m -> m.alongside == 0 && textKey(m)?.let { it in textsEverywhere } == true }
+            // One kept by Recently deleted is known by its own row, not by a lookup (see matchExisting).
+            val knownTexts = conversation.messages.filter { m -> m.was == null && textKey(m)?.let { it in textsEverywhere } == true }
             if (knownTexts.size == conversation.messages.size) {
                 // All already here: nothing to add, and no empty conversation to create for them.
                 knownTexts.forEach { m ->
@@ -585,6 +595,7 @@ class BackupManager(
                 }
                 present += knownTexts.size
                 done += knownTexts.size
+                knownTexts.forEach(settled)
                 // Its pin, mute, name and draft still come back (a reinstall leaves every text on
                 // the phone and none of Winnow's state), on the conversation those texts are in.
                 knownTexts.map { textsEverywhere.getValue(textKey(it)!!).second }.distinct().singleOrNull()?.let { restoreState(it, conversation, spool, draftsIntoExisting) }
@@ -592,7 +603,7 @@ class BackupManager(
             }
             val threadId = Telephony.Threads.getOrCreateThreadId(context, conversation.recipients.toSet())
             val existing = existingMessages(threadId)
-            val (here, missing) = matchExisting(conversation.messages, threadId, existing) { m -> textKey(m)?.let { textsEverywhere[it] } }
+            val (here, missing) = matchExisting(conversation.messages, threadId, existing, identity = ::stillHere) { m -> textKey(m)?.let { textsEverywhere[it] } }
 
             here.forEach { (m, at) ->
                 val (key, inThread) = at
@@ -602,6 +613,7 @@ class BackupManager(
             }
             present += here.size
             done += here.size
+            here.forEach { (m, _) -> settled(m) }
 
             missing.filter { it.kind == KIND_SMS }.chunked(SMS_BATCH).forEach { chunk ->
                 val ops = chunk.map { m -> ContentProviderOperation.newInsert(Sms.CONTENT_URI).withValues(smsValues(threadId, conversation, m)).build() }
@@ -609,6 +621,7 @@ class BackupManager(
                 chunk.zip(results).forEach { (m, result) ->
                     val id = result.uri?.let(ContentUris::parseId) ?: return@forEach
                     added++
+                    settled(m)
                     restoreVerdict(m, conversation, threadId, ChatMessage.messageKey(ChatMessage.Kind.SMS, id))
                     if (m.starred) starred.star(StarredEntity(ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId, System.currentTimeMillis()))
                     restoreReminder(m, ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId, conversation)
@@ -622,12 +635,14 @@ class BackupManager(
                 // read): there's nothing to put back, and no point trying again later.
                 if (m.body.isEmpty() && m.subject.isNullOrBlank() && m.parts.none { spooled(spool, it.file) != null }) {
                     empty++
+                    settled(m)
                     report(BackupStatus.Working("Restoring messages", ++done, total))
                     return@forEach
                 }
                 val uri = insertMms(threadId, conversation, m, spool)
                 if (uri != null) {
                     added++
+                    settled(m)
                     restoreVerdict(m, conversation, threadId, ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)))
                     if (m.starred) starred.star(StarredEntity(ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)), threadId, System.currentTimeMillis()))
                     restoreReminder(m, ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)), threadId, conversation)
@@ -809,8 +824,15 @@ class BackupManager(
         return found
     }
 
-    /** How many of [threadId]'s messages share each fingerprint, for Recently deleted's [MessageBackup.alongside]. */
-    internal fun fingerprintCounts(threadId: Long): Map<String, Int> = existingMessages(threadId).mapValues { it.value.size }
+    /** [m]'s own row ([MessageBackup.was]) if it's still on the phone, as that message (same time); else null. */
+    private fun stillHere(m: MessageBackup): String? {
+        val key = m.was ?: return null
+        val sms = ChatMessage.idIn(ChatMessage.Kind.SMS, key)
+        val (uri, column) = if (sms != null) ContentUris.withAppendedId(Sms.CONTENT_URI, sms) to Sms.DATE
+        else ContentUris.withAppendedId(Mms.CONTENT_URI, ChatMessage.idIn(ChatMessage.Kind.MMS, key) ?: return null) to Mms.DATE
+        val date = resolver.query(uri, arrayOf(column), null, null, null)?.use { c -> if (c.moveToFirst()) c.getLong(0) else null } ?: return null
+        return key.takeIf { (if (sms != null) date else date * 1000) == m.date }
+    }
 
     private fun readable(partId: Long): Boolean =
         runCatching { resolver.openInputStream(ContentUris.withAppendedId(Mms.Part.CONTENT_URI, partId))?.use { true } ?: false }.getOrDefault(false)

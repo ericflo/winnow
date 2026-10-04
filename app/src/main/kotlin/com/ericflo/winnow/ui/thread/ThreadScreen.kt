@@ -853,7 +853,7 @@ fun ThreadScreen(
             count = 1,
             everything = viewModel.isEverything(listOf(message)),
             onConfirm = {
-                if (viewModel.isEverything(listOf(message))) viewModel.deleteConversation(onBack) else viewModel.delete(message)
+                if (viewModel.isEverything(listOf(message))) viewModel.deleteEverything(listOf(message), onBack) else viewModel.delete(message)
                 confirmDeleteOne = null
             },
             onDismiss = { confirmDeleteOne = null },
@@ -864,7 +864,7 @@ fun ThreadScreen(
             count = selected.size,
             everything = viewModel.isEverything(selectedMessages),
             onConfirm = {
-                if (viewModel.isEverything(selectedMessages)) viewModel.deleteConversation(onBack) else viewModel.deleteMessages(selectedMessages)
+                if (viewModel.isEverything(selectedMessages)) viewModel.deleteEverything(selectedMessages, onBack) else viewModel.deleteMessages(selectedMessages)
                 selected = emptySet()
                 confirmDeleteSelected = false
             },

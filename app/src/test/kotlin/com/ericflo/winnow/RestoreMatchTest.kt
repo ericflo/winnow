@@ -8,38 +8,42 @@ import org.junit.Test
 class RestoreMatchTest {
     // Two photos from the same person in the same second, no text: the same fingerprint.
     private val photo = MessageBackup(kind = "mms", date = 1_000_000L, outgoing = false, sender = "+14155550101")
-    private val existing = mapOf(photo.fingerprint to listOf("mms:7"))
+    private val twinStillHere = mapOf(photo.fingerprint to listOf("mms:7"))
 
     @Test
-    fun `a deleted lookalike comes back though its twin stayed`() {
-        val (here, missing) = matchExisting(listOf(photo.copy(alongside = 1)), threadId = 3, existing = existing) { null }
+    fun `a deleted photo comes back though its twin stayed`() {
+        val kept = photo.copy(was = "mms:5")
+        val (here, missing) = matchExisting(listOf(kept), threadId = 3, existing = twinStillHere, identity = { null }) { null }
         assertEquals(0, here.size)
-        assertEquals(1, missing.size)
+        assertEquals(listOf(kept), missing)
     }
 
     @Test
-    fun `restored twice, it's there the second time`() {
-        val both = mapOf(photo.fingerprint to listOf("mms:7", "mms:9"))
-        val (here, missing) = matchExisting(listOf(photo.copy(alongside = 1)), threadId = 3, existing = both) { null }
-        assertEquals(listOf("mms:9"), here.map { it.second.first })
+    fun `one whose delete didn't happen is there already`() {
+        val kept = photo.copy(was = "mms:5")
+        val (here, missing) = matchExisting(listOf(kept), threadId = 3, existing = twinStillHere, identity = { "mms:5" }) { null }
+        assertEquals(listOf("mms:5" to 3L), here.map { it.second })
         assertEquals(0, missing.size)
     }
 
     @Test
-    fun `two lookalikes in a backup and one on the phone leave one missing`() {
-        val (here, missing) = matchExisting(listOf(photo, photo), threadId = 3, existing = existing) { null }
-        assertEquals(1, here.size)
-        assertEquals(1, missing.size)
+    fun `a backup's message is there when a lookalike is, in this conversation or (a text) another`() {
+        val (inThread, _) = matchExisting(listOf(photo), threadId = 3, existing = twinStillHere, identity = { null }) { null }
+        assertEquals(listOf("mms:7" to 3L), inThread.map { it.second })
+        // A text sent to a group one person at a time sits in that person's conversation.
+        val text = MessageBackup(kind = "sms", date = 5L, outgoing = true, body = "hi", to = "+14155550102")
+        val (elsewhere, missing) = matchExisting(listOf(text), threadId = 3, existing = emptyMap(), identity = { null }) { "sms:4" to 8L }
+        assertEquals(listOf("sms:4" to 8L), elsewhere.map { it.second })
+        assertEquals(0, missing.size)
     }
 
     @Test
-    fun `a text in another conversation counts as here, one in this one only by count`() {
-        val text = MessageBackup(kind = "sms", date = 5L, outgoing = true, body = "hi", to = "+14155550102")
-        val (inOther, _) = matchExisting(listOf(text), threadId = 3, existing = emptyMap()) { "sms:4" to 8L }
-        assertEquals(listOf("sms:4" to 8L), inOther.map { it.second })
-        // Found by the lookup in this very thread but not by count: still missing.
-        val (inThis, missing) = matchExisting(listOf(text), threadId = 3, existing = emptyMap()) { "sms:4" to 3L }
-        assertEquals(0, inThis.size)
-        assertEquals(1, missing.size)
+    fun `a mass text in a group, one row a person, isn't added again`() {
+        // Same time and words to three people: one fingerprint, three rows, all here.
+        val rows = listOf("+14155550101", "+14155550102", "+14155550103").map { MessageBackup(kind = "sms", date = 9L, outgoing = true, body = "Party at 8", to = it) }
+        val existing = mapOf(rows[0].fingerprint to listOf("sms:21", "sms:22", "sms:23"))
+        val (here, missing) = matchExisting(rows, threadId = 3, existing = existing, identity = { null }) { null }
+        assertEquals(3, here.size)
+        assertEquals(0, missing.size)
     }
 }

@@ -60,7 +60,12 @@ class Trash(
     val items: StateFlow<List<Item>> = _items.asStateFlow()
 
     /** What [delete] did: [problem] says why some conversation wasn't deleted (it couldn't be kept). */
-    data class Deleted(val problem: String?, val items: List<Item>) {
+    data class Deleted(
+        val problem: String?,
+        val items: List<Item>,
+        /** Left alone: something newer than the caller's `unlessNewerThan` is in it. */
+        val skipped: Set<Long> = emptySet(),
+    ) {
         val ok: Boolean get() = problem == null
     }
 
@@ -112,6 +117,7 @@ class Trash(
             Deleted(
                 "Couldn't keep a conversation in Recently deleted, so it wasn't deleted".takeIf { kept.size + skipped.size != threadIds.size },
                 _items.value.filter { it.file in made },
+                skipped,
             )
         }
     }
@@ -130,22 +136,18 @@ class Trash(
             try {
                 val media = HashMap<String, android.net.Uri>()
                 // Just these messages: the conversation's draft stays in the conversation.
-                val read = backups.readConversations(media, only = setOf(threadId), messages = messages.mapTo(HashSet()) { it.key }).singleOrNull()
-                // Each message as it was read, by kind and time: a key whose row is now another
-                // message (the SMS table reuses ids) doesn't match, and isn't deleted.
-                val found = read?.messages.orEmpty().mapTo(HashSet()) { it.kind to it.date }
-                fun kept(m: ChatMessage) = ((if (m.kind == ChatMessage.Kind.SMS) KIND_SMS else KIND_MMS) to m.timestamp) in found
-                doomed = messages.filter { it.isPlaceholder || kept(it) }
-                if (read == null && messages.any { !it.isPlaceholder && stillThere(it) }) {
+                val read = backups.readConversations(media, only = setOf(threadId), messages = messages.mapTo(HashSet()) { it.key }, keepIdentity = true)
+                    .singleOrNull()
+                // Each message as it was read, by its key and time: a key whose row is now another
+                // message (the SMS table reuses ids) doesn't match, and is neither kept nor deleted.
+                val wanted = messages.associateBy { it.key }
+                val matched = read?.messages.orEmpty().filter { m -> wanted[m.was]?.timestamp == m.date }
+                val keptKeys = matched.mapTo(HashSet()) { it.was }
+                doomed = messages.filter { it.isPlaceholder || it.key in keptKeys }
+                if (messages.any { !it.isPlaceholder && it.key !in keptKeys && stillThere(it) }) {
                     return@withContext Deleted("Couldn't keep those messages in Recently deleted, so they weren't deleted", emptyList())
                 }
-                // How many lookalikes of each stay behind, so putting it back doesn't take one of them for it.
-                val counts = if (read == null) emptyMap() else backups.fingerprintCounts(threadId)
-                val chosen = read?.messages.orEmpty().groupingBy { it.fingerprint }.eachCount()
-                val conversation = read?.copy(
-                    draft = null, draftSubject = null, draftAttachments = emptyList(),
-                    messages = read.messages.map { m -> m.copy(alongside = ((counts[m.fingerprint] ?: 0) - (chosen[m.fingerprint] ?: 0)).coerceAtLeast(0)) },
-                )
+                val conversation = read?.takeIf { matched.isNotEmpty() }?.copy(draft = null, draftSubject = null, draftAttachments = emptyList(), messages = matched)
                 if (conversation != null) {
                     partial.outputStream().use { output ->
                         BackupArchive.write(output, WinnowBackup(createdAt = System.currentTimeMillis(), conversations = listOf(conversation))) { part ->
@@ -199,7 +201,7 @@ class Trash(
             try {
                 val before = snapshot(threadId)
                 val media = HashMap<String, android.net.Uri>()
-                val conversation = backups.readConversations(media, only = setOf(threadId)).singleOrNull()
+                val conversation = backups.readConversations(media, only = setOf(threadId), keepIdentity = true).singleOrNull()
                 if (conversation == null) {
                     // Nothing in it worth keeping (a new conversation, or only undownloaded MMS): fine
                     // to delete. Messages with no one to put them back with can't be kept, so they stay.
@@ -287,14 +289,40 @@ class Trash(
                     BackupArchive.read(input) { name, stream -> File(spool, name).outputStream().use { stream.copyTo(it) } }
                 }
                 // Not reported to the Backup settings, which may be busy with a backup of their own.
-                val restored = backups.restoreMessages(backup, spool, report = {}, draftsIntoExisting = true)
+                val settled = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<MessageBackup, Boolean>())
+                val restored = backups.restoreMessages(backup, spool, report = {}, draftsIntoExisting = true, settled = { settled += it })
                 val complete = restored.covers(backup.messageCount)
-                if (complete) item.file.delete()
+                if (complete) {
+                    item.file.delete()
+                } else if (settled.isNotEmpty()) {
+                    // What's back stays back: the file keeps only the rest, so trying again can't add it twice.
+                    keepOnly(item.file, backup, spool) { it !in settled }
+                }
                 Restored(restored.added, complete)
             } finally {
                 spool.deleteRecursively()
                 reload()
             }
+        }
+    }
+
+    /** Rewrites [file] (a [backup] whose media is in [spool]) with just the messages [keep] says. */
+    private fun keepOnly(file: File, backup: WinnowBackup, spool: File, keep: (MessageBackup) -> Boolean) {
+        val rest = backup.copy(conversations = backup.conversations.map { c -> c.copy(messages = c.messages.filter(keep)) })
+        val partial = File(file.parentFile, "${file.name}.part")
+        runCatching {
+            partial.outputStream().use { output ->
+                BackupArchive.write(output, rest) { part ->
+                    File(spool, part.file).takeIf { BackupArchive.safeName(part.file) != null && it.isFile }?.inputStream()
+                }
+            }
+            FileOutputStream(partial, true).use { it.fd.sync() }
+            if (!partial.renameTo(file)) error("Couldn't replace the kept file")
+            // Same name, new contents: read it again.
+            read.remove(file.name)
+        }.onFailure {
+            partial.delete()
+            Log.w(TAG, "Couldn't trim a partly restored item", it)
         }
     }
 
