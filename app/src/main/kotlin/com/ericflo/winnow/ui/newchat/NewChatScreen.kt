@@ -65,6 +65,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -77,6 +78,8 @@ data class NewChatUiState(
     /** Picking several people for a group conversation. */
     val groupMode: Boolean = false,
     val picked: List<ContactEntry> = emptyList(),
+    /** The people texted most recently, one to one: first, while nothing's typed. */
+    val recent: List<ContactEntry> = emptyList(),
 )
 
 class NewChatViewModel(
@@ -86,6 +89,7 @@ class NewChatViewModel(
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val contacts = MutableStateFlow<List<ContactEntry>>(emptyList())
+    private val recent = MutableStateFlow<List<ContactEntry>>(emptyList())
     private val groupMode = MutableStateFlow(startWith.isNotEmpty())
     private val picked = MutableStateFlow(
         startWith.map { ContactEntry(container.messages.displayName(it), it, container.messages.photoUri(it)) },
@@ -93,9 +97,17 @@ class NewChatViewModel(
 
     init {
         viewModelScope.launch { contacts.value = container.contactsSource.all() }
+        viewModelScope.launch {
+            val repo = container.messages
+            recent.value = runCatching { repo.conversations().first() }.getOrDefault(emptyList())
+                .filter { it.recipients.size == 1 && !it.isFiltered }
+                .sortedByDescending { it.timestamp }
+                .take(RECENT)
+                .map { c -> c.recipients.single().let { ContactEntry(c.displayName, it, repo.photoUri(it)) } }
+        }
     }
 
-    val state: StateFlow<NewChatUiState> = combine(query, contacts, groupMode, picked) { q, all, group, picked ->
+    val state: StateFlow<NewChatUiState> = combine(query, contacts, groupMode, picked, recent) { q, all, group, picked, recent ->
         val matches = if (q.isBlank()) all else all.filter { it.matches(q) }
         NewChatUiState(
             query = q,
@@ -103,6 +115,7 @@ class NewChatViewModel(
             dialable = dialable(q),
             groupMode = group,
             picked = picked,
+            recent = recent,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NewChatUiState())
 
@@ -202,6 +215,24 @@ fun NewChatScreen(viewModel: NewChatViewModel, onBack: () -> Unit, onStart: (rec
                         seed = number,
                         shape = RoundedCornerShape(24.dp),
                         onClick = { choose(ContactEntry(ContactLookup.formatAddress(number), number)) },
+                    )
+                }
+            }
+            if (state.query.isBlank() && state.recent.isNotEmpty()) {
+                item("h-recent") {
+                    Text("Recent", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 32.dp, top = 20.dp, bottom = 8.dp))
+                }
+                itemsIndexed(state.recent, key = { _, c -> "r-${c.number}" }) { i, contact ->
+                    ContactCard(
+                        title = contact.name,
+                        // Not in contacts, the name is the number: once is enough.
+                        subtitle = ContactLookup.formatAddress(contact.number).takeIf { it != contact.name },
+                        avatarName = contact.name,
+                        seed = contact.number,
+                        photoUri = contact.photoUri,
+                        shape = groupShape(i, state.recent.size),
+                        checked = state.groupMode && state.picked.any { it.number == contact.number },
+                        onClick = { choose(contact) },
                     )
                 }
             }
@@ -320,3 +351,6 @@ private fun ContactCard(
 /** What's typed, if it's a phone number to text rather than a name to look up. */
 private fun dialable(query: String): String? =
     query.trim().takeIf { t -> t.count(Char::isDigit) >= 3 && t.all { it.isDigit() || it in "+()- ." } }
+
+/** How many recent people New chat offers first. */
+private const val RECENT = 5
