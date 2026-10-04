@@ -1,14 +1,10 @@
 package com.ericflo.winnow.ui.starred
 
 import androidx.compose.foundation.clickable
-import com.ericflo.winnow.R
 import coil3.compose.AsyncImage
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +45,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.ericflo.winnow.data.attachmentSummary
+import com.ericflo.winnow.data.GROUP_FACE_CANDIDATES
+import com.ericflo.winnow.data.Member
+import com.ericflo.winnow.data.groupFaces
+import com.ericflo.winnow.data.subjectAndText
+import com.ericflo.winnow.ui.components.GroupAvatar
 
 class StarredViewModel(private val container: AppContainer) : ViewModel() {
     /** Newest star first; null while loading. */
@@ -62,6 +63,10 @@ class StarredViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun displayName(address: String): String = container.messages.displayName(address)
+
+    /** A group's two faces for its avatar (see groupFaces); cached lookups, as the names'. */
+    fun faces(recipients: List<String>): List<Member> =
+        groupFaces(recipients.take(GROUP_FACE_CANDIDATES).map { Member(it, container.messages.displayName(it), container.messages.photoUri(it)) })
 
     fun photoUri(address: String): String? = container.messages.photoUri(address)
 }
@@ -110,18 +115,21 @@ fun StarredScreen(
                 ListItem(
                     leadingContent = {
                         if (item.recipients.size > 1) {
-                            Box(Modifier.size(44.dp).background(MaterialTheme.colorScheme.tertiaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                                Icon(painterResource(R.drawable.ic_group), contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(24.dp))
-                            }
+                            // The group's faces, as the inbox shows it.
+                            GroupAvatar(viewModel.faces(item.recipients), 44.dp)
                         } else {
                             Avatar(item.conversationName, seed = item.recipients.firstOrNull().orEmpty(), size = 44.dp, photoUri = item.recipients.singleOrNull()?.let(viewModel::photoUri))
                         }
                     },
-                    overlineContent = { Text(if (item.recipients.size > 1) "${item.conversationName} · $who" else who, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    // Which conversation, always: "You" alone doesn't say where it was sent.
+                    overlineContent = {
+                        Text(if (item.recipients.size > 1 || m.outgoing) "${item.conversationName} · $who" else who, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
                     headlineContent = {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (m.body.isNotBlank() || m.attachments.none { it.isImage }) {
-                                Text(m.body.ifBlank { attachmentSummary(m.attachments.map { it.contentType }) }, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                            val words = subjectAndText(m.subject, m.body)
+                            if (words.isNotBlank() || m.attachments.none { it.isImage }) {
+                                Text(words.ifBlank { attachmentSummary(m.attachments.map { it.contentType }) }, maxLines = 3, overflow = TextOverflow.Ellipsis)
                             }
                             m.attachments.firstOrNull { it.isImage }?.let { photo ->
                                 AsyncImage(
