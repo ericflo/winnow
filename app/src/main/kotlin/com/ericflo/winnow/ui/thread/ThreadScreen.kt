@@ -135,6 +135,7 @@ import com.ericflo.winnow.ui.components.Avatar
 import com.ericflo.winnow.ui.components.ImageViewer
 import com.ericflo.winnow.ui.components.headerLabel
 import com.ericflo.winnow.ui.components.isEmojiOnly
+import com.ericflo.winnow.ui.components.showOrCreateContact
 import com.ericflo.winnow.ui.components.linkify
 import com.ericflo.winnow.ui.components.timeOfDay
 import com.ericflo.winnow.ui.theme.avatarColors
@@ -450,6 +451,13 @@ fun ThreadScreen(
                                     viewModel.currentThreadId().takeIf { it >= 0 }?.let(onOpenDetails)
                                 },
                             )
+                            state.addableContact?.let { number ->
+                                DropdownMenuItem(
+                                    text = { Text("Add contact") },
+                                    leadingIcon = { Icon(painterResource(R.drawable.ic_person_add), contentDescription = null) },
+                                    onClick = { menuOpen = false; showOrCreateContact(context, number) },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = {
                                     if (state.muted) {
@@ -566,10 +574,19 @@ fun ThreadScreen(
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            state.verdict?.let { verdict ->
-                if (verdict.effectiveAction != Action.ALLOW || verdict.userAction != null) {
-                    VerdictBanner(verdict, onAllow = viewModel::allow, onFilter = viewModel::filter, onReport = { confirmReport = true })
-                }
+            val verdictShown = state.verdict?.let { it.effectiveAction != Action.ALLOW || it.userAction != null } == true
+            state.verdict?.takeIf { verdictShown }?.let { verdict ->
+                VerdictBanner(verdict, onAllow = viewModel::allow, onFilter = viewModel::filter, onReport = { confirmReport = true })
+            }
+            // Someone new, not yet answered: who is this? (Gone once they're added, or replied to.)
+            var unknownDismissed by rememberSaveable(state.recipients) { mutableStateOf(false) }
+            val unknown = state.addableContact
+            if (unknown != null && !verdictShown && !unknownDismissed && state.messages.isNotEmpty() && state.messages.none { it.outgoing }) {
+                UnknownSenderBanner(
+                    onAddContact = { showOrCreateContact(context, unknown) },
+                    onFilter = viewModel::filter,
+                    onDismiss = { unknownDismissed = true },
+                )
             }
             MessageList(
                 state = state,
@@ -753,6 +770,34 @@ private fun GroupAvatar(size: androidx.compose.ui.unit.Dp) {
             tint = MaterialTheme.colorScheme.onTertiaryContainer,
             modifier = Modifier.size(size * 0.55f),
         )
+    }
+}
+
+/** A first text from a number that isn't in contacts: add them, or filter them. */
+@Composable
+private fun UnknownSenderBanner(onAddContact: () -> Unit, onFilter: () -> Unit, onDismiss: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Person, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Not in your contacts", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Dismiss") }
+            }
+            Text(
+                "Know them? Add them. If not, Winnow can keep their texts out of your inbox.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onFilter) { Text("Filter sender") }
+                TextButton(onClick = onAddContact) { Text("Add contact") }
+            }
+        }
     }
 }
 

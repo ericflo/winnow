@@ -2,7 +2,6 @@ package com.ericflo.winnow.ui.details
 
 import android.content.Intent
 import android.net.Uri
-import android.provider.ContactsContract
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -58,12 +57,14 @@ import com.ericflo.winnow.classifier.message.SenderRule
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.displayNameFor
 import com.ericflo.winnow.data.normalizeAddress
+import com.ericflo.winnow.ui.components.showOrCreateContact
 import com.ericflo.winnow.ui.components.Avatar
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.ericflo.winnow.data.Attachment
@@ -182,7 +183,9 @@ class ConversationDetailsViewModel(
         container.conversationStates.observeTimed().map { it[threadId] },
         rule,
         blocked,
-    ) { s, rule, blocked ->
+        // Names and photos read again when contacts change: someone just added shows by name.
+        repo.contactChanges().onStart { emit(Unit) },
+    ) { s, rule, blocked, _ ->
         DetailsUiState(
             title = s?.title ?: displayNameFor(recipients, repo::displayName),
             groupName = s?.title,
@@ -295,9 +298,7 @@ fun ConversationDetailsScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     var choosingMute by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
-    val showContact = { number: String ->
-        context.startActivity(Intent(ContactsContract.Intents.SHOW_OR_CREATE_CONTACT, Uri.fromParts("tel", number, null)))
-    }
+    val showContact = { number: String -> showOrCreateContact(context, number) }
 
     Scaffold(
         topBar = {

@@ -21,13 +21,16 @@ import com.ericflo.winnow.sms.MmsSender
 import com.ericflo.winnow.sms.MmsStore
 import com.ericflo.winnow.sms.SmsSender
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.withContext
 
 /**
@@ -85,6 +88,8 @@ class TelephonyMessageRepository(
         contacts.displayName(address) ?: ContactLookup.formatAddress(address)
 
     override fun photoUri(address: String): String? = contacts.photoUri(address)
+
+    override fun contactChanges(): Flow<Unit> = contacts.changes()
 
     override suspend fun threadIdFor(recipients: List<String>): Long = withContext(Dispatchers.IO) {
         Telephony.Threads.getOrCreateThreadId(context, recipients.toSet())
@@ -350,8 +355,12 @@ class TelephonyMessageRepository(
         }
     }
 
-    /** Emits once immediately, then whenever the SMS or MMS store changes. */
-    private fun changes(): Flow<Unit> = callbackFlow {
+    /** Emits once immediately, then whenever the SMS or MMS store (or a contact's name) changes. */
+    // Contacts in a burst (a sync) as one change: each one reloads every open list.
+    @OptIn(FlowPreview::class)
+    private fun changes(): Flow<Unit> = merge(messageChanges(), contacts.changes().debounce(CONTACTS_SETTLE_MILLIS)).conflate()
+
+    private fun messageChanges(): Flow<Unit> = callbackFlow {
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
                 trySend(Unit)
@@ -600,6 +609,7 @@ class TelephonyMessageRepository(
 
         /** PduHeaders.MESSAGE_TYPE_NOTIFICATION_IND: an MMS announced but not yet downloaded. */
         const val MESSAGE_TYPE_NOTIFICATION_IND = 0x82
+        private const val CONTACTS_SETTLE_MILLIS = 500L
 
         /** PduHeaders.FROM, as stored in the MMS addr table. */
         const val ADDR_TYPE_FROM = 0x89

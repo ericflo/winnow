@@ -64,6 +64,8 @@ data class ThreadUiState(
     /** When a timed mute ends; null for none or until turned off. */
     val mutedUntil: Long? = null,
     val archived: Boolean = false,
+    /** The other person's number, in a one-to-one conversation with someone not in contacts. */
+    val addableContact: String? = null,
 ) {
     val isGroup: Boolean get() = recipients.size > 1
 }
@@ -83,7 +85,9 @@ class ThreadViewModel(
     private val states = container.conversationStates
     private val threadId = MutableStateFlow(initialThreadId)
     private val title = displayNameFor(recipients, repo::displayName)
-    private val subtitle = when {
+    private val subtitle = subtitleFor(title)
+
+    private fun subtitleFor(title: String) = when {
         recipients.size > 1 -> "${recipients.size + 1} people"
         else -> recipients.singleOrNull()?.let(ContactLookup::formatAddress)?.takeIf { it != title }
     }
@@ -218,9 +222,12 @@ class ThreadViewModel(
         .flatMapLatest { id ->
             combine(repo.messages(id), states.observeTimed().map { it[id] }, container.starredDao.observeKeys(id)) { messages, s, starredKeys ->
                 val stars = starredKeys.toSet()
+                // Read again each time: a contact added (or renamed) while this is open shows up.
+                val name = displayNameFor(recipients, repo::displayName)
+                val single = recipients.singleOrNull()
                 ThreadUiState(
-                    title = s?.title ?: title,
-                    subtitle = subtitle,
+                    title = s?.title ?: name,
+                    subtitle = subtitleFor(name),
                     recipients = recipients,
                     messages = if (stars.isEmpty()) messages else messages.map { if (it.key in stars) it.copy(starred = true) else it },
                     verdict = messages.lastOrNull { !it.outgoing }?.verdict,
@@ -230,6 +237,8 @@ class ThreadViewModel(
                     muted = s?.isMuted() == true,
                     mutedUntil = s?.takeIf { it.isMuted() }?.mutedUntil,
                     archived = s?.archived == true,
+                    // A real number with no name: short codes and alphanumeric senders aren't people to add.
+                    addableContact = single?.takeIf { name == ContactLookup.formatAddress(it) && ContactLookup.isPersonalNumber(it) },
                 )
             }
         }

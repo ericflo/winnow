@@ -3,10 +3,18 @@ package com.ericflo.winnow.data
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.database.ContentObserver
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.ContactsContract
 import android.provider.ContactsContract.CommonDataKinds.Phone
 import android.provider.ContactsContract.PhoneLookup
 import android.telephony.PhoneNumberUtils
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
@@ -31,6 +39,23 @@ class ContactLookup(private val context: Context) {
         cache.clear()
         numbers = null
     }
+
+    /**
+     * Emits whenever the contact list changes (a contact added, renamed, given a photo), after
+     * forgetting what was looked up, so names and photos are read afresh. Nothing without
+     * READ_CONTACTS: Android won't let an app watch what it can't read.
+     */
+    fun changes(): Flow<Unit> = callbackFlow {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                clear()
+                trySend(Unit)
+            }
+        }
+        val watching = context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED &&
+            runCatching { context.contentResolver.registerContentObserver(ContactsContract.Contacts.CONTENT_URI, true, observer) }.isSuccess
+        awaitClose { if (watching) context.contentResolver.unregisterContentObserver(observer) }
+    }.conflate()
 
     private fun info(address: String): Info? {
         if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
@@ -86,6 +111,9 @@ class ContactLookup(private val context: Context) {
                 else -> null
             }
         }
+
+        /** A full phone number (7+ digits), not a short code, email or alphanumeric sender. */
+        fun isPersonalNumber(address: String): Boolean = numberKey(address)?.startsWith("short:") == false
 
         fun formatAddress(address: String): String =
             if (address.any(Char::isLetter)) address

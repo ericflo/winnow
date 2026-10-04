@@ -96,6 +96,15 @@ private fun readContacts(context: Context, uri: String): List<VCardContact> = ru
     }.orEmpty()
 }.getOrDefault(emptyList())
 
+/** Opens [number] in the Contacts app: its contact if there is one, else an offer to add it. */
+fun showOrCreateContact(context: Context, number: String) {
+    try {
+        context.startActivity(Intent(ContactsContract.Intents.SHOW_OR_CREATE_CONTACT, android.net.Uri.fromParts("tel", number, null)))
+    } catch (_: ActivityNotFoundException) {
+        // No contacts app.
+    }
+}
+
 /** Opens the Contacts app's new-contact form, filled in; nothing is saved until the user does. */
 private fun addContact(context: Context, contact: VCardContact) {
     val insert = ContactsContract.Intents.Insert::class.java
