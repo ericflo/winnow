@@ -135,6 +135,8 @@ data class WinnowSettings(
     val dailySummaryLastAt: Long = 0,
     /** Fetch link previews for texts from people you know. Off by default: fetching tells the site your IP. */
     val linkPreviews: Boolean = false,
+    /** Reply ideas from Android's on-device text classifier, in the composer and on notifications. */
+    val suggestedReplies: Boolean = true,
     /** A folder (SAF tree URI) for weekly automatic backups; this phone's only, never backed up. */
     val autoBackupFolder: String? = null,
     val autoBackupLast: Long = 0,
@@ -211,6 +213,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             autoDownloadMms = this[AUTO_DOWNLOAD_MMS] ?: true,
             autoDownloadMmsRoaming = this[AUTO_DOWNLOAD_MMS_ROAMING] ?: false,
             linkPreviews = this[LINK_PREVIEWS] ?: false,
+            suggestedReplies = this[SUGGESTED_REPLIES] ?: true,
             enterToSend = this[ENTER_TO_SEND] ?: false,
             autoSaveMedia = this[AUTO_SAVE_MEDIA] ?: false,
             quickReplies = this[QUICK_REPLIES]?.let { runCatching { Json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrNull() } ?: DEFAULT_QUICK_REPLIES,
@@ -258,6 +261,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[AUTO_DOWNLOAD_MMS] = s.autoDownloadMms
         this[AUTO_DOWNLOAD_MMS_ROAMING] = s.autoDownloadMmsRoaming
         this[LINK_PREVIEWS] = s.linkPreviews
+        this[SUGGESTED_REPLIES] = s.suggestedReplies
         this[ENTER_TO_SEND] = s.enterToSend
         this[AUTO_SAVE_MEDIA] = s.autoSaveMedia
         this[QUICK_REPLIES] = Json.encodeToString(ListSerializer(String.serializer()), s.quickReplies)
@@ -296,6 +300,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val AUTO_DOWNLOAD_MMS = booleanPreferencesKey("mms.auto_download")
         val AUTO_DOWNLOAD_MMS_ROAMING = booleanPreferencesKey("mms.auto_download_roaming")
         val LINK_PREVIEWS = booleanPreferencesKey("messages.link_previews")
+        val SUGGESTED_REPLIES = booleanPreferencesKey("compose.suggested_replies")
         val ENTER_TO_SEND = booleanPreferencesKey("compose.enter_to_send")
         val QUICK_REPLIES = stringPreferencesKey("compose.quick_replies")
         val FILTERED_PHRASES = stringPreferencesKey("filter.phrases")

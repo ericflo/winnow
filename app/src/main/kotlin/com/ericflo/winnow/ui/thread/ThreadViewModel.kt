@@ -60,6 +60,9 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.mapLatest
+import com.ericflo.winnow.data.SmartLinks
+import com.ericflo.winnow.data.subjectAndText
 
 data class ThreadUiState(
     val title: String,
@@ -329,6 +332,31 @@ class ThreadViewModel(
         val texted = s.recipients.size == 1 && s.messages.any { it.outgoing }
         s.recipients.filter { texted || container.contacts.isContact(it) }.map(::normalizeAddress).toSet()
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Reply ideas for the newest message, when it's someone else's and worth answering: from
+     * Android's on-device classifier (nothing leaves the phone), with the setting on. Never for
+     * anything filtered, silenced or fraud, or a sender that can't take replies (a short code or
+     * a name). Empty otherwise, and while it's being worked out.
+     */
+    val suggestedReplies: StateFlow<List<String>> = combine(container.settings.settings.map { it.suggestedReplies }, state) { on, s ->
+        val newest = s.messages.lastOrNull()
+        val worthIt = on && newest != null && !newest.outgoing &&
+            subjectAndText(newest.subject, newest.body).isNotBlank() &&
+            (newest.verdict == null || newest.verdict.effectiveAction == Action.ALLOW) &&
+            !s.linksOff(newest) &&
+            s.recipients.all(ContactLookup::isPersonalNumber)
+        newest?.key.takeIf { worthIt } to s.messages
+    }
+        .distinctUntilChanged { a, b -> a.first == b.first }
+        .mapLatest { (key, messages) ->
+            if (key == null) return@mapLatest emptyList()
+            val turns = messages.takeLast(SUGGESTION_CONTEXT)
+                .map { SmartLinks.Turn(subjectAndText(it.subject, it.body), it.outgoing, it.sender, it.timestamp) }
+                .filter { it.text.isNotBlank() }
+            container.smartLinks.suggestReplies(turns)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     suspend fun preview(url: String): LinkPreview? = container.linkPreviews.get(url)
 
@@ -974,6 +1002,8 @@ class ThreadViewModel(
         private const val MAX_KEPT_HOPS = 16
         /** An MMS subject's length: what phones and carriers show without cutting it. */
         const val MAX_SUBJECT = 40
+        /** Messages looked at for suggested replies (the classifier reads the last few of them). */
+        private const val SUGGESTION_CONTEXT = 20
         /** Less than this left for a video, and it would be a smudge. */
         private const val MIN_VIDEO_ROOM = 150_000L
     }

@@ -150,6 +150,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setLinkPreviews(value: Boolean) = update { it.copy(linkPreviews = value) }
 
+    fun setSuggestedReplies(value: Boolean) = update { it.copy(suggestedReplies = value) }
+
     fun setEnterToSend(value: Boolean) = update { it.copy(enterToSend = value) }
 
     fun setAutoSaveMedia(value: Boolean) = update { it.copy(autoSaveMedia = value) }

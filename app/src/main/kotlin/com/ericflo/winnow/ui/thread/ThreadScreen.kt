@@ -78,6 +78,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -608,6 +609,7 @@ fun ThreadScreen(
                 shrinking = shrinking,
                 quickReplies = quickReplies,
                 onQuickReply = viewModel::insertQuickReply,
+                suggestions = viewModel.suggestedReplies.collectAsStateWithLifecycle().value,
                 recording = recording,
                 recordingElapsed = viewModel::recordingElapsed,
                 onStopRecording = viewModel::stopRecording,
@@ -1938,6 +1940,8 @@ private fun Composer(
     onLocation: () -> Unit = {},
     quickReplies: List<String> = emptyList(),
     onQuickReply: (String) -> Unit = {},
+    /** Reply ideas for the newest message (see ThreadViewModel.suggestedReplies); a tap puts one in the draft. */
+    suggestions: List<String> = emptyList(),
     locating: Boolean = false,
     /** A video being made small enough to send, 0–100; null when none is. */
     shrinking: Int? = null,
@@ -1997,6 +2001,22 @@ private fun Composer(
                 trailingIcon = { Icon(Icons.Filled.Close, contentDescription = "Send to the group instead", Modifier.size(InputChipDefaults.IconSize)) },
                 modifier = Modifier.padding(start = 16.dp, top = 6.dp),
             )
+        }
+        // Until the user starts writing: then they're in the way.
+        if (suggestions.isNotEmpty() && draft.isEmpty() && attachments.isEmpty() && subject == null && !sendSeparately) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                modifier = Modifier.padding(top = 6.dp).semantics { contentDescription = "Suggested replies" },
+            ) {
+                items(suggestions, key = { it }) { reply ->
+                    SuggestionChip(
+                        onClick = { onQuickReply(reply) },
+                        label = { Text(reply, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        shape = RoundedCornerShape(18.dp),
+                    )
+                }
+            }
         }
         if (attachments.isNotEmpty()) {
             LazyRow(

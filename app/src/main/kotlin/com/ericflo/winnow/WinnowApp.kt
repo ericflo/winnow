@@ -95,6 +95,9 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
 /** Debug-only shared preference: pretend the phone has a second SIM. */
 const val SIMULATE_SECOND_SIM = "simulate_second_sim"
 
+/** Debug-only shared preference: suggested replies to offer, "|"-separated (emulators have no Smart Reply model). */
+const val SIMULATE_REPLIES = "simulate_replies"
+
 /** Hand-rolled dependency graph. Small enough that a DI framework would cost more than it saves. */
 class AppContainer(private val context: Context) {
     // Background work (receivers, reviews, sends) must never take the app down with it.
@@ -122,7 +125,10 @@ class AppContainer(private val context: Context) {
     val learner by lazy { Learner(database.corrections(), settings) }
     val classifiers by lazy { ClassifierFactory(OkHttpTransport()) { learner.classifier() } }
     val contacts by lazy { ContactLookup(context, appScope) }
-    val smartLinks by lazy { com.ericflo.winnow.data.SmartLinks(context) }
+    val smartLinks by lazy {
+        val debug = context.getSharedPreferences("debug", Context.MODE_PRIVATE)
+        com.ericflo.winnow.data.SmartLinks(context) { debug.getString(SIMULATE_REPLIES, null)?.split('|')?.filter(String::isNotBlank) }
+    }
     val dailySummary by lazy { com.ericflo.winnow.notify.DailySummary(context, verdictDao, settings, notifier, ::isDefaultSmsApp) }
     val notifier by lazy {
         Notifier(

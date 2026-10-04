@@ -60,6 +60,8 @@ data class SettingsBackup(
     val autoDownloadMms: Boolean = true,
     val autoDownloadMmsRoaming: Boolean = false,
     val linkPreviews: Boolean = false,
+    /** Null in backups made before suggested replies existed: the phone keeps its own. */
+    val suggestedReplies: Boolean? = null,
     val enterToSend: Boolean = false,
     val autoSaveMedia: Boolean = false,
     /** Null in backups made before quick replies existed: the phone keeps its own. */

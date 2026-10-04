@@ -10,6 +10,10 @@
             android:exported="true"
             android:permission="android.permission.DUMP" />
         <receiver
+            android:name=".debug.DebugRepliesReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+        <receiver
             android:name=".debug.DebugSeedReceiver"
             android:exported="true"
             android:permission="android.permission.DUMP" />

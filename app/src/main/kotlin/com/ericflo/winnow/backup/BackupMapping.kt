@@ -38,6 +38,7 @@ fun WinnowSettings.toBackup() = SettingsBackup(
     autoDownloadMms = autoDownloadMms,
     autoDownloadMmsRoaming = autoDownloadMmsRoaming,
     linkPreviews = linkPreviews,
+    suggestedReplies = suggestedReplies,
     enterToSend = enterToSend,
     quickReplies = quickReplies,
     autoSaveMedia = autoSaveMedia,
@@ -72,6 +73,7 @@ fun WinnowSettings.restoring(backup: SettingsBackup) = copy(
     autoDownloadMms = backup.autoDownloadMms,
     autoDownloadMmsRoaming = backup.autoDownloadMmsRoaming,
     linkPreviews = backup.linkPreviews,
+    suggestedReplies = backup.suggestedReplies ?: suggestedReplies,
     enterToSend = backup.enterToSend,
     quickReplies = backup.quickReplies?.map(String::trim)?.filter(String::isNotEmpty)?.distinct() ?: quickReplies,
     // Added to this phone's, never fewer: a restore shouldn't let through what's filtered here.

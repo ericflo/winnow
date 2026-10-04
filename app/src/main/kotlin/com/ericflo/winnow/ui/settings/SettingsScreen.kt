@@ -307,6 +307,14 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                 )
             }
             item("quick-replies") { QuickRepliesRow(s.quickReplies, viewModel::setQuickReplies) }
+            item("suggested-replies") {
+                SwitchRow(
+                    "Suggested replies",
+                    "Reply ideas above the keyboard and on notifications, from Android's on-device text classifier. Nothing leaves your phone, and never for filtered texts.",
+                    s.suggestedReplies,
+                    onChange = viewModel::setSuggestedReplies,
+                )
+            }
             item("auto-save-media") {
                 SwitchRow(
                     "Save received photos and videos",

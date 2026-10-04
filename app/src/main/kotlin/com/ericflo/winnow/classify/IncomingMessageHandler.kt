@@ -111,6 +111,8 @@ class IncomingMessageHandler(
             senderPhotoUri = contacts.photoUri(sender),
             hideOnLockScreen = settings.current().hideOnLockScreen,
             quickReplies = settings.current().quickReplies,
+            // Nothing to suggest a reply to until it's downloaded: its notice is all there is.
+            suggestReplies = false,
         )
     }
 
@@ -175,6 +177,7 @@ class IncomingMessageHandler(
                     hideOnLockScreen = settings.current().hideOnLockScreen,
                     offerSpam = recipients.size == 1 && !contacts.isContact(sender),
                     quickReplies = settings.current().quickReplies,
+                    suggestReplies = settings.current().suggestedReplies,
                     // The picture itself, from people the user knows: a stranger's never pops up on screen.
                     image = if (kind == ChatMessage.Kind.MMS && knows(sender, recipients, threadId)) withContext(Dispatchers.IO) { firstPhoto(uri) } else null,
                     caption = caption,

@@ -7,6 +7,8 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import android.util.LruCache
+import android.view.textclassifier.ConversationAction
+import android.view.textclassifier.ConversationActions
 import android.view.textclassifier.TextClassification
 import android.view.textclassifier.TextClassificationManager
 import android.view.textclassifier.TextClassifier
@@ -49,7 +51,11 @@ class SmartAction(val title: String, private val intent: PendingIntent) {
  * Android's own on-device text classifier, the one Messages uses. Web links, phone numbers,
  * emails, tracking numbers and US street addresses are Winnow's own (see MessageText.linkify).
  */
-class SmartLinks(context: Context) {
+class SmartLinks(
+    context: Context,
+    /** Debug builds only: replies to offer instead of the classifier's (an emulator has no Smart Reply model). */
+    private val debugReplies: () -> List<String>? = { null },
+) {
     private val manager = context.getSystemService(TextClassificationManager::class.java)
     private val cache = LruCache<String, List<SmartLink>>(256)
     /** A few at a time: flinging through a long conversation mustn't queue a call per bubble. */
@@ -96,7 +102,49 @@ class SmartLinks(context: Context) {
         }.onFailure { Log.w(TAG, "The text classifier had nothing to offer", it) }.getOrDefault(emptyList())
     }
 
+    /** One message of the conversation, for [suggestReplies]: [fromMe] for the user's own. */
+    data class Turn(val text: String, val fromMe: Boolean, val sender: String?, val at: Long)
+
+    /**
+     * Replies to the newest of [turns] (oldest first) from Android's on-device classifier, the
+     * Smart Reply Messages shows; none if it has nothing, or no model. Off the main thread.
+     */
+    suspend fun suggestReplies(turns: List<Turn>): List<String> = withContext(Dispatchers.Default) {
+        if (turns.isEmpty() || turns.last().fromMe) return@withContext emptyList()
+        debugReplies()?.let { return@withContext it }
+        runCatching {
+            val classifier = manager?.textClassifier ?: return@runCatching emptyList()
+            val people = HashMap<String, android.app.Person>()
+            val messages = turns.takeLast(MAX_TURNS).map { t ->
+                val author = if (t.fromMe) {
+                    ConversationActions.Message.PERSON_USER_SELF
+                } else {
+                    // One Person per sender, so a group's voices are told apart.
+                    people.getOrPut(t.sender.orEmpty()) { android.app.Person.Builder().setKey(t.sender.orEmpty().ifEmpty { "other" }).build() }
+                }
+                ConversationActions.Message.Builder(author)
+                    .setText(t.text)
+                    .setReferenceTime(ZonedDateTime.ofInstant(Instant.ofEpochMilli(t.at), ZoneId.systemDefault()))
+                    .build()
+            }
+            val config = TextClassifier.EntityConfig.Builder()
+                .includeTypesFromTextClassifier(false)
+                .setIncludedTypes(listOf(ConversationAction.TYPE_TEXT_REPLY))
+                .build()
+            classifier.suggestConversationActions(
+                ConversationActions.Request.Builder(messages).setTypeConfig(config).setMaxSuggestions(MAX_REPLIES).build(),
+            ).conversationActions
+                .filter { it.type == ConversationAction.TYPE_TEXT_REPLY }
+                .mapNotNull { it.textReply?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+                .distinct()
+                .take(MAX_REPLIES)
+        }.onFailure { Log.w(TAG, "The text classifier had no replies to offer", it) }.getOrDefault(emptyList())
+    }
+
     private companion object {
+        /** How much of the conversation the classifier sees: the latest few turns are what a reply answers. */
+        const val MAX_TURNS = 10
+        const val MAX_REPLIES = 3
         val TYPES = listOf(TextClassifier.TYPE_ADDRESS, TextClassifier.TYPE_DATE, TextClassifier.TYPE_DATE_TIME, TextClassifier.TYPE_FLIGHT_NUMBER)
         /** Nothing shorter holds an address or a date worth a link. */
         const val MIN_LENGTH = 6

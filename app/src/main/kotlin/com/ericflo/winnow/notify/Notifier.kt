@@ -152,6 +152,8 @@ class Notifier(
         image: Uri? = null,
         /** The words sent with [image], shown after it; not a summary like "2 photos". */
         caption: String? = null,
+        /** Let Android offer its own suggested replies on the notification (Settings → Suggested replies). */
+        suggestReplies: Boolean = true,
     ) {
         val choices = quickReplies ?: this.quickReplies
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
@@ -203,6 +205,8 @@ class Notifier(
             )
             .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
             .setShowsUserInterface(false)
+            // Android's on-device Smart Reply, beside the user's own quick replies, when they want it.
+            .setAllowGeneratedReplies(suggestReplies)
             .build()
         val markRead = NotificationCompat.Action.Builder(
             R.drawable.ic_notification,
