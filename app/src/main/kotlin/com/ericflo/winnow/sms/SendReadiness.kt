@@ -1,9 +1,11 @@
 package com.ericflo.winnow.sms
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.provider.Settings
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
@@ -26,6 +28,10 @@ class SendReadiness(private val context: Context) {
     fun now(subscriptionId: Int? = null): State = State(
         airplane = Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1,
         mobileDataOff = runCatching {
+            // Either permission lets an app ask; ACCESS_NETWORK_STATE is always granted, but say so.
+            val allowed = listOf(Manifest.permission.ACCESS_NETWORK_STATE, Manifest.permission.READ_PHONE_STATE)
+                .any { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
+            if (!allowed) return@runCatching false
             val telephony = context.getSystemService(TelephonyManager::class.java)
             val forSim = if (subscriptionId != null) telephony.createForSubscriptionId(subscriptionId) else telephony
             // No SIM, no data to speak of: nothing to warn about.
