@@ -56,6 +56,8 @@ class Notifier(private val context: Context) {
             .setStyle(NotificationCompat.BigTextStyle().bigText("$line\nOpen the conversation to try again."))
             .setCategory(NotificationCompat.CATEGORY_ERROR)
             .setAutoCancel(true)
+            // Updated rather than re-announced when another part or retry fails.
+            .setOnlyAlertOnce(true)
             // Its own request code range, so it doesn't replace the conversation notification's intent.
             .setContentIntent(PendingIntent.getActivity(context, -1 - notificationId(threadId), open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
@@ -240,9 +242,15 @@ class Notifier(private val context: Context) {
             .putExtra(Settings.EXTRA_CONVERSATION_ID, shortcutId)
     }
 
+    /** Clears the conversation's notifications, "not sent" included: the user is looking at it. */
     fun cancel(threadId: Long) {
-        manager.cancel(TAG, notificationId(threadId))
+        cancelMessages(threadId)
         manager.cancel(TAG_NOT_SENT, notificationId(threadId))
+    }
+
+    /** Clears just the new-message notification, leaving any "not sent" one standing. */
+    fun cancelMessages(threadId: Long) {
+        manager.cancel(TAG, notificationId(threadId))
     }
 
     /** Drops notifications and conversation shortcuts for deleted threads. */

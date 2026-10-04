@@ -560,6 +560,7 @@ fun ThreadScreen(
                 onScheduledSendNow = viewModel::sendScheduledNow,
                 onScheduledEdit = viewModel::editScheduled,
                 onScheduledDelete = viewModel::cancelScheduled,
+                onScheduledReschedule = viewModel::rescheduleScheduled,
                 onViewImage = { viewing = it },
                 onViewVideo = { audio.release(); watching = it },
                 audio = audio,
@@ -858,6 +859,7 @@ private fun MessageList(
     onScheduledSendNow: (Long) -> Unit,
     onScheduledEdit: (ScheduledMessageEntity) -> Unit,
     onScheduledDelete: (Long) -> Unit,
+    onScheduledReschedule: (id: Long, at: Long) -> Unit = { _, _ -> },
     onViewImage: (String) -> Unit,
     onViewVideo: (String) -> Unit,
     audio: AudioPlayer,
@@ -899,6 +901,12 @@ private fun MessageList(
         if (newestKey == null || focusKey != null) return@LaunchedEffect
         if (previous == null || listState.layoutInfo.visibleItemsInfo.any { it.key == previous }) listState.animateScrollToItem(0)
     }
+    // A text just scheduled sits below the newest message: brought into view.
+    var shownScheduled by remember { mutableIntStateOf(scheduled.size) }
+    LaunchedEffect(scheduled.size) {
+        if (scheduled.size > shownScheduled) listState.animateScrollToItem(0)
+        shownScheduled = scheduled.size
+    }
     // Opening onto more new messages than fit on screen starts at the first of them, not the last.
     var jumpedToNew by remember { mutableStateOf(false) }
     LaunchedEffect(unreadOnOpen, items) {
@@ -936,6 +944,7 @@ private fun MessageList(
                 onSendNow = { onScheduledSendNow(message.id) },
                 onEdit = { onScheduledEdit(message) },
                 onDelete = { onScheduledDelete(message.id) },
+                onReschedule = { at -> onScheduledReschedule(message.id, at) },
             )
         }
         items(items, key = { it.key }) { item ->

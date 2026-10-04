@@ -316,11 +316,16 @@ fun WinnowNavHost(
                 // entry (launchSingleTop), and must not get the previous thread's ViewModel back.
                 viewModel = viewModel(key = "thread:${route.threadId}:${route.recipients}") {
                     ThreadViewModel(container, route.threadId, splitAddresses(route.recipients)).also { vm ->
-                        if (route.draft.isNotEmpty()) vm.setDraft(route.draft)
+                        // Once: after the app is closed and this entry restored, the draft saved
+                        // since (more text, more attachments) is what comes back, not the share.
+                        if (entry.savedStateHandle.get<Boolean>(ROUTE_APPLIED) != true) {
+                            entry.savedStateHandle[ROUTE_APPLIED] = true
+                            if (route.draft.isNotEmpty()) vm.setDraft(route.draft)
+                            SharedAttachments.decode(route.attachments).forEach(vm::addAttachment)
+                        }
                         if (route.search.isNotEmpty() || route.focus.isNotEmpty()) {
                             vm.requestSearch(ThreadViewModel.SearchRequest(route.search.ifEmpty { null }, route.focus.ifEmpty { null }))
                         }
-                        SharedAttachments.decode(route.attachments).forEach(vm::addAttachment)
                     }
                 },
                 onBack = dropUnlessResumed { nav.popBackStack() },
@@ -367,6 +372,9 @@ fun WinnowNavHost(
 /** Window width at which the inbox shows a conversation beside the list instead of on top of it. */
 private const val TWO_PANE_MIN_WIDTH_DP = 840
 
+/** Set on a conversation's back stack entry once its route's draft and attachments are in. */
+private const val ROUTE_APPLIED = "routeApplied"
+
 /** Below this height (a phone on its side) two panes leave no room once the keyboard is up. */
 private const val TWO_PANE_MIN_HEIGHT_DP = 480
 
@@ -407,7 +415,8 @@ private fun openThreadRoute(route: ThreadRoute, nav: NavHostController, threadEn
         // Further down: back to it. A second copy would show an old draft, and save it over the
         // newer one when it closed.
         if (wanted in threadEntries.values) {
-            while (!showing(nav.currentBackStackEntry) && nav.popBackStack()) Unit
+            // Never past the list: an entry on its way out can still be in the registry.
+            while (!showing(nav.currentBackStackEntry) && nav.previousBackStackEntry != null && nav.popBackStack()) Unit
             if (showing(nav.currentBackStackEntry)) return
         }
     }

@@ -115,8 +115,12 @@ class SmsStatusReceiver : BroadcastReceiver() {
                     "${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_OUTBOX}", null,
                 )
             } else {
-                resolver.update(uri, ContentValues().apply { put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_FAILED) }, null, null)
-                notifyNotSent(context, uri)
+                // Each part reports; only the first failure says so.
+                val newlyFailed = resolver.update(
+                    uri, ContentValues().apply { put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_FAILED) },
+                    "${Telephony.Sms.TYPE} != ${Telephony.Sms.MESSAGE_TYPE_FAILED}", null,
+                )
+                if (newlyFailed > 0) notifyNotSent(context, uri)
             }
         }
     }

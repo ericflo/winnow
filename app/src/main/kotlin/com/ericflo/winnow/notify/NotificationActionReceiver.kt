@@ -58,7 +58,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     }
                 }
                 container.messages.markRead(threadId)
-                container.notifier.cancel(threadId)
+                // Not the "not sent" notice: a reply that just failed may have posted one.
+                container.notifier.cancelMessages(threadId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

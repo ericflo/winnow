@@ -193,10 +193,12 @@ class ThreadViewModel(
                 val kept = withContext(Dispatchers.IO) { drafts.decode(saved.draftAttachments) }
                 if (kept.isNotEmpty()) _attachments.value = kept
             }
+            // From here on every change to the attachments is kept, the first included: a share's
+            // attachments or a returned message's are in by now, and must outlive the app too.
+            launch(start = CoroutineStart.UNDISPATCHED) { _attachments.debounce(400).collect { keepAttachments(id) } }
             // Listening first, so one that comes back in between isn't missed.
             launch(start = CoroutineStart.UNDISPATCHED) { container.returnedMessages.arrived.filter { it == id }.collect { takeReturned(id) } }
             takeReturned(id)
-            launch { _attachments.drop(1).debounce(400).collect { keepAttachments(id) } }
             draft.drop(1).debounce(400).collect { states.saveDraft(id, it) }
         }
     }
@@ -280,7 +282,8 @@ class ThreadViewModel(
         val returned = container.returnedMessages.take(id) ?: return
         // Its text was saved as the draft too, which this screen may have restored already.
         setDraft(ReturnedMessages.appendTo(currentDraft(), returned.text))
-        _attachments.value = _attachments.value + returned.attachments
+        // Its attachments were saved with the draft too; the same files mustn't show twice.
+        _attachments.value = _attachments.value + returned.attachments.filter { r -> _attachments.value.none { it.uri == r.uri } }
         if (returned.separately) _sendSeparately.value = true
         _notices.emit("A message that couldn't be sent is back in the composer")
     }
@@ -332,7 +335,8 @@ class ThreadViewModel(
         }
         launch {
             val size = withContext(Dispatchers.IO) { container.sharedFiles.sizeOf(attachment.uri) }
-            if (size != null && size > MmsSender.MESSAGE_BUDGET_BYTES && attachment.contentType.startsWith("video/")) {
+            if (size != null && attachment.contentType.startsWith("video/") && size > roomLeft()) {
+                // Too big for what the rest of the message leaves; made to fit.
                 shrinkVideo(attachment)
             } else if (size != null && size > MmsSender.MESSAGE_BUDGET_BYTES) {
                 val what = when {
@@ -415,14 +419,19 @@ class ThreadViewModel(
     /** A video is being made small enough to send: how far along, 0–100. */
     val shrinking: StateFlow<Int?> = _shrinking.asStateFlow()
 
-    private suspend fun shrinkVideo(video: OutgoingAttachment) {
-        // Whatever the rest of the message leaves: other videos, recordings and cards at their
-        // size, photos at the least they shrink to.
+    /** Bytes the composer's other attachments leave in an MMS: theirs at size, photos at the least they shrink to. */
+    private suspend fun roomLeft(): Long {
         val others = _attachments.value
         val taken = withContext(Dispatchers.IO) {
             others.sumOf { a -> if (MmsSender.canShrink(a.contentType)) MmsSender.MIN_PHOTO_BYTES.toLong() else container.sharedFiles.sizeOf(a.uri) ?: 0L }
         }
-        val budget = MmsSender.MESSAGE_BUDGET_BYTES - taken
+        return MmsSender.MESSAGE_BUDGET_BYTES - taken
+    }
+
+    private suspend fun shrinkVideo(video: OutgoingAttachment) {
+        // Whatever the rest of the message leaves: other videos, recordings and cards at their
+        // size, photos at the least they shrink to.
+        val budget = roomLeft()
         if (budget < MIN_VIDEO_ROOM) {
             _notices.emit("There's no room left in this MMS for that video. Send it in a message of its own.")
             return
@@ -476,7 +485,6 @@ class ThreadViewModel(
     fun removeAttachment(attachment: OutgoingAttachment) {
         _attachments.value = _attachments.value - attachment
         recorder.discard(attachment)
-        drafts.release(attachment)
     }
 
     private val _sendSeparately = MutableStateFlow(false)
@@ -561,8 +569,13 @@ class ThreadViewModel(
             }
             withContext(Dispatchers.IO) {
                 if (id >= 0) {
-                    states.saveDraft(id, ReturnedMessages.appendTo(states.get(id).draft.orEmpty(), text))
-                    container.returnedMessages.put(id, ReturnedMessages.Returned(text, files, separately))
+                    val saved = states.get(id)
+                    states.saveDraft(id, ReturnedMessages.appendTo(saved.draft.orEmpty(), text))
+                    // The attachments too, kept where they outlive the app, alongside any already saved.
+                    val kept = files.mapNotNull { drafts.keep(it) }
+                    val already = drafts.decode(saved.draftAttachments)
+                    states.saveDraftAttachments(id, drafts.encode(already + kept.filter { k -> already.none { it.uri == k.uri } }))
+                    container.returnedMessages.put(id, ReturnedMessages.Returned(text, kept, separately))
                 }
             }
             container.toast("Couldn't send${reason?.let { ": $it" }.orEmpty()}. It's back in the conversation's composer.")
@@ -574,7 +587,7 @@ class ThreadViewModel(
         try {
             repo.send(recipients, text, files, sim)
             // Sent: the message holds its own copy of any recording now (sample conversations don't).
-            if (container.isLive.value) files.forEach { recorder.discard(it); drafts.release(it) }
+            if (container.isLive.value) files.forEach(recorder::discard)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -601,7 +614,7 @@ class ThreadViewModel(
             putBack(text, files, separately = true)
             _notices.emit("Couldn't send")
         } else {
-            if (container.isLive.value) files.forEach { recorder.discard(it); drafts.release(it) }
+            if (container.isLive.value) files.forEach(recorder::discard)
             val sent = recipients.size - failed.size
             _notices.emit(
                 if (failed.isEmpty()) "Sent separately to $sent people. Replies come back one to one."
@@ -643,6 +656,11 @@ class ThreadViewModel(
     fun sendScheduledNow(id: Long) = launch { scheduler.sendNow(id) }
 
     fun cancelScheduled(id: Long) = launch { scheduler.cancel(id) }
+
+    fun rescheduleScheduled(id: Long, at: Long) = launch {
+        scheduler.reschedule(id, at)
+        _notices.emit("Rescheduled for ${scheduleLabel(at)}")
+    }
 
     /** Moves a scheduled message back into the composer. */
     fun editScheduled(message: ScheduledMessageEntity) = launch {

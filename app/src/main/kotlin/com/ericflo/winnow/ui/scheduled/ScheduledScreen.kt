@@ -42,6 +42,7 @@ import com.ericflo.winnow.AppContainer
 import com.ericflo.winnow.data.db.ScheduledMessageEntity
 import com.ericflo.winnow.data.displayNameFor
 import com.ericflo.winnow.data.splitAddresses
+import com.ericflo.winnow.ui.thread.PickDateTimeDialog
 import com.ericflo.winnow.ui.thread.scheduleLabel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -77,6 +78,8 @@ class ScheduledViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun cancel(id: Long) = viewModelScope.launch { container.scheduler.cancel(id) }
+
+    fun reschedule(id: Long, at: Long) = viewModelScope.launch { container.scheduler.reschedule(id, at) }
 }
 
 /** Every scheduled text in one place, from the menu; each conversation shows its own too. */
@@ -99,6 +102,10 @@ fun ScheduledScreen(viewModel: ScheduledViewModel, onBack: () -> Unit, onOpenThr
         LazyColumn(contentPadding = padding, modifier = Modifier.fillMaxSize()) {
             items(list, key = { it.message.id }) { item ->
                 var menu by remember { mutableStateOf(false) }
+                var picking by remember { mutableStateOf(false) }
+                if (picking) {
+                    PickDateTimeDialog(onDismiss = { picking = false }, onPicked = { picking = false; viewModel.reschedule(item.message.id, it) }, initial = item.message.sendAt)
+                }
                 ListItem(
                     overlineContent = { Text(scheduleLabel(item.message.sendAt)) },
                     headlineContent = { Text(item.to, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -108,6 +115,7 @@ fun ScheduledScreen(viewModel: ScheduledViewModel, onBack: () -> Unit, onOpenThr
                             IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Options") }
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                                 DropdownMenuItem(text = { Text("Send now") }, onClick = { menu = false; viewModel.sendNow(item.message.id) })
+                                DropdownMenuItem(text = { Text("Change time") }, onClick = { menu = false; picking = true })
                                 DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; viewModel.cancel(item.message.id) })
                             }
                         }

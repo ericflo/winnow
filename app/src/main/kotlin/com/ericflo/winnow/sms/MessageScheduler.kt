@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 
+private const val TOLD = "told"
+
 /** Holds texts until their send time and sends them from an alarm. */
 class MessageScheduler(
     private val context: Context,
@@ -38,9 +40,17 @@ class MessageScheduler(
         arm(id, sendAt)
     }
 
+    /** Moves a scheduled text to [sendAt]; its alarm moves with it. */
+    suspend fun reschedule(id: Long, sendAt: Long) {
+        dao.get(id) ?: return
+        dao.setSendAt(id, sendAt)
+        arm(id, sendAt)
+    }
+
     suspend fun cancel(id: Long) {
         alarms.cancel(alarmIntent(id))
         dao.delete(id)
+        forgetFailure(id)
     }
 
     /**
@@ -54,12 +64,27 @@ class MessageScheduler(
         cancel(id)
     }
 
-    /** Tells the user a scheduled text didn't go out when its time came. */
+    /**
+     * Tells the user a scheduled text didn't go out when its time came: once, though an overdue
+     * one is tried again every time the app starts, and not while its conversation is on screen.
+     */
     suspend fun notifyFailed(id: Long) {
         val message = dao.get(id) ?: return
         val container = (context.applicationContext as WinnowApp).container
+        if (container.visibleThread.value == message.threadId) return
+        val told = failures.getStringSet(TOLD, emptySet()).orEmpty()
+        if (id.toString() in told) return
+        failures.edit().putStringSet(TOLD, told + id.toString()).apply()
         val recipients = splitAddresses(message.recipients)
         container.notifier.showNotSent(message.threadId, recipients, displayNameFor(recipients, container.messages::displayName), message.body, scheduled = true)
+    }
+
+    /** Scheduled texts the user has been told failed; forgotten once they're sent or deleted. */
+    private val failures by lazy { context.getSharedPreferences("scheduled_failures", Context.MODE_PRIVATE) }
+
+    private fun forgetFailure(id: Long) {
+        val told = failures.getStringSet(TOLD, emptySet()).orEmpty()
+        if (id.toString() in told) failures.edit().putStringSet(TOLD, told - id.toString()).apply()
     }
 
     /** Alarms don't survive a reboot; this re-arms every pending message (overdue ones fire at once). */

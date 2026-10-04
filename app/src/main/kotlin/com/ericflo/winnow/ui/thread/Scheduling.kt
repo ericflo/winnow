@@ -144,14 +144,16 @@ fun SendButton(enabled: Boolean, onSend: () -> Unit, onSchedule: (at: Long, labe
     }
 }
 
-/** A date picker, then a time picker. Only future times are accepted. */
+/** A date picker, then a time picker, starting at [initial] if given. Only future times are accepted. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PickDateTimeDialog(onDismiss: () -> Unit, onPicked: (Long) -> Unit) {
+fun PickDateTimeDialog(onDismiss: () -> Unit, onPicked: (Long) -> Unit, initial: Long? = null) {
     var date by remember { mutableStateOf<LocalDate?>(null) }
     val todayUtc = LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    val start = initial?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()) }
     val dateState = rememberDatePickerState(
-        initialSelectedDateMillis = todayUtc,
+        // The picker works in UTC midnights; the local date is what the user means.
+        initialSelectedDateMillis = start?.toLocalDate()?.atStartOfDay(ZoneOffset.UTC)?.toInstant()?.toEpochMilli()?.coerceAtLeast(todayUtc) ?: todayUtc,
         selectableDates = object : SelectableDates {
             override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis >= todayUtc
         },
@@ -169,7 +171,7 @@ private fun PickDateTimeDialog(onDismiss: () -> Unit, onPicked: (Long) -> Unit) 
         ) { DatePicker(state = dateState) }
     } else {
         val now = LocalTime.now()
-        val timeState = rememberTimePickerState(initialHour = (now.hour + 1) % 24, initialMinute = 0)
+        val timeState = rememberTimePickerState(initialHour = start?.hour ?: ((now.hour + 1) % 24), initialMinute = start?.minute ?: 0)
         val at = LocalDateTime.of(pickedDate, LocalTime.of(timeState.hour, timeState.minute))
             .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         AlertDialog(
@@ -190,8 +192,11 @@ fun ScheduledBubble(
     onSendNow: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onReschedule: (Long) -> Unit = {},
 ) {
     var menu by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf(false) }
+    if (picking) PickDateTimeDialog(onDismiss = { picking = false }, onPicked = { picking = false; onReschedule(it) }, initial = message.sendAt)
     val colors = MaterialTheme.colorScheme
     Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
         Box {
@@ -209,6 +214,7 @@ fun ScheduledBubble(
             )
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("Send now") }, onClick = { menu = false; onSendNow() })
+                DropdownMenuItem(text = { Text("Change time") }, onClick = { menu = false; picking = true })
                 DropdownMenuItem(text = { Text("Edit") }, onClick = { menu = false; onEdit() })
                 DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; onDelete() })
             }

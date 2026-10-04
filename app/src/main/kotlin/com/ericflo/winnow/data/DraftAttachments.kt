@@ -23,7 +23,7 @@ class DraftAttachments(private val context: Context) {
 
     /** [attachment] as a file of its own here: itself if it already is one, null if it can't be read. */
     fun keep(attachment: OutgoingAttachment): OutgoingAttachment? {
-        if (isKept(attachment)) return attachment
+        if (isKept(attachment)) return attachment.takeIf { a -> Uri.parse(a.uri).path?.let { File(it).exists() } == true }
         val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(attachment.contentType) ?: "bin"
         val file = File(dir, "${UUID.randomUUID()}.$extension")
         val copied = runCatching {
@@ -36,16 +36,14 @@ class DraftAttachments(private val context: Context) {
         return attachment.copy(uri = Uri.fromFile(file).toString())
     }
 
-    /** Deletes [attachment]'s kept copy, once it's been sent or taken out of the draft. */
-    fun release(attachment: OutgoingAttachment) {
-        if (isKept(attachment)) Uri.parse(attachment.uri).path?.let { File(it).delete() }
-    }
-
     /**
-     * Deletes kept copies no draft refers to any more (left by a send the app closing cut short).
-     * Recent ones are spared: a composer may have just made one and not yet saved the list.
+     * Deletes kept copies no draft refers to any more: sent, taken out, or left by a send the app
+     * closing cut short. Not deleted on the spot when they're sent or removed, since another
+     * screen on the same conversation (a chat bubble) may still show them. Once per process, at
+     * start-up, when nothing in memory can be holding one; recent ones are spared all the same.
      */
     fun sweep(referenced: Collection<String?>, olderThanMillis: Long = 60 * 60_000L) {
+        if (!swept.compareAndSet(false, true)) return
         val keep = referenced.filterNotNull().flatMap(::decode).map { it.uri }.toSet()
         val cutoff = System.currentTimeMillis() - olderThanMillis
         dir.listFiles()?.forEach { if (it.lastModified() < cutoff && Uri.fromFile(it).toString() !in keep) it.delete() }
@@ -63,6 +61,8 @@ class DraftAttachments(private val context: Context) {
         val uri = Uri.parse(attachment.uri)
         return uri.scheme == "file" && uri.path?.let { File(it).parentFile?.canonicalPath } == dir.canonicalPath
     }
+
+    private val swept = java.util.concurrent.atomic.AtomicBoolean(false)
 
     companion object {
         private const val TAG = "WinnowDrafts"

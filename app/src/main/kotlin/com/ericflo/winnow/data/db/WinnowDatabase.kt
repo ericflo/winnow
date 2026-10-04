@@ -132,6 +132,9 @@ interface ScheduledMessageDao {
 
     @Query("DELETE FROM scheduled_messages WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("UPDATE scheduled_messages SET sendAt = :sendAt WHERE id = :id")
+    suspend fun setSendAt(id: Long, sendAt: Long)
 }
 
 /** Winnow-only state for a thread. The system SMS store has no place for it. */
