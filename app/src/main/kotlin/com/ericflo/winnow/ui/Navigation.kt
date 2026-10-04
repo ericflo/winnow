@@ -18,6 +18,8 @@ import com.ericflo.winnow.data.splitAddresses
 import com.ericflo.winnow.ui.details.ConversationDetailsScreen
 import com.ericflo.winnow.ui.details.ConversationDetailsViewModel
 import com.ericflo.winnow.ui.inbox.ConversationListScreen
+import com.ericflo.winnow.ui.metrics.MetricsScreen
+import com.ericflo.winnow.ui.metrics.MetricsViewModel
 import com.ericflo.winnow.ui.inbox.InboxScreen
 import com.ericflo.winnow.ui.inbox.InboxViewModel
 import com.ericflo.winnow.ui.inbox.ListMode
@@ -66,6 +68,9 @@ data object ArchivedRoute
 
 @Serializable
 data object ActivityRoute
+
+@Serializable
+data object MetricsRoute
 
 /** [draft] carries a forwarded message into the conversation the user picks. */
 @Serializable
@@ -129,6 +134,7 @@ fun WinnowNavHost(
                 mode = ListMode.FILTERED,
                 onBack = { nav.popBackStack() },
                 onOpenThread = openThread,
+                onOpenMetrics = { nav.navigate(MetricsRoute) },
             )
         }
         composable<ArchivedRoute> {
@@ -177,6 +183,9 @@ fun WinnowNavHost(
         }
         composable<ActivityRoute> {
             ActivityScreen(viewModel = viewModel { ActivityViewModel(container) }, onBack = { nav.popBackStack() })
+        }
+        composable<MetricsRoute> {
+            MetricsScreen(viewModel = viewModel { MetricsViewModel(container) }, onBack = { nav.popBackStack() })
         }
         composable<SettingsRoute> {
             SettingsScreen(

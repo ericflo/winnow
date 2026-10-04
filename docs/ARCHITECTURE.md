@@ -91,7 +91,22 @@ reads the unredacted message: nothing leaves the phone, so there's nothing to re
   from all corrections in milliseconds and added to the bundled scores. On the corpus, a
   correction changes under 2% of other predictions. Corrections are included in backups.
 
-`training/eval.tsv` is a separate set the model never trains on. The corpus and the eval
+- **Metrics** (`ClassifierMetrics`, `MetricsCalculator`): the trainer runs 5-fold
+  stratified cross-validation and fits the temperature on the out-of-fold scores. From
+  those same scores it computes accuracy, macro and weighted F1, Cohen's κ, multiclass MCC
+  (Gorodkin's R_K), log loss, Brier score and ECE. It also computes per-category precision,
+  recall, F1 and one-vs-rest ROC AUC, and the confusion matrix. Finally it computes "unwanted
+  vs. wanted" ROC and precision–recall curves with AUC and average precision, a threshold
+  table, and Winnow's actual operating point. They're written to
+  `winnow-local-metrics.json` beside the model, which the app's **Classifier accuracy**
+  screen (Filtered → How accurate is this?) reads. The stale check covers that file too.
+  `MetricsCalculatorTest` checks the math against hand-computed values.
+- **Dev tasks:** `./gradlew :classifier:tuneLocalModel` grid-searches the trainer settings
+  by cross-validated macro F1, and `:classifier:evalMistakes` lists the evaluation set's
+  misses.
+
+`training/eval.tsv` is a separate set the model never trains on. Its second half was
+written before any feature or corpus tuning, so tuning couldn't leak into it. The corpus and the eval
 set are both hand-written, so the report's numbers are an upper bound.
 
 ### Privacy defaults

@@ -1,5 +1,6 @@
 package com.ericflo.winnow.ui.inbox
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,6 +13,7 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import kotlinx.coroutines.launch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -43,6 +45,8 @@ fun ConversationListScreen(
     mode: ListMode,
     onBack: () -> Unit,
     onOpenThread: (threadId: Long, recipients: List<String>) -> Unit,
+    /** Filtered only: the classifier accuracy screen. */
+    onOpenMetrics: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val filtered = mode == ListMode.FILTERED
@@ -56,6 +60,11 @@ fun ConversationListScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
+                actions = {
+                    if (filtered) {
+                        IconButton(onClick = onOpenMetrics) { Icon(painterResource(R.drawable.ic_insights), contentDescription = "Classifier accuracy") }
+                    }
+                },
             )
         },
     ) { padding ->
@@ -68,6 +77,16 @@ fun ConversationListScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
+            }
+            if (filtered) {
+                item("accuracy") {
+                    ListItem(
+                        leadingContent = { Icon(painterResource(R.drawable.ic_insights), contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                        headlineContent = { Text("How accurate is this?") },
+                        supportingContent = { Text("ROC curve, precision and recall, calibration and more") },
+                        modifier = Modifier.clickable(onClick = onOpenMetrics),
+                    )
+                }
             }
             items(state.conversations, key = { it.threadId }) { conversation ->
                 val swipe = when {

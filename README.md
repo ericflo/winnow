@@ -129,7 +129,8 @@ payload for any message.
 - **On this phone only** keeps everything local. Winnow's own model (below) decides, and
   it only filters when it's at least 85% sure; otherwise it silences.
 - **Decide on this phone when it's sure** keeps texts the model is very sure about (95%+)
-  from ever reaching your provider. On held-out data that's about 70% of texts.
+  from ever reaching your provider. In cross-validation that's two-thirds of texts, and 98.5%
+  of those calls are right.
 - If no provider answers in time, the on-phone model decides. If classification fails
   altogether, the message is delivered with a notification.
 
@@ -151,16 +152,61 @@ Details, including how to add a provider: [docs/ARCHITECTURE.md](docs/ARCHITECTU
 ### The on-phone model
 
 Winnow ships its own classifier: a softmax regression over words, word pairs and signals
-like "links to an unusual domain" or "a web address dressed up as another". The weights are
-230 KB. It classifies a text in about 50 µs on a laptop JVM (not yet measured on a phone), and it says why it decided ("Decided on this
-phone: “confirm”, “package”, “fee”"). It's trained from a labeled corpus in
-`classifier/training/`. The model file is rebuilt with `./gradlew :classifier:trainLocalModel`,
-and a test fails if the shipped model doesn't match the corpus.
+for what words miss. Those signals include a link to an unusual domain, a web address dressed
+up as another ("sunpass.com-tollpay.vip"), a stranger introducing themselves "with" a group,
+a donation "match", a deadline, a "reply STOP" opt-out, and letters from another alphabet
+posing as English. The weights are 230 KB. It classifies a text in about 50 µs on a laptop
+JVM (not yet measured on a phone), and it says why it decided ("Decided on this phone:
+“confirm”, “package”, “fee”"). It's trained from 1,125 labeled texts in
+`classifier/training/`, balanced across all seven categories.
+`./gradlew :classifier:trainLocalModel` rebuilds it, and a test fails if the shipped model or
+its metrics don't match the corpus.
 
-On the 20% of the corpus held out from training it gets 90% of categories right, and 99%
-when it's at least 95% sure ([report](classifier/training/REPORT.md)). Those messages come
-from the same hand-written corpus, so expect less on real traffic. A provider like Jev is
-still the better judge, and the model's job is to keep the phone useful without one.
+A provider like Jev is still the better judge. The model's job is to keep the phone useful
+without one.
+
+## How accurate it is
+
+**Filtered → How accurate is this?** opens the full report card, measured with 5-fold
+cross-validation: every text is scored by a model that never saw it.
+
+| Accuracy | Macro F1 | Cohen's κ | MCC | ROC AUC (unwanted vs. wanted) | Avg. precision | Calibration error |
+|---|---|---|---|---|---|---|
+| 92.1% | 0.92 | 0.91 | 0.91 | 0.988 | 0.988 | 0.026 |
+
+Winnow's own filtering rule (an unwanted category at ≥85% confidence) catches 77% of
+unwanted texts and filters 1.2% of wanted ones. The less certain rest is silenced, not
+filtered. Per category, F1 runs from 0.96 (transactional, marketing, political) to 0.78 for
+"likely scam", whose "hi, is this David?" openers read exactly like a real new number. On
+120 more texts written separately and never trained on, it got all 120 right.
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/metrics.png" width="200" alt="Classifier accuracy: AUC gauge and ROC curve"></td>
+    <td><img src="docs/screenshots/metrics-threshold.png" width="200" alt="Threshold explorer"></td>
+    <td><img src="docs/screenshots/metrics-calibration.png" width="200" alt="Calibration"></td>
+    <td><img src="docs/screenshots/metrics-categories.png" width="200" alt="Per-category precision and recall"></td>
+    <td><img src="docs/screenshots/metrics-confusion.png" width="200" alt="Confusion matrix"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>ROC AUC, κ, MCC, F1; the ROC curve (scrub it)</sub></td>
+    <td align="center"><sub>Pick a threshold, see the outcomes</sub></td>
+    <td align="center"><sub>Calibration: is “90% sure” right 90% of the time?</sub></td>
+    <td align="center"><sub>Every category: precision, recall, F1, AUC</sub></td>
+    <td align="center"><sub>Confusion matrix and coverage</sub></td>
+  </tr>
+</table>
+
+The ROC and precision–recall curves follow your finger, and both move with the threshold
+slider, which redraws caught, missed, wrongly flagged and let through, plus precision,
+recall, F1, MCC and κ. The report also covers calibration (does "90% sure" mean right 90% of
+the time?), each category's precision, recall, F1 and one-vs-rest AUC, the confusion matrix,
+and how often you've corrected Winnow on your own texts. The same numbers are in
+[classifier/training/REPORT.md](classifier/training/REPORT.md).
+
+The test texts are hand-written to show their category clearly, so real traffic will score
+lower. These figures are for the on-phone model. A classifier service like Jev shows up in
+the "On your phone" agreement score, which comes from your corrections.
 
 It also **learns from your corrections**. "Not spam" or "Filter sender" teaches it about
 that message's content, so similar texts from other senders follow; a sender rule only
