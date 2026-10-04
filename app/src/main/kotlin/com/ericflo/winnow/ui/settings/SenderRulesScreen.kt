@@ -37,9 +37,11 @@ import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.db.SenderRuleEntity
 import com.ericflo.winnow.ui.components.Avatar
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.LifecycleResumeEffect
 
 /** One row: who, as the rest of the app shows them. */
 private data class Sender(val address: String, val name: String, val photoUri: String?)
@@ -52,34 +54,54 @@ fun SenderRulesScreen(container: AppContainer, onBack: () -> Unit) {
     val rules by remember { dao.observeSenderRules() }.collectAsStateWithLifecycle(null)
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    // Bumped to read the block list again after a change here.
+    // Bumped to read the block list again: after a change here, and on coming back (the phone's
+    // own settings can change it too).
     var blockedVersion by remember { mutableIntStateOf(0) }
     val blocked by produceState<List<String>?>(null, blockedVersion) { value = container.blockedNumbers.all() }
-    // A count, not the Unit each change is: equal keys wouldn't read the names again.
-    val contactsChanged by remember { container.contacts.changes().runningFold(0) { n, _ -> n + 1 } }.collectAsStateWithLifecycle(0)
-    // Names and photos off the main thread: the first lookup reads the whole contact list.
-    val people by produceState(emptyMap<String, Sender>(), rules, blocked, contactsChanged) {
+    // Bumped when contacts change, while here or while away (a name added in Contacts, say): a
+    // count, since equal keys wouldn't read the names again.
+    var contactsVersion by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { container.contacts.changes().collect { contactsVersion++ } }
+    LifecycleResumeEffect(Unit) {
+        contactsVersion++
+        blockedVersion++
+        onPauseOrDispose { }
+    }
+    // Names and photos off the main thread (the first lookup reads the whole contact list),
+    // added to what's known so a row that comes back (Undo) keeps its name meanwhile.
+    val people by produceState<Map<String, Sender>?>(null, rules, blocked, contactsVersion) {
         val addresses = rules.orEmpty().map { it.address } + blocked.orEmpty()
-        value = withContext(Dispatchers.IO) {
+        val found = withContext(Dispatchers.IO) {
             addresses.associateWith { a ->
                 Sender(a, container.contacts.displayName(a) ?: ContactLookup.formatAddress(a), container.contacts.photoUri(a))
             }
         }
+        value = value.orEmpty() + found
     }
-    fun sender(address: String) = people[address] ?: Sender(address, ContactLookup.formatAddress(address), null)
+    fun sender(address: String) = people?.get(address) ?: Sender(address, ContactLookup.formatAddress(address), null)
+
+    // One Undo at a time, the latest: a waiting one would sit behind it, and its Undo look like this one's.
+    suspend fun offerUndo(message: String): Boolean {
+        snackbar.currentSnackbarData?.dismiss()
+        return snackbar.showSnackbar(message, actionLabel = "Undo", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed
+    }
 
     fun remove(rule: SenderRuleEntity) = scope.launch {
         dao.deleteSenderRule(rule.address)
-        val result = snackbar.showSnackbar("Rule for ${sender(rule.address).name} removed", actionLabel = "Undo")
-        if (result == SnackbarResult.ActionPerformed) dao.upsertSenderRule(rule)
+        if (offerUndo("Rule for ${sender(rule.address).name} removed")) dao.upsertSenderRule(rule)
     }
 
     fun unblock(number: String) = scope.launch {
-        container.blockedNumbers.unblock(number)
+        val before = container.blockedNumbers.all()
+        if (!container.blockedNumbers.unblock(number)) {
+            snackbar.showSnackbar("Couldn't unblock it: only your SMS app can change the block list")
+            return@launch
+        }
+        // Every way the number was written goes; Undo puts back each one.
+        val removed = before - container.blockedNumbers.all().toSet()
         blockedVersion++
-        val result = snackbar.showSnackbar("${sender(number).name} unblocked", actionLabel = "Undo")
-        if (result == SnackbarResult.ActionPerformed) {
-            container.blockedNumbers.block(number)
+        if (offerUndo("${sender(number).name} unblocked")) {
+            removed.ifEmpty { listOf(number) }.forEach { container.blockedNumbers.block(it) }
             blockedVersion++
         }
     }
@@ -98,6 +120,8 @@ fun SenderRulesScreen(container: AppContainer, onBack: () -> Unit) {
         // Nothing until both lists are read, so "No sender rules yet" never flashes by.
         val loadedRules = rules ?: return@Scaffold
         val loadedBlocked = blocked ?: return@Scaffold
+        // And the names, so rows don't show numbers first and then change.
+        if (people == null) return@Scaffold
         val (allowed, filtered) = loadedRules.partition { it.rule == SenderRule.ALWAYS_ALLOW.name }
         LazyColumn(contentPadding = padding, modifier = Modifier.fillMaxSize()) {
             ruleSection("Always allowed", "Every text reaches your inbox", allowed, ::sender, ::remove)

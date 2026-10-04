@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ericflo.winnow.R
 import com.ericflo.winnow.ui.components.FilteredAvatar
+import androidx.compose.material3.SnackbarDuration
 
 /**
  * A secondary conversation list: Filtered (Winnow's "Spam & blocked", with why each was
@@ -79,7 +80,7 @@ fun ConversationListScreen(
                     viewModel.delete(selected) { items ->
                         scope.launch {
                             val message = if (items.size == 1) "Moved to Recently deleted" else "${items.size} moved to Recently deleted"
-                            if (snackbar.showSnackbar(message, actionLabel = "Undo") == SnackbarResult.ActionPerformed) viewModel.restore(items)
+                            if (snackbar.showUndo(message)) viewModel.restore(items)
                         }
                     }
                     selected = emptySet()
@@ -107,7 +108,7 @@ fun ConversationListScreen(
                                 viewModel.allowAll(rescued) { previous ->
                                     scope.launch {
                                         val message = if (rescued.size == 1) "${rescued.single().displayName} will always reach your inbox" else "${rescued.size} senders will always reach your inbox"
-                                        if (snackbar.showSnackbar(message, actionLabel = "Undo") == SnackbarResult.ActionPerformed) viewModel.undoAll(previous)
+                                        if (snackbar.showUndo(message)) viewModel.undoAll(previous)
                                     }
                                 }
                             }) { Icon(Icons.Filled.CheckCircle, contentDescription = "Not spam") }
@@ -157,8 +158,7 @@ fun ConversationListScreen(
                     filtered && !conversation.isGroup -> Triple(rememberVectorPainter(Icons.Filled.CheckCircle), "Not spam") {
                         viewModel.allow(conversation) { previous ->
                             scope.launch {
-                                val result = snackbar.showSnackbar("${conversation.displayName} will always reach your inbox", actionLabel = "Undo")
-                                if (result == SnackbarResult.ActionPerformed) viewModel.undo(previous)
+                                if (snackbar.showUndo("${conversation.displayName} will always reach your inbox")) viewModel.undo(previous)
                             }
                         }
                     }
@@ -203,4 +203,13 @@ fun ConversationListScreen(
             }
         }
     }
+}
+
+/**
+ * An Undo for what was just done: the latest only (one waiting behind it would make its Undo
+ * look like this one's), and gone after a while rather than staying until tapped.
+ */
+private suspend fun SnackbarHostState.showUndo(message: String): Boolean {
+    currentSnackbarData?.dismiss()
+    return showSnackbar(message, actionLabel = "Undo", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed
 }

@@ -178,7 +178,12 @@ fun InboxScreen(
         viewModel.setArchived(ids, true)
         selected = emptySet()
         scope.launch {
-            val result = snackbar.showSnackbar(if (ids.size == 1) "Conversation archived" else "${ids.size} conversations archived", actionLabel = "Undo")
+            snackbar.currentSnackbarData?.dismiss()
+            val result = snackbar.showSnackbar(
+                if (ids.size == 1) "Conversation archived" else "${ids.size} conversations archived",
+                actionLabel = "Undo",
+                duration = SnackbarDuration.Long,
+            )
             if (result == SnackbarResult.ActionPerformed) viewModel.setArchived(ids, false)
         }
     }

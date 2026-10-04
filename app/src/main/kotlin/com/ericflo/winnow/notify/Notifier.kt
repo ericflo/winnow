@@ -36,14 +36,19 @@ class Notifier(
     private val context: Context,
     /** The two faces a group's icon shows, as its avatar in the app does (see groupFaces). */
     private val groupFaces: (List<String>) -> List<Member> = { emptyList() },
+    /**
+     * Settings → Theme is Light or Dark: Winnow's own night mode, which the shade doesn't share.
+     * Asked when an icon is drawn, never on the main thread, so a text that starts the app
+     * can't be drawn before the setting is known.
+     */
+    private val themeOverridden: () -> Boolean = { false },
 ) {
     private val manager = NotificationManagerCompat.from(context)
 
     /** The user's quick replies, offered as one-tap answers on message notifications. */
     @Volatile var quickReplies: List<String> = emptyList()
 
-    /** Settings → Theme is Light or Dark: Winnow's own night mode, which the shade doesn't share. */
-    @Volatile var themeOverridden: Boolean = false
+
 
     init {
         val channel = NotificationChannel(CHANNEL_MESSAGES, context.getString(R.string.channel_messages), NotificationManager.IMPORTANCE_HIGH)
@@ -412,7 +417,7 @@ class Notifier(
         // Without Winnow's own override the configuration is the system's, Battery Saver's
         // forced dark and schedules included. With it, the configuration is Winnow's: then the
         // system-wide setting, where it's a plain on or off (a schedule can't be told from here).
-        if (!themeOverridden) return configuration
+        if (!themeOverridden()) return configuration
         return when (context.getSystemService(android.app.UiModeManager::class.java)?.nightMode) {
             android.app.UiModeManager.MODE_NIGHT_YES -> true
             android.app.UiModeManager.MODE_NIGHT_NO -> false
