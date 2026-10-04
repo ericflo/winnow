@@ -18,6 +18,7 @@ import com.ericflo.winnow.data.db.SenderRuleEntity
 import com.ericflo.winnow.data.db.StarredDao
 import com.ericflo.winnow.data.db.VerdictDao
 import com.ericflo.winnow.data.db.VerdictEntity
+import com.ericflo.winnow.mms.MmsCharsets
 import com.ericflo.winnow.sms.MmsSender
 import com.ericflo.winnow.sms.MmsStore
 import com.ericflo.winnow.sms.SmsSender
@@ -242,7 +243,8 @@ class TelephonyMessageRepository(
 
     override suspend fun search(query: String): List<SearchHit> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
-        val like = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        fun likeOf(s: String) = "%" + s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        val like = likeOf(query)
         val recipients = resolver.threadRecipients()
         val hits = mutableListOf<SearchHit>()
         resolver.query(
@@ -256,12 +258,30 @@ class TelephonyMessageRepository(
             Telephony.Mms.Part.CONTENT_URI, arrayOf(Telephony.Mms.Part.MSG_ID, Telephony.Mms.Part.TEXT),
             "${Telephony.Mms.Part.CONTENT_TYPE} = 'text/plain' AND ${Telephony.Mms.Part.TEXT} LIKE ? ESCAPE '\\'", arrayOf(like), null,
         )?.use { c -> while (c.moveToNext()) mmsText[c.getLong(0)] = c.getString(1).orEmpty() }
-        if (mmsText.isNotEmpty()) {
+        // Subjects too, looked for both as typed and as Android's MMS code stores them (see MmsCharsets.forStore).
+        val mmsSubjects = HashMap<Long, String>()
+        resolver.query(
+            Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.SUBJECT, Telephony.Mms.SUBJECT_CHARSET),
+            "(${Telephony.Mms.SUBJECT} LIKE ? ESCAPE '\\' OR ${Telephony.Mms.SUBJECT} LIKE ? ESCAPE '\\')",
+            arrayOf(like, likeOf(MmsCharsets.forStore(query))), "${Telephony.Mms.DATE} DESC LIMIT 50",
+        )?.use { c ->
+            while (c.moveToNext()) {
+                // Placeholders ("NoSubject") match nothing anyone looked for.
+                val subject = meaningfulSubject(MmsStore.subjectAt(c, 1, 2)) ?: continue
+                if (subject.contains(query.trim(), ignoreCase = true)) mmsSubjects[c.getLong(0)] = subject
+            }
+        }
+        val mmsIds = mmsText.keys + mmsSubjects.keys
+        if (mmsIds.isNotEmpty()) {
             resolver.query(
                 Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.THREAD_ID, Telephony.Mms.DATE),
-                "${Telephony.Mms._ID} IN (${mmsText.keys.joinToString(",")}) AND ${Telephony.Mms.MESSAGE_BOX} != ${Telephony.Mms.MESSAGE_BOX_DRAFTS}", null, null,
+                "${Telephony.Mms._ID} IN (${mmsIds.joinToString(",")}) AND ${Telephony.Mms.MESSAGE_BOX} != ${Telephony.Mms.MESSAGE_BOX_DRAFTS}", null, null,
             )?.use { c ->
-                while (c.moveToNext()) hits += hit(c.getLong(1), recipients, mmsText[c.getLong(0)].orEmpty(), c.getLong(2) * 1000, ChatMessage.messageKey(Kind.MMS, c.getLong(0)))
+                while (c.moveToNext()) {
+                    val id = c.getLong(0)
+                    val words = subjectAndText(mmsSubjects[id], mmsText[id].orEmpty())
+                    hits += hit(c.getLong(1), recipients, words, c.getLong(2) * 1000, ChatMessage.messageKey(Kind.MMS, id))
+                }
             }
         }
         hits.sortedByDescending { it.timestamp }.take(50)

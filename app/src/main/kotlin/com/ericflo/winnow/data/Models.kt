@@ -181,6 +181,22 @@ fun meaningfulSubject(subject: String?): String? {
 fun subjectAndText(subject: String?, text: String): String =
     listOfNotNull(meaningfulSubject(subject), text.takeIf { it.isNotBlank() }).joinToString("\n")
 
+/**
+ * [text] for a search result: on one line, and starting a little before [query]'s first match
+ * (at a word, after "…") when the match is too far in for a two-line preview to show it.
+ */
+fun searchSnippet(text: String, query: String, lead: Int = 24): String {
+    val flat = text.replace(Regex("\\s*\n\\s*"), " ")
+    val wanted = query.trim()
+    val at = if (wanted.isEmpty()) -1 else flat.indexOf(wanted, ignoreCase = true)
+    if (at <= lead + 16) return flat
+    val from = at - lead
+    // From the start of the next word, so it never opens on half of one.
+    val space = flat.indexOf(' ', from)
+    val start = if (space in from until at) space + 1 else from
+    return "…" + flat.substring(start)
+}
+
 /** One person in a group, as its avatar shows them. */
 data class Member(val address: String, val name: String, val photoUri: String?)
 

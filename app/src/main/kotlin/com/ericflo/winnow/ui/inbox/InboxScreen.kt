@@ -107,6 +107,12 @@ import com.ericflo.winnow.ui.components.shortTimestamp
 import kotlinx.coroutines.launch
 import com.ericflo.winnow.data.SwipeChoice
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import com.ericflo.winnow.data.searchSnippet
 
 @Composable
 fun InboxScreen(
@@ -184,7 +190,8 @@ fun InboxScreen(
         containerColor = MaterialTheme.colorScheme.surface,
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
-            if (selected.isEmpty()) {
+            // Not over search results: a search is for finding, and Back leads out of it.
+            if (selected.isEmpty() && !searching) {
                 ExtendedFloatingActionButton(
                     onClick = onNewChat,
                     expanded = atTop,
@@ -308,7 +315,7 @@ fun InboxScreen(
                         item("h-messages") { SectionHeader("Messages") }
                         // By message: two picture messages in one thread can share a second.
                         items(state.messageHits, key = { "hit-${it.key ?: "${it.threadId}-${it.timestamp}"}" }) { hit ->
-                            SearchHitRow(hit, filtered = hit.threadId in state.filteredThreads, onClick = { onOpenSearchHit(hit, state.query.trim()) })
+                            SearchHitRow(hit, state.query, filtered = hit.threadId in state.filteredThreads, onClick = { onOpenSearchHit(hit, state.query.trim()) })
                         }
                     }
                     if (state.conversations.isEmpty() && state.messageHits.isEmpty() && !(searching && typed.isBlank() && browsing != null)) {
@@ -632,7 +639,7 @@ private fun BrowseEmpty(text: String) {
 }
 
 @Composable
-private fun SearchHitRow(hit: SearchHit, filtered: Boolean = false, onClick: () -> Unit) {
+private fun SearchHitRow(hit: SearchHit, query: String, filtered: Boolean = false, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
@@ -654,7 +661,7 @@ private fun SearchHitRow(hit: SearchHit, filtered: Boolean = false, onClick: () 
                 }
             }
             Text(
-                hit.body,
+                matchesInBold(searchSnippet(hit.body, query), query, MaterialTheme.colorScheme.onSurface),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
@@ -663,6 +670,18 @@ private fun SearchHitRow(hit: SearchHit, filtered: Boolean = false, onClick: () 
         }
         Spacer(Modifier.width(12.dp))
         Text(shortTimestamp(hit.timestamp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** [text] with each match of [query] in bold, in [color], as Messages shows what a search found. */
+private fun matchesInBold(text: String, query: String, color: Color): AnnotatedString = buildAnnotatedString {
+    append(text)
+    val wanted = query.trim()
+    if (wanted.isEmpty()) return@buildAnnotatedString
+    var at = text.indexOf(wanted, ignoreCase = true)
+    while (at >= 0) {
+        addStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = color), at, at + wanted.length)
+        at = text.indexOf(wanted, at + wanted.length, ignoreCase = true)
     }
 }
 

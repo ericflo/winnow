@@ -126,4 +126,17 @@ class ModelsTest {
         // All alike: the conversation's own order.
         assertEquals(listOf(stranger1, stranger2), faces(listOf(stranger1, stranger2, m("+12065550152", "(206) 555-0152"))))
     }
+
+    @Test
+    fun `a search result starts near what was found`() {
+        val long = "Hey! Long day at work, the train was late again and then the meeting ran over, but are we still on for dinner tomorrow?"
+        val snippet = com.ericflo.winnow.data.searchSnippet(long, "dinner")
+        assertTrue(snippet, snippet.startsWith("…"))
+        assertTrue(snippet, snippet.contains("dinner tomorrow?"))
+        // Never half a word.
+        assertTrue(snippet, long.contains(" " + snippet.removePrefix("…")))
+        // Near the start: as it is, on one line.
+        assertEquals("Dinner Friday? I'm in", com.ericflo.winnow.data.searchSnippet("Dinner Friday?\nI'm in", "friday"))
+        assertEquals("no match here", com.ericflo.winnow.data.searchSnippet("no match here", "zebra"))
+    }
 }
