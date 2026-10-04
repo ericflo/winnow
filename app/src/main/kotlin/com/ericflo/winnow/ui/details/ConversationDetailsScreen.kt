@@ -118,6 +118,8 @@ data class DetailsUiState(
     val groupName: String? = null,
     /** Without contacts permission, nobody can be told apart from a stranger. */
     val canReadContacts: Boolean = true,
+    /** The saved state has been read: until then the switches and choices would show defaults. */
+    val loaded: Boolean = false,
 ) {
     data class Person(val address: String, val name: String, val number: String, val photoUri: String?, val isContact: Boolean)
 
@@ -205,6 +207,7 @@ class ConversationDetailsViewModel(
             blocked = blocked,
             canBlock = single != null && container.blockedNumbers.available(),
             canReadContacts = container.contacts.canRead(),
+            loaded = true,
         )
     }
         // Contact lookups can hit the disk (the whole list, after a change).
@@ -350,7 +353,8 @@ fun ConversationDetailsScreen(
                 }
             }
 
-            section(if (state.isGroup) "${state.people.size} people" else "Contact")
+            // The others are listed; the conversation's "3 people" counts the user too.
+            section(if (state.isGroup) "You and ${state.people.size} others" else "Contact")
             items(state.people, key = { it.address }) { person ->
                 ListItem(
                     leadingContent = { Avatar(person.name, seed = person.address, size = 40.dp, photoUri = person.photoUri) },
@@ -410,6 +414,9 @@ fun ConversationDetailsScreen(
                 }
             }
 
+            // Not before the saved state is in: a switch shown as off and then turned on by it can
+            // stay drawn half-way (its thumb doesn't move when it's composed ahead of being shown).
+            if (state.loaded) {
             section("Conversation")
             item("muted") {
                 Toggle("Notifications", if (state.muted) mutedLabel(state.mutedUntil) else "On", !state.muted) { on ->
@@ -442,6 +449,7 @@ fun ConversationDetailsScreen(
                 if (state.canBlock) {
                     item("blocked") { Toggle("Block number", "Android drops their texts and calls", state.blocked, viewModel::setBlocked) }
                 }
+            }
             }
 
             if (viewModel.hasThread) {
