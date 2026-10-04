@@ -121,7 +121,7 @@ data class WinnowSettings(
     val autoDownloadMmsRoaming: Boolean = false,
     /** Enter sends instead of starting a new line (Shift+Enter still does), for hardware keyboards. */
     val enterToSend: Boolean = false,
-    /** Save received photos and videos to the phone's gallery, for texts that reach the inbox. */
+    /** Save received photos and videos to the phone's gallery: from contacts and people the user has texted, in the inbox. */
     val autoSaveMedia: Boolean = false,
     /** Canned replies: in the composer's attach menu, and as one-tap choices on notifications. */
     val quickReplies: List<String> = DEFAULT_QUICK_REPLIES,

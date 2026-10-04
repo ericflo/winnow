@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
@@ -224,10 +225,13 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     }
 
     /** Into Recently deleted, for 30 days, then gone. [onDone] gets what Undo would put back. */
-    fun delete(threadIds: Set<Long>, onDone: (List<Trash.Item>) -> Unit = {}) = launch {
-        val deleted = container.trash.delete(threadIds)
-        deleted.problem?.let(container::toast)
-        if (deleted.items.isNotEmpty()) onDone(deleted.items)
+    /** In the app scope, so leaving the inbox mid-way doesn't stop it between keeping and deleting. */
+    fun delete(threadIds: Set<Long>, onDone: (List<Trash.Item>) -> Unit = {}) {
+        container.appScope.launch {
+            val deleted = container.trash.delete(threadIds)
+            deleted.problem?.let(container::toast)
+            if (deleted.items.isNotEmpty()) withContext(Dispatchers.Main) { onDone(deleted.items) }
+        }
     }
 
     /** Undo for [delete]: back out of Recently deleted. */
@@ -238,14 +242,18 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
                 container.toast("Make Winnow your SMS app to restore conversations")
                 return@launch
             }
-            try {
-                if (items.any { container.trash.restore(it)?.complete == false }) {
-                    container.toast("Some messages couldn't be put back, so it's still in Recently deleted")
+            // Every one tried, whatever happens to the others.
+            val results = items.map { item ->
+                try {
+                    container.trash.restore(item)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null.also { container.toast("Couldn't restore it: ${e.message ?: e::class.simpleName}") }
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                container.toast("Couldn't restore it: ${e.message ?: e::class.simpleName}")
+            }
+            if (results.any { it?.complete == false }) {
+                container.toast("Some messages couldn't be put back, so they're still in Recently deleted")
             }
         }
     }

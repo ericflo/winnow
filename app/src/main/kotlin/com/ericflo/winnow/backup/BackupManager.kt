@@ -415,21 +415,28 @@ class BackupManager(
         }
     }
 
+    /** What [restoreMessages] did: messages [added], [present] already, and [empty] ones with nothing to put back. */
+    internal data class RestoreCount(val added: Int, val present: Int, val empty: Int) {
+        /** Every message in the backup is accounted for. */
+        fun covers(count: Int) = added + present + empty >= count
+    }
+
     /**
      * Adds the messages this phone doesn't have yet, and Winnow's verdicts for messages it has
-     * but never classified (after a reinstall, say). Returns (added, already present). Progress
-     * goes to [report]: the Backup settings' status unless the caller says otherwise.
+     * but never classified (after a reinstall, say). Progress goes to [report]: the Backup
+     * settings' status unless the caller says otherwise.
      */
     internal suspend fun restoreMessages(
         backup: WinnowBackup,
         spool: File,
         report: (BackupStatus) -> Unit = { _status.value = it },
-    ): Pair<Int, Int> {
+    ): RestoreCount {
         val total = backup.messageCount
         val classified = verdicts.all().mapTo(HashSet()) { it.messageKey }
         var done = 0
         var added = 0
         var present = 0
+        var empty = 0
         // Texts anywhere on the phone, not just in the matching conversation: a text sent to a
         // group one person at a time sits in the group's thread here but one person's elsewhere.
         val textsEverywhere = existingTextsEverywhere()
@@ -476,6 +483,13 @@ class BackupManager(
             }
 
             missing.filter { it.kind == KIND_MMS }.forEach { m ->
+                // No text and none of its media in the file (say, a part no app could read): there's
+                // nothing to put back, and no point trying again later.
+                if (m.body.isEmpty() && m.parts.none { File(spool, it.file).isFile }) {
+                    empty++
+                    report(BackupStatus.Working("Restoring messages", ++done, total))
+                    return@forEach
+                }
                 val uri = insertMms(threadId, conversation, m, spool)
                 if (uri != null) {
                     added++
@@ -488,7 +502,7 @@ class BackupManager(
 
             restoreState(threadId, conversation)
         }
-        return added to present
+        return RestoreCount(added, present, empty)
     }
 
     /** A conversation's pin, archive, mute, name and draft, unless Winnow already has state for it. */

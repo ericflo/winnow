@@ -18,8 +18,9 @@ private val WEB = Regex(
 )
 private val SCHEME = Regex("^(https?)://", RegexOption.IGNORE_CASE)
 private val UPS = Regex("""\b1Z[0-9A-Z]{16}\b""", RegexOption.IGNORE_CASE)
-private val USPS = Regex("""(?<!\d)9[2-5]\d{18,24}(?!\d)""")
-private val FEDEX = Regex("""(?<!\d)(?:\d{12}|\d{15})(?!\d)""")
+// Whole tokens only: not the digits of "INV123456789012", nor a phone number's after its "+".
+private val USPS = Regex("""(?<![\w+])9[2-5]\d{18,24}(?!\w)""")
+private val FEDEX = Regex("""(?<![\w+])(?:\d{12}|\d{15})(?!\w)""")
 private val FEDEX_NAMED = Regex("""(?i)\bfed\s?ex\b""")
 
 /** [value] as a URL to open: "HTTPS://…" lowercased to a scheme Android matches, a bare "httpbin.org" given one. */

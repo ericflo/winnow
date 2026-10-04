@@ -200,6 +200,27 @@ class TelephonyMessageRepository(
         starred.deleteForThreads(threadIds)
     }
 
+    override suspend fun deleteThreadUpTo(threadId: Long, smsUpTo: Long, mmsUpTo: Long) {
+        withContext(Dispatchers.IO) {
+            fun upTo(id: Long) = arrayOf(threadId.toString(), id.toString())
+            runCatching { resolver.delete(Telephony.Sms.CONTENT_URI, "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms._ID} <= ?", upTo(smsUpTo)) }
+            runCatching { resolver.delete(Telephony.Mms.CONTENT_URI, "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms._ID} <= ?", upTo(mmsUpTo)) }
+            // Deletes nothing, but afterwards Android drops the thread if it's empty, in one step:
+            // a message that has just arrived keeps it.
+            runCatching { resolver.delete(ContentUris.withAppendedId(Telephony.Threads.CONTENT_URI, threadId), "0 = 1", null) }
+        }
+        fun gone(key: String): Boolean {
+            val id = key.substringAfter(':').toLongOrNull() ?: return false
+            return when (key.substringBefore(':')) {
+                Kind.SMS.name.lowercase() -> id <= smsUpTo
+                Kind.MMS.name.lowercase() -> id <= mmsUpTo
+                else -> false
+            }
+        }
+        dao.keysForThread(threadId).filter(::gone).forEach { dao.deleteForMessage(it) }
+        starred.keysForThread(threadId).filter(::gone).forEach { starred.unstar(it) }
+    }
+
     override suspend fun deleteMessage(message: ChatMessage) {
         withContext(Dispatchers.IO) {
             val table = if (message.kind == Kind.SMS) Telephony.Sms.CONTENT_URI else Telephony.Mms.CONTENT_URI

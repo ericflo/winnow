@@ -60,6 +60,7 @@ import com.ericflo.winnow.AppContainer
 import com.ericflo.winnow.R
 import com.ericflo.winnow.data.ContactEntry
 import com.ericflo.winnow.data.ContactLookup
+import com.ericflo.winnow.data.normalizeAddress
 import com.ericflo.winnow.ui.components.Avatar
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -100,10 +101,13 @@ class NewChatViewModel(
         viewModelScope.launch {
             val repo = container.messages
             recent.value = runCatching { repo.conversations().first() }.getOrDefault(emptyList())
-                .filter { it.recipients.size == 1 && !it.isFiltered }
+                // People: not short codes or named senders (codes, banks, deliveries), and each once,
+                // even if a group's thread ever lists just one of them.
+                .filter { it.recipients.size == 1 && !it.isFiltered && ContactLookup.isPersonalNumber(it.recipients.single()) }
                 .sortedByDescending { it.timestamp }
+                .distinctBy { normalizeAddress(it.recipients.single()) }
                 .take(RECENT)
-                .map { c -> c.recipients.single().let { ContactEntry(c.displayName, it, repo.photoUri(it)) } }
+                .map { c -> ContactEntry(c.displayName, c.recipients.single(), c.photoUri) }
         }
     }
 

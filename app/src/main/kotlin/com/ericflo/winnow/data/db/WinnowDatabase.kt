@@ -62,6 +62,9 @@ interface StarredDao {
 
     @Query("DELETE FROM starred WHERE threadId IN (:threadIds)")
     suspend fun deleteForThreads(threadIds: Collection<Long>)
+
+    @Query("SELECT messageKey FROM starred WHERE threadId = :threadId")
+    suspend fun keysForThread(threadId: Long): List<String>
 }
 
 /**
@@ -255,6 +258,9 @@ interface VerdictDao {
 
     @Query("DELETE FROM verdicts WHERE messageKey = :messageKey")
     suspend fun deleteForMessage(messageKey: String)
+
+    @Query("SELECT messageKey FROM verdicts WHERE threadId = :threadId")
+    suspend fun keysForThread(threadId: Long): List<String>
 
     @Query("SELECT rule FROM sender_rules WHERE address = :address")
     suspend fun senderRule(address: String): String?

@@ -58,6 +58,12 @@ interface MessageRepository {
 
     suspend fun deleteThreads(threadIds: Collection<Long>)
 
+    /**
+     * Deletes [threadId]'s messages up to these ids, with Winnow's records of them. Anything
+     * newer (a text that arrived after the rest were kept in Recently deleted) stays.
+     */
+    suspend fun deleteThreadUpTo(threadId: Long, smsUpTo: Long, mmsUpTo: Long) = deleteThreads(listOf(threadId))
+
     /** Conversations as they're deleted, from whichever screen: one open beside the list closes. */
     fun deletedThreads(): Flow<Set<Long>> = emptyFlow()
 
@@ -126,6 +132,10 @@ class SwitchingMessageRepository(
     override suspend fun deleteThreads(threadIds: Collection<Long>) {
         current.deleteThreads(threadIds)
         deleted.emit(threadIds.toSet())
+    }
+    override suspend fun deleteThreadUpTo(threadId: Long, smsUpTo: Long, mmsUpTo: Long) {
+        current.deleteThreadUpTo(threadId, smsUpTo, mmsUpTo)
+        deleted.emit(setOf(threadId))
     }
     override suspend fun deleteMessage(message: ChatMessage) = current.deleteMessage(message)
     override suspend fun search(query: String) = current.search(query)

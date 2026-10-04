@@ -10,6 +10,7 @@ import com.ericflo.winnow.data.displayNameFor
 import com.ericflo.winnow.notify.Notifier
 import com.ericflo.winnow.sms.MmsStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -57,22 +58,39 @@ class Trash(
     }
 
     /**
-     * Keeps [threadIds] in Recently deleted, then deletes them from the phone. A conversation that
-     * couldn't be kept (say, the storage is full) isn't deleted.
+     * Keeps [threadIds] in Recently deleted, deleting each from the phone as soon as it's kept. A
+     * conversation that couldn't be kept (say, the storage is full) isn't deleted.
      */
     suspend fun delete(threadIds: Set<Long>): Deleted = lock.withLock {
         // Not the SMS app: Android would quietly refuse the delete, leaving a copy here too.
         if (!canWrite()) return@withLock Deleted("Make Winnow your SMS app to delete conversations", emptyList())
         withContext(Dispatchers.IO) {
-            val files = threadIds.associateWith { keep(it) }
-            val kept = files.filterValues { it.ok }.keys
-            if (kept.isNotEmpty()) {
-                repo.deleteThreads(kept)
-                states.forget(kept)
-                notifier.forget(kept)
+            val made = mutableSetOf<File>()
+            val kept = mutableSetOf<Long>()
+            try {
+                threadIds.forEach { threadId ->
+                    val result = keep(threadId) ?: return@forEach
+                    result.file?.let(made::add)
+                    try {
+                        // Exactly what was kept: a text that arrived since has a newer id, and stays.
+                        repo.deleteThreadUpTo(threadId, result.snapshot.newestSms, result.snapshot.newestMms)
+                        kept += threadId
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // Kept but maybe not deleted: restoring it adds only what's missing, so no harm.
+                        Log.w(TAG, "Couldn't delete a kept conversation", e)
+                    }
+                }
+            } finally {
+                withContext(NonCancellable) {
+                    if (kept.isNotEmpty()) {
+                        states.forget(kept)
+                        notifier.forget(kept)
+                    }
+                    reload()
+                }
             }
-            reload()
-            val made = files.values.mapNotNull { it.file }.toSet()
             Deleted(
                 "Couldn't keep a conversation in Recently deleted, so it wasn't deleted".takeIf { kept.size != threadIds.size },
                 _items.value.filter { it.file in made },
@@ -80,35 +98,29 @@ class Trash(
         }
     }
 
-    private data class Kept(val ok: Boolean, val file: File? = null)
+    /** A conversation kept (in [file], or nothing worth keeping), and its messages as they were. */
+    private class Kept(val file: File?, val snapshot: Snapshot)
 
     /**
-     * Writes [threadId] to a file here. It's read again if a message arrives (or goes) while it's
-     * being written, so what's deleted afterwards is exactly what was kept. MMS that were never
-     * downloaded have nothing to keep, and aren't.
+     * Writes [threadId] to a file here; null if it couldn't be. It's read again if a message
+     * arrives (or goes) while it's being written. MMS that were never downloaded have nothing to
+     * keep, and aren't.
      */
-    private suspend fun keep(threadId: Long): Kept {
+    private suspend fun keep(threadId: Long): Kept? {
         repeat(ATTEMPTS) {
-            val before = snapshot(threadId)
-            val media = HashMap<String, Long>()
-            val conversation = try {
-                backups.readConversations(media, only = setOf(threadId)).singleOrNull()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "Couldn't read a conversation to keep", e)
-                return Kept(false)
-            }
-            if (conversation == null) {
-                // Nothing in it worth keeping (a new conversation, or only undownloaded MMS): fine to
-                // delete. Messages with no one to put them back with can't be kept, so they stay.
-                if (before.messages != 0) Log.w(TAG, "A conversation with no recipients can't be kept")
-                return Kept(before.messages == 0)
-            }
             val now = System.currentTimeMillis()
             val file = File(dir, "$now-$threadId.zip")
             val partial = File(dir, "${file.name}.part")
             try {
+                val before = snapshot(threadId)
+                val media = HashMap<String, Long>()
+                val conversation = backups.readConversations(media, only = setOf(threadId)).singleOrNull()
+                if (conversation == null) {
+                    // Nothing in it worth keeping (a new conversation, or only undownloaded MMS): fine
+                    // to delete. Messages with no one to put them back with can't be kept, so they stay.
+                    if (before.keepable != 0) Log.w(TAG, "A conversation with no recipients can't be kept")
+                    return if (before.keepable == 0) Kept(null, before) else null
+                }
                 partial.outputStream().use { output ->
                     BackupArchive.write(output, WinnowBackup(createdAt = now, conversations = listOf(conversation))) { part ->
                         media[part.file]?.let { id ->
@@ -118,35 +130,50 @@ class Trash(
                 }
                 // On the disk before the messages are deleted: a crash or power cut can't leave neither.
                 FileOutputStream(partial, true).use { it.fd.sync() }
-                if (snapshot(threadId) == before && partial.renameTo(file)) return Kept(true, file)
+                if (snapshot(threadId) == before && partial.renameTo(file)) return Kept(file, before)
             } catch (e: CancellationException) {
                 partial.delete()
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Couldn't keep a conversation in Recently deleted", e)
                 partial.delete()
-                return Kept(false)
+                return null
             }
             partial.delete()
         }
         Log.w(TAG, "A conversation kept changing while it was being kept")
-        return Kept(false)
+        return null
     }
 
-    /** How many keepable messages [threadId] has, and its newest of each kind: enough to notice a change. */
-    private data class Snapshot(val messages: Int, val newestSms: Long, val newestMms: Long)
+    /**
+     * [threadId]'s messages as they stand: every row's id (drafts and undownloaded MMS too, which
+     * a delete takes with it), and how many are worth keeping. Enough to notice any change.
+     */
+    private data class Snapshot(val sms: List<Long>, val mms: List<Long>, val keepable: Int) {
+        val newestSms: Long get() = sms.maxOrNull() ?: 0
+        val newestMms: Long get() = mms.maxOrNull() ?: 0
+    }
 
     private fun snapshot(threadId: Long): Snapshot {
-        fun ids(uri: android.net.Uri, selection: String): List<Long> =
-            context.contentResolver.query(uri, arrayOf("_id"), selection, arrayOf(threadId.toString()), null)
-                ?.use { c -> buildList { while (c.moveToNext()) add(c.getLong(0)) } }.orEmpty()
-        val sms = ids(Telephony.Sms.CONTENT_URI, "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.TYPE} != ${Telephony.Sms.MESSAGE_TYPE_DRAFT}")
-        val mms = ids(
-            Telephony.Mms.CONTENT_URI,
-            "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms.MESSAGE_BOX} != ${Telephony.Mms.MESSAGE_BOX_DRAFTS} AND " +
-                "${Telephony.Mms.MESSAGE_TYPE} != ${MmsStore.MESSAGE_TYPE_NOTIFICATION_IND}",
-        )
-        return Snapshot(sms.size + mms.size, sms.maxOrNull() ?: 0, mms.maxOrNull() ?: 0)
+        val resolver = context.contentResolver
+        var keepable = 0
+        val sms = resolver.query(
+            Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms._ID, Telephony.Sms.TYPE), "${Telephony.Sms.THREAD_ID} = ?", arrayOf(threadId.toString()), null,
+        )?.use { c ->
+            buildList { while (c.moveToNext()) { add(c.getLong(0)); if (c.getInt(1) != Telephony.Sms.MESSAGE_TYPE_DRAFT) keepable++ } }
+        }.orEmpty()
+        val mms = resolver.query(
+            Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.MESSAGE_BOX, Telephony.Mms.MESSAGE_TYPE),
+            "${Telephony.Mms.THREAD_ID} = ?", arrayOf(threadId.toString()), null,
+        )?.use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(c.getLong(0))
+                    if (c.getInt(1) != Telephony.Mms.MESSAGE_BOX_DRAFTS && c.getInt(2) != MmsStore.MESSAGE_TYPE_NOTIFICATION_IND) keepable++
+                }
+            }
+        }.orEmpty()
+        return Snapshot(sms.sorted(), mms.sorted(), keepable)
     }
 
     /** What [restore] did: how many messages came back, and whether all of them are on the phone now. */
@@ -166,10 +193,10 @@ class Trash(
                     BackupArchive.read(input) { name, stream -> File(spool, name).outputStream().use { stream.copyTo(it) } }
                 }
                 // Not reported to the Backup settings, which may be busy with a backup of their own.
-                val (added, present) = backups.restoreMessages(backup, spool, report = {})
-                val complete = added + present >= backup.messageCount
+                val restored = backups.restoreMessages(backup, spool, report = {})
+                val complete = restored.covers(backup.messageCount)
                 if (complete) item.file.delete()
-                Restored(added, complete)
+                Restored(restored.added, complete)
             } finally {
                 spool.deleteRecursively()
                 reload()

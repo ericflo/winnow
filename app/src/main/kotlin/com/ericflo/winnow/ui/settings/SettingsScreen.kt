@@ -275,7 +275,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
             item("auto-save-media") {
                 SwitchRow(
                     "Save received photos and videos",
-                    "To the phone's Pictures and Movies, for texts that reach your inbox. Never for filtered or silenced ones.",
+                    "To the phone's Pictures and Movies, from your contacts and people you've texted. Never from filtered or silenced texts.",
                     s.autoSaveMedia,
                     onChange = viewModel::setAutoSaveMedia,
                 )

@@ -66,7 +66,8 @@ messages can't be tapped.
   Any attachment can be saved to the phone or shared to another app. **Link previews**
   (off by default) show a link's title and picture, but only for your own links and texts
   from people in your contacts or that you've texted. Strangers and filtered texts never
-  make Winnow fetch anything. Shared contacts show as cards with **Add contact** and **Message**, and
+  make Winnow fetch anything. Tracking numbers (UPS, USPS, FedEx) link to the carrier, and a
+  phone number in a message offers Call, Send message, Add contact and Copy. Shared contacts show as cards with **Add contact** and **Message**, and
   Attach → Contact sends one (its photo left out, so it fits). Attach → **Voice message**
   records one (AAC, stopping at 5 minutes or 800 KB, so it always fits an MMS), and
   **Location** puts a map link for where you are into the draft (one fix, nothing tracked).
@@ -77,8 +78,8 @@ messages can't be tapped.
   the message they react to. Failed sends and MMS downloads can be retried. SMS delivery
   reports are opt-in, and MMS auto-download can be turned off (it's off while roaming unless
   you allow it), leaving "Tap to download" in the conversation. Optionally, photos and videos
-  that reach the inbox are saved to the phone's gallery (Pictures/Winnow, Movies/Winnow) as they arrive;
-  filtered and silenced texts' never are.
+  from your contacts and people you've texted are saved to the phone's gallery (Pictures/Winnow,
+  Movies/Winnow) as they arrive; filtered and silenced texts' never are.
 - **Conversations:** pin, archive, mute (for an hour, 8 hours, a day, or until you turn it
   back on), mark read/unread, delete, block (Android's system
   block list), **Add contact** (a first text from a number that isn't in your contacts asks whether to add them or filter them; names update as soon as they're saved), name a group (just for you), **Add people** (a new group with everyone in it plus whoever you add), a **Photos & videos** strip in Details, **Export** to a text file, an **Unread** filter (plus **Personal**, **Updates** and **Offers**, from what the classifier made of each conversation), and multi-select (in Filtered and Archived too, to rescue or clear several at once).

@@ -38,6 +38,10 @@ class MessageTextTest {
         assertEquals(emptyList<String>(), links("Order 123456789012 confirmed"))
         // A phone number is still a phone number.
         assertEquals(listOf("tel:4155550123"), links("Call 415-555-0123"))
+        // Only whole tokens: not digits inside an invoice number, nor an international number's.
+        assertEquals(emptyList<String>(), links("FedEx ref INV123456789012"))
+        assertFalse(links("FedEx call +447700900123").any { "fedex" in it })
+        assertEquals(emptyList<String>(), links("USPS ref X9400111899223197428490"))
     }
 
     @Test

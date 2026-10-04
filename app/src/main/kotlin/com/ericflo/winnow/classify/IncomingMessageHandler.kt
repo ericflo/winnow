@@ -68,8 +68,12 @@ class IncomingMessageHandler(
         val preview = text.ifBlank { attachmentSummary(mediaTypes) }
         // A media-only message still gets classified, on what little it says.
         val action = route(uri, ChatMessage.Kind.MMS, threadId, sender, recipients, text.ifBlank { "[photo]" }, preview)
-        // Into the gallery if the user asked, and only what reached the inbox: never a filtered or silenced one's.
-        if (action == Action.ALLOW && settings.current().autoSaveMedia) withContext(Dispatchers.IO) { saveMedia(uri) }
+        // Into the gallery if the user asked: only what reached the inbox (never a filtered or
+        // silenced one's), and only from people they know. A classifier that timed out lets a
+        // stranger's message through too, and the gallery may back up to the cloud.
+        if (action == Action.ALLOW && settings.current().autoSaveMedia) withContext(Dispatchers.IO) {
+            if (contacts.isContact(sender) || hasOutgoing(threadId)) saveMedia(uri)
+        }
     }
 
     /**

@@ -101,6 +101,12 @@ class AppContainer(private val context: Context) {
 
     val returnedMessages = com.ericflo.winnow.data.ReturnedMessages()
 
+    /**
+     * Forwards from a chat bubble on their way to New chat, by a one-time token: copied files
+     * never ride in an intent another app could forge to make Winnow attach its own files.
+     */
+    val forwards = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
+
     /** A short message over whatever is on screen, for news with no screen of its own to show it. */
     fun toast(message: String) {
         appScope.launch(Dispatchers.Main) { android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show() }
