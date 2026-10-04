@@ -84,6 +84,13 @@ reads the unredacted message: nothing leaves the phone, so there's nothing to re
   (`ActionPolicy.onDeviceMinConfidence`); below that it's softened a step. Deciding without
   the provider needs 95%.
 
+- **Learning from corrections** (`Personalizer`, app `Learner`): overriding a verdict
+  stores the newest incoming message's feature buckets, never its text, in Room
+  (`corrections`). The label is the likeliest category whose action matches the user's
+  choice. Per-bucket adjustments, with no bias term and an L2 pull toward zero, are refit
+  from all corrections in milliseconds and added to the bundled scores. On the corpus, a
+  correction changes under 2% of other predictions. Corrections are included in backups.
+
 `training/eval.tsv` is a separate set the model never trains on. The corpus and the eval
 set are both hand-written, so the report's numbers are an upper bound.
 

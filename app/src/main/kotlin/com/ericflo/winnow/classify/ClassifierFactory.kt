@@ -13,17 +13,19 @@ import com.ericflo.winnow.data.ProviderKind
 import com.ericflo.winnow.data.WinnowSettings
 
 /** The only place that maps user settings to concrete providers. Add a provider here and in [ProviderKind]. */
-class ClassifierFactory(private val http: HttpTransport) {
-    /** Loads the bundled model once, on first use. */
-    private val onDevice by lazy { OnDeviceClassifier() }
+class ClassifierFactory(
+    private val http: HttpTransport,
+    /** The on-device model, with what the user has taught it. */
+    private val onDevice: suspend () -> OnDeviceClassifier,
+) {
 
-    fun create(settings: WinnowSettings, timeoutMillis: Long = 5_000): MessageClassifier =
+    suspend fun create(settings: WinnowSettings, timeoutMillis: Long = 5_000): MessageClassifier =
         MessageClassifier(
             providers = listOfNotNull(provider(settings)),
             privacy = settings.effectivePrivacy,
             actions = settings.actionPolicy,
             timeoutMillis = timeoutMillis,
-            onDevice = onDevice,
+            onDevice = onDevice(),
             decideOnDeviceAbove = SURE.takeIf { settings.decideOnPhoneWhenSure },
         )
 

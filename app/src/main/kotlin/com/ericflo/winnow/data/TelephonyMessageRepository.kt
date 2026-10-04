@@ -10,6 +10,7 @@ import android.provider.Telephony
 import android.util.Log
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
+import com.ericflo.winnow.classifier.message.InboundMessage
 import com.ericflo.winnow.classifier.message.SenderRule
 import com.ericflo.winnow.data.ChatMessage.Kind
 import com.ericflo.winnow.data.db.SenderRuleEntity
@@ -39,6 +40,8 @@ class TelephonyMessageRepository(
     private val mms: MmsSender,
     /** Re-requests a failed MMS download. */
     private val retryDownload: (mmsId: Long) -> Unit,
+    /** The user overrode Winnow's call on the thread's newest incoming message, for the on-device model to learn from. */
+    private val onCorrected: suspend (threadId: Long, message: InboundMessage, action: Action) -> Unit = { _, _, _ -> },
 ) : MessageRepository {
     private val resolver = context.contentResolver
 
@@ -181,6 +184,21 @@ class TelephonyMessageRepository(
         dao.setUserAction(threadId, action.name)
         val rule = if (action == Action.ALLOW) SenderRule.ALWAYS_ALLOW else SenderRule.ALWAYS_FILTER
         dao.upsertSenderRule(SenderRuleEntity(normalizeAddress(address), rule.name, System.currentTimeMillis()))
+        newestIncoming(threadId)?.let { onCorrected(threadId, it, action) }
+    }
+
+    /** The thread's newest incoming message, as the classifier saw it. */
+    private suspend fun newestIncoming(threadId: Long): InboundMessage? = withContext(Dispatchers.IO) {
+        val newest = heads("${Telephony.Sms.THREAD_ID} = ?", arrayOf(threadId.toString())).firstOrNull { !it.outgoing } ?: return@withContext null
+        when (newest.kind) {
+            Kind.SMS -> resolver.query(
+                ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, newest.id), arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY), null, null, null,
+            )?.use { c -> if (c.moveToFirst()) InboundMessage(c.getString(0).orEmpty(), c.getString(1).orEmpty()) else null }
+            Kind.MMS -> {
+                val text = mmsParts(listOf(newest.id))[newest.id].orEmpty().filter { it.contentType == "text/plain" }.joinToString("\n") { it.text.orEmpty() }
+                InboundMessage(mmsSender(newest.id).orEmpty(), text).takeIf { text.isNotBlank() }
+            }
+        }
     }
 
     override fun verdictRecords(): Flow<List<VerdictRecord>> = dao.observeAll().map { rows ->

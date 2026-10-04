@@ -14,7 +14,10 @@ import android.util.Log
 import android.webkit.MimeTypeMap
 import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.SettingsRepository
+import com.ericflo.winnow.classify.Learner
 import com.ericflo.winnow.data.db.ConversationStateDao
+import com.ericflo.winnow.data.db.CorrectionDao
+import com.ericflo.winnow.data.db.CorrectionEntity
 import com.ericflo.winnow.data.db.ConversationStateEntity
 import com.ericflo.winnow.data.db.ScheduledMessageDao
 import com.ericflo.winnow.data.db.SenderRuleEntity
@@ -73,6 +76,8 @@ class BackupManager(
     private val settings: SettingsRepository,
     private val mmsStore: MmsStore,
     private val scheduler: MessageScheduler,
+    private val corrections: CorrectionDao,
+    private val learner: Learner,
     /** Restoring messages writes the SMS store, which only the default SMS app may do. */
     private val canWriteMessages: () -> Boolean,
 ) {
@@ -128,6 +133,9 @@ class BackupManager(
             senderRules = verdicts.allSenderRules().map { SenderRuleBackup(it.address, it.rule, it.createdAt) },
             conversations = if (canReadMessages()) readConversations(media) else emptyList(),
             scheduled = scheduledDao.all().map { ScheduledBackup(splitAddresses(it.recipients), it.body, it.sendAt) },
+            corrections = corrections.all().map { c ->
+                CorrectionBackup(c.buckets.split(',').mapNotNull(String::toIntOrNull), c.label, c.featurizerVersion, c.createdAt)
+            },
         )
         var saved = 0
         _status.value = BackupStatus.Working("Saving the backup", 0, media.size)
@@ -250,6 +258,14 @@ class BackupManager(
             val rules = backup.senderRules.filter { it.address !in known }
             rules.forEach { verdicts.upsertSenderRule(SenderRuleEntity(it.address, it.rule, it.createdAt)) }
             if (rules.isNotEmpty()) restored += plural(rules.size, "sender rule")
+
+            val learned = corrections.all().mapTo(HashSet()) { it.buckets to it.label }
+            val lessons = backup.corrections.filter { (it.buckets.joinToString(",") to it.label) !in learned }
+            lessons.forEach { corrections.insert(CorrectionEntity(threadId = null, buckets = it.buckets.joinToString(","), label = it.label, featurizerVersion = it.featurizerVersion, createdAt = it.createdAt)) }
+            if (lessons.isNotEmpty()) {
+                learner.reload()
+                restored += plural(lessons.size, "correction")
+            }
 
             val message = if (!canWriteMessages()) {
                 "Messages weren't restored because Winnow isn't your SMS app." + also(restored)

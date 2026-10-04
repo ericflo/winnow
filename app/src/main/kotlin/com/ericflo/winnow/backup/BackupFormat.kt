@@ -26,6 +26,7 @@ data class WinnowBackup(
     val senderRules: List<SenderRuleBackup> = emptyList(),
     val conversations: List<ConversationBackup> = emptyList(),
     val scheduled: List<ScheduledBackup> = emptyList(),
+    val corrections: List<CorrectionBackup> = emptyList(),
 ) {
     val messageCount: Int get() = conversations.sumOf { it.messages.size }
 
@@ -111,6 +112,10 @@ data class VerdictBackup(
     val costUsd: Double = 0.0,
     val decidedAt: Long = 0,
 )
+
+/** A correction the on-device model learned from: feature buckets and a category, no text. */
+@Serializable
+data class CorrectionBackup(val buckets: List<Int>, val label: String, val featurizerVersion: Int, val createdAt: Long)
 
 @Serializable
 data class ScheduledBackup(val recipients: List<String>, val body: String, val sendAt: Long)

@@ -45,6 +45,13 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     val backup = container.backups.status
 
+    /** How many corrections the on-device model has learned from. */
+    val learned: StateFlow<Int> = container.learner.count.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    fun forgetLearning() {
+        viewModelScope.launch { container.learner.forget() }
+    }
+
     private val _canBackUpMessages = MutableStateFlow(container.backups.canReadMessages())
     val canBackUpMessages: StateFlow<Boolean> = _canBackUpMessages.asStateFlow()
 

@@ -21,14 +21,54 @@ import kotlinx.coroutines.flow.Flow
  * adds: a verdict per message and the user's per-sender rules.
  */
 @Database(
-    entities = [VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class, ScheduledMessageEntity::class],
-    version = 3,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
+    entities = [
+        VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class, ScheduledMessageEntity::class,
+        CorrectionEntity::class,
+    ],
+    version = 4,
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
 )
 abstract class WinnowDatabase : RoomDatabase() {
     abstract fun verdicts(): VerdictDao
     abstract fun conversationStates(): ConversationStateDao
     abstract fun scheduled(): ScheduledMessageDao
+    abstract fun corrections(): CorrectionDao
+}
+
+/**
+ * Something the user taught the on-device model: a corrected message's feature buckets (not
+ * its text) and the category it should have been.
+ */
+@Entity(tableName = "corrections")
+data class CorrectionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** The conversation it came from, so correcting it again replaces it. Null when restored from a backup. */
+    val threadId: Long?,
+    /** Comma-joined bucket indices. */
+    val buckets: String,
+    /** A [Category] key. */
+    val label: String,
+    /** Buckets only mean something to the featurizer version that produced them. */
+    val featurizerVersion: Int,
+    val createdAt: Long,
+)
+
+@Dao
+interface CorrectionDao {
+    @Query("SELECT * FROM corrections ORDER BY createdAt")
+    suspend fun all(): List<CorrectionEntity>
+
+    @Query("SELECT COUNT(*) FROM corrections")
+    fun observeCount(): Flow<Int>
+
+    @Insert
+    suspend fun insert(correction: CorrectionEntity)
+
+    @Query("DELETE FROM corrections WHERE threadId = :threadId")
+    suspend fun deleteForThread(threadId: Long)
+
+    @Query("DELETE FROM corrections")
+    suspend fun deleteAll()
 }
 
 /** A text waiting for its send time. Lives here, not in the SMS store, until it's sent. */

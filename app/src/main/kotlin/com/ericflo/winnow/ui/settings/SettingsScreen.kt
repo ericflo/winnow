@@ -37,6 +37,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -76,6 +77,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
     val review by viewModel.review.collectAsStateWithLifecycle()
     val backup by viewModel.backup.collectAsStateWithLifecycle()
     val canBackUpMessages by viewModel.canBackUpMessages.collectAsStateWithLifecycle()
+    val learned by viewModel.learned.collectAsStateWithLifecycle()
     val context = LocalContext.current
     LifecycleResumeEffect(Unit) {
         viewModel.refresh()
@@ -124,6 +126,21 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     if (s.provider == kind && kind != ProviderKind.ON_DEVICE) {
                         ProviderFields(kind, s.settingsFor(kind), onSave = { viewModel.saveProvider(kind, it) })
                     }
+                }
+            }
+
+            if (learned > 0) {
+                item("learned") {
+                    ListItem(
+                        headlineContent = { Text("Learned from your corrections") },
+                        supportingContent = {
+                            Text(
+                                "${if (learned == 1) "1 correction teaches" else "$learned corrections teach"} the on-phone model about texts like " +
+                                    "the ones you marked. It keeps word fingerprints, never the messages.",
+                            )
+                        },
+                        trailingContent = { TextButton(onClick = viewModel::forgetLearning) { Text("Forget") } },
+                    )
                 }
             }
 

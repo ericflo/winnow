@@ -2,6 +2,7 @@ package com.ericflo.winnow
 
 import com.ericflo.winnow.backup.BackupArchive
 import com.ericflo.winnow.backup.ConversationBackup
+import com.ericflo.winnow.backup.CorrectionBackup
 import com.ericflo.winnow.backup.MessageBackup
 import com.ericflo.winnow.backup.PartBackup
 import com.ericflo.winnow.backup.SenderRuleBackup
@@ -22,6 +23,7 @@ class BackupArchiveTest {
     private val backup = WinnowBackup(
         createdAt = 1_791_000_000_000,
         senderRules = listOf(SenderRuleBackup("4155550123", "ALWAYS_FILTER", 1)),
+        corrections = listOf(CorrectionBackup(listOf(17, 4096, 30001), "personal", featurizerVersion = 1, createdAt = 5)),
         conversations = listOf(
             ConversationBackup(
                 recipients = listOf("+14155550181", "+14155550182"),

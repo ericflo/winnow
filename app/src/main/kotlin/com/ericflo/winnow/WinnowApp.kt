@@ -11,6 +11,7 @@ import com.ericflo.winnow.classifier.http.OkHttpTransport
 import com.ericflo.winnow.classify.ClassifierFactory
 import com.ericflo.winnow.classify.HistoryReviewer
 import com.ericflo.winnow.classify.IncomingMessageHandler
+import com.ericflo.winnow.classify.Learner
 import com.ericflo.winnow.data.BlockedNumbers
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.ContactsSource
@@ -53,7 +54,8 @@ class AppContainer(private val context: Context) {
         Room.databaseBuilder(context, WinnowDatabase::class.java, "winnow.db").build()
     }
     val settings by lazy { SettingsRepository(context, SecretBox()) }
-    val classifiers by lazy { ClassifierFactory(OkHttpTransport()) }
+    val learner by lazy { Learner(database.corrections(), settings) }
+    val classifiers by lazy { ClassifierFactory(OkHttpTransport()) { learner.classifier() } }
     val contacts by lazy { ContactLookup(context) }
     val notifier by lazy { Notifier(context) }
     // Read when sending, not cached at startup, so a cold process honors the saved setting.
@@ -75,7 +77,11 @@ class AppContainer(private val context: Context) {
 
     val messages: MessageRepository by lazy {
         SwitchingMessageRepository(
-            live = TelephonyMessageRepository(context, verdictDao, contacts, smsSender, mmsSender) { mmsReceiver.retryDownload(it) },
+            live = TelephonyMessageRepository(
+                context, verdictDao, contacts, smsSender, mmsSender,
+                retryDownload = { mmsReceiver.retryDownload(it) },
+                onCorrected = { threadId, message, action -> learner.learn(threadId, message, action) },
+            ),
             demo = DemoMessageRepository(context.packageName),
             isLive = access,
         )
@@ -88,9 +94,10 @@ class AppContainer(private val context: Context) {
     val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages.takeIf { isDefaultSmsApp() } } }
 
     val backups by lazy {
-        BackupManager(context, appScope, verdictDao, database.conversationStates(), database.scheduled(), settings, mmsStore, scheduler) {
-            isDefaultSmsApp()
-        }
+        BackupManager(
+            context, appScope, verdictDao, database.conversationStates(), database.scheduled(), settings, mmsStore, scheduler,
+            database.corrections(), learner,
+        ) { isDefaultSmsApp() }
     }
 
     val incoming by lazy {

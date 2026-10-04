@@ -162,6 +162,11 @@ when it's at least 95% sure ([report](classifier/training/REPORT.md)). Those mes
 from the same hand-written corpus, so expect less on real traffic. A provider like Jev is
 still the better judge, and the model's job is to keep the phone useful without one.
 
+It also **learns from your corrections**. "Not spam" or "Filter sender" teaches it about
+that message's content, so similar texts from other senders follow; a sender rule only
+covers the one sender. Only hashed word fingerprints are kept, never the message, and
+Settings → **Forget** undoes all of it.
+
 ## RCS
 
 Android has no public RCS API: only Google Messages can use it. As your default SMS app,

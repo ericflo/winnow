@@ -34,16 +34,18 @@ class LocalModel(
     /** Each feature's bucket. Duplicates collapse, so a word repeated ten times counts once. */
     fun indices(features: List<String>): IntArray = features.mapTo(LinkedHashSet()) { bucket(it) }.toIntArray()
 
-    /** Class probabilities, in [classes] order. */
-    fun predict(features: List<String>): DoubleArray = softmax(scores(indices(features)), temperature.toDouble())
+    /** Class probabilities, in [classes] order, including anything the user taught it. */
+    fun predict(features: List<String>, adjustments: Adjustments = Adjustments.NONE): DoubleArray =
+        softmax(scores(indices(features), adjustments), temperature.toDouble())
 
-    internal fun scores(indices: IntArray): DoubleArray {
+    internal fun scores(indices: IntArray, adjustments: Adjustments = Adjustments.NONE): DoubleArray {
         val value = featureValue(indices.size)
         val s = DoubleArray(k) { bias[it].toDouble() }
         for (i in indices) {
             val row = i * k
             for (c in 0 until k) s[c] += weights[row + c] * value
         }
+        adjustments.addTo(s, indices, value)
         return s
     }
 
@@ -51,14 +53,16 @@ class LocalModel(
      * The features that pushed hardest toward [classIndex] over the other classes, strongest
      * first, as human-readable descriptions.
      */
-    fun explain(features: List<String>, classIndex: Int, limit: Int = 3): List<String> {
+    fun explain(features: List<String>, classIndex: Int, limit: Int = 3, adjustments: Adjustments = Adjustments.NONE): List<String> {
         val seen = HashSet<Int>()
         val candidates = features
             .filter { seen.add(bucket(it)) }
             .mapNotNull { f ->
-                val row = bucket(f) * k
-                val others = (0 until k).filter { it != classIndex }.maxOf { weights[row + it] }
-                val margin = weights[row + classIndex] - others
+                val b = bucket(f)
+                val learned = adjustments.weights[b]
+                fun w(c: Int) = weights[b * k + c] + (learned?.get(c) ?: 0f)
+                val others = (0 until k).filter { it != classIndex }.maxOf(::w)
+                val margin = w(classIndex) - others
                 Featurizer.describe(f)?.takeIf { margin > 0f }?.let { Triple(f, it, margin) }
             }
             .sortedByDescending { it.third }
