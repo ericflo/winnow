@@ -85,6 +85,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setHideOnLockScreen(value: Boolean) = update { it.copy(hideOnLockScreen = value) }
 
+    fun setUndoSend(seconds: Int) = update { it.copy(undoSendSeconds = seconds) }
+
     /** App lock needs a screen lock to check against. */
     fun deviceIsSecure(): Boolean = container.deviceIsSecure()
 

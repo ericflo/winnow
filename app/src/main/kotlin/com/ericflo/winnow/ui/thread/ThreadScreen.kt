@@ -1,5 +1,8 @@
 package com.ericflo.winnow.ui.thread
 
+import androidx.compose.material3.LinearProgressIndicator
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.filled.Star
 import com.ericflo.winnow.data.SimCard
@@ -302,6 +305,9 @@ fun ThreadScreen(
             )
         },
         bottomBar = {
+            val pending by viewModel.pending.collectAsStateWithLifecycle()
+            Column {
+            pending?.let { UndoBar(it, onUndo = viewModel::undoSend) }
             Composer(
                 sims = sims,
                 selectedSim = sims.firstOrNull { it.subscriptionId == selectedSim },
@@ -320,6 +326,7 @@ fun ThreadScreen(
                 onSend = viewModel::send,
                 onSchedule = viewModel::schedule,
             )
+            }
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
@@ -1050,6 +1057,39 @@ private fun SimPicker(sims: List<SimCard>, selected: SimCard, onSelect: (Int) ->
                     },
                     onClick = { open = false; onSelect(sim.subscriptionId) },
                 )
+            }
+        }
+    }
+}
+
+/** "Sending…" with a countdown and Undo, while a sent message waits out the undo window. */
+@Composable
+private fun UndoBar(pending: ThreadViewModel.PendingSend, onUndo: () -> Unit) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(pending) {
+        while (now < pending.sendsAt) {
+            delay(100)
+            now = System.currentTimeMillis()
+        }
+    }
+    val left = ((pending.sendsAt - now).coerceAtLeast(0) + 999) / 1000
+    Surface(color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+        Column {
+            LinearProgressIndicator(
+                progress = { ((pending.sendsAt - now).toFloat() / pending.windowMillis).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(3.dp),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, end = 8.dp)) {
+                Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
+                    Text("Sending in $left…", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        pending.text.ifBlank { "Photo" },
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                TextButton(onClick = onUndo) { Text("Undo") }
             }
         }
     }

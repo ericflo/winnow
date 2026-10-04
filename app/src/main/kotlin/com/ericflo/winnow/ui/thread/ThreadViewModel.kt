@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -182,24 +184,54 @@ class ThreadViewModel(
         _attachments.value = _attachments.value - attachment
     }
 
+    /** A sent message waiting out the undo window; null when nothing is pending. */
+    data class PendingSend(val text: String, val attachments: List<OutgoingAttachment>, val sendsAt: Long, val windowMillis: Long)
+
+    private val _pending = MutableStateFlow<PendingSend?>(null)
+    val pending: StateFlow<PendingSend?> = _pending.asStateFlow()
+    private var pendingJob: Job? = null
+
     fun send() {
         val text = _draft.value.trim()
         val files = _attachments.value
-        if (text.isEmpty() && files.isEmpty()) return
+        if (text.isEmpty() && files.isEmpty() || _pending.value != null) return
         _draft.value = ""
         _attachments.value = emptyList()
+        val sim = _selectedSim.value
         viewModelScope.launch {
             states.saveDraft(threadId.value, "")
-            try {
-                repo.send(recipients, text, files, _selectedSim.value)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // Put the message back so nothing typed is lost.
-                _draft.value = text
-                _attachments.value = files
-                _notices.emit("Couldn't send: ${e.message ?: "unknown error"}")
+            val window = container.settings.current().undoSendSeconds * 1000L
+            if (window <= 0) return@launch deliver(text, files, sim)
+            _pending.value = PendingSend(text, files, System.currentTimeMillis() + window, window)
+            // The app scope, not this ViewModel's: leaving the conversation must not lose the message.
+            pendingJob = container.appScope.launch {
+                delay(window)
+                _pending.value = null
+                deliver(text, files, sim)
             }
+        }
+    }
+
+    /** Cancels a message still inside its undo window and puts it back in the composer. */
+    fun undoSend() {
+        val pending = _pending.value ?: return
+        if (pendingJob?.isActive != true) return
+        pendingJob?.cancel()
+        _pending.value = null
+        _draft.value = pending.text
+        _attachments.value = pending.attachments
+    }
+
+    private suspend fun deliver(text: String, files: List<OutgoingAttachment>, sim: Int?) {
+        try {
+            repo.send(recipients, text, files, sim)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Put the message back so nothing typed is lost.
+            _draft.value = text
+            _attachments.value = files
+            _notices.emit("Couldn't send: ${e.message ?: "unknown error"}")
         }
     }
 

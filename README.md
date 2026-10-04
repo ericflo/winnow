@@ -69,7 +69,8 @@ messages can't be tapped.
   or to unarchive in Archived. Full-text search covers SMS and MMS, and each conversation can be searched on its own,
   with matches highlighted. Settings links to Android's blocked-numbers list.
 - **Composing:** New chat with your contacts and Create group, photos from the gallery or the
-  camera, drafts that stick, an SMS segment counter, and **scheduled send** (long-press Send).
+  camera, drafts that stick, an SMS segment counter, **scheduled send** (long-press Send), and
+  optional **undo send** (5 or 10 seconds to take a message back).
 - **Dual SIM:** on a phone with two SIMs, a badge in the composer shows which one a text
   goes out on, and tapping it switches. Each conversation remembers its SIM. Otherwise it
   uses the SIM their last text arrived on, then your default. Replies from notifications and

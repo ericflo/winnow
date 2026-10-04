@@ -175,6 +175,25 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     },
                 )
             }
+            item("undo-send") {
+                ListItem(
+                    headlineContent = { Text("Undo send") },
+                    supportingContent = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Wait a few seconds before sending, so a message can be taken back")
+                            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                                listOf(0 to "Off", 5 to "5 seconds", 10 to "10 seconds").forEachIndexed { i, (seconds, label) ->
+                                    SegmentedButton(
+                                        selected = s.undoSendSeconds == seconds,
+                                        onClick = { viewModel.setUndoSend(seconds) },
+                                        shape = SegmentedButtonDefaults.itemShape(i, 3),
+                                    ) { Text(label) }
+                                }
+                            }
+                        }
+                    },
+                )
+            }
             item("blocked") {
                 ListItem(
                     headlineContent = { Text("Blocked numbers") },

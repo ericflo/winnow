@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.ericflo.winnow.classifier.DataHandling
@@ -76,6 +77,8 @@ data class WinnowSettings(
     val decideOnPhoneWhenSure: Boolean = false,
     /** Ask for a fingerprint, face or the screen lock to open Winnow. */
     val appLock: Boolean = false,
+    /** Seconds to hold a sent message so it can be undone; 0 sends at once. */
+    val undoSendSeconds: Int = 0,
     /** Keep new-message notifications off the lock screen. */
     val hideOnLockScreen: Boolean = false,
     /** Ask the carrier to confirm delivery of each SMS. Off by default, as in Messages. */
@@ -139,6 +142,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             decideOnPhoneWhenSure = this[DECIDE_ON_PHONE] ?: false,
             appLock = this[APP_LOCK] ?: false,
             hideOnLockScreen = this[HIDE_ON_LOCK_SCREEN] ?: false,
+            undoSendSeconds = this[UNDO_SEND_SECONDS] ?: 0,
             deliveryReports = this[DELIVERY_REPORTS] ?: false,
             reviewPromptDismissed = this[REVIEW_DISMISSED] ?: false,
             onboarded = this[ONBOARDED] ?: false,
@@ -167,6 +171,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[DECIDE_ON_PHONE] = s.decideOnPhoneWhenSure
         this[APP_LOCK] = s.appLock
         this[HIDE_ON_LOCK_SCREEN] = s.hideOnLockScreen
+        this[UNDO_SEND_SECONDS] = s.undoSendSeconds
         this[DELIVERY_REPORTS] = s.deliveryReports
         this[REVIEW_DISMISSED] = s.reviewPromptDismissed
         this[ONBOARDED] = s.onboarded
@@ -186,6 +191,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val DECIDE_ON_PHONE = booleanPreferencesKey("privacy.decide_on_phone_when_sure")
         val APP_LOCK = booleanPreferencesKey("security.app_lock")
         val HIDE_ON_LOCK_SCREEN = booleanPreferencesKey("security.hide_on_lock_screen")
+        val UNDO_SEND_SECONDS = intPreferencesKey("compose.undo_send_seconds")
         val DELIVERY_REPORTS = booleanPreferencesKey("sms.delivery_reports")
         val REVIEW_DISMISSED = booleanPreferencesKey("review.prompt_dismissed")
         val ONBOARDED = booleanPreferencesKey("onboarding.done")

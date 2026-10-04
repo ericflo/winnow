@@ -23,6 +23,7 @@ fun WinnowSettings.toBackup() = SettingsBackup(
     zdrOnly = zdrOnly,
     decideOnPhoneWhenSure = decideOnPhoneWhenSure,
     hideOnLockScreen = hideOnLockScreen,
+    undoSendSeconds = undoSendSeconds,
     deliveryReports = deliveryReports,
     categoryActions = categoryActions.entries.associate { (c, a) -> c.key to a.name },
 )
@@ -44,6 +45,7 @@ fun WinnowSettings.restoring(backup: SettingsBackup) = copy(
     zdrOnly = backup.zdrOnly,
     decideOnPhoneWhenSure = backup.decideOnPhoneWhenSure,
     hideOnLockScreen = backup.hideOnLockScreen,
+    undoSendSeconds = backup.undoSendSeconds.coerceIn(0, 30),
     deliveryReports = backup.deliveryReports,
     categoryActions = categoryActions + backup.categoryActions.mapNotNull { (key, action) ->
         val category = Category.fromKey(key) ?: return@mapNotNull null
