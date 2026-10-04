@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.ericflo.winnow.R
 import com.ericflo.winnow.data.Member
+import com.ericflo.winnow.data.showsInitial
 import androidx.compose.ui.graphics.Color
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
@@ -56,13 +57,14 @@ fun GroupAvatar(members: List<Member>, size: Dp = 52.dp, modifier: Modifier = Mo
     }
     val small = size * 0.66f
     Box(modifier.size(size).clearAndSetSemantics {}) {
-        val (first, second) = members
-        Avatar(first.name, seed = first.address, size = small, photoUri = first.photoUri, modifier = Modifier.align(Alignment.TopStart))
+        // The first in front (see groupFaces), the second peeking out behind it.
+        val (front, back) = members
+        Avatar(back.name, seed = back.address, size = small, photoUri = back.photoUri, modifier = Modifier.align(Alignment.TopStart))
         // The front one ringed in the background color, so the two read as separate faces.
         Box(
             Modifier.align(Alignment.BottomEnd).size(small + 3.dp).background(ring, CircleShape),
             contentAlignment = Alignment.Center,
-        ) { Avatar(second.name, seed = second.address, size = small, photoUri = second.photoUri) }
+        ) { Avatar(front.name, seed = front.address, size = small, photoUri = front.photoUri) }
     }
 }
 
@@ -72,7 +74,7 @@ fun GroupAvatar(members: List<Member>, size: Dp = 52.dp, modifier: Modifier = Mo
  */
 @Composable
 fun Avatar(name: String, seed: String, size: Dp = 52.dp, modifier: Modifier = Modifier, photoUri: String? = null) {
-    val named = name.firstOrNull()?.let { it.isLetter() } == true
+    val named = showsInitial(name)
     val (container, content) = if (named) {
         avatarColors(seed)
     } else {

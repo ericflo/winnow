@@ -469,7 +469,7 @@ class TelephonyMessageRepository(
                 verdict = null,
                 photoUri = people.singleOrNull()?.let(contacts::photoUri),
                 notSent = newest.failed,
-                members = if (people.size > 1) people.take(2).map { Member(it, displayName(it), contacts.photoUri(it)) } else emptyList(),
+                members = if (people.size > 1) groupFaces(people.take(GROUP_FACE_CANDIDATES).map { Member(it, displayName(it), contacts.photoUri(it)) }) else emptyList(),
             )
             // A placeholder has no verdict yet, so the thread keeps its latest one instead of losing it.
             summary to newest.key.takeIf { !newest.outgoing && !newest.placeholder }

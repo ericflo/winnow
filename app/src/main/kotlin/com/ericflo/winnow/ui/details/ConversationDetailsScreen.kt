@@ -56,6 +56,8 @@ import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.SenderRule
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.Member
+import com.ericflo.winnow.data.GROUP_FACE_CANDIDATES
+import com.ericflo.winnow.data.groupFaces
 import com.ericflo.winnow.data.displayNameFor
 import com.ericflo.winnow.data.normalizeAddress
 import com.ericflo.winnow.ui.components.showOrCreateContact
@@ -326,7 +328,7 @@ fun ConversationDetailsScreen(
                     if (person != null) {
                         Avatar(person.name, seed = person.address, size = 88.dp, photoUri = person.photoUri)
                     } else {
-                        GroupAvatar(state.people.take(2).map { Member(it.address, it.name, it.photoUri) }, 88.dp)
+                        GroupAvatar(groupFaces(state.people.take(GROUP_FACE_CANDIDATES).map { Member(it.address, it.name, it.photoUri) }), 88.dp)
                     }
                     Spacer(Modifier.height(12.dp))
                     Text(state.title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))
@@ -419,7 +421,11 @@ fun ConversationDetailsScreen(
                         headlineContent = { Text("Sound and vibration") },
                         supportingContent = { Text("Just for this conversation, in Android's settings") },
                         modifier = Modifier.clickable {
-                            runCatching { context.startActivity(viewModel.notificationSettings(state.title)) }
+                            // Off the main thread: a group's shortcut icon is drawn from its people's photos.
+                            scope.launch {
+                                val intent = withContext(Dispatchers.IO) { viewModel.notificationSettings(state.title) }
+                                runCatching { context.startActivity(intent) }
+                            }
                         },
                     )
                 }

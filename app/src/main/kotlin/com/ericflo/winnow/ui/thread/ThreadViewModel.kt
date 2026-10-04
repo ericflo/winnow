@@ -43,6 +43,8 @@ import kotlinx.coroutines.Dispatchers
 import com.ericflo.winnow.data.Attachment
 import com.ericflo.winnow.data.LinkPreview
 import com.ericflo.winnow.data.Member
+import com.ericflo.winnow.data.GROUP_FACE_CANDIDATES
+import com.ericflo.winnow.data.groupFaces
 import com.ericflo.winnow.data.SmartAction
 import com.ericflo.winnow.data.SmartLink
 import com.ericflo.winnow.data.normalizeAddress
@@ -103,9 +105,9 @@ class ThreadViewModel(
     /** Whether contacts can be read, so "not a contact" means something. */
     fun canReadContacts(): Boolean = container.contacts.canRead()
 
-    /** For a group, two of its people, for its avatar (cached lookups, as the title's). */
+    /** For a group, the two faces its avatar shows (cached lookups, as the title's). */
     private fun membersOf(): List<Member> =
-        if (recipients.size > 1) recipients.take(2).map { Member(it, repo.displayName(it), repo.photoUri(it)) } else emptyList()
+        if (recipients.size > 1) groupFaces(recipients.take(GROUP_FACE_CANDIDATES).map { Member(it, repo.displayName(it), repo.photoUri(it)) }) else emptyList()
 
     private fun subtitleFor(title: String) = when {
         recipients.size > 1 -> "${recipients.size + 1} people"

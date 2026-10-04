@@ -201,7 +201,9 @@ and opens Filtered; nothing on a quiet day.
 </table>
 
 The UI follows Google Messages: a large-title inbox on a rounded sheet, an avatar menu,
-timestamped conversation blocks, Material You colors and dark mode.
+timestamped conversation blocks, Material You colors and dark mode. A group's avatar shows two
+of its people, those with a photo or a name first, and its notification and home-screen
+shortcut show the same two faces.
 
 ## Privacy
 

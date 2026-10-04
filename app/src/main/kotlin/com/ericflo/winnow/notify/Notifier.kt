@@ -20,7 +20,10 @@ import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import com.ericflo.winnow.R
+import com.ericflo.winnow.data.Member
 import com.ericflo.winnow.data.joinAddresses
+import com.ericflo.winnow.data.showsInitial
+import com.ericflo.winnow.data.splitAddresses
 import com.ericflo.winnow.ui.BubbleActivity
 import com.ericflo.winnow.ui.MainActivity
 import com.ericflo.winnow.ui.theme.avatarHue
@@ -28,7 +31,11 @@ import android.provider.Settings
 import java.io.File
 
 /** Conversation notifications with inline reply and mark-as-read. */
-class Notifier(private val context: Context) {
+class Notifier(
+    private val context: Context,
+    /** The two faces a group's icon shows, as its avatar in the app does (see groupFaces). */
+    private val groupFaces: (List<String>) -> List<Member> = { emptyList() },
+) {
     private val manager = NotificationManagerCompat.from(context)
 
     /** The user's quick replies, offered as one-tap answers on message notifications. */
@@ -310,12 +317,84 @@ class Notifier(private val context: Context) {
             .setLongLived(true)
             .setIsConversation()
             .setLocusId(LocusIdCompat(shortcutId))
-            .setPerson(person)
-            .setIcon(photo?.let(IconCompat::createWithAdaptiveBitmap) ?: letterIcon(title, joined))
+            // A group's shortcut is the group's, not whoever texted it last.
+            .setPerson(if (splitAddresses(joined).size > 1) Person.Builder().setName(title).setKey(joined).build() else person)
+            .setIcon(icon(title, joined, photo))
             .setIntent(open)
             // Offered by name in the share sheet (see res/xml/shortcuts.xml).
             .setCategories(setOf(SHARE_CATEGORY))
             .build()
+    }
+
+    /**
+     * A conversation's icon, as its avatar in the app: a group's two faces (never whoever texted
+     * last), else the person's photo, else their letter.
+     */
+    private fun icon(title: String, joined: String, photo: Bitmap?): IconCompat {
+        val people = splitAddresses(joined)
+        if (people.size > 1) return runCatching { groupIcon(groupFaces(people)) }.getOrNull() ?: letterIcon(title, joined)
+        return photo?.let(IconCompat::createWithAdaptiveBitmap) ?: letterIcon(title, joined)
+    }
+
+    /**
+     * A group's two faces, overlapping as in the inbox, but with the first in front at the top
+     * left: Android badges a conversation's icon at the bottom right, over whatever is there.
+     * Null without two.
+     */
+    private fun groupIcon(faces: List<Member>): IconCompat? {
+        if (faces.size < 2) return null
+        val size = 432
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        canvas.drawColor(GROUP_BACKGROUND)
+        // Launchers and the shade show the middle two thirds; both faces fit inside that circle.
+        val radius = size * 0.18f
+        val offset = size * 0.085f
+        val center = size / 2f
+        drawFace(canvas, faces[1], center + offset, center + offset, radius)
+        val ring = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = GROUP_BACKGROUND }
+        canvas.drawCircle(center - offset, center - offset, radius + size * 0.012f, ring)
+        drawFace(canvas, faces[0], center - offset, center - offset, radius)
+        return IconCompat.createWithAdaptiveBitmap(bitmap)
+    }
+
+    /** One face: the contact's photo, else their initial on their color, else a person glyph. */
+    private fun drawFace(canvas: android.graphics.Canvas, member: Member, cx: Float, cy: Float, radius: Float) {
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        val photo = member.photoUri?.let { uri ->
+            runCatching { context.contentResolver.openInputStream(Uri.parse(uri))?.use(BitmapFactory::decodeStream) }.getOrNull()
+        }
+        if (photo != null) {
+            // Center-cropped into the circle.
+            val scale = 2 * radius / minOf(photo.width, photo.height)
+            val matrix = android.graphics.Matrix().apply {
+                setScale(scale, scale)
+                postTranslate(cx - photo.width * scale / 2, cy - photo.height * scale / 2)
+            }
+            paint.shader = android.graphics.BitmapShader(photo, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP)
+                .apply { setLocalMatrix(matrix) }
+            canvas.drawCircle(cx, cy, radius, paint)
+            return
+        }
+        if (showsInitial(member.name)) {
+            val hue = avatarHue(member.address)
+            paint.color = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.30f, 0.90f))
+            canvas.drawCircle(cx, cy, radius, paint)
+            paint.color = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.70f, 0.35f))
+            paint.textSize = radius * 0.95f
+            paint.textAlign = android.graphics.Paint.Align.CENTER
+            paint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+            canvas.drawText(member.name.first().uppercase(), cx, cy - (paint.descent() + paint.ascent()) / 2f, paint)
+            return
+        }
+        paint.color = GROUP_GLYPH_BACKGROUND
+        canvas.drawCircle(cx, cy, radius, paint)
+        androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_person)?.mutate()?.let { glyph ->
+            glyph.setTint(GROUP_GLYPH)
+            val half = radius * 0.55f
+            glyph.setBounds((cx - half).toInt(), (cy - half).toInt(), (cx + half).toInt(), (cy + half).toInt())
+            glyph.draw(canvas)
+        }
     }
 
     /** The conversation's first letter on its avatar color, as in the inbox; the app icon for a bare number. */
@@ -461,6 +540,11 @@ class Notifier(private val context: Context) {
     private fun notificationId(threadId: Long) = threadId.toInt()
 
     private companion object {
+        /** A group icon's ground, and the ring around its front face. */
+        const val GROUP_BACKGROUND = 0xFFE8EAF0.toInt()
+        /** A face with no name to show: a person glyph, as in the app. */
+        const val GROUP_GLYPH_BACKGROUND = 0xFFC9CDD6.toInt()
+        const val GROUP_GLYPH = 0xFF5A5F6B.toInt()
         const val CHANNEL_MESSAGES = "messages"
         const val SHARE_CATEGORY = "com.ericflo.winnow.category.SHARE_TARGET"
         const val CHANNEL_NOT_SENT = "not_sent"

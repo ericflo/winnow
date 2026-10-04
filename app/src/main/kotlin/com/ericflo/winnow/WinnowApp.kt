@@ -125,7 +125,11 @@ class AppContainer(private val context: Context) {
     val smartLinks by lazy { com.ericflo.winnow.data.SmartLinks(context) }
     val dailySummary by lazy { com.ericflo.winnow.notify.DailySummary(context, verdictDao, settings, notifier, ::isDefaultSmsApp) }
     val notifier by lazy {
-        Notifier(context).also { notifier -> appScope.launch { settings.settings.collect { notifier.quickReplies = it.quickReplies } } }
+        Notifier(context) { people ->
+            com.ericflo.winnow.data.groupFaces(
+                people.take(com.ericflo.winnow.data.GROUP_FACE_CANDIDATES).map { com.ericflo.winnow.data.Member(it, messages.displayName(it), messages.photoUri(it)) },
+            )
+        }.also { notifier -> appScope.launch { settings.settings.collect { notifier.quickReplies = it.quickReplies } } }
     }
     /** The phone's SIMs. Debug builds can pretend there's a second one (see DebugSimReceiver). */
     val sims by lazy {

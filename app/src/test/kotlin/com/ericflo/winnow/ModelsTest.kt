@@ -110,4 +110,20 @@ class ModelsTest {
         assertEquals("Just text", com.ericflo.winnow.data.subjectAndText("NoSubject", "Just text"))
         assertEquals("", com.ericflo.winnow.data.subjectAndText(null, ""))
     }
+
+    @Test
+    fun `a group's avatar shows faces before blank glyphs`() {
+        fun m(address: String, name: String, photo: String? = null) = com.ericflo.winnow.data.Member(address, name, photo)
+        val stranger1 = m("+12065550150", "(206) 555-0150")
+        val stranger2 = m("+12065550151", "(206) 555-0151")
+        val casey = m("+12065550142", "Casey Lin")
+        val morgan = m("+14155550177", "Morgan Reyes", photo = "content://photo/1")
+        fun faces(members: List<com.ericflo.winnow.data.Member>) = com.ericflo.winnow.data.groupFaces(members)
+        // A photo in front, then a name.
+        assertEquals(listOf(morgan, casey), faces(listOf(stranger1, casey, stranger2, morgan)))
+        // A named contact before a bare number.
+        assertEquals(listOf(casey, stranger1), faces(listOf(stranger1, stranger2, casey)))
+        // All alike: the conversation's own order.
+        assertEquals(listOf(stranger1, stranger2), faces(listOf(stranger1, stranger2, m("+12065550152", "(206) 555-0152"))))
+    }
 }
