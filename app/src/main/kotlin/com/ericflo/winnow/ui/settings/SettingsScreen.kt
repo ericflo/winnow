@@ -4,6 +4,10 @@ import android.content.Intent
 import android.provider.Settings
 import android.telecom.TelecomManager
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -55,10 +59,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ericflo.winnow.classifier.message.Action
+import com.ericflo.winnow.classifier.message.FilteredPhrases
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classifier.message.VerdictSource
 import com.ericflo.winnow.data.ProviderKind
@@ -180,6 +186,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     modifier = Modifier.clickable(onClick = onOpenSenderRules),
                 )
             }
+            item("filtered-phrases") { FilteredPhrasesRow(s.filteredPhrases, viewModel::setFilteredPhrases) }
 
             if (isDefault) {
                 section("Older conversations")
@@ -672,6 +679,71 @@ private fun SwipeChoiceRow(title: String, choice: SwipeChoice, onChange: (SwipeC
 }
 
 /** The quick replies, edited in a dialog: take some out, add your own. */
+/** Words that send a stranger's text straight to Filtered, decided on the phone. */
+@Composable
+private fun FilteredPhrasesRow(phrases: List<String>, onSave: (List<String>) -> Unit) {
+    var editing by rememberSaveable { mutableStateOf(false) }
+    ListItem(
+        headlineContent = { Text("Filtered words") },
+        supportingContent = {
+            Text(
+                if (phrases.isEmpty()) "Texts from people you don't know that use a word or phrase you add here go to Filtered, without being sent anywhere."
+                else "${phrases.size} filtered: ${phrases.joinToString(" · ")}",
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        modifier = Modifier.clickable { editing = true },
+    )
+    if (!editing) return
+    var list by remember(phrases) { mutableStateOf(phrases) }
+    var adding by rememberSaveable { mutableStateOf("") }
+    fun add() {
+        val phrase = FilteredPhrases.normalize(adding)
+        if (phrase.isNotEmpty() && list.none { it.equals(phrase, ignoreCase = true) }) list = list + phrase
+        adding = ""
+    }
+    AlertDialog(
+        onDismissRequest = { editing = false },
+        title = { Text("Filtered words") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "Whole words, any capitalization: \"vote\" filters \"VOTE today\" but not \"devoted\". Contacts and people you've texted aren't affected.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                list.forEach { phrase ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(phrase, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { list = list - phrase }) { Icon(Icons.Filled.Close, contentDescription = "Remove \"$phrase\"") }
+                    }
+                }
+                OutlinedTextField(
+                    value = adding,
+                    onValueChange = { adding = it.take(FilteredPhrases.MAX_LENGTH) },
+                    label = { Text("Word or phrase") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { add() }),
+                    trailingIcon = {
+                        IconButton(onClick = ::add, enabled = adding.isNotBlank()) { Icon(Icons.Filled.Add, contentDescription = "Add") }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                add()
+                onSave(list)
+                editing = false
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = { editing = false }) { Text("Cancel") } },
+    )
+}
+
 @Composable
 private fun QuickRepliesRow(replies: List<String>, onSave: (List<String>) -> Unit) {
     var editing by rememberSaveable { mutableStateOf(false) }

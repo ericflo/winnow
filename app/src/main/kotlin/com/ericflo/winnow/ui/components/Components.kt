@@ -110,7 +110,7 @@ fun UnreadCountBadge(count: Int, modifier: Modifier = Modifier) {
 @Composable
 fun VerdictBadge(verdict: StoredVerdict, modifier: Modifier = Modifier) {
     val (container, content) = categoryColors(verdict.category)
-    val label = verdict.category?.label ?: "Sender rule"
+    val label = verdict.label
     val detail = when {
         verdict.userAction != null -> "your call"
         verdict.effectiveAction == Action.SILENCE -> "silenced"

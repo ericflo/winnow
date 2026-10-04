@@ -2,6 +2,7 @@ package com.ericflo.winnow.backup
 
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
+import com.ericflo.winnow.classifier.message.FilteredPhrases
 import com.ericflo.winnow.classifier.message.RedactionPolicy
 import com.ericflo.winnow.data.ProviderKind
 import com.ericflo.winnow.data.SwipeChoice
@@ -40,6 +41,7 @@ fun WinnowSettings.toBackup() = SettingsBackup(
     enterToSend = enterToSend,
     quickReplies = quickReplies,
     autoSaveMedia = autoSaveMedia,
+    filteredPhrases = filteredPhrases,
 )
 
 /** These settings with [backup]'s applied. API keys already on this phone are kept. */
@@ -71,6 +73,9 @@ fun WinnowSettings.restoring(backup: SettingsBackup) = copy(
     linkPreviews = backup.linkPreviews,
     enterToSend = backup.enterToSend,
     quickReplies = backup.quickReplies?.map(String::trim)?.filter(String::isNotEmpty)?.distinct() ?: quickReplies,
+    // Added to this phone's, never fewer: a restore shouldn't let through what's filtered here.
+    filteredPhrases = (filteredPhrases + backup.filteredPhrases.orEmpty().map(FilteredPhrases::normalize).filter(String::isNotEmpty))
+        .distinctBy { it.lowercase() },
     autoSaveMedia = backup.autoSaveMedia,
     categoryActions = categoryActions + backup.categoryActions.mapNotNull { (key, action) ->
         val category = Category.fromKey(key) ?: return@mapNotNull null

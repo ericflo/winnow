@@ -4,6 +4,7 @@ import com.ericflo.winnow.classifier.DataHandling
 import com.ericflo.winnow.classifier.DecisionProvider
 import com.ericflo.winnow.classifier.http.HttpTransport
 import com.ericflo.winnow.classifier.local.OnDeviceClassifier
+import com.ericflo.winnow.classifier.message.FilteredPhrases
 import com.ericflo.winnow.classifier.message.MessageClassifier
 import com.ericflo.winnow.classifier.providers.ChatCompletionsConfig
 import com.ericflo.winnow.classifier.providers.ChatCompletionsProvider
@@ -28,6 +29,7 @@ class ClassifierFactory(
             // Without its learned adjustments the model still works; without the model, rules still do.
             onDevice = runCatching { onDevice() }.getOrNull(),
             decideOnDeviceAbove = SURE.takeIf { settings.decideOnPhoneWhenSure },
+            filteredPhrases = FilteredPhrases(settings.filteredPhrases),
         )
 
     /** Null when the choice is on-device only or the chosen provider isn't configured yet. */

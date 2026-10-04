@@ -1,6 +1,7 @@
 package com.ericflo.winnow.data
 
 import com.ericflo.winnow.classifier.message.Action
+import com.ericflo.winnow.classifier.message.FilteredPhrases
 
 data class ConversationSummary(
     val threadId: Long,
@@ -85,6 +86,10 @@ data class StoredVerdict(
     val userAction: Action? = null,
 ) {
     val effectiveAction: Action get() = userAction ?: action
+
+    /** What decided it, in a word or two: its category, or the kind of rule. */
+    val label: String
+        get() = category?.label ?: if (source.startsWith(FilteredPhrases.REASON_PREFIX)) "Filtered word" else "Sender rule"
 
     /** Links in fraud are never clickable, whatever the user later decides about the sender. */
     val isFraud: Boolean

@@ -40,7 +40,9 @@ you can change: **notify**, **silence** (inbox, no notification) or **filter** (
 no notification). A filtered conversation carries a banner saying what Winnow decided and
 who decided it, with **Not spam**, **Filter sender** and **Report**. Report forwards the
 text to your carrier's 7726 spam service, after you confirm. Links in phishing and scam
-messages can't be tapped.
+messages can't be tapped. **Filtered words** (Settings) send a stranger's text that uses one
+straight to Filtered, decided on the phone; whole words only, so "vote" doesn't catch
+"devoted", and contacts and people you've texted aren't affected.
 
 <table>
   <tr>
@@ -220,7 +222,7 @@ payload for any message.
 ## Classification is provider-agnostic
 
 ```
-incoming text → local rules (contacts, codes, sender rules)
+incoming text → local rules (contacts, codes, sender rules), then your filtered words
               → on-phone model, if you let it decide when it's sure
               → privacy gate + redaction
               → DecisionProvider: Jev (TypeSafe / OpenRouter) · any System One server

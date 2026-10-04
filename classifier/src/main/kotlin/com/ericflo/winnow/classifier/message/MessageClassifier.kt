@@ -14,7 +14,8 @@ import kotlin.coroutines.cancellation.CancellationException
 /**
  * Decides what to do with an incoming message.
  *
- * 1. Local rules (sender rules, contacts, verification codes) decide on the phone.
+ * 1. Local rules (sender rules, contacts, verification codes) decide on the phone, and then
+ *    so do the user's [filteredPhrases]: after the rules, so a contact saying one isn't filtered.
  * 2. If [decideOnDeviceAbove] is set and the [onDevice] model is at least that sure, it decides.
  * 3. Otherwise each provider the [privacy] policy allows is tried in order, with the
  *    redacted message, until one answers within [timeoutMillis].
@@ -30,10 +31,12 @@ class MessageClassifier(
     private val timeoutMillis: Long = 8_000,
     private val onDevice: OnDeviceClassifier? = null,
     private val decideOnDeviceAbove: Double? = null,
+    private val filteredPhrases: FilteredPhrases = FilteredPhrases(emptyList()),
 ) {
 
     suspend fun classify(message: InboundMessage): Verdict {
         LocalRules.decide(message, privacy)?.let { return it }
+        filteredPhrases.find(message.body)?.let { phrase -> return Verdict.rule(null, Action.FILTER, FilteredPhrases.reason(phrase)) }
 
         // The model is a fallback as much as a first opinion, so a failure here must not stop classification.
         val local = onDevice?.let { runCatching { it.classify(message) }.getOrNull() }

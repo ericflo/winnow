@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ericflo.winnow.AppContainer
+import com.ericflo.winnow.classifier.message.FilteredPhrases
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classifier.message.InboundMessage
@@ -154,6 +155,10 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun setAutoSaveMedia(value: Boolean) = update { it.copy(autoSaveMedia = value) }
 
     fun setQuickReplies(value: List<String>) = update { it.copy(quickReplies = value.map(String::trim).filter(String::isNotEmpty).distinct()) }
+
+    fun setFilteredPhrases(value: List<String>) = update {
+        it.copy(filteredPhrases = value.map(FilteredPhrases::normalize).filter(String::isNotEmpty).distinctBy(String::lowercase))
+    }
 
     fun setAutoDownloadMmsRoaming(value: Boolean) = update { it.copy(autoDownloadMmsRoaming = value) }
 
