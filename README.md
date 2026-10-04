@@ -77,7 +77,7 @@ messages can't be tapped.
   the message they react to. Failed sends and MMS downloads can be retried. SMS delivery
   reports are opt-in, and MMS auto-download can be turned off (it's off while roaming unless
   you allow it), leaving "Tap to download" in the conversation. Optionally, photos and videos
-  that reach the inbox are saved to the phone's gallery (Pictures/Winnow) as they arrive;
+  that reach the inbox are saved to the phone's gallery (Pictures/Winnow, Movies/Winnow) as they arrive;
   filtered and silenced texts' never are.
 - **Conversations:** pin, archive, mute (for an hour, 8 hours, a day, or until you turn it
   back on), mark read/unread, delete, block (Android's system
