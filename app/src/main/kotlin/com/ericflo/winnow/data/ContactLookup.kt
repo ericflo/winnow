@@ -116,6 +116,15 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
         // A phone number the contact list doesn't have isn't a contact; only short codes,
         // emails and the like still go to PhoneLookup.
         numberKey(address)?.let { key -> return index(started)[key] }
+        // An email address (an MMS from or to one) is looked up among contacts' emails.
+        if (isEmailAddress(address)) {
+            val byEmail = Uri.withAppendedPath(ContactsContract.CommonDataKinds.Email.CONTENT_LOOKUP_URI, Uri.encode(address.trim()))
+            return context.contentResolver.query(
+                byEmail,
+                arrayOf(ContactsContract.CommonDataKinds.Email.DISPLAY_NAME, ContactsContract.CommonDataKinds.Email.PHOTO_THUMBNAIL_URI, ContactsContract.CommonDataKinds.Email.PHOTO_URI),
+                null, null, null,
+            )?.use { c -> if (c.moveToFirst()) c.getString(0)?.let { Info(it, remember(c.getString(1), c.getString(2))) } else null }
+        }
         val uri = Uri.withAppendedPath(PhoneLookup.CONTENT_FILTER_URI, Uri.encode(address))
         return context.contentResolver.query(uri, arrayOf(PhoneLookup.DISPLAY_NAME, PhoneLookup.PHOTO_THUMBNAIL_URI, PhoneLookup.PHOTO_URI), null, null, null)?.use { c ->
             if (c.moveToFirst()) c.getString(0)?.let { Info(it, remember(c.getString(1), c.getString(2))) } else null
@@ -195,6 +204,9 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
 
         /** A full phone number (7+ digits), not a short code, email or alphanumeric sender. */
         fun isPersonalNumber(address: String): Boolean = numberKey(address)?.startsWith("short:") == false
+
+        /** Someone who can be written back to: a full phone number, or an email address (by MMS). */
+        fun isReachable(address: String): Boolean = isPersonalNumber(address) || isEmailAddress(address)
 
         @Volatile private var appContext: Context? = null
         /** The SIM's country, once known. The network's is only a fallback, asked again later (a roaming phone is still from home). */

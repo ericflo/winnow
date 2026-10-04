@@ -60,6 +60,7 @@ import com.ericflo.winnow.AppContainer
 import com.ericflo.winnow.R
 import com.ericflo.winnow.data.ContactEntry
 import com.ericflo.winnow.data.ContactLookup
+import com.ericflo.winnow.data.isEmailAddress
 import com.ericflo.winnow.data.normalizeAddress
 import com.ericflo.winnow.ui.components.Avatar
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -107,7 +108,7 @@ class NewChatViewModel(
             recent.value = runCatching { repo.conversations().first() }.getOrDefault(emptyList())
                 // People: not short codes or named senders (codes, banks, deliveries), and each once,
                 // even if a group's thread ever lists just one of them.
-                .filter { it.recipients.size == 1 && !it.isFiltered && ContactLookup.isPersonalNumber(it.recipients.single()) }
+                .filter { it.recipients.size == 1 && !it.isFiltered && ContactLookup.isReachable(it.recipients.single()) }
                 .sortedByDescending { it.timestamp }
                 .distinctBy { normalizeAddress(it.recipients.single()) }
                 .take(RECENT)
@@ -116,7 +117,8 @@ class NewChatViewModel(
     }
 
     val state: StateFlow<NewChatUiState> = combine(query, contacts, groupMode, picked, recent) { q, all, group, picked, recent ->
-        val matches = if (q.isBlank()) all else all.filter { it.matches(q) }
+        // A contact's email addresses only when looked for: the full list stays one row per number.
+        val matches = if (q.isBlank()) all.filterNot { isEmailAddress(it.number) } else all.filter { it.matches(q) }
         NewChatUiState(
             query = q,
             groups = matches.groupBy { c -> c.name.first().uppercaseChar().takeIf { it.isLetter() }?.toString() ?: "#" }.toList(),
@@ -142,6 +144,7 @@ class NewChatViewModel(
     }
 
     private fun ContactEntry.matches(q: String): Boolean {
+        if (isEmailAddress(number)) return name.contains(q, ignoreCase = true) || number.contains(q.trim(), ignoreCase = true)
         val digits = q.filter(Char::isDigit)
         return name.contains(q, ignoreCase = true) || (digits.isNotEmpty() && number.filter(Char::isDigit).contains(digits))
     }
@@ -309,7 +312,7 @@ private fun ToField(query: String, onQueryChange: (String) -> Unit, onDone: () -
             Spacer(Modifier.width(16.dp))
             Box(Modifier.weight(1f)) {
                 if (query.isEmpty()) {
-                    Text(if (dialPad) "Phone number" else "Type name or phone number", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (dialPad) "Phone number" else "Name, phone number or email", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 BasicTextField(
                     value = query,
@@ -381,8 +384,9 @@ private fun ContactCard(
 }
 
 /** What's typed, if it's a phone number to text rather than a name to look up. */
+/** What's typed, if it can be sent to as it is: a phone number, or an email address (by MMS). */
 private fun dialable(query: String): String? =
-    query.trim().takeIf { t -> t.count(Char::isDigit) >= 3 && t.all { it.isDigit() || it in "+()- ." } }
+    query.trim().takeIf { t -> (t.count(Char::isDigit) >= 3 && t.all { it.isDigit() || it in "+()- ." }) || isEmailAddress(t) }
 
 /** How many recent people New chat offers first. */
 private const val RECENT = 5

@@ -312,7 +312,7 @@ class ThreadViewModel(
                     members = membersOf(),
                     // A real number with no name: short codes and alphanumeric senders aren't people to add.
                     addableContact = single?.takeIf {
-                        container.contacts.canRead() && repo.contactName(it) == null && ContactLookup.isPersonalNumber(it)
+                        container.contacts.canRead() && repo.contactName(it) == null && ContactLookup.isReachable(it)
                     },
                 )
             }
@@ -345,7 +345,7 @@ class ThreadViewModel(
             subjectAndText(newest.subject, newest.body).isNotBlank() &&
             (newest.verdict == null || newest.verdict.effectiveAction == Action.ALLOW) &&
             !s.linksOff(newest) &&
-            s.recipients.all(ContactLookup::isPersonalNumber)
+            s.recipients.all(ContactLookup::isReachable)
         newest?.key.takeIf { worthIt } to s.messages
     }
         .distinctUntilChanged { a, b -> a.first == b.first }

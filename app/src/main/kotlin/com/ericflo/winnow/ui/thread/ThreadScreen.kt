@@ -192,6 +192,7 @@ import com.ericflo.winnow.data.normalizeAddress
 import com.ericflo.winnow.data.SmartAction
 import com.ericflo.winnow.data.SmartLink
 import com.ericflo.winnow.data.subjectAndText
+import com.ericflo.winnow.data.isEmailAddress
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -483,7 +484,8 @@ fun ThreadScreen(
                     }
                 },
                 actions = {
-                    if (single != null) {
+                    // An email address has no phone to call.
+                    if (single != null && !isEmailAddress(single)) {
                         IconButton(onClick = { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", single, null))) }) {
                             Icon(Icons.Filled.Call, contentDescription = "Call")
                         }
@@ -551,7 +553,11 @@ fun ThreadScreen(
                             }
                             if (viewModel.canBlock) {
                                 DropdownMenuItem(
-                                    text = { Text(if (blocked) "Unblock number" else "Block number") },
+                                    // Android's block list takes email addresses too.
+                                    text = {
+                                        val what = if (single?.let(::isEmailAddress) == true) "address" else "number"
+                                        Text(if (blocked) "Unblock $what" else "Block $what")
+                                    },
                                     leadingIcon = { Icon(painterResource(R.drawable.ic_block), contentDescription = null) },
                                     onClick = {
                                         menuOpen = false
@@ -624,7 +630,8 @@ fun ThreadScreen(
                 onAddSubject = viewModel::addSubject,
                 onRemoveSubject = viewModel::removeSubject,
                 // Sent separately, each person gets a plain text; a subject makes it an MMS (an empty one is left off).
-                isSms = (single != null || sendSeparately) && attachments.isEmpty() && subjectBlank,
+                // An email address takes only an MMS.
+                isSms = (single != null || sendSeparately) && state.recipients.none(::isEmailAddress) && attachments.isEmpty() && subjectBlank,
                 sendsAsMms = viewModel.sendsAsMms.collectAsStateWithLifecycle().value,
                 onSend = viewModel::send,
                 enterToSend = enterToSend,
@@ -1244,8 +1251,13 @@ private fun MessageList(
     var liveScale by remember { mutableFloatStateOf(textScale) }
     LaunchedEffect(textScale) { liveScale = textScale }
     val saveScale by rememberUpdatedState(onTextScale)
-    val transport = if (state.isGroup) "Group texting with ${state.recipients.size} people (MMS)"
-    else "Texting with ${ContactLookup.formatAddress(state.recipients.firstOrNull().orEmpty())} (SMS/MMS)"
+    val other = state.recipients.firstOrNull().orEmpty()
+    val transport = when {
+        state.isGroup -> "Group texting with ${state.recipients.size} people (MMS)"
+        // An email address only ever gets an MMS.
+        isEmailAddress(other) -> "Texting with $other (MMS)"
+        else -> "Texting with ${ContactLookup.formatAddress(other)} (SMS/MMS)"
+    }
     val items = remember(transport, state.messages, unreadOnOpen) { buildItems(transport, state.messages, unreadOnOpen) }
     val latestOutgoing = state.messages.lastOrNull { it.outgoing }?.key
     var revealed by rememberSaveable { mutableStateOf<String?>(null) }

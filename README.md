@@ -107,7 +107,9 @@ and opens Filtered; nothing on a quiet day.
   separately** in a group (each person gets their own text, so replies come back one to one), and
   optional **undo send** (5 or 10 seconds to take a message back). **Quick replies** ("On my
   way", "Can't talk now, I'll call you later", your own) sit in the + menu and appear as one-tap
-  answers on notifications. **Suggested replies** come from Android's on-device text classifier
+  answers on notifications. **Email addresses** can be texted too (New chat takes one, and
+  contacts' emails turn up when searched): it goes as an MMS, which carriers deliver as email.
+  **Suggested replies** come from Android's on-device text classifier
   (the Smart Reply Messages uses): chips above the keyboard that put a reply in the draft, never
   for filtered, silenced or fraudulent texts, or senders that can't take a reply. A photo from a contact, or from someone you've texted, shows in its
   notification; a stranger's doesn't. Conversations you text with

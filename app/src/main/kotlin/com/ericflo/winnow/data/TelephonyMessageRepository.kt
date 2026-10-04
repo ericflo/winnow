@@ -102,8 +102,9 @@ class TelephonyMessageRepository(
 
     override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int?, subject: String?) {
         withContext(Dispatchers.IO) {
-            // One person, nothing attached, no subject: a text, unless the carrier wants one this long as an MMS.
-            if (recipients.size == 1 && attachments.isEmpty() && subject == null && !mms.textNeedsMms(body, subscriptionId)) {
+            // One person, nothing attached, no subject: a text, unless the carrier wants one this long
+            // as an MMS. An email address only ever takes an MMS.
+            if (recipients.size == 1 && !isEmailAddress(recipients.single()) && attachments.isEmpty() && subject == null && !mms.textNeedsMms(body, subscriptionId)) {
                 sms.send(recipients.single(), body, subscriptionId)
             } else {
                 mms.send(recipients, body, attachments, subscriptionId, subject)

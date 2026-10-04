@@ -151,6 +151,14 @@ fun normalizeAddress(address: String): String {
     return if (digits.length == 11 && digits.startsWith("1")) digits.drop(1) else digits
 }
 
+/**
+ * An email address, which an MMS can be sent to (carriers deliver it as an email) but a text
+ * can't, and which has no phone to call.
+ */
+fun isEmailAddress(address: String): Boolean = EMAIL.matches(address.trim())
+
+private val EMAIL = Regex("""[^\s@,;<>()]+@[^\s@,;<>()]+\.[^\s@,;<>()]{2,}""")
+
 /** Route-safe encoding of a recipient list. */
 fun joinAddresses(addresses: List<String>): String = addresses.joinToString(",")
 

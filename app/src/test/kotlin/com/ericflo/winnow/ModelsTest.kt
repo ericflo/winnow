@@ -141,4 +141,18 @@ class ModelsTest {
         assertEquals("Dinner Friday? I'm in", com.ericflo.winnow.data.searchSnippet("Dinner Friday?\nI'm in", "friday"))
         assertEquals("no match here", com.ericflo.winnow.data.searchSnippet("no match here", "zebra"))
     }
+
+    @Test
+    fun `email addresses are told from numbers and names`() {
+        fun email(a: String) = com.ericflo.winnow.data.isEmailAddress(a)
+        assertTrue(email("ann@example.com"))
+        assertTrue(email(" first.last+tag@mail.example.co.uk "))
+        assertFalse(email("4155550177"))
+        assertFalse(email("AMAZON"))
+        assertFalse(email("ann@example"))
+        assertFalse(email("ann @example.com"))
+        assertFalse(email("a@b.c,d@e.f"))
+        assertTrue(com.ericflo.winnow.data.ContactLookup.isReachable("ann@example.com"))
+        assertFalse(com.ericflo.winnow.data.ContactLookup.isReachable("72975"))
+    }
 }

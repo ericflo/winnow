@@ -450,7 +450,10 @@ fun ConversationDetailsScreen(
                 item("rule-allow") { RuleRow("Always allow", "Every message reaches your inbox", state.senderRule == SenderRule.ALWAYS_ALLOW) { viewModel.setRule(SenderRule.ALWAYS_ALLOW) } }
                 item("rule-filter") { RuleRow("Always filter", "Every message goes to Filtered, silently", state.senderRule == SenderRule.ALWAYS_FILTER) { viewModel.setRule(SenderRule.ALWAYS_FILTER) } }
                 if (state.canBlock) {
-                    item("blocked") { Toggle("Block number", "Android drops their texts and calls", state.blocked, viewModel::setBlocked) }
+                    item("blocked") {
+                        val email = state.people.singleOrNull()?.address?.let { com.ericflo.winnow.data.isEmailAddress(it) } == true
+                        Toggle(if (email) "Block address" else "Block number", "Android drops their texts and calls", state.blocked, viewModel::setBlocked)
+                    }
                 }
             }
             }
