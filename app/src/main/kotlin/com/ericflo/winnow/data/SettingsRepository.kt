@@ -127,6 +127,8 @@ data class WinnowSettings(
     val quickReplies: List<String> = DEFAULT_QUICK_REPLIES,
     /** Words and phrases that send a stranger's text to Filtered, decided on the phone. */
     val filteredPhrases: List<String> = emptyList(),
+    /** An evening notification saying how many texts were filtered or silenced that day. */
+    val dailySummary: Boolean = false,
     /** Fetch link previews for texts from people you know. Off by default: fetching tells the site your IP. */
     val linkPreviews: Boolean = false,
     /** A folder (SAF tree URI) for weekly automatic backups; this phone's only, never backed up. */
@@ -208,6 +210,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             enterToSend = this[ENTER_TO_SEND] ?: false,
             autoSaveMedia = this[AUTO_SAVE_MEDIA] ?: false,
             quickReplies = this[QUICK_REPLIES]?.let { runCatching { Json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrNull() } ?: DEFAULT_QUICK_REPLIES,
+            dailySummary = this[DAILY_SUMMARY] ?: false,
             filteredPhrases = this[FILTERED_PHRASES]?.let { runCatching { Json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrNull() }.orEmpty(),
             autoBackupFolder = this[AUTO_BACKUP_FOLDER],
             autoBackupLast = this[AUTO_BACKUP_LAST] ?: 0,
@@ -253,6 +256,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[AUTO_SAVE_MEDIA] = s.autoSaveMedia
         this[QUICK_REPLIES] = Json.encodeToString(ListSerializer(String.serializer()), s.quickReplies)
         this[FILTERED_PHRASES] = Json.encodeToString(ListSerializer(String.serializer()), s.filteredPhrases)
+        this[DAILY_SUMMARY] = s.dailySummary
         s.autoBackupFolder?.let { this[AUTO_BACKUP_FOLDER] = it } ?: remove(AUTO_BACKUP_FOLDER)
         this[AUTO_BACKUP_LAST] = s.autoBackupLast
         s.autoBackupError?.let { this[AUTO_BACKUP_ERROR] = it } ?: remove(AUTO_BACKUP_ERROR)
@@ -287,6 +291,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val ENTER_TO_SEND = booleanPreferencesKey("compose.enter_to_send")
         val QUICK_REPLIES = stringPreferencesKey("compose.quick_replies")
         val FILTERED_PHRASES = stringPreferencesKey("filter.phrases")
+        val DAILY_SUMMARY = booleanPreferencesKey("filter.daily_summary")
         val AUTO_SAVE_MEDIA = booleanPreferencesKey("mms.auto_save_media")
         val AUTO_BACKUP_FOLDER = stringPreferencesKey("backup.auto_folder")
         val AUTO_BACKUP_LAST = longPreferencesKey("backup.auto_last")

@@ -188,6 +188,14 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                 )
             }
             item("filtered-phrases") { FilteredPhrasesRow(s.filteredPhrases, viewModel::setFilteredPhrases) }
+            item("daily-summary") {
+                SwitchRow(
+                    "Daily summary",
+                    "Each evening, how many texts were kept out of your inbox or arrived quietly. Nothing on a quiet day.",
+                    s.dailySummary,
+                    onChange = viewModel::setDailySummary,
+                )
+            }
 
             if (isDefault) {
                 section("Older conversations")

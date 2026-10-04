@@ -72,6 +72,7 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
             container.draftAttachments.sweep(container.conversationStates.all().map { it.draftAttachments })
         }
         container.appScope.launch { container.trash.purgeExpired() }
+        container.appScope.launch { runCatching { container.dailySummary.rearm() } }
         // Yesterday's notification photos: their notifications are gone.
         container.appScope.launch(Dispatchers.IO) { runCatching { container.notifier.purgeImages() } }
     }
@@ -122,6 +123,7 @@ class AppContainer(private val context: Context) {
     val classifiers by lazy { ClassifierFactory(OkHttpTransport()) { learner.classifier() } }
     val contacts by lazy { ContactLookup(context, appScope) }
     val smartLinks by lazy { com.ericflo.winnow.data.SmartLinks(context) }
+    val dailySummary by lazy { com.ericflo.winnow.notify.DailySummary(context, verdictDao, settings, notifier) }
     val notifier by lazy {
         Notifier(context).also { notifier -> appScope.launch { settings.settings.collect { notifier.quickReplies = it.quickReplies } } }
     }

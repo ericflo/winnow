@@ -5,5 +5,7 @@
     <string name="channel_not_sent">Messages not sent</string>
     <string name="shortcut_new_chat">New chat</string>
     <string name="shortcut_new_chat_long">Start a conversation</string>
+    <string name="channel_summary">Daily summary</string>
+    <string name="channel_summary_description">Once an evening: how many texts Winnow kept out of your inbox</string>
     <string name="channel_not_sent_description">When a text you sent, or scheduled, couldn\'t go out</string>
 </resources>

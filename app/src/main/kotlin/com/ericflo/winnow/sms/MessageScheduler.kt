@@ -128,8 +128,11 @@ class ScheduledSendReceiver : BroadcastReceiver() {
             try {
                 when (intent.action) {
                     // Reboots and exact-alarm permission changes both drop or reshape pending alarms.
-                    Intent.ACTION_BOOT_COMPLETED, AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED ->
+                    Intent.ACTION_BOOT_COMPLETED, AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> {
                         container.scheduler.rearmAll()
+                        // The evening summary's alarm went with the reboot too.
+                        runCatching { container.dailySummary.rearm() }
+                    }
                     else -> container.scheduler.sendNow(intent.getLongExtra(EXTRA_ID, -1))
                 }
             } catch (e: CancellationException) {

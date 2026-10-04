@@ -38,7 +38,34 @@ class Notifier(private val context: Context) {
             .apply { description = context.getString(R.string.channel_messages_description) }
         val notSent = NotificationChannel(CHANNEL_NOT_SENT, context.getString(R.string.channel_not_sent), NotificationManager.IMPORTANCE_HIGH)
             .apply { description = context.getString(R.string.channel_not_sent_description) }
-        context.getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(channel, notSent))
+        val summary = NotificationChannel(CHANNEL_SUMMARY, context.getString(R.string.channel_summary), NotificationManager.IMPORTANCE_LOW)
+            .apply { description = context.getString(R.string.channel_summary_description) }
+        context.getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(channel, notSent, summary))
+    }
+
+    /** The evening summary (see DailySummary): quiet, and opens Filtered. */
+    fun showSummary(filtered: Int, silenced: Int) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        fun texts(n: Int) = if (n == 1) "1 text" else "$n texts"
+        val title = if (filtered > 0) "Kept ${texts(filtered)} out of your inbox today" else "${texts(silenced)} arrived quietly today"
+        val detail = when {
+            filtered > 0 && silenced > 0 -> "And ${texts(silenced)} arrived without a notification. Tap to look them over."
+            filtered > 0 -> "Tap to look them over, in case one belongs in your inbox."
+            else -> "Delivered without a notification, as you set it up."
+        }
+        val open = Intent(context, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_OPEN_FILTERED)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val notification = NotificationCompat.Builder(context, CHANNEL_SUMMARY)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(detail)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setAutoCancel(true)
+            .setContentIntent(PendingIntent.getActivity(context, SUMMARY_ID, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            .build()
+        manager.notify(TAG_SUMMARY, SUMMARY_ID, notification)
     }
 
     /**
@@ -435,6 +462,9 @@ class Notifier(private val context: Context) {
         const val CHANNEL_NOT_SENT = "not_sent"
         const val TAG = "thread"
         const val TAG_NOT_SENT = "not_sent"
+        const val CHANNEL_SUMMARY = "summary"
+        const val TAG_SUMMARY = "summary"
+        const val SUMMARY_ID = 1
         const val IMAGE_EDGE_PX = 1024
         const val MAX_IMAGE_PIXELS = 40_000_000L
         const val RECENT_MILLIS = 3_000L

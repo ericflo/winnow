@@ -42,6 +42,7 @@ fun WinnowSettings.toBackup() = SettingsBackup(
     quickReplies = quickReplies,
     autoSaveMedia = autoSaveMedia,
     filteredPhrases = filteredPhrases,
+    dailySummary = dailySummary,
 )
 
 /** These settings with [backup]'s applied. API keys already on this phone are kept. */
@@ -77,6 +78,7 @@ fun WinnowSettings.restoring(backup: SettingsBackup) = copy(
     filteredPhrases = (filteredPhrases + backup.filteredPhrases.orEmpty().map(FilteredPhrases::normalize).filter(String::isNotEmpty))
         .distinctBy { it.lowercase() },
     autoSaveMedia = backup.autoSaveMedia,
+    dailySummary = backup.dailySummary,
     categoryActions = categoryActions + backup.categoryActions.mapNotNull { (key, action) ->
         val category = Category.fromKey(key) ?: return@mapNotNull null
         Action.entries.firstOrNull { it.name == action }?.let { category to it }

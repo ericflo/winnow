@@ -156,6 +156,13 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setQuickReplies(value: List<String>) = update { it.copy(quickReplies = value.map(String::trim).filter(String::isNotEmpty).distinct()) }
 
+    fun setDailySummary(value: Boolean) {
+        viewModelScope.launch {
+            container.settings.update { it.copy(dailySummary = value) }
+            container.dailySummary.rearm()
+        }
+    }
+
     fun setFilteredPhrases(value: List<String>) = update {
         it.copy(filteredPhrases = value.map(FilteredPhrases::normalize).filter(String::isNotEmpty).distinctBy(String::lowercase))
     }

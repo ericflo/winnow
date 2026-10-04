@@ -23,6 +23,8 @@ import kotlin.random.Random
  *
  *     adb shell "am broadcast -n com.ericflo.winnow/.debug.DebugSeedReceiver --es from +12065550142 --es text 'hi there'"
  *
+ * Or `--ez summary true` posts the daily summary now, as its evening alarm would.
+ *
  * Needs Winnow to be the default SMS app (only it may write the store).
  */
 class DebugSeedReceiver : BroadcastReceiver() {
@@ -34,6 +36,10 @@ class DebugSeedReceiver : BroadcastReceiver() {
         val from = intent.getStringExtra("from")
         container.appScope.launch {
             try {
+                if (intent.getBooleanExtra("summary", false)) {
+                    container.dailySummary.fire()
+                    return@launch
+                }
                 if (from != null) {
                     val values = ContentValues().apply {
                         put(Telephony.Sms.ADDRESS, from)

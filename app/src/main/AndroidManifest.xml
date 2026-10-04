@@ -167,6 +167,11 @@
                 android:resource="@xml/mms_paths" />
         </provider>
 
+        <!-- The daily summary's evening alarm (Settings → Daily summary). -->
+        <receiver
+            android:name=".notify.DailySummaryReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".sms.ScheduledSendReceiver"
             android:exported="false">
