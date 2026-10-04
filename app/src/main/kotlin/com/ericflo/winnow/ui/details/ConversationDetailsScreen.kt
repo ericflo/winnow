@@ -135,6 +135,8 @@ class ConversationDetailsViewModel(
     private val rule = MutableStateFlow<SenderRule?>(null)
     private val blocked = MutableStateFlow(false)
     private val single = recipients.singleOrNull()
+    /** [rule] and [blocked] have been read once (a group has neither to read). */
+    private val reloaded = MutableStateFlow(single == null)
 
     /** A conversation not yet in the message store has no notifications to configure. */
     val hasThread = threadId >= 0
@@ -190,11 +192,10 @@ class ConversationDetailsViewModel(
 
     val state: StateFlow<DetailsUiState> = combine(
         container.conversationStates.observeTimed().map { it[threadId] },
-        rule,
-        blocked,
+        combine(rule, blocked, reloaded) { r, b, done -> Triple(r, b, done) },
         // Names and photos read again when contacts change: someone just added shows by name.
         repo.contactChanges().onStart { emit(Unit) },
-    ) { s, rule, blocked, _ ->
+    ) { s, (rule, blocked, reloadedOnce), _ ->
         DetailsUiState(
             title = s?.title ?: displayNameFor(recipients, repo::displayName),
             groupName = s?.title,
@@ -207,7 +208,8 @@ class ConversationDetailsViewModel(
             blocked = blocked,
             canBlock = single != null && container.blockedNumbers.available(),
             canReadContacts = container.contacts.canRead(),
-            loaded = true,
+            // The switches and choices wait for every one of them, a blocked number's included.
+            loaded = reloadedOnce,
         )
     }
         // Contact lookups can hit the disk (the whole list, after a change).
@@ -257,6 +259,7 @@ class ConversationDetailsViewModel(
         val address = single ?: return@launch
         rule.value = container.verdictDao.senderRule(normalizeAddress(address))?.let { runCatching { SenderRule.valueOf(it) }.getOrNull() }
         blocked.value = container.blockedNumbers.isBlocked(address)
+        reloaded.value = true
     }
 
     private fun launch(block: suspend () -> Unit) {

@@ -57,7 +57,6 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
     fun clear() {
         generation.incrementAndGet()
         cache.clear()
-        largePhotos.clear()
         numbers = null
     }
 
@@ -130,9 +129,15 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
         }
     }
 
-    /** [thumbnail], noting its full-size [photo] for [displayPhoto] when the contact has a real one. */
+    /**
+     * [thumbnail], noting its full-size [photo] for [displayPhoto] when the contact has a real one
+     * (and forgetting one it no longer has). Kept across [clear], which runs on every resume: what
+     * was found stays right until a lookup says otherwise, and avatars read it without a lookup.
+     */
     private fun remember(thumbnail: String?, photo: String?): String? {
-        if (thumbnail != null && photo != null && photo != thumbnail) largePhotos[thumbnail] = photo
+        if (thumbnail != null) {
+            if (photo != null && photo != thumbnail) largePhotos[thumbnail] = photo else largePhotos.remove(thumbnail)
+        }
         return thumbnail
     }
 

@@ -158,6 +158,8 @@ class AppContainer(private val context: Context) {
         // Android keeps a per-app night mode (12+), which recolors system bars and dialogs too.
         appScope.launch {
             settings.settings.map { it.theme }.distinctUntilChanged().collect { theme ->
+                // Icons drawn for the shade go by the system's mode; the override hides it (see Notifier).
+                notifier.themeOverridden = theme != ThemeMode.SYSTEM
                 context.getSystemService(UiModeManager::class.java)?.setApplicationNightMode(
                     when (theme) {
                         ThemeMode.SYSTEM -> UiModeManager.MODE_NIGHT_AUTO

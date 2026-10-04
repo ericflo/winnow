@@ -442,6 +442,12 @@ class BackupManager(
         backup: WinnowBackup,
         spool: File,
         report: (BackupStatus) -> Unit = { _status.value = it },
+        /**
+         * Recently deleted: a conversation's draft goes back into state made since (opening it
+         * again, picking a SIM) if that has none. Not for a backup restore, where a draft that's
+         * gone was most likely sent, and anything already here is kept.
+         */
+        draftsIntoExisting: Boolean = false,
     ): RestoreCount {
         val total = backup.messageCount
         val classified = verdicts.all().mapTo(HashSet()) { it.messageKey }
@@ -466,7 +472,7 @@ class BackupManager(
                 done += knownTexts.size
                 // Its pin, mute, name and draft still come back (a reinstall leaves every text on
                 // the phone and none of Winnow's state), on the conversation those texts are in.
-                knownTexts.map { textsEverywhere.getValue(textKey(it)!!).second }.distinct().singleOrNull()?.let { restoreState(it, conversation, spool) }
+                knownTexts.map { textsEverywhere.getValue(textKey(it)!!).second }.distinct().singleOrNull()?.let { restoreState(it, conversation, spool, draftsIntoExisting) }
                 continue
             }
             val threadId = Telephony.Threads.getOrCreateThreadId(context, conversation.recipients.toSet())
@@ -512,13 +518,16 @@ class BackupManager(
             }
             report(BackupStatus.Working("Restoring messages", done, total))
 
-            restoreState(threadId, conversation, spool)
+            restoreState(threadId, conversation, spool, draftsIntoExisting)
         }
         return RestoreCount(added, present, empty)
     }
 
-    /** A conversation's pin, archive, mute, name and draft (its subject too), unless Winnow already has state for it. */
-    private suspend fun restoreState(threadId: Long, conversation: ConversationBackup, spool: File) {
+    /**
+     * A conversation's pin, archive, mute, name and draft (its subject and attachments too),
+     * unless Winnow already has state for it; then, with [draftsIntoExisting], just the draft.
+     */
+    private suspend fun restoreState(threadId: Long, conversation: ConversationBackup, spool: File, draftsIntoExisting: Boolean) {
         // The draft's attachments, copied out of the spool (which goes) to where drafts keep theirs.
         fun attached() = drafts?.let { d ->
             conversation.draftAttachments.mapNotNull { p ->
@@ -528,6 +537,7 @@ class BackupManager(
         }
         val existing = states.get(threadId)
         if (existing != null) {
+            if (!draftsIntoExisting) return
             // State made since (the conversation opened again, a SIM picked) stands. Its draft is
             // only taken if it has none at all: a conversation back from Recently deleted mustn't
             // lose its draft, photos and all, to a row that only says which SIM it uses.
@@ -552,7 +562,8 @@ class BackupManager(
     private fun spooled(spool: File, name: String): File? {
         if (BackupArchive.safeName(name) == null) return null
         val file = File(spool, name)
-        return file.takeIf { it.canonicalFile.parentFile == spool.canonicalFile && it.isFile }
+        // A path that can't be resolved is one this restore skips, not one that ends it.
+        return file.takeIf { runCatching { it.canonicalFile.parentFile == spool.canonicalFile }.getOrDefault(false) && it.isFile }
     }
 
     /** A text's identity across threads: its fingerprint and the other person's number. */

@@ -42,6 +42,9 @@ class Notifier(
     /** The user's quick replies, offered as one-tap answers on message notifications. */
     @Volatile var quickReplies: List<String> = emptyList()
 
+    /** Settings → Theme is Light or Dark: Winnow's own night mode, which the shade doesn't share. */
+    @Volatile var themeOverridden: Boolean = false
+
     init {
         val channel = NotificationChannel(CHANNEL_MESSAGES, context.getString(R.string.channel_messages), NotificationManager.IMPORTANCE_HIGH)
             .apply { description = context.getString(R.string.channel_messages_description) }
@@ -403,16 +406,19 @@ class Notifier(
      * Whether the system (the notification shade, the launcher) is dark. Not the app's own
      * configuration: Settings → Theme overrides that for Winnow alone.
      */
-    private fun systemDark(): Boolean =
-        // The system-wide setting where it's a plain on or off: Settings → Theme's own override
-        // reaches even Resources.getSystem() in this process. Scheduled or automatic, only the
-        // configuration can say, and it's right unless that override is on too.
-        when (context.getSystemService(android.app.UiModeManager::class.java)?.nightMode) {
+    private fun systemDark(): Boolean {
+        val configuration = android.content.res.Resources.getSystem().configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        // Without Winnow's own override the configuration is the system's, Battery Saver's
+        // forced dark and schedules included. With it, the configuration is Winnow's: then the
+        // system-wide setting, where it's a plain on or off (a schedule can't be told from here).
+        if (!themeOverridden) return configuration
+        return when (context.getSystemService(android.app.UiModeManager::class.java)?.nightMode) {
             android.app.UiModeManager.MODE_NIGHT_YES -> true
             android.app.UiModeManager.MODE_NIGHT_NO -> false
-            else -> android.content.res.Resources.getSystem().configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
-                android.content.res.Configuration.UI_MODE_NIGHT_YES
+            else -> configuration
         }
+    }
 
     /**
      * A contact's photo at most [edge] pixels across: the full-size display photo when that's

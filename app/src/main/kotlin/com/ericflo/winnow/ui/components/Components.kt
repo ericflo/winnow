@@ -14,6 +14,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -91,10 +95,14 @@ fun Avatar(name: String, seed: String, size: Dp = 52.dp, modifier: Modifier = Mo
         // Drawn over the initial, so a missing or unreadable photo just shows the initial. At
         // this size and up the 96-pixel thumbnail is soft: the full photo instead, if there is one.
         if (photoUri != null) {
+            // Back to the thumbnail if the full photo won't load (it was removed since, say).
+            var largeFailed by remember(photoUri) { mutableStateOf(false) }
+            val large = ContactLookup.displayPhoto(photoUri)?.takeIf { size >= SHARP_PHOTO_SIZE && !largeFailed }
             AsyncImage(
-                model = ContactLookup.displayPhoto(photoUri)?.takeIf { size >= SHARP_PHOTO_SIZE } ?: photoUri,
+                model = large ?: photoUri,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
+                onError = { if (large != null) largeFailed = true },
                 modifier = Modifier.size(size).clip(CircleShape),
             )
         }

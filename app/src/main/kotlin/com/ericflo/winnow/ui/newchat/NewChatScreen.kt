@@ -72,6 +72,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 
 data class NewChatUiState(
     val query: String = "",
@@ -296,6 +297,8 @@ private fun ToField(query: String, onQueryChange: (String) -> Unit, onDone: () -
     LaunchedEffect(Unit) { focus.requestFocus() }
     // Letters for names, or the dial pad for a number, as Messages offers.
     var dialPad by rememberSaveable { mutableStateOf(false) }
+    // Shown again if it had been put away: the point of the button is the keyboard.
+    val keyboard = LocalSoftwareKeyboardController.current
     Surface(
         shape = CircleShape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -319,7 +322,7 @@ private fun ToField(query: String, onQueryChange: (String) -> Unit, onDone: () -
                     modifier = Modifier.fillMaxWidth().focusRequester(focus),
                 )
             }
-            IconButton(onClick = { dialPad = !dialPad; focus.requestFocus() }) {
+            IconButton(onClick = { dialPad = !dialPad; focus.requestFocus(); keyboard?.show() }) {
                 Icon(
                     painterResource(if (dialPad) R.drawable.ic_keyboard else R.drawable.ic_dialpad),
                     contentDescription = if (dialPad) "Type a name" else "Dial a number",

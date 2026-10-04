@@ -65,6 +65,9 @@ fun OnboardingScreen(
     backups: BackupManager,
 ) {
     var step by rememberSaveable { mutableIntStateOf(0) }
+    // Up here, not in the step: Back and Next again must show what was chosen (and saved).
+    var classifier by rememberSaveable { mutableStateOf(ProviderKind.ON_DEVICE) }
+    var apiKey by rememberSaveable { mutableStateOf("") }
     // Back goes to the step before, as a swipe back through a setup flow does; from the first, it leaves.
     BackHandler(enabled = step > 0) { step-- }
     var defaultNow by rememberSaveable { mutableStateOf(isDefault()) }
@@ -83,7 +86,11 @@ fun OnboardingScreen(
             when (step) {
                 0 -> Welcome()
                 1 -> BeDefault(defaultNow, onMakeDefault, backups)
-                else -> ChooseClassifier(onChooseClassifier)
+                else -> ChooseClassifier(classifier, apiKey) { kind, key ->
+                    classifier = kind
+                    apiKey = key
+                    onChooseClassifier(kind, key.trim())
+                }
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
@@ -170,9 +177,7 @@ private fun RestoreCard(backups: BackupManager) {
 }
 
 @Composable
-private fun ChooseClassifier(onChoose: (ProviderKind, String) -> Unit) {
-    var kind by rememberSaveable { mutableStateOf(ProviderKind.ON_DEVICE) }
-    var key by rememberSaveable { mutableStateOf("") }
+private fun ChooseClassifier(kind: ProviderKind, key: String, onChoose: (ProviderKind, String) -> Unit) {
     val options = listOf(ProviderKind.ON_DEVICE, ProviderKind.OPENROUTER_JEV, ProviderKind.TYPESAFE_JEV)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 56.dp)) {
         Text("How should Winnow decide?", style = MaterialTheme.typography.headlineMedium)
@@ -186,10 +191,7 @@ private fun ChooseClassifier(onChoose: (ProviderKind, String) -> Unit) {
                 verticalAlignment = Alignment.Top,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .selectable(selected = kind == option, role = Role.RadioButton, onClick = {
-                        kind = option
-                        onChoose(option, key)
-                    }),
+                    .selectable(selected = kind == option, role = Role.RadioButton, onClick = { onChoose(option, key) }),
             ) {
                 RadioButton(selected = kind == option, onClick = null, modifier = Modifier.padding(12.dp))
                 Column(Modifier.padding(top = 10.dp)) {
@@ -201,10 +203,7 @@ private fun ChooseClassifier(onChoose: (ProviderKind, String) -> Unit) {
         if (kind.needsApiKey) {
             OutlinedTextField(
                 value = key,
-                onValueChange = {
-                    key = it
-                    onChoose(kind, it.trim())
-                },
+                onValueChange = { onChoose(kind, it) },
                 label = { Text("API key") },
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,

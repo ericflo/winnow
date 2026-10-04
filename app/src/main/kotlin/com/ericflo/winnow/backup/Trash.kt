@@ -193,7 +193,7 @@ class Trash(
                     BackupArchive.read(input) { name, stream -> File(spool, name).outputStream().use { stream.copyTo(it) } }
                 }
                 // Not reported to the Backup settings, which may be busy with a backup of their own.
-                val restored = backups.restoreMessages(backup, spool, report = {})
+                val restored = backups.restoreMessages(backup, spool, report = {}, draftsIntoExisting = true)
                 val complete = restored.covers(backup.messageCount)
                 if (complete) item.file.delete()
                 Restored(restored.added, complete)
