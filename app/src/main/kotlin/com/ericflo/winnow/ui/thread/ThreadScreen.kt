@@ -189,6 +189,7 @@ import com.ericflo.winnow.ui.components.firstWebLink
 import com.ericflo.winnow.data.normalizeAddress
 import com.ericflo.winnow.data.SmartAction
 import com.ericflo.winnow.data.SmartLink
+import com.ericflo.winnow.data.subjectAndText
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -228,6 +229,8 @@ import androidx.compose.foundation.content.MediaType
 import androidx.compose.foundation.content.consume
 import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.foundation.content.hasMediaType
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 
@@ -256,7 +259,8 @@ fun ThreadScreen(
     val enterToSend by viewModel.enterToSend.collectAsStateWithLifecycle()
     val recording by viewModel.recording.collectAsStateWithLifecycle()
     val sendSeparately by viewModel.sendSeparately.collectAsStateWithLifecycle()
-    val subject by viewModel.subject.collectAsStateWithLifecycle()
+    val subjectShown by viewModel.subjectShown.collectAsStateWithLifecycle()
+    val subject = viewModel.subjectField.takeIf { subjectShown }
     // A permission was refused, maybe for good (then asking again shows nothing): say what it's for.
     var refused by remember { mutableStateOf<String?>(null) }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -613,10 +617,9 @@ fun ThreadScreen(
                 onRotateAttachment = viewModel::rotateAttachment,
                 subject = subject,
                 onAddSubject = viewModel::addSubject,
-                onSubjectChange = viewModel::setSubject,
                 onRemoveSubject = viewModel::removeSubject,
-                // Sent separately, each person gets a plain text; a subject makes it an MMS.
-                isSms = (single != null || sendSeparately) && attachments.isEmpty() && subject == null,
+                // Sent separately, each person gets a plain text; a subject makes it an MMS (an empty one is left off).
+                isSms = (single != null || sendSeparately) && attachments.isEmpty() && subject?.text.isNullOrBlank(),
                 sendsAsMms = viewModel.sendsAsMms.collectAsStateWithLifecycle().value,
                 onSend = viewModel::send,
                 enterToSend = enterToSend,
@@ -624,8 +627,7 @@ fun ThreadScreen(
                 sendSeparately = sendSeparately,
                 onClearSendSeparately = viewModel::clearSendSeparately,
                 onSchedule = { at, label ->
-                    scheduledJustNow.value = true
-                    viewModel.schedule(at, label)
+                    if (viewModel.schedule(at, label)) scheduledJustNow.value = true
                 },
             )
             }
@@ -713,17 +715,19 @@ fun ThreadScreen(
     }
 
     actionsFor?.let { message ->
+        // An MMS's subject goes along with its words: copied, forwarded and shared.
+        val words = subjectAndText(message.subject, message.body)
         MessageActionsSheet(
             message = message,
             onDismiss = { actionsFor = null },
-            onCopy = { copy(message.body, "Message copied") },
+            onCopy = { copy(words, "Message copied") },
             onForward = {
                 scope.launch {
                     val files = if (message.attachments.isEmpty()) emptyList() else viewModel.forwardable(message)
-                    if (message.attachments.isNotEmpty() && files.isEmpty() && message.body.isBlank()) {
+                    if (message.attachments.isNotEmpty() && files.isEmpty() && words.isBlank()) {
                         snackbar.showSnackbar("Couldn't copy that to forward it")
                     } else {
-                        onForward(message.body, SharedAttachments.encode(files))
+                        onForward(words, SharedAttachments.encode(files))
                     }
                 }
             },
@@ -737,12 +741,12 @@ fun ThreadScreen(
             replyPrivately = message.sender?.takeIf { state.isGroup && !message.outgoing }?.let { sender ->
                 (state.senderNames[sender] ?: sender) to { onMessageNumber(sender) }
             },
-            onSelectText = { selectingText = message.body },
+            onSelectText = { selectingText = words },
             onReactOther = { reactingWithOther = message },
             links = if (message.verdict?.isFraud == true) emptyList() else allWebLinks(message.body),
             onCopyLink = { copy(it, "Link copied") },
             onShareText = {
-                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, message.body)
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, words)
                 runCatching { context.startActivity(Intent.createChooser(send, null)) }
             },
         )
@@ -1748,7 +1752,7 @@ private fun MessageActionsSheet(
                     ) { Icon(Icons.Filled.Add, contentDescription = "Another emoji") }
                 }
             }
-            if (message.body.isNotBlank()) {
+            if (message.body.isNotBlank() || message.subject != null) {
                 ListItem(
                     headlineContent = { Text("Copy text") },
                     leadingContent = { Icon(painterResource(R.drawable.ic_copy), contentDescription = null) },
@@ -1931,10 +1935,9 @@ private fun Composer(
     recordingElapsed: () -> Long = { 0 },
     onStopRecording: () -> Unit = {},
     onCancelRecording: () -> Unit = {},
-    /** The MMS subject: null for no subject field. */
-    subject: String? = null,
+    /** The MMS subject line: null for no subject field. */
+    subject: TextFieldState? = null,
     onAddSubject: () -> Unit = {},
-    onSubjectChange: (String) -> Unit = {},
     onRemoveSubject: () -> Unit = {},
     isSms: Boolean,
     /** The draft is long enough that the carrier has it sent as an MMS. */
@@ -2021,7 +2024,7 @@ private fun Composer(
             Surface(shape = RoundedCornerShape(28.dp), color = colors.surfaceContainerHigh, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
                 Column {
                 if (subject != null) {
-                    SubjectField(subject, onSubjectChange, onRemoveSubject, Modifier.focusRequester(subjectFocus))
+                    SubjectField(subject, onRemoveSubject, Modifier.focusRequester(subjectFocus))
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = colors.outlineVariant)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 16.dp)) {
@@ -2089,35 +2092,52 @@ private fun Composer(
             }
             Spacer(Modifier.width(8.dp))
             SendButton(
-                enabled = draft.isNotBlank() || attachments.isNotEmpty() || !subject.isNullOrBlank(),
+                enabled = draft.isNotBlank() || attachments.isNotEmpty() || subject?.text?.isNotBlank() == true,
                 onSend = onSend, onSchedule = onSchedule, onSendSeparately = onSendSeparately,
             )
         }
     }
 }
 
+/**
+ * A subject is one short line: line breaks become spaces, and it stops at MAX_SUBJECT characters
+ * without cutting an emoji (or any other character) in half.
+ */
+private object SubjectInput : InputTransformation {
+    override fun TextFieldBuffer.transformInput() {
+        val text = asCharSequence()
+        for (i in text.indices) if (text[i] == '\n' || text[i] == '\r') replace(i, i + 1, " ")
+        if (length > ThreadViewModel.MAX_SUBJECT) {
+            val characters = android.icu.text.BreakIterator.getCharacterInstance().apply { setText(asCharSequence().toString()) }
+            val end = characters.preceding(ThreadViewModel.MAX_SUBJECT + 1).coerceAtLeast(0)
+            replace(end, length, "")
+        }
+    }
+}
+
 /** An MMS subject line, above the message in the composer, with an X to drop it. */
 @Composable
-private fun SubjectField(subject: String, onChange: (String) -> Unit, onRemove: () -> Unit, modifier: Modifier = Modifier) {
+private fun SubjectField(subject: TextFieldState, onRemove: () -> Unit, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
+    val length = subject.text.length
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, end = 4.dp)) {
         Box(Modifier.weight(1f).padding(vertical = 12.dp)) {
-            if (subject.isEmpty()) {
+            if (length == 0) {
                 Text("Subject", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
             }
             BasicTextField(
-                value = subject,
-                onValueChange = onChange,
-                singleLine = true,
+                state = subject,
+                inputTransformation = SubjectInput,
+                lineLimits = TextFieldLineLimits.SingleLine,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface, fontWeight = FontWeight.SemiBold),
                 cursorBrush = SolidColor(colors.primary),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
                 modifier = modifier.fillMaxWidth().semantics { contentDescription = "Subject" },
             )
         }
-        if (subject.length >= ThreadViewModel.MAX_SUBJECT - 10) {
+        if (length >= ThreadViewModel.MAX_SUBJECT - 10) {
             Text(
-                "${subject.length}/${ThreadViewModel.MAX_SUBJECT}",
+                "$length/${ThreadViewModel.MAX_SUBJECT}",
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.onSurfaceVariant,
                 modifier = Modifier.padding(start = 8.dp),

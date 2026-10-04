@@ -42,4 +42,24 @@ class ReturnedMessagesTest {
         assertEquals(true, taken.separately)
         assertNull(returned.take(7))
     }
+
+    @Test
+    fun `a returned subject joins the one being written`() {
+        assertEquals("Dinner", ReturnedMessages.mergeSubjects("Dinner", null))
+        assertEquals("Dinner", ReturnedMessages.mergeSubjects("Dinner", " "))
+        assertEquals("Dinner", ReturnedMessages.mergeSubjects("Dinner", "Dinner"))
+        // Saved with the draft and read back already: not twice.
+        assertEquals("Dinner · Movie", ReturnedMessages.mergeSubjects("Dinner", "Dinner · Movie"))
+        assertEquals("Dinner · Movie", ReturnedMessages.mergeSubjects("Dinner", "Movie"))
+        assertEquals("Movie", ReturnedMessages.mergeSubjects(null, "Movie"))
+        assertNull(ReturnedMessages.mergeSubjects(null, null))
+    }
+
+    @Test
+    fun `two failures keep both subjects`() {
+        val returned = ReturnedMessages()
+        returned.put(7, ReturnedMessages.Returned("first", emptyList(), separately = false, subject = "Dinner"))
+        returned.put(7, ReturnedMessages.Returned("second", emptyList(), separately = false, subject = "Movie"))
+        assertEquals("Movie · Dinner", returned.take(7)!!.subject)
+    }
 }

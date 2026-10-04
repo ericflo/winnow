@@ -101,4 +101,20 @@ class HelpersTest {
     fun `smil needs a way to reference each part`() {
         assertFailsWith<IllegalArgumentException> { Smil.forParts(listOf(MmsPart("image/png", byteArrayOf()))) }
     }
+
+    @Test
+    fun `subjects are stored as Android's MMS code stores them, and read back either way`() {
+        val subject = "Grüße aus Köln 🚆"
+        val stored = MmsCharsets.forStore(subject)
+        // The UTF-8 bytes, one character each: what another app reads back with sub_cs = UTF-8.
+        assertEquals(subject, String(stored.toByteArray(Charsets.ISO_8859_1), Charsets.UTF_8))
+        assertEquals(subject, MmsCharsets.fromStore(stored, MmsCharsets.UTF_8))
+        // Plain text, as Winnow stored subjects before: left alone.
+        assertEquals("café", MmsCharsets.fromStore("café", MmsCharsets.UTF_8))
+        assertEquals("東京 🎉", MmsCharsets.fromStore("東京 🎉", MmsCharsets.UTF_8))
+        assertEquals("Dinner Friday", MmsCharsets.fromStore("Dinner Friday", MmsCharsets.UTF_8))
+        // Latin-1 bytes are their own characters; no charset, nothing to undo.
+        assertEquals("Ä", MmsCharsets.fromStore("Ä", MmsCharsets.ISO_8859_1))
+        assertEquals("GrÃ¼ÃŸe", MmsCharsets.fromStore("GrÃ¼ÃŸe", null))
+    }
 }

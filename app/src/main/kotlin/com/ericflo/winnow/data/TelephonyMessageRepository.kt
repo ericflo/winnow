@@ -571,7 +571,7 @@ class TelephonyMessageRepository(
             Telephony.Mms.CONTENT_URI,
             arrayOf(
                 Telephony.Mms._ID, Telephony.Mms.DATE, Telephony.Mms.MESSAGE_BOX, Telephony.Mms.MESSAGE_TYPE, Telephony.Mms.SUBJECT,
-                Telephony.Mms.STATUS, Telephony.Mms.SUBSCRIPTION_ID, Telephony.Mms.MESSAGE_SIZE,
+                Telephony.Mms.STATUS, Telephony.Mms.SUBSCRIPTION_ID, Telephony.Mms.MESSAGE_SIZE, Telephony.Mms.SUBJECT_CHARSET,
             ),
             "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms.MESSAGE_BOX} != ${Telephony.Mms.MESSAGE_BOX_DRAFTS}",
             arrayOf(threadId.toString()), null,
@@ -596,7 +596,7 @@ class TelephonyMessageRepository(
                     downloadSize = c.getLong(7),
                     verdict = null,
                     kind = Kind.MMS,
-                    subject = meaningfulSubject(c.getString(4)),
+                    subject = meaningfulSubject(MmsStore.subjectAt(c, 4, 8)),
                     subscriptionId = if (c.isNull(6)) null else c.getInt(6).takeIf { it >= 0 },
                 )
             }
@@ -656,9 +656,9 @@ class TelephonyMessageRepository(
         val subjects = HashMap<Long, String>()
         mmsIds.chunked(500).forEach { chunk ->
             resolver.query(
-                Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.SUBJECT),
+                Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.SUBJECT, Telephony.Mms.SUBJECT_CHARSET),
                 "${Telephony.Mms._ID} IN (${chunk.joinToString(",")})", null, null,
-            )?.use { c -> while (c.moveToNext()) meaningfulSubject(c.getString(1))?.let { subjects[c.getLong(0)] = it } }
+            )?.use { c -> while (c.moveToNext()) meaningfulSubject(MmsStore.subjectAt(c, 1, 2))?.let { subjects[c.getLong(0)] = it } }
         }
         return subjects
     }

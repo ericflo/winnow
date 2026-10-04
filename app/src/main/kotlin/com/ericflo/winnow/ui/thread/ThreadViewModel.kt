@@ -15,6 +15,8 @@ import com.ericflo.winnow.data.db.StarredEntity
 import com.ericflo.winnow.data.displayNameFor
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -233,9 +235,11 @@ class ThreadViewModel(
             val saved = states.get(id)
             // A forwarded or shared draft joins what was already waiting here, rather than replacing it.
             saved.draft?.let { text -> setDraft(if (currentDraft().isEmpty()) text else ReturnedMessages.appendTo(text, currentDraft())) }
-            if (_subject.value == null) saved.draftSubject?.let { _subject.value = it }
-            // The subject is kept with the draft, from here on.
-            launch(start = CoroutineStart.UNDISPATCHED) { _subject.drop(1).debounce(400).collect { states.saveDraftSubject(id, it) } }
+            if (!_subjectShown.value) saved.draftSubject?.let(::setSubject)
+            subjectLoaded = true
+            // The subject is kept with the draft from here on, whatever it is now (typed before
+            // this ran, or just restored: saving the same again is harmless).
+            launch(start = CoroutineStart.UNDISPATCHED) { subjectChanges().debounce(400).collect { states.saveDraftSubject(id, it) } }
             val kept = withContext(Dispatchers.IO) { drafts.decode(saved.draftAttachments) }
             if (kept.isNotEmpty()) _attachments.value = kept + _attachments.value.filter { a -> kept.none { it.uri == a.uri } }
             // From here on every change to the attachments is kept, the first included: a share's
@@ -356,6 +360,7 @@ class ThreadViewModel(
         val returned = container.returnedMessages.take(id) ?: return
         // Its text was saved as the draft too, which this screen may have restored already.
         setDraft(ReturnedMessages.appendTo(currentDraft(), returned.text))
+        mergeSubject(returned.subject)
         if (returned.shared) {
             // Shared from another app: checked like anything else attached (a video may need shrinking).
             returned.attachments.forEach(::addAttachment)
@@ -377,9 +382,12 @@ class ThreadViewModel(
         val left = _attachments.value
         if (id >= 0) {
             val draft = currentDraft()
+            // Only once the saved one was read: before that, "no subject" would erase it.
+            val subject = currentSubject().takeIf { subjectLoaded }
             // What's in the composer stays with the draft, kept where it outlives the app.
             container.appScope.launch {
                 states.saveDraft(id, draft)
+                if (subjectLoaded) states.saveDraftSubject(id, subject)
                 val kept = left.mapNotNull { drafts.keep(it) }
                 states.saveDraftAttachments(id, drafts.encode(kept))
                 left.forEach(recorder::discard)
@@ -621,23 +629,40 @@ class ThreadViewModel(
         _sendSeparately.value = false
     }
 
-    private val _subject = MutableStateFlow<String?>(null)
-    /** The composer's MMS subject: null for no subject field, "" for an empty one. */
-    val subject: StateFlow<String?> = _subject.asStateFlow()
+    /** The composer's MMS subject line, while it shows (see [subjectShown]). */
+    val subjectField = TextFieldState()
+    private val _subjectShown = MutableStateFlow(false)
+    /** Whether the composer has a subject field (Attach → Subject). */
+    val subjectShown: StateFlow<Boolean> = _subjectShown.asStateFlow()
+    /** The saved subject has been read, so saving what's here can't erase it. */
+    @Volatile private var subjectLoaded = false
+
+    /** The subject as it stands: null with no subject field, "" for an empty one. */
+    private fun currentSubject(): String? = if (_subjectShown.value) subjectField.text.toString() else null
+
+    /** Something to send as a subject, or null. */
+    private fun sendableSubject(): String? = currentSubject()?.trim()?.takeIf { it.isNotEmpty() }
+
+    private fun subjectChanges(): Flow<String?> =
+        combine(_subjectShown, snapshotFlow { subjectField.text.toString() }) { shown, text -> if (shown) text else null }.distinctUntilChanged()
+
+    private fun setSubject(value: String?) {
+        subjectField.setTextAndPlaceCursorAtEnd(value.orEmpty())
+        _subjectShown.value = value != null
+    }
+
+    /** A subject coming back (undo, a failed send) joins the one being written, never replaces it. */
+    private fun mergeSubject(returned: String?) {
+        if (returned.isNullOrBlank()) return
+        setSubject(ReturnedMessages.mergeSubjects(returned, currentSubject()))
+    }
 
     /** Shows the subject field (Attach → Subject). */
     fun addSubject() {
-        if (_subject.value == null) _subject.value = ""
+        if (!_subjectShown.value) setSubject("")
     }
 
-    fun setSubject(text: String) {
-        // Carriers and phones show a short line; most cap it near 40 characters.
-        _subject.value = text.replace('\n', ' ').take(MAX_SUBJECT)
-    }
-
-    fun removeSubject() {
-        _subject.value = null
-    }
+    fun removeSubject() = setSubject(null)
 
     /** A sent message waiting out the undo window; null when nothing is pending. */
     data class PendingSend(
@@ -659,14 +684,14 @@ class ThreadViewModel(
     fun send(separately: Boolean = false) {
         val text = currentDraft().trim()
         val files = _attachments.value
-        val subject = _subject.value?.trim()?.takeIf { it.isNotEmpty() }
+        val subject = sendableSubject()
         if (text.isEmpty() && files.isEmpty() && subject == null || _pending.value != null) return
         val apart = (separately || _sendSeparately.value) && recipients.size > 1
         // Replying means the new messages have been read; the divider has done its job.
         _unreadOnOpen.value = emptyList()
         draftField.clearText()
         _attachments.value = emptyList()
-        _subject.value = null
+        setSubject(null)
         _sendSeparately.value = false
         val sim = _selectedSim.value
         // People the user texts become share-sheet targets too, not only people who text them.
@@ -715,7 +740,7 @@ class ThreadViewModel(
                 setDraft(listOf(text, currentDraft()).filter { it.isNotBlank() }.joinToString("\n"))
                 _attachments.value = files + _attachments.value
                 if (separately) _sendSeparately.value = true
-                if (subject != null && _subject.value.isNullOrBlank()) _subject.value = subject
+                mergeSubject(subject)
                 return@launch
             }
             withContext(Dispatchers.IO) {
@@ -726,9 +751,10 @@ class ThreadViewModel(
                     val kept = files.mapNotNull { drafts.keep(it) }
                     val already = drafts.decode(saved.draftAttachments)
                     states.saveDraftAttachments(id, drafts.encode(already + kept.filter { k -> already.none { it.uri == k.uri } }))
-                    container.returnedMessages.put(id, ReturnedMessages.Returned(text, kept, separately))
-                    // Saved with the draft, where the conversation picks it up when it opens.
-                    if (subject != null && saved.draftSubject.isNullOrBlank()) states.saveDraftSubject(id, subject)
+                    // The subject saved with the draft (joining any there) before it's handed back,
+                    // so a conversation opening in between finds it one way or the other.
+                    if (!subject.isNullOrBlank()) states.saveDraftSubject(id, ReturnedMessages.mergeSubjects(subject, saved.draftSubject))
+                    container.returnedMessages.put(id, ReturnedMessages.Returned(text, kept, separately, subject = subject))
                 }
             }
             container.toast("Couldn't send${reason?.let { ": $it" }.orEmpty()}. It's back in the conversation's composer.")
@@ -777,17 +803,18 @@ class ThreadViewModel(
     }
 
     /** Schedules the draft. Attachments can't be scheduled (yet): MMS bodies aren't stored ahead of time. */
-    fun schedule(sendAt: Long, label: String) {
+    /** Schedules the draft; false if it can't be (nothing to send, or an MMS). */
+    fun schedule(sendAt: Long, label: String): Boolean {
         val text = currentDraft().trim()
         if (_attachments.value.isNotEmpty()) {
             _notices.tryEmit("Only text messages can be scheduled")
-            return
+            return false
         }
-        if (!_subject.value.isNullOrBlank()) {
+        if (sendableSubject() != null) {
             _notices.tryEmit("A message with a subject goes as an MMS, which can't be scheduled. Remove the subject, or send it now.")
-            return
+            return false
         }
-        if (text.isEmpty()) return
+        if (text.isEmpty()) return false
         draftField.clearText()
         // "Separately" holds for scheduled texts too: one per person, in their own conversations.
         val apart = _sendSeparately.value && recipients.size > 1
@@ -802,6 +829,7 @@ class ThreadViewModel(
                 _notices.emit("Scheduled for $label")
             }
         }
+        return true
     }
 
     /** Remembers [subscriptionId] as this conversation's SIM. */

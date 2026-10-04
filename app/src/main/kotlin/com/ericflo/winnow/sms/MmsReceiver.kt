@@ -16,7 +16,6 @@ import com.ericflo.winnow.WinnowApp
 import com.ericflo.winnow.classify.IncomingMessageHandler
 import com.ericflo.winnow.data.OwnNumbers
 import com.ericflo.winnow.data.normalizeAddress
-import com.ericflo.winnow.data.subjectAndText
 import com.ericflo.winnow.mms.ContentTypes
 import com.ericflo.winnow.mms.MmsPduException
 import com.ericflo.winnow.mms.DeliveryInd
@@ -157,7 +156,7 @@ class MmsReceiver(
         val text = conf.parts.filter { it.contentType == ContentTypes.TEXT_PLAIN }.mapNotNull { it.text }.joinToString("\n")
         // Contacts are text/x-vcard, so "everything but the text and the layout", not "not text/".
         val media = conf.parts.map { it.contentType }.filter { it != ContentTypes.TEXT_PLAIN && it != ContentTypes.SMIL }
-        incoming.onMmsStored(message, threadId, conf.from ?: UNKNOWN_SENDER, recipients, subjectAndText(conf.subject, text), media)
+        incoming.onMmsStored(message, threadId, conf.from ?: UNKNOWN_SENDER, recipients, text, media, subject = conf.subject)
     }
 
     /**

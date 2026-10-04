@@ -28,7 +28,7 @@ class MmsStore(private val context: Context) {
             put(Mms.MESSAGE_SIZE, ind.messageSize)
             put(Mms.MESSAGE_CLASS, ind.messageClass)
             ind.expiry?.let { put(Mms.EXPIRY, it.seconds) }
-            ind.subject?.let { put(Mms.SUBJECT, it); put(Mms.SUBJECT_CHARSET, MmsCharsets.UTF_8) }
+            ind.subject?.let { put(Mms.SUBJECT, MmsCharsets.forStore(it)); put(Mms.SUBJECT_CHARSET, MmsCharsets.UTF_8) }
         }
         val uri = resolver.insert(Mms.Inbox.CONTENT_URI, values) ?: return null
         ind.from?.let { insertAddress(uri, it, ADDR_FROM) }
@@ -43,7 +43,7 @@ class MmsStore(private val context: Context) {
             put(Mms.CONTENT_TYPE, conf.contentType)
             conf.messageId?.let { put(Mms.MESSAGE_ID, it) }
             conf.transactionId?.let { put(Mms.TRANSACTION_ID, it) }
-            conf.subject?.let { put(Mms.SUBJECT, it); put(Mms.SUBJECT_CHARSET, MmsCharsets.UTF_8) }
+            conf.subject?.let { put(Mms.SUBJECT, MmsCharsets.forStore(it)); put(Mms.SUBJECT_CHARSET, MmsCharsets.UTF_8) }
             put(Mms.TEXT_ONLY, if (conf.parts.all { it.isText() }) 1 else 0)
         }
         val uri = resolver.insert(Mms.Inbox.CONTENT_URI, values) ?: return null
@@ -58,7 +58,7 @@ class MmsStore(private val context: Context) {
     fun insertOutgoing(threadId: Long, recipients: List<String>, parts: List<MmsPart>, subscriptionId: Int, subject: String? = null): Uri? {
         val values = baseValues(threadId, Mms.MESSAGE_BOX_OUTBOX, MESSAGE_TYPE_SEND_REQ, System.currentTimeMillis() / 1000, read = true, subscriptionId).apply {
             put(Mms.CONTENT_TYPE, ContentTypes.MULTIPART_RELATED)
-            subject?.takeIf { it.isNotBlank() }?.let { put(Mms.SUBJECT, it); put(Mms.SUBJECT_CHARSET, MmsCharsets.UTF_8) }
+            subject?.takeIf { it.isNotBlank() }?.let { put(Mms.SUBJECT, MmsCharsets.forStore(it)); put(Mms.SUBJECT_CHARSET, MmsCharsets.UTF_8) }
             put(Mms.MESSAGE_CLASS, "personal")
             put(Mms.TEXT_ONLY, if (parts.all { it.isText() }) 1 else 0)
         }
@@ -81,7 +81,7 @@ class MmsStore(private val context: Context) {
             put(Mms.CONTENT_TYPE, ContentTypes.MULTIPART_RELATED)
             put(Mms.MESSAGE_CLASS, "personal")
             put(Mms.TEXT_ONLY, if (parts.all { it.isText() }) 1 else 0)
-            subject?.let { put(Mms.SUBJECT, it); put(Mms.SUBJECT_CHARSET, MmsCharsets.UTF_8) }
+            subject?.let { put(Mms.SUBJECT, MmsCharsets.forStore(it)); put(Mms.SUBJECT_CHARSET, MmsCharsets.UTF_8) }
         }
         val uri = resolver.insert(Mms.CONTENT_URI, values) ?: return null
         insertAddress(uri, from ?: INSERT_ADDRESS_TOKEN, ADDR_FROM)
@@ -202,8 +202,8 @@ class MmsStore(private val context: Context) {
 
     /** The subject [mmsId] was stored with, if any (a retry sends it again). */
     fun subject(mmsId: Long): String? = resolver.query(
-        ContentUris.withAppendedId(Mms.CONTENT_URI, mmsId), arrayOf(Mms.SUBJECT), null, null, null,
-    )?.use { c -> if (c.moveToFirst()) c.getString(0)?.takeIf { it.isNotBlank() } else null }
+        ContentUris.withAppendedId(Mms.CONTENT_URI, mmsId), arrayOf(Mms.SUBJECT, Mms.SUBJECT_CHARSET), null, null, null,
+    )?.use { c -> if (c.moveToFirst()) subjectAt(c, 0, 1) else null }
 
     fun sender(mmsId: Long): String? =
         resolver.query(
@@ -262,6 +262,12 @@ class MmsStore(private val context: Context) {
     private fun MmsPart.isText() = contentType == ContentTypes.TEXT_PLAIN || contentType == ContentTypes.SMIL
 
     companion object {
+        /** The subject in [cursor]'s [subject] column, decoded with the charset in [charset] (see MmsCharsets.fromStore). */
+        fun subjectAt(cursor: android.database.Cursor, subject: Int, charset: Int): String? {
+            val raw = cursor.getString(subject)?.takeIf { it.isNotBlank() } ?: return null
+            return MmsCharsets.fromStore(raw, if (cursor.isNull(charset)) null else cursor.getInt(charset))
+        }
+
         const val MESSAGE_TYPE_SEND_REQ = 0x80
         const val MESSAGE_TYPE_NOTIFICATION_IND = 0x82
         const val MESSAGE_TYPE_RETRIEVE_CONF = 0x84

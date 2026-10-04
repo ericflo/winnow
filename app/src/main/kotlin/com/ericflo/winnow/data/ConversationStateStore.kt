@@ -73,6 +73,9 @@ class ConversationStateStore(private val dao: ConversationStateDao) {
 fun List<ConversationSummary>.withState(states: Map<Long, ConversationStateEntity>): List<ConversationSummary> =
     map { c ->
         val s = states[c.threadId] ?: return@map c
-        val draft = s.draft ?: com.ericflo.winnow.data.DraftAttachments.summary(s.draftAttachments)
+        // The words, else the subject alone, else what's attached.
+        val draft = s.draft?.takeIf { it.isNotBlank() }
+            ?: s.draftSubject?.takeIf { it.isNotBlank() }
+            ?: com.ericflo.winnow.data.DraftAttachments.summary(s.draftAttachments)
         c.copy(pinned = s.pinned, archived = s.archived, muted = s.isMuted(), draft = draft, displayName = s.title ?: c.displayName)
     }.sortedWith(compareByDescending<ConversationSummary> { it.pinned }.thenByDescending { it.timestamp })

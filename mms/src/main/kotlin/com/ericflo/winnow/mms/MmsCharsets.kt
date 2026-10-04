@@ -1,6 +1,8 @@
 package com.ericflo.winnow.mms
 
+import java.nio.ByteBuffer
 import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
 
 /** IANA MIBenum charset numbers, as carried by Encoded-string-values and charset parameters. */
 object MmsCharsets {
@@ -56,4 +58,29 @@ object MmsCharsets {
     fun decode(bytes: ByteArray, mib: Int?): String = String(bytes, charsetOf(mib))
 
     internal fun isWide(mib: Int): Boolean = mib == 1000 || mib in 1013..UTF_16
+
+    /**
+     * A subject (or other encoded string) as Android's MMS store keeps it, the way its own MMS
+     * code writes one: the encoded bytes as an ISO-8859-1 string, the charset beside it
+     * (sub_cs, here [UTF_8]). Other apps then read it back correctly.
+     */
+    fun forStore(text: String): String = String(text.toByteArray(Charsets.UTF_8), Charsets.ISO_8859_1)
+
+    /**
+     * [raw] from the MMS store, read back: its characters are the bytes of [mib]'s encoding. One
+     * that isn't (an app that stored plain text, as Winnow once did) is returned as it is.
+     */
+    fun fromStore(raw: String, mib: Int?): String {
+        // Plain ASCII reads the same either way; anything past U+00FF can't be bytes.
+        if (raw.all { it.code < 0x80 } || raw.any { it.code > 0xFF }) return raw
+        val charset = names[mib]?.let { runCatching { Charset.forName(it) }.getOrNull() } ?: return raw
+        if (charset == Charsets.ISO_8859_1) return raw
+        return runCatching {
+            charset.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(raw.toByteArray(Charsets.ISO_8859_1)))
+                .toString()
+        }.getOrDefault(raw)
+    }
 }

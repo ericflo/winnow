@@ -29,6 +29,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.cancellation.CancellationException
 import com.ericflo.winnow.data.attachmentSummary
+import com.ericflo.winnow.data.subjectAndText
 
 /**
  * Store → classify → act, for each incoming SMS.
@@ -63,11 +64,17 @@ class IncomingMessageHandler(
         route(uri, ChatMessage.Kind.SMS, threadId, address, listOf(address), body, Tapback.summarize(body))
     }
 
-    /** A downloaded MMS, already stored by [com.ericflo.winnow.sms.MmsReceiver]; [text] is its subject and text (see subjectAndText). */
-    suspend fun onMmsStored(uri: Uri, threadId: Long, sender: String, recipients: List<String>, text: String, mediaTypes: List<String>) {
-        val preview = text.ifBlank { attachmentSummary(mediaTypes) }
+    /** A downloaded MMS, already stored by [com.ericflo.winnow.sms.MmsReceiver]. */
+    suspend fun onMmsStored(uri: Uri, threadId: Long, sender: String, recipients: List<String>, text: String, mediaTypes: List<String>, subject: String? = null) {
+        // Classified and shown with its subject: a message can be carried in the subject line.
+        val words = subjectAndText(subject, text)
+        val preview = words.ifBlank { attachmentSummary(mediaTypes) }
         // A media-only message still gets classified, on what little it says.
-        val action = route(uri, ChatMessage.Kind.MMS, threadId, sender, recipients, text.ifBlank { "[photo]" }, preview, caption = text)
+        val action = route(
+            uri, ChatMessage.Kind.MMS, threadId, sender, recipients, words.ifBlank { "[photo]" }, preview, caption = words,
+            // A code is looked for in the text before the subject (an order number there isn't it).
+            codeIn = listOfNotNull(text, subject),
+        )
         // Into the gallery if the user asked: only what reached the inbox (never a filtered or
         // silenced one's), and only from people they know. A classifier that timed out lets a
         // stranger's message through too, and the gallery may back up to the cloud. In a group,
@@ -117,6 +124,8 @@ class IncomingMessageHandler(
         preview: String,
         /** What an MMS said in words, if anything: shown under its photo in the notification. */
         caption: String? = null,
+        /** Where to look for a verification code, in order. */
+        codeIn: List<String> = listOf(text),
     ): Action {
         val key = ChatMessage.messageKey(kind, ContentUris.parseId(uri))
         // The store reuses a deleted message's id, and a deletion Winnow didn't make (another app's,
@@ -161,7 +170,7 @@ class IncomingMessageHandler(
                     conversationTitle = states.get(threadId).title ?: displayNameFor(recipients, ::displayName),
                     senderName = displayName(sender),
                     body = preview,
-                    code = VerificationCodes.find(text),
+                    code = codeIn.firstNotNullOfOrNull(VerificationCodes::find),
                     senderPhotoUri = contacts.photoUri(sender),
                     hideOnLockScreen = settings.current().hideOnLockScreen,
                     offerSpam = recipients.size == 1 && !contacts.isContact(sender),

@@ -1,6 +1,7 @@
 package com.ericflo.winnow.backup
 
 import com.ericflo.winnow.data.normalizeAddress
+import com.ericflo.winnow.mms.MmsCharsets
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlSerializer
 import java.io.File
@@ -100,7 +101,8 @@ object SmsBackupRestoreXml {
                     val date = parser.attr("date")?.toLongOrNull()?.let { it / 1000 * 1000 }
                     val listed = parser.attr("address")?.split('~').orEmpty().map(String::trim).filter(::isAddress)
                     // Attributes of <mms> itself, read before moving on to its children.
-                    val subject = parser.attr("sub")
+                    // As its store held it: possibly the bytes of sub_cs's encoding (see MmsCharsets.fromStore).
+                    val subject = parser.attr("sub")?.let { MmsCharsets.fromStore(it, parser.attr("sub_cs")?.toIntOrNull()) }
                     val wasRead = parser.attr("read") != "0"
                     val texts = mutableListOf<String>()
                     val parts = mutableListOf<PartBackup>()

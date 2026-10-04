@@ -309,13 +309,13 @@ class BackupManager(
         val rows = mutableListOf<MmsRow>()
         resolver.query(
             Mms.CONTENT_URI,
-            arrayOf(Mms._ID, Mms.THREAD_ID, Mms.DATE, Mms.MESSAGE_BOX, Mms.SUBJECT, Mms.READ),
+            arrayOf(Mms._ID, Mms.THREAD_ID, Mms.DATE, Mms.MESSAGE_BOX, Mms.SUBJECT, Mms.READ, Mms.SUBJECT_CHARSET),
             "${Mms.MESSAGE_BOX} != ${Mms.MESSAGE_BOX_DRAFTS} AND ${Mms.MESSAGE_TYPE} != ${MmsStore.MESSAGE_TYPE_NOTIFICATION_IND}" +
                 only?.let { ids -> " AND ${Mms.THREAD_ID} IN (${ids.joinToString(",")})" }.orEmpty(),
             null, null,
         )?.use { c ->
             while (c.moveToNext()) {
-                rows += MmsRow(c.getLong(0), c.getLong(1), c.getLong(2), c.getInt(3), c.getString(4)?.takeIf { it.isNotBlank() }, c.getInt(5) != 0)
+                rows += MmsRow(c.getLong(0), c.getLong(1), c.getLong(2), c.getInt(3), MmsStore.subjectAt(c, 4, 6), c.getInt(5) != 0)
             }
         }
         val parts = when {
