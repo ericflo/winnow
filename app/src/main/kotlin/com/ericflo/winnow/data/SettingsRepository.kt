@@ -113,6 +113,8 @@ data class WinnowSettings(
     val autoDownloadMms: Boolean = true,
     /** The same while roaming, where data can cost extra. Off by default, as in Messages. */
     val autoDownloadMmsRoaming: Boolean = false,
+    /** Fetch link previews for texts from people you know. Off by default: fetching tells the site your IP. */
+    val linkPreviews: Boolean = false,
     /** A folder (SAF tree URI) for weekly automatic backups; this phone's only, never backed up. */
     val autoBackupFolder: String? = null,
     val autoBackupLast: Long = 0,
@@ -188,6 +190,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             deliveryReports = this[DELIVERY_REPORTS] ?: false,
             autoDownloadMms = this[AUTO_DOWNLOAD_MMS] ?: true,
             autoDownloadMmsRoaming = this[AUTO_DOWNLOAD_MMS_ROAMING] ?: false,
+            linkPreviews = this[LINK_PREVIEWS] ?: false,
             autoBackupFolder = this[AUTO_BACKUP_FOLDER],
             autoBackupLast = this[AUTO_BACKUP_LAST] ?: 0,
             autoBackupError = this[AUTO_BACKUP_ERROR],
@@ -227,6 +230,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[DELIVERY_REPORTS] = s.deliveryReports
         this[AUTO_DOWNLOAD_MMS] = s.autoDownloadMms
         this[AUTO_DOWNLOAD_MMS_ROAMING] = s.autoDownloadMmsRoaming
+        this[LINK_PREVIEWS] = s.linkPreviews
         s.autoBackupFolder?.let { this[AUTO_BACKUP_FOLDER] = it } ?: remove(AUTO_BACKUP_FOLDER)
         this[AUTO_BACKUP_LAST] = s.autoBackupLast
         s.autoBackupError?.let { this[AUTO_BACKUP_ERROR] = it } ?: remove(AUTO_BACKUP_ERROR)
@@ -257,6 +261,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val DELIVERY_REPORTS = booleanPreferencesKey("sms.delivery_reports")
         val AUTO_DOWNLOAD_MMS = booleanPreferencesKey("mms.auto_download")
         val AUTO_DOWNLOAD_MMS_ROAMING = booleanPreferencesKey("mms.auto_download_roaming")
+        val LINK_PREVIEWS = booleanPreferencesKey("messages.link_previews")
         val AUTO_BACKUP_FOLDER = stringPreferencesKey("backup.auto_folder")
         val AUTO_BACKUP_LAST = longPreferencesKey("backup.auto_last")
         val AUTO_BACKUP_ERROR = stringPreferencesKey("backup.auto_error")

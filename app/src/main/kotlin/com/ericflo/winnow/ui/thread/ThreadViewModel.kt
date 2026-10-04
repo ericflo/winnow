@@ -36,6 +36,7 @@ import com.ericflo.winnow.data.TextScale
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import com.ericflo.winnow.data.Attachment
+import com.ericflo.winnow.data.LinkPreview
 
 data class ThreadUiState(
     val title: String,
@@ -161,6 +162,16 @@ class ThreadViewModel(
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThreadUiState(title, subtitle, recipients))
+
+    /**
+     * Link previews here at all: the setting is on, and this is someone the user knows (a contact)
+     * or has texted. Each message is then checked too: its own verdict must be "allow".
+     */
+    val linkPreviews: StateFlow<Boolean> = combine(container.settings.settings.map { it.linkPreviews }, state) { on, s ->
+        on && (s.messages.any { it.outgoing } || s.recipients.any(container.contacts::isContact))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    suspend fun preview(url: String): LinkPreview? = container.linkPreviews.get(url)
 
     /** The real thread id, once a new conversation's thread has been created; negative before. */
     fun currentThreadId(): Long = threadId.value

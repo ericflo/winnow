@@ -59,6 +59,7 @@ data class SettingsBackup(
     val swipeLeft: String = "ARCHIVE",
     val autoDownloadMms: Boolean = true,
     val autoDownloadMmsRoaming: Boolean = false,
+    val linkPreviews: Boolean = false,
 )
 
 /** A provider's non-secret settings. The API key stays on the phone it was entered on. */

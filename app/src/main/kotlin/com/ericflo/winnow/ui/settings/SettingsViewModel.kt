@@ -142,6 +142,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setAutoDownloadMms(value: Boolean) = update { it.copy(autoDownloadMms = value) }
 
+    fun setLinkPreviews(value: Boolean) = update { it.copy(linkPreviews = value) }
+
     fun setAutoDownloadMmsRoaming(value: Boolean) = update { it.copy(autoDownloadMmsRoaming = value) }
 
     fun setTheme(value: ThemeMode) = update { it.copy(theme = value) }

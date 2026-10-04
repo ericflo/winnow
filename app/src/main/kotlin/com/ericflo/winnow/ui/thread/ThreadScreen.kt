@@ -165,6 +165,9 @@ import androidx.compose.ui.semantics.selected
 import com.ericflo.winnow.ui.components.MuteDialog
 import com.ericflo.winnow.ui.components.mutedLabel
 import androidx.compose.material3.HorizontalDivider
+import com.ericflo.winnow.data.LinkPreview
+import com.ericflo.winnow.ui.components.LinkPreviewCard
+import com.ericflo.winnow.ui.components.firstWebLink
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -186,6 +189,7 @@ fun ThreadScreen(
     val scheduled by viewModel.scheduled.collectAsStateWithLifecycle()
     val textScale by viewModel.textScale.collectAsStateWithLifecycle()
     val unreadOnOpen by viewModel.unreadOnOpen.collectAsStateWithLifecycle()
+    val linkPreviews by viewModel.linkPreviews.collectAsStateWithLifecycle()
     var confirmBlock by remember { mutableStateOf(false) }
     var confirmReport by remember { mutableStateOf(false) }
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
@@ -439,6 +443,8 @@ fun ThreadScreen(
                 focusKey = focusKey.takeIf { searching },
                 onMessageNumber = onMessageNumber,
                 unreadOnOpen = unreadOnOpen,
+                linkPreviews = linkPreviews,
+                loadPreview = viewModel::preview,
                 selected = selected,
                 onToggleSelected = { m -> selected = if (m.key in selected) selected - m.key else selected + m.key },
                 textScale = textScale,
@@ -726,6 +732,8 @@ private fun MessageList(
     focusKey: String? = null,
     onMessageNumber: (String) -> Unit = {},
     unreadOnOpen: List<String> = emptyList(),
+    linkPreviews: Boolean = false,
+    loadPreview: suspend (String) -> LinkPreview? = { null },
     selected: Set<String> = emptySet(),
     onToggleSelected: (ChatMessage) -> Unit = {},
     textScale: Float = 1f,
@@ -824,6 +832,9 @@ private fun MessageList(
                             focused = item.key == focusKey,
                             onMessageNumber = onMessageNumber,
                             textScale = liveScale,
+                            linkPreviews = linkPreviews,
+                            loadPreview = loadPreview,
+                            onPreviewClick = if (selecting) toggle else null,
                         )
                     }
                 }
@@ -906,6 +917,9 @@ private fun MessageBubble(
     textScale: Float = 1f,
     /** Who said it, for screen readers, which can't see which side a bubble is on. */
     speaker: String = "",
+    linkPreviews: Boolean = false,
+    loadPreview: suspend (String) -> LinkPreview? = { null },
+    onPreviewClick: (() -> Unit)? = null,
 ) {
     val m = item.message
     val spoken = buildString {
@@ -1041,6 +1055,13 @@ private fun MessageBubble(
                             .semantics { contentDescription = spoken }
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                     )
+                }
+                // Only for the user's own links or ones whose text was let through: a filtered or
+                // silenced text never makes Winnow fetch anything.
+                val verdict = m.verdict
+                val trusted = m.outgoing || verdict == null || (verdict.effectiveAction == Action.ALLOW && !verdict.isFraud)
+                if (linkPreviews && trusted && !m.isPlaceholder) {
+                    firstWebLink(m.body)?.let { url -> LinkPreviewCard(url, m.outgoing, loadPreview, onClick = onPreviewClick, onLongClick = onLongClick) }
                 }
                 if (item.reactions.isNotEmpty()) {
                     // Tucked under the bubble's corner, as Messages draws reactions.

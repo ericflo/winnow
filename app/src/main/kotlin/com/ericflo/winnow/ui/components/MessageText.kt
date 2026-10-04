@@ -18,6 +18,14 @@ private val TRAILING_PUNCTUATION = ".,!?;:)'\""
  * Message text with tappable web links, emails and phone numbers. With [links] off (fraud),
  * the text is returned unlinked: the point is that a scam link can't be tapped by accident.
  */
+/** The first web link in [text], as a URL to open; emails and phone numbers don't count. */
+fun firstWebLink(text: String): String? {
+    val m = WEB.find(text) ?: return null
+    val value = m.value.trimEnd { it in TRAILING_PUNCTUATION }
+    if (EMAIL.findAll(text).any { it.range.first <= m.range.first && m.range.first < it.range.last }) return null
+    return if (value.startsWith("http", ignoreCase = true)) value else "https://$value"
+}
+
 fun linkify(text: String, links: Boolean, linkColor: Color): AnnotatedString {
     if (!links) return AnnotatedString(text)
     data class Span(val start: Int, val end: Int, val url: String)

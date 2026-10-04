@@ -261,6 +261,13 @@ don't announce themselves. Outbox and queued texts come back as failed, ready to
 - **Send** (`sms/MmsSender`): SMIL + media + text as m-send-req, via
   `SmsManager.sendMultimediaMessage`. The m-send-conf moves the message to sent or failed.
   Photos are downscaled so the whole message fits about 900 KB.
+- **Link previews** (`data/LinkPreviews`, opt-in): fetching a link tells its site your IP
+  address and that the text was read, which is exactly what a spammer wants. So a preview loads
+  only when the setting is on and the conversation is with a contact or someone the user has
+  texted. Even then it loads only for the user's own messages, or ones whose verdict is
+  "allow" and not fraud. One GET for the page (512 KB cap, Open Graph tags or `<title>`), one
+  for its image (2 MB cap, saved to the cache because Coil here has no network loader). There
+  are no cookies or referrer. Results, failures included, are cached for a week.
 - **Saving and sharing attachments** (`data/MediaExport`): parts live in the message store,
   which only the default SMS app can read, so Save copies into MediaStore (Pictures, Movies,
   Recordings or Download, in a Winnow folder; no permission needed) and Share copies into a

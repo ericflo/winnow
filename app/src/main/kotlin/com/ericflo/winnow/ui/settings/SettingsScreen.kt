@@ -259,6 +259,14 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     onChange = viewModel::setDeliveryReports,
                 )
             }
+            item("link-previews") {
+                SwitchRow(
+                    "Link previews",
+                    "A title and picture for links from people in your contacts or that you've texted. Never for strangers or filtered texts, since fetching a link tells the site your IP address.",
+                    s.linkPreviews,
+                    onChange = viewModel::setLinkPreviews,
+                )
+            }
             item("auto-download") {
                 SwitchRow(
                     "Auto-download MMS",

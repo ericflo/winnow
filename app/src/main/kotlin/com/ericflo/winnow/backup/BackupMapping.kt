@@ -36,6 +36,7 @@ fun WinnowSettings.toBackup() = SettingsBackup(
     swipeLeft = swipeLeft.name,
     autoDownloadMms = autoDownloadMms,
     autoDownloadMmsRoaming = autoDownloadMmsRoaming,
+    linkPreviews = linkPreviews,
 )
 
 /** These settings with [backup]'s applied. API keys already on this phone are kept. */
@@ -64,6 +65,7 @@ fun WinnowSettings.restoring(backup: SettingsBackup) = copy(
     swipeLeft = SwipeChoice.entries.firstOrNull { it.name == backup.swipeLeft } ?: swipeLeft,
     autoDownloadMms = backup.autoDownloadMms,
     autoDownloadMmsRoaming = backup.autoDownloadMmsRoaming,
+    linkPreviews = backup.linkPreviews,
     categoryActions = categoryActions + backup.categoryActions.mapNotNull { (key, action) ->
         val category = Category.fromKey(key) ?: return@mapNotNull null
         Action.entries.firstOrNull { it.name == action }?.let { category to it }

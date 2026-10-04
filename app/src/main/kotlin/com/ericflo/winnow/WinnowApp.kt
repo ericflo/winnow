@@ -53,6 +53,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import android.telephony.TelephonyManager
+import com.ericflo.winnow.data.LinkPreviewFetcher
 
 class WinnowApp : Application() {
     val container by lazy { AppContainer(this) }
@@ -86,6 +87,7 @@ class AppContainer(private val context: Context) {
 
     val sharedFiles by lazy { SharedFiles(context) }
     val mediaExport by lazy { MediaExport(context) }
+    val linkPreviews by lazy { LinkPreviewFetcher(context, okhttp3.OkHttpClient()) }
     val codeCleaner by lazy { CodeCleaner(context, verdictDao, starredDao) { isDefaultSmsApp() && settings.current().deleteOldCodes } }
 
     /** Process-wide, so rotating the screen or reopening the activity doesn't re-lock. */

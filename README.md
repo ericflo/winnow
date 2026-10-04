@@ -62,7 +62,10 @@ messages can't be tapped.
 - **SMS and MMS:** group conversations threaded correctly, photos in and out (downscaled to
   carrier limits) and a full-screen viewer (swipe through a conversation's photos, pinch or
   double-tap to zoom), and voice messages and videos that play right in the conversation.
-  Any attachment can be saved to the phone or shared to another app. Shared contacts show as cards with **Add contact** and **Message**, and
+  Any attachment can be saved to the phone or shared to another app. **Link previews**
+  (off by default) show a link's title and picture, but only for your own links and texts
+  from people in your contacts or that you've texted. Strangers and filtered texts never
+  make Winnow fetch anything. Shared contacts show as cards with **Add contact** and **Message**, and
   Attach → Contact sends one (its photo left out, so it fits). iPhone tapbacks and SMS reactions are drawn on
   the message they react to. Failed sends and MMS downloads can be retried. SMS delivery
   reports are opt-in, and MMS auto-download can be turned off (it's off while roaming unless
