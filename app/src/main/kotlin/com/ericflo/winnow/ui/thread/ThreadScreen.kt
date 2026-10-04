@@ -4,6 +4,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Star
 import com.ericflo.winnow.data.SimCard
 import androidx.compose.ui.semantics.semantics
@@ -70,6 +71,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -141,6 +143,7 @@ import com.ericflo.winnow.ui.components.Avatar
 import com.ericflo.winnow.ui.components.ImageViewer
 import com.ericflo.winnow.ui.components.headerLabel
 import com.ericflo.winnow.ui.components.isEmojiOnly
+import com.ericflo.winnow.ui.components.allWebLinks
 import com.ericflo.winnow.ui.components.showOrCreateContact
 import com.ericflo.winnow.ui.components.linkify
 import com.ericflo.winnow.ui.components.timeOfDay
@@ -387,6 +390,7 @@ fun ThreadScreen(
     BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
     var confirmDeleteSelected by remember { mutableStateOf(false) }
     var confirmDeleteOne by remember { mutableStateOf<ChatMessage?>(null) }
+    var reactingWithOther by remember { mutableStateOf<ChatMessage?>(null) }
     // A phone number tapped in a message: what to do with it, rather than straight to the dialer.
     var numberTapped by remember { mutableStateOf<String?>(null) }
     val systemUris = LocalUriHandler.current
@@ -680,6 +684,9 @@ fun ThreadScreen(
                 (state.senderNames[sender] ?: sender) to { onMessageNumber(sender) }
             },
             onSelectText = { selectingText = message.body },
+            onReactOther = { reactingWithOther = message },
+            links = if (message.verdict?.isFraud == true) emptyList() else allWebLinks(message.body),
+            onCopyLink = { copy(it, "Link copied") },
             onShareText = {
                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, message.body)
                 runCatching { context.startActivity(Intent.createChooser(send, null)) }
@@ -687,6 +694,12 @@ fun ThreadScreen(
         )
     }
     selectingText?.let { text -> SelectTextDialog(text, onDismiss = { selectingText = null }) }
+    reactingWithOther?.let { message ->
+        OtherReactionDialog(
+            onReact = { emoji -> viewModel.react(message, emoji); reactingWithOther = null },
+            onDismiss = { reactingWithOther = null },
+        )
+    }
     if (choosingMute) {
         MuteDialog(
             onMute = { until -> viewModel.setMuted(true, until); choosingMute = false },
@@ -808,6 +821,34 @@ private fun GroupAvatar(size: androidx.compose.ui.unit.Dp) {
             modifier = Modifier.size(size * 0.55f),
         )
     }
+}
+
+/** Any emoji as a reaction, typed from the keyboard's emoji panel. */
+@Composable
+private fun OtherReactionDialog(onReact: (String) -> Unit, onDismiss: () -> Unit) {
+    var emoji by remember { mutableStateOf("") }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    val valid = isEmojiOnly(emoji)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("React with an emoji") },
+        text = {
+            OutlinedTextField(
+                value = emoji,
+                // Emoji only, and a reaction's worth of them.
+                onValueChange = { emoji = it.trim().take(16) },
+                placeholder = { Text("🎉") },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.headlineSmall,
+                supportingText = { Text(if (emoji.isNotEmpty() && !valid) "Just an emoji, please" else "Pick one from the keyboard's emoji panel") },
+                isError = emoji.isNotEmpty() && !valid,
+                modifier = Modifier.fillMaxWidth().focusRequester(focus),
+            )
+        },
+        confirmButton = { TextButton(onClick = { onReact(emoji) }, enabled = valid) { Text("React") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** A number from a message: call it, text it, add it to contacts, or copy it. */
@@ -938,6 +979,9 @@ private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter:
 }
 
 private val REPORTABLE = setOf(Category.SPAM, Category.SCAM, Category.PHISHING)
+
+/** More than this many links, and the rest are copied with the text. */
+private const val MAX_COPY_LINKS = 3
 
 private sealed interface ListItem {
     val key: String
@@ -1533,6 +1577,11 @@ private fun MessageActionsSheet(
     onShareText: () -> Unit,
     /** In a group, someone else's message: a one-to-one conversation with them, named. */
     replyPrivately: Pair<String, () -> Unit>? = null,
+    /** React with an emoji that isn't one of the six. */
+    onReactOther: () -> Unit = {},
+    /** The message's links, to copy on their own; none for fraud, whose links can't be tapped either. */
+    links: List<String> = emptyList(),
+    onCopyLink: (String) -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
@@ -1547,13 +1596,21 @@ private fun MessageActionsSheet(
                     Tapback.CHOICES.forEach { emoji ->
                         Box(
                             Modifier
-                                .size(48.dp)
+                                .size(44.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                                 .clickable(onClickLabel = "React $emoji") { onDismiss(); onReact(emoji) },
                             contentAlignment = Alignment.Center,
                         ) { Text(emoji, fontSize = 22.sp) }
                     }
+                    Box(
+                        Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                            .clickable(onClickLabel = "React with another emoji") { onDismiss(); onReactOther() },
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.Filled.Add, contentDescription = "Another emoji") }
                 }
             }
             if (message.body.isNotBlank()) {
@@ -1563,6 +1620,16 @@ private fun MessageActionsSheet(
                     colors = colors,
                     modifier = Modifier.clickable(onClick = act(onCopy)),
                 )
+                // A link on its own, without the rest of the message around it.
+                links.take(MAX_COPY_LINKS).forEach { url ->
+                    ListItem(
+                        headlineContent = { Text("Copy link") },
+                        supportingContent = { Text(url.substringAfter("://").removePrefix("www.").substringBefore('/'), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        leadingContent = { Icon(painterResource(R.drawable.ic_link), contentDescription = null) },
+                        colors = colors,
+                        modifier = Modifier.clickable(onClick = act { onCopyLink(url) }),
+                    )
+                }
                 ListItem(
                     headlineContent = { Text("Select text") },
                     supportingContent = { Text("Copy just part of it") },
