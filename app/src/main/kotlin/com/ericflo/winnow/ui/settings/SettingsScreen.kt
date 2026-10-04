@@ -258,6 +258,23 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     onChange = viewModel::setDeliveryReports,
                 )
             }
+            item("auto-download") {
+                SwitchRow(
+                    "Auto-download MMS",
+                    "Fetch photos and videos as they arrive. Off, they wait for a tap.",
+                    s.autoDownloadMms,
+                    onChange = viewModel::setAutoDownloadMms,
+                )
+            }
+            item("auto-download-roaming") {
+                SwitchRow(
+                    "Auto-download MMS when roaming",
+                    "Roaming data can cost extra",
+                    s.autoDownloadMms && s.autoDownloadMmsRoaming,
+                    enabled = s.autoDownloadMms,
+                    onChange = viewModel::setAutoDownloadMmsRoaming,
+                )
+            }
 
             section("Security")
             item("app-lock") {

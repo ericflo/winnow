@@ -51,6 +51,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import android.telephony.TelephonyManager
 
 class WinnowApp : Application() {
     val container by lazy { AppContainer(this) }
@@ -119,7 +120,15 @@ class AppContainer(private val context: Context) {
     val mmsStore by lazy { MmsStore(context) }
     val mmsFiles by lazy { MmsFiles(context) }
     val mmsSender by lazy { MmsSender(context, mmsStore, mmsFiles, sims::forSending) }
-    val mmsReceiver by lazy { MmsReceiver(context, mmsStore, mmsFiles, OwnNumbers(context), incoming) }
+    val mmsReceiver by lazy {
+        MmsReceiver(context, mmsStore, mmsFiles, OwnNumbers(context), incoming) { subscriptionId ->
+            val s = settings.current()
+            val roaming = runCatching {
+                context.getSystemService(TelephonyManager::class.java).createForSubscriptionId(subscriptionId).isNetworkRoaming
+            }.getOrDefault(false)
+            if (roaming) s.autoDownloadMms && s.autoDownloadMmsRoaming else s.autoDownloadMms
+        }
+    }
     val conversationStates by lazy { ConversationStateStore(database.conversationStates()) }
     val verdictDao by lazy { database.verdicts() }
     val starredDao by lazy { database.starred() }

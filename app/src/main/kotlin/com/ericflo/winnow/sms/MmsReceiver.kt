@@ -37,9 +37,11 @@ class MmsReceiver(
     private val files: MmsFiles,
     private val ownNumbers: OwnNumbers,
     private val incoming: IncomingMessageHandler,
+    /** Whether to fetch an announced MMS right away on this SIM: the auto-download settings, and roaming. */
+    private val autoDownload: suspend (subscriptionId: Int) -> Boolean = { true },
 ) {
     /** A WAP push carrying an m-notification-ind. */
-    fun onPush(pdu: ByteArray, subscriptionId: Int) {
+    suspend fun onPush(pdu: ByteArray, subscriptionId: Int) {
         val ind = try {
             PduParser.parse(pdu) as? NotificationInd
         } catch (e: MmsPduException) {
@@ -49,6 +51,11 @@ class MmsReceiver(
         val threadId = Telephony.Threads.getOrCreateThreadId(context, setOf(ind.from ?: UNKNOWN_SENDER))
         val placeholder = store.insertNotification(ind, threadId, subscriptionId) ?: run {
             Log.e(TAG, "Couldn't store MMS notification; is Winnow the default SMS app?")
+            return
+        }
+        if (!autoDownload(subscriptionId)) {
+            store.markDeferred(placeholder)
+            incoming.onMmsDeferred(threadId, ind.from ?: UNKNOWN_SENDER, ind.messageSize)
             return
         }
         try {

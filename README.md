@@ -65,7 +65,8 @@ messages can't be tapped.
   Any attachment can be saved to the phone or shared to another app. Shared contacts show as cards with **Add contact** and **Message**, and
   Attach → Contact sends one (its photo left out, so it fits). iPhone tapbacks and SMS reactions are drawn on
   the message they react to. Failed sends and MMS downloads can be retried. SMS delivery
-  reports are opt-in.
+  reports are opt-in, and MMS auto-download can be turned off (it's off while roaming unless
+  you allow it), leaving "Tap to download" in the conversation.
 - **Conversations:** pin, archive, mute, mark read/unread, delete, block (Android's system
   block list), name a group (just for you), a **Photos & videos** strip in Details, an **Unread** filter, and multi-select.
   Optionally, one-time codes from services are deleted a day after they arrive. That's off by

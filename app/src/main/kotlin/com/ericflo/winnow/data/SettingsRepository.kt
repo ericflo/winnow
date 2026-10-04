@@ -108,6 +108,10 @@ data class WinnowSettings(
     val hideOnLockScreen: Boolean = false,
     /** Ask the carrier to confirm delivery of each SMS. Off by default, as in Messages. */
     val deliveryReports: Boolean = false,
+    /** Fetch picture messages as they arrive; otherwise they wait for a tap. */
+    val autoDownloadMms: Boolean = true,
+    /** The same while roaming, where data can cost extra. Off by default, as in Messages. */
+    val autoDownloadMmsRoaming: Boolean = false,
     val theme: ThemeMode = ThemeMode.SYSTEM,
     /** Swiping an inbox conversation toward the end (right, in left-to-right languages). */
     val swipeRight: SwipeChoice = SwipeChoice.ARCHIVE,
@@ -176,6 +180,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             undoSendSeconds = this[UNDO_SEND_SECONDS] ?: 0,
             deleteOldCodes = this[DELETE_OLD_CODES] ?: false,
             deliveryReports = this[DELIVERY_REPORTS] ?: false,
+            autoDownloadMms = this[AUTO_DOWNLOAD_MMS] ?: true,
+            autoDownloadMmsRoaming = this[AUTO_DOWNLOAD_MMS_ROAMING] ?: false,
             theme = this[THEME]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: defaults.theme,
             textScale = TextScale.clamp(this[TEXT_SCALE] ?: 1f),
             swipeRight = this[SWIPE_RIGHT]?.let { runCatching { SwipeChoice.valueOf(it) }.getOrNull() } ?: defaults.swipeRight,
@@ -210,6 +216,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[UNDO_SEND_SECONDS] = s.undoSendSeconds
         this[DELETE_OLD_CODES] = s.deleteOldCodes
         this[DELIVERY_REPORTS] = s.deliveryReports
+        this[AUTO_DOWNLOAD_MMS] = s.autoDownloadMms
+        this[AUTO_DOWNLOAD_MMS_ROAMING] = s.autoDownloadMmsRoaming
         this[THEME] = s.theme.name
         this[TEXT_SCALE] = TextScale.clamp(s.textScale)
         this[SWIPE_RIGHT] = s.swipeRight.name
@@ -235,6 +243,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val UNDO_SEND_SECONDS = intPreferencesKey("compose.undo_send_seconds")
         val DELETE_OLD_CODES = booleanPreferencesKey("messages.delete_old_codes")
         val DELIVERY_REPORTS = booleanPreferencesKey("sms.delivery_reports")
+        val AUTO_DOWNLOAD_MMS = booleanPreferencesKey("mms.auto_download")
+        val AUTO_DOWNLOAD_MMS_ROAMING = booleanPreferencesKey("mms.auto_download_roaming")
         val THEME = stringPreferencesKey("display.theme")
         val TEXT_SCALE = floatPreferencesKey("display.text_scale")
         val SWIPE_RIGHT = stringPreferencesKey("inbox.swipe_right")

@@ -97,6 +97,11 @@ class MmsStore(private val context: Context) {
         resolver.update(uri, values, null, null)
     }
 
+    /** Marks a placeholder as waiting for the user to download it. */
+    fun markDeferred(uri: Uri) {
+        resolver.update(uri, ContentValues().apply { put(Mms.STATUS, STATUS_DEFERRED) }, null, null)
+    }
+
     /** Marks a placeholder as failed to download, so the UI can offer a retry. */
     fun markDownloadFailed(uri: Uri) {
         resolver.update(uri, ContentValues().apply { put(Mms.STATUS, STATUS_DOWNLOAD_FAILED) }, null, null)
@@ -227,6 +232,8 @@ class MmsStore(private val context: Context) {
 
         /** Winnow's marker in `st` for a placeholder whose download failed. */
         const val STATUS_DOWNLOAD_FAILED = 0x87
+        /** PduHeaders.STATUS_DEFERRED: the recipient will fetch it later. */
+        const val STATUS_DEFERRED = 0x83
 
     }
 }

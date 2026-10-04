@@ -153,6 +153,7 @@ import com.ericflo.winnow.data.TextScale
 import com.ericflo.winnow.ui.components.scaled
 import com.ericflo.winnow.data.attachmentSummary
 import com.ericflo.winnow.data.VCard
+import com.ericflo.winnow.classify.deferredPreview
 import com.ericflo.winnow.ui.components.ContactCardAttachment
 import androidx.compose.material.icons.filled.Person
 import com.ericflo.winnow.data.Attachment
@@ -831,12 +832,28 @@ private fun MessageBubble(
                         modifier = Modifier
                             .clip(shape)
                             .background(colors.surfaceContainerHigh)
-                            .clickable(onClick = onRetry)
+                            .combinedClickable(onClickLabel = "Retry", onClick = onRetry, onLongClick = onLongClick)
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                     )
+                    m.status == ChatMessage.Status.NOT_DOWNLOADED -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(shape)
+                            .background(colors.surfaceContainerHigh)
+                            .combinedClickable(onClickLabel = "Download", onClick = onRetry, onLongClick = onLongClick)
+                            .padding(start = 12.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_download), contentDescription = null, tint = colors.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Text(deferredPreview(m.downloadSize).replace("tap", "Tap"), style = MaterialTheme.typography.bodyLarge)
+                    }
                     m.status == ChatMessage.Status.DOWNLOADING -> Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clip(shape).background(colors.surfaceContainerHigh).padding(horizontal = 16.dp, vertical = 10.dp),
+                        modifier = Modifier
+                            .clip(shape)
+                            .background(colors.surfaceContainerHigh)
+                            .combinedClickable(onClick = {}, onLongClick = onLongClick)
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
                     ) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(10.dp))
@@ -940,7 +957,7 @@ private fun MessageActionsSheet(
         fun act(action: () -> Unit) = { onDismiss(); action() }
         Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
             // Reactions go out as text ("Loved “…”"), so they only make sense on real messages.
-            if (message.status != ChatMessage.Status.DOWNLOADING && message.status != ChatMessage.Status.DOWNLOAD_FAILED) {
+            if (!message.isPlaceholder) {
                 Row(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
@@ -972,7 +989,7 @@ private fun MessageActionsSheet(
                 )
             }
             // Downloaded attachments only; a placeholder has nothing to save yet.
-            if (message.attachments.isNotEmpty() && message.status != ChatMessage.Status.DOWNLOADING && message.status != ChatMessage.Status.DOWNLOAD_FAILED) {
+            if (message.attachments.isNotEmpty() && !message.isPlaceholder) {
                 ListItem(
                     headlineContent = { Text(if (message.attachments.size == 1) "Save to phone" else "Save ${message.attachments.size} attachments") },
                     leadingContent = { Icon(painterResource(R.drawable.ic_download), contentDescription = null) },

@@ -101,6 +101,10 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setDeliveryReports(value: Boolean) = update { it.copy(deliveryReports = value) }
 
+    fun setAutoDownloadMms(value: Boolean) = update { it.copy(autoDownloadMms = value) }
+
+    fun setAutoDownloadMmsRoaming(value: Boolean) = update { it.copy(autoDownloadMmsRoaming = value) }
+
     fun setTheme(value: ThemeMode) = update { it.copy(theme = value) }
 
     fun setTextScale(value: Float) = update { it.copy(textScale = TextScale.clamp(value)) }

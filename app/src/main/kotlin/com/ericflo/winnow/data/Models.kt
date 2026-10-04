@@ -42,8 +42,17 @@ data class ChatMessage(
     /** The SIM it was sent or received on, where the store records one. */
     val subscriptionId: Int? = null,
     val starred: Boolean = false,
+    /** For an MMS not downloaded yet, its size as the carrier announced it, in bytes. */
+    val downloadSize: Long = 0,
 ) {
-    enum class Status { RECEIVED, SENDING, SENT, DELIVERED, FAILED, DOWNLOADING, DOWNLOAD_FAILED }
+    enum class Status {
+        RECEIVED, SENDING, SENT, DELIVERED, FAILED, DOWNLOADING, DOWNLOAD_FAILED,
+        /** Announced but left for the user to download (auto-download is off, or roaming). */
+        NOT_DOWNLOADED,
+    }
+
+    /** An MMS still on the carrier's server: no content yet, only a way to fetch it. */
+    val isPlaceholder: Boolean get() = status == Status.DOWNLOADING || status == Status.DOWNLOAD_FAILED || status == Status.NOT_DOWNLOADED
 
     enum class Kind { SMS, MMS }
 

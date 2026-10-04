@@ -67,6 +67,26 @@ class IncomingMessageHandler(
         route(uri, ChatMessage.Kind.MMS, threadId, sender, recipients, text.ifBlank { "[photo]" }, preview)
     }
 
+    /**
+     * An MMS left on the carrier's server for the user to fetch. With no content there's
+     * nothing to classify, so only sender rules, mute and the open conversation decide whether
+     * it notifies. Once downloaded, it goes through [onMmsStored] like any other.
+     */
+    suspend fun onMmsDeferred(threadId: Long, sender: String, sizeBytes: Long) {
+        if (dao.senderRule(normalizeAddress(sender)) == SenderRule.ALWAYS_FILTER.name) return
+        states.unarchive(threadId)
+        if (visibleThread.value == threadId || states.get(threadId).muted) return
+        notifier.showMessage(
+            threadId = threadId,
+            recipients = listOf(sender),
+            conversationTitle = states.get(threadId).title ?: displayName(sender),
+            senderName = displayName(sender),
+            body = deferredPreview(sizeBytes),
+            senderPhotoUri = contacts.photoUri(sender),
+            hideOnLockScreen = settings.current().hideOnLockScreen,
+        )
+    }
+
     private suspend fun route(
         uri: Uri,
         kind: ChatMessage.Kind,
@@ -177,4 +197,14 @@ class IncomingMessageHandler(
         const val BUDGET_MILLIS = 7_000L
         const val PROVIDER_TIMEOUT_MILLIS = 5_000L
     }
+}
+
+/** "Picture message (48 KB) · tap to download". */
+fun deferredPreview(sizeBytes: Long): String {
+    val size = when {
+        sizeBytes <= 0 -> ""
+        sizeBytes < 1_000_000 -> " (${(sizeBytes + 999) / 1000} KB)"
+        else -> " (${"%.1f".format(sizeBytes / 1_000_000.0)} MB)"
+    }
+    return "Picture message$size · tap to download"
 }

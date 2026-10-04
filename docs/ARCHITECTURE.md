@@ -241,6 +241,10 @@ don't announce themselves. Outbox and queued texts come back as failed, ready to
   4. The m-retrieve-conf is parsed and written into the store, as message, parts and
      addresses (`sms/MmsStore`).
   5. An m-notifyresp-ind acknowledges the download to the carrier.
+
+  With auto-download off (or roaming, unless allowed), step 3 waits: the placeholder is
+  marked deferred (status 0x83), notifies as "Picture message · tap to download" (no content
+  to classify, so only sender rules and mute apply), and a tap runs the download.
   6. `IncomingMessageHandler` classifies and notifies, the same path as SMS.
 - **Group participants:** sender + To + Cc, minus this phone's own numbers. Those come from
   `SubscriptionManager.getPhoneNumber` on the default subscriptions, which needs only

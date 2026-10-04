@@ -128,7 +128,11 @@ class TelephonyMessageRepository(
                     // Retry on the SIM it was first sent from.
                     sms.retry(uri, address ?: return@withContext, message.body, sub)
                 }
-                Kind.MMS -> if (message.status == ChatMessage.Status.DOWNLOAD_FAILED) retryDownload(message.id) else mms.retry(message.id)
+                Kind.MMS -> if (message.status == ChatMessage.Status.DOWNLOAD_FAILED || message.status == ChatMessage.Status.NOT_DOWNLOADED) {
+                    retryDownload(message.id)
+                } else {
+                    mms.retry(message.id)
+                }
             }
         }
     }
@@ -373,7 +377,7 @@ class TelephonyMessageRepository(
             Telephony.Mms.CONTENT_URI,
             arrayOf(
                 Telephony.Mms._ID, Telephony.Mms.DATE, Telephony.Mms.MESSAGE_BOX, Telephony.Mms.MESSAGE_TYPE, Telephony.Mms.SUBJECT,
-                Telephony.Mms.STATUS, Telephony.Mms.SUBSCRIPTION_ID,
+                Telephony.Mms.STATUS, Telephony.Mms.SUBSCRIPTION_ID, Telephony.Mms.MESSAGE_SIZE,
             ),
             "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms.MESSAGE_BOX} != ${Telephony.Mms.MESSAGE_BOX_DRAFTS}",
             arrayOf(threadId.toString()), null,
@@ -389,8 +393,10 @@ class TelephonyMessageRepository(
                     status = when {
                         c.getInt(3) != MESSAGE_TYPE_NOTIFICATION_IND -> mmsStatus(box)
                         c.getInt(5) == MmsStore.STATUS_DOWNLOAD_FAILED -> ChatMessage.Status.DOWNLOAD_FAILED
+                        c.getInt(5) == MmsStore.STATUS_DEFERRED -> ChatMessage.Status.NOT_DOWNLOADED
                         else -> ChatMessage.Status.DOWNLOADING
                     },
+                    downloadSize = c.getLong(7),
                     verdict = null,
                     kind = Kind.MMS,
                     subject = c.getString(4)?.takeIf { it.isNotBlank() },
