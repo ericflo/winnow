@@ -49,7 +49,13 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
     /** The contact's thumbnail photo, if they have one. */
     fun photoUri(address: String): String? = info(address)?.photoUri
 
-    fun isContact(address: String): Boolean = info(address) != null
+    /**
+     * Whether [address] vouches for itself as a contact: what lets a text skip the classifier,
+     * its photos show and save, and its links preview. Never an email address, which anyone can
+     * put on a message (carriers' email gateways rarely check it); those get the contact's name
+     * and photo, not the trust.
+     */
+    fun isContact(address: String): Boolean = !isEmailAddress(address) && info(address) != null
 
     /** Whether Winnow may read contacts at all; without it, everyone looks like a stranger. */
     fun canRead(): Boolean = context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED

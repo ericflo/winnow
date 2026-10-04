@@ -282,7 +282,7 @@ fun NewChatScreen(viewModel: NewChatViewModel, onBack: () -> Unit, onStart: (rec
             if (state.groups.isEmpty() && state.dialable == null) {
                 item("empty") {
                     Text(
-                        if (state.query.isBlank()) "Type a phone number to start" else "No contacts match",
+                        if (state.query.isBlank()) "Type a phone number or email address to start" else "No contacts match",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -385,8 +385,12 @@ private fun ContactCard(
 
 /** What's typed, if it's a phone number to text rather than a name to look up. */
 /** What's typed, if it can be sent to as it is: a phone number, or an email address (by MMS). */
-private fun dialable(query: String): String? =
-    query.trim().takeIf { t -> (t.count(Char::isDigit) >= 3 && t.all { it.isDigit() || it in "+()- ." }) || isEmailAddress(t) }
+private fun dialable(query: String): String? {
+    // A pasted "mailto:" link is the address after it, as written in lowercase (email is).
+    val t = query.trim().removePrefix("mailto:").removePrefix("MAILTO:")
+    if (isEmailAddress(t)) return t.lowercase()
+    return t.takeIf { it.count(Char::isDigit) >= 3 && it.all { c -> c.isDigit() || c in "+()- ." } }
+}
 
 /** How many recent people New chat offers first. */
 private const val RECENT = 5

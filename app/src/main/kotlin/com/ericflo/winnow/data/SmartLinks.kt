@@ -109,9 +109,9 @@ class SmartLinks(
      * Replies to the newest of [turns] (oldest first) from Android's on-device classifier, the
      * Smart Reply Messages shows; none if it has nothing, or no model. Off the main thread.
      */
-    suspend fun suggestReplies(turns: List<Turn>): List<String> = withContext(Dispatchers.Default) {
+    suspend fun suggestReplies(turns: List<Turn>): List<String> = withContext(Dispatchers.IO) {
         if (turns.isEmpty() || turns.last().fromMe) return@withContext emptyList()
-        debugReplies()?.let { return@withContext it }
+        debugReplies()?.let { replies -> return@withContext replies.map(String::trim).filter(String::isNotEmpty).distinct().take(MAX_REPLIES) }
         runCatching {
             val classifier = manager?.textClassifier ?: return@runCatching emptyList()
             val people = HashMap<String, android.app.Person>()

@@ -152,6 +152,10 @@ class ModelsTest {
         assertFalse(email("ann@example"))
         assertFalse(email("ann @example.com"))
         assertFalse(email("a@b.c,d@e.f"))
+        assertFalse(email("pat@example.com."))
+        assertFalse(email("a@b..com"))
+        assertFalse(email("mailto:pat@example.com"))
+        assertFalse(email("12@34.56"))
         assertTrue(com.ericflo.winnow.data.ContactLookup.isReachable("ann@example.com"))
         assertFalse(com.ericflo.winnow.data.ContactLookup.isReachable("72975"))
     }

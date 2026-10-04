@@ -2065,7 +2065,7 @@ private fun Composer(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 modifier = Modifier.padding(top = 6.dp).semantics { contentDescription = "Suggested replies" },
             ) {
-                items(suggestions, key = { it }) { reply ->
+                items(suggestions) { reply ->
                     SuggestionChip(
                         onClick = { onQuickReply(reply) },
                         label = { Text(reply, maxLines = 1, overflow = TextOverflow.Ellipsis) },

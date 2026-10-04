@@ -157,7 +157,8 @@ fun normalizeAddress(address: String): String {
  */
 fun isEmailAddress(address: String): Boolean = EMAIL.matches(address.trim())
 
-private val EMAIL = Regex("""[^\s@,;<>()]+@[^\s@,;<>()]+\.[^\s@,;<>()]{2,}""")
+/** A local part, then a domain of dot-separated labels ending in a 2+ letter TLD (no "a@b..com" or trailing dot). */
+private val EMAIL = Regex("""[^\s@,;<>():]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}""")
 
 /** Route-safe encoding of a recipient list. */
 fun joinAddresses(addresses: List<String>): String = addresses.joinToString(",")

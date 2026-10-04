@@ -363,11 +363,12 @@ fun ConversationDetailsScreen(
                     leadingContent = { Avatar(person.name, seed = person.address, size = 40.dp, photoUri = person.photoUri) },
                     headlineContent = { Text(person.name) },
                     supportingContent = { Text(if (person.isContact || !state.canReadContacts) person.number else "Not in your contacts · tap to add") },
-                    trailingContent = {
+                    // An email address has no phone to call.
+                    trailingContent = if (com.ericflo.winnow.data.isEmailAddress(person.address)) null else ({
                         IconButton(onClick = { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", person.address, null))) }) {
                             Icon(Icons.Filled.Call, contentDescription = "Call ${person.name}")
                         }
-                    },
+                    }),
                     modifier = Modifier.clickable { showContact(person.address) },
                 )
             }

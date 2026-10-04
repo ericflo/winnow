@@ -60,9 +60,9 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.snapshotFlow
-import kotlinx.coroutines.flow.mapLatest
 import com.ericflo.winnow.data.SmartLinks
 import com.ericflo.winnow.data.subjectAndText
+import kotlinx.coroutines.flow.transformLatest
 
 data class ThreadUiState(
     val title: String,
@@ -347,28 +347,39 @@ class ThreadViewModel(
         s.recipients.filter { texted || container.contacts.isContact(it) }.map(::normalizeAddress).toSet()
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** A sent message waiting out its undo window (see [pending]). */
+    private val _pending = MutableStateFlow<PendingSend?>(null)
+
+    /** The message the user last sent or scheduled an answer to: no reply ideas for it until it changes. */
+    private val answered = MutableStateFlow<String?>(null)
+
     /**
      * Reply ideas for the newest message, when it's someone else's and worth answering: from
      * Android's on-device classifier (nothing leaves the phone), with the setting on. Never for
      * anything filtered, silenced or fraud, or a sender that can't take replies (a short code or
      * a name). Empty otherwise, and while it's being worked out.
      */
-    val suggestedReplies: StateFlow<List<String>> = combine(container.settings.settings.map { it.suggestedReplies }, state) { on, s ->
-        val newest = s.messages.lastOrNull()
-        val worthIt = on && newest != null && !newest.outgoing &&
+    val suggestedReplies: StateFlow<List<String>> = combine(container.settings.settings.map { it.suggestedReplies }, state, _pending, answered) { on, s, pending, answeredKey ->
+        // Reactions ("Loved “…”") aren't something to answer, nor what an answer reads.
+        val spoken = s.messages.filter { Tapback.parse(it.body) == null }
+        val newest = spoken.lastOrNull()
+        // Not while a reply to it is on its way (undo window, a photo shrinking): it's answered.
+        val worthIt = on && newest != null && !newest.outgoing && pending == null && newest.key != answeredKey &&
             subjectAndText(newest.subject, newest.body).isNotBlank() &&
             (newest.verdict == null || newest.verdict.effectiveAction == Action.ALLOW) &&
             !s.linksOff(newest) &&
             s.recipients.all(ContactLookup::isReachable)
-        newest?.key.takeIf { worthIt } to s.messages
+        newest?.key.takeIf { worthIt } to spoken
     }
         .distinctUntilChanged { a, b -> a.first == b.first }
-        .mapLatest { (key, messages) ->
-            if (key == null) return@mapLatest emptyList()
+        .transformLatest { (key, messages) ->
+            // The last message's ideas never stand in for this one's while they're worked out.
+            emit(emptyList())
+            if (key == null) return@transformLatest
             val turns = messages.takeLast(SUGGESTION_CONTEXT)
                 .map { SmartLinks.Turn(subjectAndText(it.subject, it.body), it.outgoing, it.sender, it.timestamp) }
                 .filter { it.text.isNotBlank() }
-            container.smartLinks.suggestReplies(turns)
+            emit(container.smartLinks.suggestReplies(turns))
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -696,6 +707,11 @@ class ThreadViewModel(
         _sendSeparately.value = false
     }
 
+
+    private fun markAnswered() {
+        answered.value = state.value.messages.lastOrNull { !it.outgoing }?.key
+    }
+
     /** The composer's MMS subject line, while it shows (see [subjectShown]). */
     val subjectField = TextFieldState()
     private val _subjectShown = MutableStateFlow(false)
@@ -744,7 +760,6 @@ class ThreadViewModel(
         val subject: String? = null,
     )
 
-    private val _pending = MutableStateFlow<PendingSend?>(null)
     val pending: StateFlow<PendingSend?> = _pending.asStateFlow()
     @Volatile private var pendingJob: Job? = null
 
@@ -757,6 +772,7 @@ class ThreadViewModel(
         val apart = (separately || _sendSeparately.value) && recipients.size > 1
         // Replying means the new messages have been read; the divider has done its job.
         _unreadOnOpen.value = emptyList()
+        markAnswered()
         draftField.clearText()
         _attachments.value = emptyList()
         setSubject(null)
@@ -883,6 +899,7 @@ class ThreadViewModel(
             return false
         }
         if (text.isEmpty()) return false
+        markAnswered()
         draftField.clearText()
         // "Separately" holds for scheduled texts too: one per person, in their own conversations.
         val apart = _sendSeparately.value && recipients.size > 1

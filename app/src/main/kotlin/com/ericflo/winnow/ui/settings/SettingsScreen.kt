@@ -310,7 +310,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
             item("suggested-replies") {
                 SwitchRow(
                     "Suggested replies",
-                    "Reply ideas above the keyboard and on notifications, from Android's on-device text classifier. Nothing leaves your phone, and never for filtered texts.",
+                    "Reply ideas above the keyboard, from Android's on-device text classifier, and Android's own on notifications where it offers them. Nothing leaves your phone, and never for filtered texts.",
                     s.suggestedReplies,
                     onChange = viewModel::setSuggestedReplies,
                 )
