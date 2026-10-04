@@ -92,6 +92,8 @@ data class InboxUiState(
 /** Backs the inbox and the Filtered and Archived lists. */
 @OptIn(FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class InboxViewModel(private val container: AppContainer, private val mode: ListMode) : ViewModel() {
+    /** Ctrl+F and the like from a keyboard (see MainActivity.onKeyShortcut). */
+    val keyShortcuts: kotlinx.coroutines.flow.SharedFlow<com.ericflo.winnow.KeyShortcut> get() = container.keyShortcuts
     private val repo = container.messages
     private val states = container.conversationStates
     private val query = MutableStateFlow("")

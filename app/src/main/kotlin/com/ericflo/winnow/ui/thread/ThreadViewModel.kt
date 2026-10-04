@@ -116,6 +116,9 @@ class ThreadViewModel(
      */
     private val inBubble: Boolean = false,
 ) : ViewModel() {
+    /** Ctrl+F and the like from a keyboard (see MainActivity.onKeyShortcut). */
+    val keyShortcuts: kotlinx.coroutines.flow.SharedFlow<com.ericflo.winnow.KeyShortcut> get() = container.keyShortcuts
+
     private val repo = container.messages
     private val states = container.conversationStates
     private val threadId = MutableStateFlow(initialThreadId)

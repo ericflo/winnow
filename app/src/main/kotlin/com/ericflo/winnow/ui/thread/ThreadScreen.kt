@@ -378,6 +378,8 @@ fun ThreadScreen(
 
     // Search within the conversation: matches newest first, and which one is in view.
     var searching by rememberSaveable { mutableStateOf(false) }
+    // Ctrl+F: find in this conversation.
+    LaunchedEffect(Unit) { viewModel.keyShortcuts.collect { if (it == com.ericflo.winnow.KeyShortcut.FIND) searching = true } }
     var query by rememberSaveable { mutableStateOf("") }
     val matches = remember(query, state.messages) {
         if (query.trim().length < 2) emptyList()

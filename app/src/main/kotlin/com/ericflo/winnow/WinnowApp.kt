@@ -94,6 +94,9 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
     }
 }
 
+/** What a hardware keyboard shortcut asks the screen on show to do. */
+enum class KeyShortcut { FIND }
+
 /** Debug-only shared preference: pretend the phone has a second SIM. */
 const val SIMULATE_SECOND_SIM = "simulate_second_sim"
 
@@ -233,6 +236,9 @@ class AppContainer(private val context: Context) {
     val historyReviewer by lazy { HistoryReviewer(context, appScope, verdictDao, contacts, settings, classifiers) }
     // Scheduled texts only ever go out through the real store, never the sample conversations.
     val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages.takeIf { isDefaultSmsApp() } } }
+
+    /** Hardware keyboard shortcuts the screen on show takes up (see MainActivity.onKeyShortcut). */
+    val keyShortcuts = kotlinx.coroutines.flow.MutableSharedFlow<KeyShortcut>(extraBufferCapacity = 1)
 
     /** Keeps the home-screen widget current while Winnow runs. */
     val widgetUpdates by lazy { com.ericflo.winnow.widget.WidgetUpdates(context, appScope) }

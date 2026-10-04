@@ -144,6 +144,11 @@ fun InboxScreen(
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var searching by rememberSaveable { mutableStateOf(false) }
+    // Ctrl+F: search, unless a conversation beside the list (a wide screen) has the keyboard's attention.
+    LaunchedEffect(openThreadId) {
+        if (openThreadId != null) return@LaunchedEffect
+        viewModel.keyShortcuts.collect { if (it == com.ericflo.winnow.KeyShortcut.FIND) searching = true }
+    }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<Long>()) }
     var confirmDelete by remember { mutableStateOf(false) }

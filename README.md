@@ -152,7 +152,9 @@ and opens Filtered; nothing on a quiet day.
 - **Big screens:** on a tablet, an unfolded foldable or a big window, the conversation list
   and the open conversation sit side by side, and the open one rides out rotation and resizing
   (narrowed, it carries on full size). A phone on its side keeps one pane. **Enter sends**
-  (optional) makes a keyboard's Enter send; Shift+Enter still starts a new line.
+  (optional) makes a keyboard's Enter send; Shift+Enter still starts a new line. With a
+  keyboard, Ctrl+N starts a chat, Ctrl+F searches (the inbox, or within a conversation) and
+  Ctrl+, opens Settings; Meta+/ lists them.
 - **Display:** light, dark or the system theme, and a message text size. Pinch a
   conversation to zoom its text; it snaps back to normal near 100%.
 - **Getting started:** onboarding explains the RCS trade-off before it asks to become your

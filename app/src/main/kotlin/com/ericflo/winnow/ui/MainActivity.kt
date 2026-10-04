@@ -33,6 +33,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.view.KeyEvent
+import android.view.KeyboardShortcutGroup
+import android.view.KeyboardShortcutInfo
+import android.view.Menu
+import com.ericflo.winnow.KeyShortcut
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { (application as WinnowApp).container }
@@ -105,6 +110,34 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         appLock.onStop()
+    }
+
+    /**
+     * A keyboard (a tablet's, a Chromebook's): Ctrl+N starts a chat, Ctrl+F searches (the inbox,
+     * or within a conversation), Ctrl+, opens Settings. Only while unlocked.
+     */
+    override fun onKeyShortcut(keyCode: Int, event: KeyEvent): Boolean {
+        if (!event.isCtrlPressed || appLock.state.value != AppLock.State.UNLOCKED) return super.onKeyShortcut(keyCode, event)
+        when (keyCode) {
+            KeyEvent.KEYCODE_N -> pendingRoute.value = NewChatRoute()
+            KeyEvent.KEYCODE_F -> container.keyShortcuts.tryEmit(KeyShortcut.FIND)
+            KeyEvent.KEYCODE_COMMA -> pendingRoute.value = SettingsRoute
+            else -> return super.onKeyShortcut(keyCode, event)
+        }
+        return true
+    }
+
+    /** The shortcuts above, in Android's keyboard shortcuts list (Meta+/). */
+    override fun onProvideKeyboardShortcuts(data: MutableList<KeyboardShortcutGroup>, menu: Menu?, deviceId: Int) {
+        super.onProvideKeyboardShortcuts(data, menu, deviceId)
+        data += KeyboardShortcutGroup(
+            "Winnow",
+            listOf(
+                KeyboardShortcutInfo("Start chat", KeyEvent.KEYCODE_N, KeyEvent.META_CTRL_ON),
+                KeyboardShortcutInfo("Search", KeyEvent.KEYCODE_F, KeyEvent.META_CTRL_ON),
+                KeyboardShortcutInfo("Settings", KeyEvent.KEYCODE_COMMA, KeyEvent.META_CTRL_ON),
+            ),
+        )
     }
 
     override fun onNewIntent(intent: Intent) {
