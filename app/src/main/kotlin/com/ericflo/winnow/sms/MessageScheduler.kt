@@ -104,12 +104,12 @@ class MessageScheduler(
 
     private fun arm(id: Long, at: Long) {
         val intent = alarmIntent(id)
-        // Exact timing needs the user's "Alarms & reminders" grant; otherwise inexact, but still
-        // while the phone is idle (a plain window can wait hours for Doze's maintenance windows).
+        // Exact timing needs the user's "Alarms & reminders" grant; otherwise within ten minutes
+        // (an inexact idle alarm can be an hour late, and a second alarm could send it twice).
         if (alarms.canScheduleExactAlarms()) {
             alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, intent)
         } else {
-            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, intent)
+            alarms.setWindow(AlarmManager.RTC_WAKEUP, at, 10 * 60_000L, intent)
         }
     }
 

@@ -99,6 +99,7 @@ class Reminders(
 
     suspend fun cancel(key: String) {
         alarms.cancel(alarmIntent(key))
+        alarms.cancel(alarmIntent(key, idle = true))
         dao.delete(key)
         manager.cancel(tag(key), 0)
     }
@@ -119,6 +120,8 @@ class Reminders(
     /** A reminder put back from a backup under its message's new key; only one still to come. */
     suspend fun restore(reminder: ReminderEntity) {
         if (reminder.remindAt <= System.currentTimeMillis()) return
+        // One set (or moved) here since the backup stands.
+        if (dao.get(reminder.messageKey) != null) return
         dao.upsert(reminder)
         arm(reminder.messageKey, reminder.remindAt)
     }
@@ -200,18 +203,21 @@ class Reminders(
 
     private fun arm(key: String, at: Long) {
         val intent = alarmIntent(key)
-        // Exact with the "Alarms & reminders" grant; else inexact, but still while the phone is
-        // idle (a plain window waits for Doze's maintenance windows, hours sometimes).
+        // Exact with the "Alarms & reminders" grant. Without it, two: a ten-minute window (an
+        // inexact idle alarm can come up to an hour late while the phone's in use), and one that
+        // still goes off while it's idle (a plain window waits for Doze's maintenance windows).
+        // Whichever is first shows it; the other finds it done (see fire).
         if (alarms.canScheduleExactAlarms()) {
             alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, intent)
         } else {
-            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, intent)
+            alarms.setWindow(AlarmManager.RTC_WAKEUP, at, 10 * 60_000L, intent)
+            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, alarmIntent(key, idle = true))
         }
     }
 
-    private fun alarmIntent(key: String): PendingIntent = PendingIntent.getBroadcast(
+    private fun alarmIntent(key: String, idle: Boolean = false): PendingIntent = PendingIntent.getBroadcast(
         context, 0,
-        Intent(context, ReminderReceiver::class.java).setAction(ACTION_FIRE).setData(keyUri(key)).putExtra(EXTRA_KEY, key),
+        Intent(context, ReminderReceiver::class.java).setAction(if (idle) ACTION_FIRE_IDLE else ACTION_FIRE).setData(keyUri(key)).putExtra(EXTRA_KEY, key),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
@@ -238,6 +244,7 @@ class Reminders(
     companion object {
         const val CHANNEL = "reminders"
         const val ACTION_FIRE = "com.ericflo.winnow.REMINDER"
+        const val ACTION_FIRE_IDLE = "com.ericflo.winnow.REMINDER_IDLE"
         const val ACTION_SNOOZE = "com.ericflo.winnow.REMINDER_SNOOZE"
         const val ACTION_DONE = "com.ericflo.winnow.REMINDER_DONE"
         const val EXTRA_KEY = "message_key"
@@ -263,7 +270,7 @@ class ReminderReceiver : BroadcastReceiver() {
         container.appScope.launch {
             try {
                 when (intent.action) {
-                    Reminders.ACTION_FIRE -> container.reminders.fire(key)
+                    Reminders.ACTION_FIRE, Reminders.ACTION_FIRE_IDLE -> container.reminders.fire(key)
                     Reminders.ACTION_DONE -> container.reminders.dismiss(key)
                     Reminders.ACTION_SNOOZE -> container.reminders.snooze(
                         ReminderEntity(

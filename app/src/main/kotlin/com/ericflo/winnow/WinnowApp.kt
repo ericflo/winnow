@@ -256,8 +256,18 @@ class AppContainer(private val context: Context) {
             context, database.reminders(), messages::displayName,
             hideOnLockScreen = { settings.current().hideOnLockScreen },
             messageExists = { key, at ->
-                val found = runCatching { messages.messagesByKey(listOf(key)).firstOrNull()?.message }.getOrNull()
-                found != null && (at == 0L || found.timestamp == at)
+                // Just the one row's date: SMS in milliseconds, MMS in seconds.
+                val (kind, id) = key.split(':').let { it.getOrNull(0) to it.getOrNull(1)?.toLongOrNull() }
+                val uri = when (kind) {
+                    "sms" -> android.provider.Telephony.Sms.CONTENT_URI
+                    "mms" -> android.provider.Telephony.Mms.CONTENT_URI
+                    else -> null
+                }
+                val date = if (uri == null || id == null) null else runCatching {
+                    context.contentResolver.query(android.content.ContentUris.withAppendedId(uri, id), arrayOf("date"), null, null, null)
+                        ?.use { c -> if (c.moveToFirst()) c.getLong(0) * (if (kind == "mms") 1000 else 1) else null }
+                }.getOrNull()
+                date != null && (at == 0L || date == at)
             },
         )
     }

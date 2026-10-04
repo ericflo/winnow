@@ -4,11 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.ColorFilter
@@ -65,6 +61,16 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.transformLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.distinctUntilChanged
+import androidx.compose.runtime.collectAsState
 
 /**
  * A home-screen widget of the inbox's newest conversations: who, what they said last, when,
@@ -74,16 +80,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 class ConversationsWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Exact
 
-    override suspend fun provideGlance(context: Context, id: GlanceId) {
+    override suspend fun provideGlance(context: Context, id: GlanceId) = coroutineScope {
         val first = load(context)
         val changes = (context.applicationContext as WinnowApp).container.widgetUpdates.changes
+        // Read again on every change: a session outlives one update (Glance keeps it a while and
+        // only recomposes), so what was loaded first can't simply stand. Once per change here,
+        // not in the composition, which Glance runs once per size the launcher asks for.
+        val content = changes.map { load(context) }.stateIn(this, SharingStarted.Eagerly, first)
         provideContent {
-            // Read again on every change: a session outlives one update (Glance keeps it a while
-            // and only recomposes), so what was loaded first can't simply stand.
-            var content by remember { mutableStateOf(first) }
-            LaunchedEffect(Unit) { changes.collect { content = load(context) } }
+            val shown by content.collectAsState()
             GlanceTheme {
-                Body(content)
+                Body(shown)
             }
         }
     }
@@ -99,9 +106,14 @@ class ConversationsWidget : GlanceAppWidget() {
         val settings = container.settings.current()
         if (settings.appLock) return Content.Locked
         if (!container.isLive.value) return Content.NotSetUp
+        val now = System.currentTimeMillis()
         val conversations = container.messages.conversations().first()
             .withState(container.conversationStates.all().associateBy { it.threadId })
             .filter { !it.isFiltered && !it.archived }
+            // A text that just landed is still being classified (its notification waits too): a
+            // scam mustn't sit on the home screen until it's filtered. Shown once it's decided,
+            // or after the classifier's budget if it never is.
+            .filterNot { it.verdict == null && it.unread && now - it.timestamp in 0 until CLASSIFYING_MILLIS }
             .take(MAX_ROWS)
         return Content.Rows(conversations)
     }
@@ -172,7 +184,8 @@ class ConversationsWidget : GlanceAppWidget() {
                 )
                 Spacer(GlanceModifier.width(8.dp))
                 Text(
-                    shortTimestamp(c.timestamp),
+                    // A clock time, not "5 min": a widget isn't redrawn every minute.
+                    shortTimestamp(c.timestamp, relative = false),
                     style = TextStyle(color = if (unread) GlanceTheme.colors.primary else GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp),
                 )
             }
@@ -188,16 +201,18 @@ class ConversationsWidget : GlanceAppWidget() {
         }
     }
 
-    private companion object {
+    companion object {
         /** A widget shows a handful; the app is a tap away for the rest. */
-        const val MAX_ROWS = 12
+        private const val MAX_ROWS = 12
+        /** How long a new text can take to be classified (IncomingMessageHandler's budget, and some). */
+        const val CLASSIFYING_MILLIS = 10_000L
 
-        fun openApp() = Intent(Intent.ACTION_MAIN).setClassName("com.ericflo.winnow", MainActivity::class.java.name)
+        private fun openApp() = Intent(Intent.ACTION_MAIN).setClassName("com.ericflo.winnow", MainActivity::class.java.name)
             .addCategory(Intent.CATEGORY_LAUNCHER)
 
-        fun newChat() = Intent(MainActivity.ACTION_NEW_CHAT).setClassName("com.ericflo.winnow", MainActivity::class.java.name)
+        private fun newChat() = Intent(MainActivity.ACTION_NEW_CHAT).setClassName("com.ericflo.winnow", MainActivity::class.java.name)
 
-        fun openThread(c: ConversationSummary) = Intent(MainActivity.ACTION_OPEN_THREAD)
+        private fun openThread(c: ConversationSummary) = Intent(MainActivity.ACTION_OPEN_THREAD)
             .setClassName("com.ericflo.winnow", MainActivity::class.java.name)
             .putExtra(MainActivity.EXTRA_THREAD_ID, c.threadId)
             .putExtra(MainActivity.EXTRA_ADDRESS, com.ericflo.winnow.data.joinAddresses(c.recipients))
@@ -228,12 +243,22 @@ class WidgetUpdates(private val context: Context, private val scope: CoroutineSc
     /** Something the widget shows may have changed (debounced): a showing widget reads again. */
     val changes: SharedFlow<Unit> = _changes
 
-    @OptIn(FlowPreview::class)
+    @OptIn(FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun start() {
         if (!started.compareAndSet(false, true)) return
         val container = (context.applicationContext as WinnowApp).container
         scope.launch {
-            merge(messageStoreChanges(), roomChanges(container), container.contacts.changes(), container.settings.settings.map { })
+            merge(
+                // Only once Winnow may read texts (an observer before that is refused, quietly);
+                // and the widget's own "make it your SMS app" note goes when it can. A new text is
+                // looked at again once the classifier's had its time (see CLASSIFYING_MILLIS).
+                container.isLive.flatMapLatest { live ->
+                    if (live) messageStoreChanges().onStart { emit(Unit) }.transformLatest { emit(Unit); delay(ConversationsWidget.CLASSIFYING_MILLIS + 1_000); emit(Unit) } else flowOf(Unit)
+                },
+                roomChanges(container),
+                container.contacts.changes(),
+                container.settings.settings.map { it.appLock }.distinctUntilChanged(),
+            )
                 .debounce(1_000)
                 .collect {
                     val ids = runCatching { GlanceAppWidgetManager(context).getGlanceIds(ConversationsWidget::class.java) }.getOrDefault(emptyList())

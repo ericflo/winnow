@@ -478,7 +478,6 @@ class BackupManager(
                     val (key, inThread) = textsEverywhere.getValue(textKey(m)!!)
                     if (key !in classified) restoreVerdict(m, conversation, inThread, key)
                     if (m.starred) starred.star(StarredEntity(key, inThread, System.currentTimeMillis()))
-                restoreReminder(m, key, inThread, conversation)
                     restoreReminder(m, key, inThread, conversation)
                 }
                 present += knownTexts.size
@@ -496,6 +495,7 @@ class BackupManager(
                 val (key, inThread) = existing[m.fingerprint]?.let { it to threadId } ?: textsEverywhere.getValue(textKey(m)!!)
                 if (key !in classified) restoreVerdict(m, conversation, inThread, key)
                 if (m.starred) starred.star(StarredEntity(key, inThread, System.currentTimeMillis()))
+                restoreReminder(m, key, inThread, conversation)
             }
             present += here.size
             done += here.size

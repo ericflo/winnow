@@ -174,9 +174,9 @@ private val monthDayFormat = DateTimeFormatter.ofPattern("MMM d")
 private val fullDateFormat = DateTimeFormatter.ofLocalizedDate(FormatStyle.SHORT)
 
 /** Conversation-list time: "Now", "6 min", a time today, a weekday this week, a date otherwise. */
-fun shortTimestamp(epochMillis: Long, now: Long = System.currentTimeMillis()): String {
+fun shortTimestamp(epochMillis: Long, now: Long = System.currentTimeMillis(), relative: Boolean = true): String {
     val minutes = (now - epochMillis) / 60_000
-    if (minutes in 0..59) return if (minutes == 0L) "Now" else "$minutes min"
+    if (relative && minutes in 0..59) return if (minutes == 0L) "Now" else "$minutes min"
     val zone = ZoneId.systemDefault()
     val at = Instant.ofEpochMilli(epochMillis).atZone(zone)
     val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()

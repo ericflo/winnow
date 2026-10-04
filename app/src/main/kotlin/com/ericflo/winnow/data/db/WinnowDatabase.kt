@@ -35,7 +35,7 @@ import kotlinx.coroutines.flow.Flow
         AutoMigration(from = 9, to = 10, spec = WinnowDatabase.EverythingSummarized::class),
         AutoMigration(from = 10, to = 11),
         AutoMigration(from = 11, to = 12),
-        AutoMigration(from = 12, to = 13),
+        AutoMigration(from = 12, to = 13, spec = WinnowDatabase.RemindersFromMe::class),
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
@@ -46,6 +46,13 @@ abstract class WinnowDatabase : RoomDatabase() {
     class EverythingSummarized : AutoMigrationSpec {
         override fun onPostMigrate(db: SupportSQLiteDatabase) {
             db.execSQL("UPDATE verdicts SET summarized = 1")
+        }
+    }
+
+    /** 12 to 13 adds ReminderEntity.fromMe: a reminder with no sender was on the user's own message. */
+    class RemindersFromMe : AutoMigrationSpec {
+        override fun onPostMigrate(db: SupportSQLiteDatabase) {
+            db.execSQL("UPDATE reminders SET fromMe = 1 WHERE sender IS NULL")
         }
     }
 

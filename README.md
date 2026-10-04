@@ -42,7 +42,9 @@ who decided it, with **Not spam**, **Filter sender** and **Report**. Report forw
 text to your carrier's 7726 spam service, after you confirm. Links in phishing and scam
 messages can't be tapped. **Filtered words** (Settings) send a stranger's text that uses one
 straight to Filtered, decided on the phone; whole words only, so "vote" doesn't catch
-"devoted", and contacts and people you've texted aren't affected. An optional **daily
+"devoted", and contacts and people you've texted aren't affected. **Clear out old filtered
+texts** (optional) moves filtered conversations untouched for a month to Recently deleted,
+never one you've written in, pinned or starred. An optional **daily
 summary** says each evening how many texts were kept out of the inbox (or arrived quietly),
 and opens Filtered; nothing on a quiet day.
 
