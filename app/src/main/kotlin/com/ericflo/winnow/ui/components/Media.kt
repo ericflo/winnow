@@ -7,6 +7,8 @@ import coil3.compose.AsyncImage
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import android.net.Uri
 import android.widget.MediaController
 import android.widget.VideoView
@@ -71,23 +73,46 @@ import androidx.compose.foundation.layout.statusBarsPadding
  * the conversation screen, which releases it when it goes away.
  */
 class AudioPlayer(private val context: Context) {
-    data class State(val uri: String? = null, val playing: Boolean = false, val positionMillis: Int = 0, val durationMillis: Int = 0)
+    data class State(val uri: String? = null, val playing: Boolean = false, val positionMillis: Int = 0, val durationMillis: Int = 0, val speed: Float = 1f)
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
     private var player: MediaPlayer? = null
+    /** Kept from one voice message to the next, as a listener would expect. */
+    private var speed = 1f
+
+    /** 1× → 1.5× → 2× → 1×, at once if something's playing. */
+    fun cycleSpeed() {
+        speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.size]
+        _state.value = _state.value.copy(speed = speed)
+        // Only while playing: setting a speed on a paused player starts it.
+        player?.takeIf { _state.value.playing }?.let(::applySpeed)
+    }
+
+    /** Jumps to [fraction] of the way through the clip that's loaded. */
+    fun seekTo(uri: String, fraction: Float) {
+        val p = player ?: return
+        if (_state.value.uri != uri || _state.value.durationMillis <= 0) return
+        val position = (fraction.coerceIn(0f, 1f) * _state.value.durationMillis).toInt()
+        runCatching { p.seekTo(position) }
+        _state.value = _state.value.copy(positionMillis = position)
+    }
+
+    private fun applySpeed(p: MediaPlayer) {
+        runCatching { p.playbackParams = p.playbackParams.setSpeed(speed) }
+    }
 
     fun toggle(uri: String) {
         val current = player
         if (current != null && _state.value.uri == uri && _state.value.durationMillis > 0) {
-            if (_state.value.playing) current.pause() else current.start()
+            if (_state.value.playing) current.pause() else current.start().also { applySpeed(current) }
             _state.value = _state.value.copy(playing = !_state.value.playing)
             return
         }
         release()
         val created = MediaPlayer()
         player = created
-        _state.value = State(uri, playing = false)
+        _state.value = State(uri, playing = false, speed = speed)
         runCatching {
             created.setDataSource(context, Uri.parse(uri))
             created.setOnCompletionListener { _state.value = _state.value.copy(playing = false, positionMillis = 0); it.seekTo(0) }
@@ -96,7 +121,8 @@ class AudioPlayer(private val context: Context) {
             created.setOnPreparedListener {
                 if (player !== it) return@setOnPreparedListener
                 it.start()
-                _state.value = State(uri, playing = true, positionMillis = 0, durationMillis = it.duration)
+                applySpeed(it)
+                _state.value = State(uri, playing = true, positionMillis = 0, durationMillis = it.duration, speed = speed)
             }
             created.prepareAsync()
         }.onFailure { release() }
@@ -118,7 +144,11 @@ class AudioPlayer(private val context: Context) {
     fun release() {
         player?.release()
         player = null
-        _state.value = State()
+        _state.value = State(speed = speed)
+    }
+
+    private companion object {
+        val SPEEDS = listOf(1f, 1.5f, 2f)
     }
 }
 
@@ -138,8 +168,8 @@ fun AudioAttachment(uri: String, player: AudioPlayer, outgoing: Boolean) {
     }
     val colors = MaterialTheme.colorScheme
     val (container, content) = if (outgoing) colors.primaryContainer to colors.onPrimaryContainer else colors.surfaceContainerHigh to colors.onSurface
-    Surface(color = container, contentColor = content, shape = RoundedCornerShape(22.dp), modifier = Modifier.widthIn(min = 220.dp, max = 280.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 6.dp, end = 16.dp, top = 6.dp, bottom = 6.dp)) {
+    Surface(color = container, contentColor = content, shape = RoundedCornerShape(22.dp), modifier = Modifier.widthIn(min = 240.dp, max = 300.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 6.dp, end = 8.dp, top = 6.dp, bottom = 6.dp)) {
             IconButton(onClick = { player.toggle(uri) }) {
                 if (mine && state.playing) {
                     Icon(painterResource(R.drawable.ic_pause), contentDescription = "Pause")
@@ -147,14 +177,33 @@ fun AudioAttachment(uri: String, player: AudioPlayer, outgoing: Boolean) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = "Play voice message")
                 }
             }
-            LinearProgressIndicator(
-                progress = { if (mine && duration > 0) state.positionMillis.toFloat() / duration else 0f },
-                modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)),
-                color = content,
-                trackColor = content.copy(alpha = 0.25f),
-            )
-            Spacer(Modifier.width(12.dp))
+            // Tap along the bar to jump there, once the clip is loaded.
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.weight(1f).height(32.dp).pointerInput(uri, mine) {
+                    detectTapGestures { offset -> if (mine) player.seekTo(uri, offset.x / size.width) }
+                },
+            ) {
+                LinearProgressIndicator(
+                    progress = { if (mine && duration > 0) state.positionMillis.toFloat() / duration else 0f },
+                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                    color = content,
+                    trackColor = content.copy(alpha = 0.25f),
+                )
+            }
+            Spacer(Modifier.width(10.dp))
             Text(clock(if (mine && state.playing) state.positionMillis else duration), style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.width(4.dp))
+            val label = if (state.speed % 1f == 0f) "${state.speed.toInt()}×" else "${state.speed}×"
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClickLabel = "Change playback speed", onClick = player::cycleSpeed)
+                    .semantics { contentDescription = "Playback speed $label" }
+                    .padding(horizontal = 6.dp, vertical = 10.dp),
+            )
         }
     }
 }
