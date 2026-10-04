@@ -68,6 +68,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.coil.compose)
     implementation(libs.coil.gif)
+    implementation(libs.media3.transformer)
+    implementation(libs.media3.effect)
 
     testImplementation(libs.junit)
     testImplementation(libs.kxml2)

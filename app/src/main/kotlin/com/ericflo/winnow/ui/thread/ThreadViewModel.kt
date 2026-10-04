@@ -287,7 +287,9 @@ class ThreadViewModel(
         }
         launch {
             val size = withContext(Dispatchers.IO) { container.sharedFiles.sizeOf(attachment.uri) }
-            if (size != null && size > MmsSender.MESSAGE_BUDGET_BYTES) {
+            if (size != null && size > MmsSender.MESSAGE_BUDGET_BYTES && attachment.contentType.startsWith("video/")) {
+                shrinkVideo(attachment)
+            } else if (size != null && size > MmsSender.MESSAGE_BUDGET_BYTES) {
                 val what = when {
                     attachment.contentType == "image/gif" -> "That GIF is"
                     attachment.contentType.startsWith("video/") -> "That video is"
@@ -360,6 +362,26 @@ class ThreadViewModel(
     fun cancelRecording() {
         recorder.stopAndDiscard()
         _recording.value = false
+    }
+
+    private val _shrinking = MutableStateFlow<Int?>(null)
+    /** A video is being made small enough to send: how far along, 0–100. */
+    val shrinking: StateFlow<Int?> = _shrinking.asStateFlow()
+
+    private suspend fun shrinkVideo(video: OutgoingAttachment) {
+        _shrinking.value = 0
+        val result = try {
+            container.videoShrinker.shrink(android.net.Uri.parse(video.uri), MmsSender.MESSAGE_BUDGET_BYTES.toLong()) { _shrinking.value = it }
+        } finally {
+            _shrinking.value = null
+        }
+        if (result == null) {
+            _notices.emit("That video is too big to send by MMS, and couldn't be made smaller")
+            return
+        }
+        val name = video.name?.substringBeforeLast('.')?.let { "$it.mp4" } ?: "video.mp4"
+        _attachments.value = _attachments.value + OutgoingAttachment(android.net.Uri.fromFile(result.file).toString(), "video/mp4", name)
+        result.trimmedToMillis?.let { _notices.emit("Only the first ${it / 1000} seconds fit in an MMS, so that's what will be sent") }
     }
 
     private val _locating = MutableStateFlow(false)

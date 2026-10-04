@@ -112,7 +112,7 @@ class SharedFiles(private val context: Context) {
     /** Drops shares the user never sent, and copies handed to other apps a day ago. */
     fun cleanUp(olderThanMillis: Long = 24 * 60 * 60_000L) {
         val cutoff = System.currentTimeMillis() - olderThanMillis
-        listOf(dir, File(context.cacheDir, "camera"), File(context.cacheDir, "outbox"), File(context.cacheDir, "voice")).forEach { d ->
+        listOf(dir, File(context.cacheDir, "camera"), File(context.cacheDir, "outbox"), File(context.cacheDir, "voice"), File(context.cacheDir, "video")).forEach { d ->
             d.listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.deleteRecursively() }
         }
     }

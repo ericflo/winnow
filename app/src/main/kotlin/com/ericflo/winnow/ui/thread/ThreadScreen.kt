@@ -233,6 +233,7 @@ fun ThreadScreen(
         if (granted) viewModel.startRecording() else refused = "Voice messages need the microphone"
     }
     val locating by viewModel.locating.collectAsStateWithLifecycle()
+    val shrinking by viewModel.shrinking.collectAsStateWithLifecycle()
     // Precise or approximate, whichever the user allows; either makes a usable map link.
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants.values.any { it }) viewModel.shareLocation() else refused = "Sharing your location needs location access"
@@ -492,7 +493,8 @@ fun ThreadScreen(
                 field = viewModel.draftField,
                 onKeyboardContent = viewModel::addKeyboardContent,
                 attachments = attachments,
-                onAttach = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                // Videos too: one too big for an MMS is shrunk to fit.
+                onAttach = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
                 onCamera = {
                     val (file, uri) = viewModel.newCameraPhoto()
                     cameraTarget = android.net.Uri.fromFile(file).toString()
@@ -512,6 +514,7 @@ fun ThreadScreen(
                     else locationPermission.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
                 },
                 locating = locating,
+                shrinking = shrinking,
                 recording = recording,
                 recordingElapsed = viewModel::recordingElapsed,
                 onStopRecording = viewModel::stopRecording,
@@ -1436,6 +1439,8 @@ private fun Composer(
     onVoice: () -> Unit = {},
     onLocation: () -> Unit = {},
     locating: Boolean = false,
+    /** A video being made small enough to send, 0–100; null when none is. */
+    shrinking: Int? = null,
     recording: Boolean = false,
     recordingElapsed: () -> Long = { 0 },
     onStopRecording: () -> Unit = {},
@@ -1461,6 +1466,12 @@ private fun Composer(
                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(10.dp))
                 Text("Finding your location…", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+            }
+        }
+        if (shrinking != null) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Making the video small enough to send… $shrinking%", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+                LinearProgressIndicator(progress = { shrinking / 100f }, modifier = Modifier.fillMaxWidth())
             }
         }
         if (sendSeparately) {

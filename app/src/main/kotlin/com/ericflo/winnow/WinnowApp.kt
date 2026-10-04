@@ -116,6 +116,7 @@ class AppContainer(private val context: Context) {
     val mediaExport by lazy { MediaExport(context) }
     fun newVoiceRecorder() = com.ericflo.winnow.data.VoiceRecorder(context)
     val currentLocation by lazy { com.ericflo.winnow.data.CurrentLocation(context) }
+    val videoShrinker by lazy { com.ericflo.winnow.data.VideoShrinker(context) }
     val linkPreviews by lazy { LinkPreviewFetcher(context, okhttp3.OkHttpClient()) }
     val codeCleaner by lazy { CodeCleaner(context, verdictDao, starredDao) { isDefaultSmsApp() && settings.current().deleteOldCodes } }
 
