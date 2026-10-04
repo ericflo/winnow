@@ -611,6 +611,9 @@ fun ThreadScreen(
             onSave = { save(message.attachments) },
             onShare = { share(message.attachments) },
             onSelect = { selected = setOf(message.key) },
+            replyPrivately = message.sender?.takeIf { state.isGroup && !message.outgoing }?.let { sender ->
+                (state.senderNames[sender] ?: sender) to { onMessageNumber(sender) }
+            },
             onSelectText = { selectingText = message.body },
             onShareText = {
                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, message.body)
@@ -1370,6 +1373,8 @@ private fun MessageActionsSheet(
     onSelect: () -> Unit,
     onSelectText: () -> Unit,
     onShareText: () -> Unit,
+    /** In a group, someone else's message: a one-to-one conversation with them, named. */
+    replyPrivately: Pair<String, () -> Unit>? = null,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
@@ -1451,6 +1456,15 @@ private fun MessageActionsSheet(
                 colors = colors,
                 modifier = Modifier.clickable(onClick = act(onSelect)),
             )
+            replyPrivately?.let { (name, open) ->
+                ListItem(
+                    headlineContent = { Text("Reply privately") },
+                    supportingContent = { Text("A conversation with just $name") },
+                    leadingContent = { Icon(Icons.Filled.Person, contentDescription = null) },
+                    colors = colors,
+                    modifier = Modifier.clickable(onClick = act(open)),
+                )
+            }
             ListItem(
                 headlineContent = { Text("View details") },
                 leadingContent = { Icon(Icons.Filled.Info, contentDescription = null) },
