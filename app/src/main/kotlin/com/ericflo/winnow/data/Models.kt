@@ -17,6 +17,8 @@ data class ConversationSummary(
     val archived: Boolean = false,
     val muted: Boolean = false,
     val draft: String? = null,
+    /** The newest message is one of the user's that didn't go out. */
+    val notSent: Boolean = false,
     /** The contact's photo, for 1:1 conversations with a contact who has one. */
     val photoUri: String? = null,
 ) {

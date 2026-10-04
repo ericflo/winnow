@@ -88,6 +88,10 @@ fun ConversationRow(
                     if (draft != null) {
                         withStyle(SpanStyle(color = colors.error)) { append("Draft: ") }
                         append(draft)
+                    } else if (conversation.notSent) {
+                        // As Messages does: the newest text didn't go out, so say so first.
+                        withStyle(SpanStyle(color = colors.error)) { append("Not sent: ") }
+                        append(conversation.snippet.removePrefix("You: "))
                     } else {
                         append(conversation.snippet)
                     }

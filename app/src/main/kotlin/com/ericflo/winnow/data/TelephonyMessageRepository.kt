@@ -61,6 +61,8 @@ class TelephonyMessageRepository(
         val unread: Boolean,
         /** An MMS announced but not downloaded: it has no verdict of its own. */
         val placeholder: Boolean = false,
+        /** One of the user's that didn't go out. */
+        val failed: Boolean = false,
     ) {
         val key: String get() = ChatMessage.messageKey(kind, id)
     }
@@ -458,6 +460,7 @@ class TelephonyMessageRepository(
                 unreadCount = unread[threadId] ?: 0,
                 verdict = null,
                 photoUri = people.singleOrNull()?.let(contacts::photoUri),
+                notSent = newest.failed,
             )
             // A placeholder has no verdict yet, so the thread keeps its latest one instead of losing it.
             summary to newest.key.takeIf { !newest.outgoing && !newest.placeholder }
@@ -478,7 +481,11 @@ class TelephonyMessageRepository(
                 val isSms = !c.isNull(3)
                 val incoming = if (isSms) c.getInt(3) == Telephony.Sms.MESSAGE_TYPE_INBOX else c.getInt(4) == Telephony.Mms.MESSAGE_BOX_INBOX
                 val placeholder = !isSms && !c.isNull(5) && c.getInt(5) == MESSAGE_TYPE_NOTIFICATION_IND
-                val head = Head(if (isSms) Kind.SMS else Kind.MMS, c.getLong(0), threadId, c.getLong(2), outgoing = !incoming, unread = false, placeholder = placeholder)
+                val failed = if (isSms) c.getInt(3) == Telephony.Sms.MESSAGE_TYPE_FAILED else c.getInt(4) == Telephony.Mms.MESSAGE_BOX_FAILED
+                val head = Head(
+                    if (isSms) Kind.SMS else Kind.MMS, c.getLong(0), threadId, c.getLong(2), outgoing = !incoming, unread = false,
+                    placeholder = placeholder, failed = failed,
+                )
                 // Two messages can share a thread's newest timestamp; keep one.
                 if ((newest[threadId]?.date ?: Long.MIN_VALUE) < head.date) newest[threadId] = head
             }
