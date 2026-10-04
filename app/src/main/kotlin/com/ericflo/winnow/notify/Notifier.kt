@@ -21,6 +21,7 @@ import com.ericflo.winnow.R
 import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.ui.BubbleActivity
 import com.ericflo.winnow.ui.MainActivity
+import android.provider.Settings
 
 /** Conversation notifications with inline reply and mark-as-read. */
 class Notifier(private val context: Context) {
@@ -90,23 +91,7 @@ class Notifier(private val context: Context) {
             .setShowsUserInterface(false)
             .build()
 
-        // A long-lived conversation shortcut puts the notification in the shade's Conversations
-        // section (priority, bubbles) and the thread on the launcher icon's long-press menu.
-        val shortcutId = shortcutId(threadId)
-        runCatching {
-            ShortcutManagerCompat.pushDynamicShortcut(
-                context,
-                ShortcutInfoCompat.Builder(context, shortcutId)
-                    .setShortLabel(conversationTitle)
-                    .setLongLived(true)
-                    .setIsConversation()
-                    .setLocusId(LocusIdCompat(shortcutId))
-                    .setPerson(sender)
-                    .setIcon(photo?.let(IconCompat::createWithBitmap) ?: IconCompat.createWithResource(context, R.mipmap.ic_launcher))
-                    .setIntent(Intent(open).setAction(MainActivity.ACTION_OPEN_THREAD))
-                    .build(),
-            )
-        }
+        val shortcutId = pushShortcut(threadId, joined, conversationTitle, sender, photo)
         val builder = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
             .setShortcutId(shortcutId)
             .setLocusId(LocusIdCompat(shortcutId))
@@ -151,6 +136,56 @@ class Notifier(private val context: Context) {
         manager.notify(TAG, id, notification)
     }
 
+    /**
+     * A long-lived conversation shortcut puts the notification in the shade's Conversations
+     * section (priority, bubbles) and the thread on the launcher icon's long-press menu.
+     */
+    private fun pushShortcut(threadId: Long, joined: String, title: String, person: Person, photo: android.graphics.Bitmap?): String {
+        val shortcutId = shortcutId(threadId)
+        val open = Intent(context, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_OPEN_THREAD)
+            .putExtra(MainActivity.EXTRA_THREAD_ID, threadId)
+            .putExtra(MainActivity.EXTRA_ADDRESS, joined)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        runCatching {
+            ShortcutManagerCompat.pushDynamicShortcut(
+                context,
+                ShortcutInfoCompat.Builder(context, shortcutId)
+                    .setShortLabel(title)
+                    .setLongLived(true)
+                    .setIsConversation()
+                    .setLocusId(LocusIdCompat(shortcutId))
+                    .setPerson(person)
+                    .setIcon(photo?.let(IconCompat::createWithBitmap) ?: IconCompat.createWithResource(context, R.mipmap.ic_launcher))
+                    .setIntent(open)
+                    .build(),
+            )
+        }
+        return shortcutId
+    }
+
+    /**
+     * Android's own notification settings for one conversation: its sound, vibration, priority
+     * and bubble. Those settings hang off the conversation's shortcut, so it's made first.
+     */
+    fun conversationSettings(threadId: Long, recipients: List<String>, title: String): Intent {
+        val shortcutId = pushShortcut(threadId, joinAddresses(recipients), title, Person.Builder().setName(title).setKey(title).build(), null)
+        // Settings shows the general Messages page until the conversation has a channel of its
+        // own. Notifications for this conversation move to it automatically, by shortcut ID.
+        val system = context.getSystemService(NotificationManager::class.java)
+        if (conversationChannel(system, shortcutId) == null) {
+            val parent = system.getNotificationChannel(CHANNEL_MESSAGES)
+            system.createNotificationChannel(
+                NotificationChannel("$CHANNEL_MESSAGES:$shortcutId", title, parent?.importance ?: NotificationManager.IMPORTANCE_HIGH)
+                    .apply { setConversationId(CHANNEL_MESSAGES, shortcutId) },
+            )
+        }
+        return Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            .putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL_MESSAGES)
+            .putExtra(Settings.EXTRA_CONVERSATION_ID, shortcutId)
+    }
+
     fun cancel(threadId: Long) {
         manager.cancel(TAG, notificationId(threadId))
     }
@@ -158,10 +193,16 @@ class Notifier(private val context: Context) {
     /** Drops notifications and conversation shortcuts for deleted threads. */
     fun forget(threadIds: Collection<Long>) {
         threadIds.forEach(::cancel)
+        val system = context.getSystemService(NotificationManager::class.java)
+        threadIds.forEach { id -> conversationChannel(system, shortcutId(id))?.let { system.deleteNotificationChannel(it.id) } }
         runCatching { ShortcutManagerCompat.removeLongLivedShortcuts(context, threadIds.map(::shortcutId)) }
     }
 
     private fun shortcutId(threadId: Long) = "thread-$threadId"
+
+    /** The conversation's own channel, if it has one. The platform call falls back to the parent channel, which mustn't be mistaken for it. */
+    private fun conversationChannel(system: NotificationManager, shortcutId: String): NotificationChannel? =
+        system.getNotificationChannel(CHANNEL_MESSAGES, shortcutId)?.takeIf { it.conversationId == shortcutId }
 
     private fun actionIntent(
         action: String,

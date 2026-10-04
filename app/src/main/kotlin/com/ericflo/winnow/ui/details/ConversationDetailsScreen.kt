@@ -66,6 +66,21 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.ericflo.winnow.data.Attachment
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import android.widget.Toast
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.ericflo.winnow.ui.components.AttachmentThumbnail
+import com.ericflo.winnow.ui.components.ImageViewer
+import com.ericflo.winnow.ui.components.VideoViewer
 
 data class DetailsUiState(
     val title: String,
@@ -95,9 +110,25 @@ class ConversationDetailsViewModel(
     private val blocked = MutableStateFlow(false)
     private val single = recipients.singleOrNull()
 
+    /** A conversation not yet in the message store has no notifications to configure. */
+    val hasThread = threadId >= 0
+
     init {
         reload()
     }
+
+    /** The conversation's photos and videos, newest first. */
+    val media: StateFlow<List<Attachment>> = (if (threadId >= 0) repo.messages(threadId) else flowOf(emptyList()))
+        .map { messages -> messages.flatMap { m -> m.attachments.filter { it.isImage || it.isVideo } }.asReversed() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Android's notification settings for this conversation alone. */
+    fun notificationSettings(title: String) = container.notifier.conversationSettings(threadId, recipients, title)
+
+    suspend fun save(attachment: Attachment): String =
+        withContext(Dispatchers.IO) { container.mediaExport.save(attachment) }?.let { "Saved to $it" } ?: "Couldn't save that"
+
+    suspend fun shareIntent(attachment: Attachment): Intent? = withContext(Dispatchers.IO) { container.mediaExport.shareIntent(listOf(attachment)) }
 
     val state: StateFlow<DetailsUiState> = combine(
         container.conversationStates.observe().map { it[threadId] },
@@ -169,7 +200,20 @@ class ConversationDetailsViewModel(
 @Composable
 fun ConversationDetailsScreen(viewModel: ConversationDetailsViewModel, onBack: () -> Unit, onDeleted: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val media by viewModel.media.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var viewing by rememberSaveable { mutableStateOf<String?>(null) }
+    var watching by rememberSaveable { mutableStateOf<String?>(null) }
+    val toast = { message: String -> Toast.makeText(context, message, Toast.LENGTH_SHORT).show() }
+    val share = { attachment: Attachment ->
+        scope.launch {
+            val intent = viewModel.shareIntent(attachment)
+            if (intent == null || runCatching { context.startActivity(intent) }.isFailure) toast("Couldn't share that")
+        }
+        Unit
+    }
+    val save = { attachment: Attachment -> scope.launch { toast(viewModel.save(attachment)) }; Unit }
     var confirmDelete by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     val showContact = { number: String ->
@@ -229,8 +273,41 @@ fun ConversationDetailsScreen(viewModel: ConversationDetailsViewModel, onBack: (
                 )
             }
 
+            if (media.isNotEmpty()) {
+                section("Photos & videos")
+                item("media") {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                    ) {
+                        items(media, key = { it.uri }) { attachment ->
+                            AttachmentThumbnail(
+                                attachment.uri,
+                                attachment.contentType,
+                                attachment.name,
+                                Modifier
+                                    .size(96.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { if (attachment.isVideo) watching = attachment.uri else viewing = attachment.uri },
+                            )
+                        }
+                    }
+                }
+            }
+
             section("Conversation")
             item("muted") { Toggle("Notifications", if (state.muted) "Muted" else "On", !state.muted) { viewModel.setMuted(!it) } }
+            if (!state.muted && viewModel.hasThread) {
+                item("sound") {
+                    ListItem(
+                        headlineContent = { Text("Sound and vibration") },
+                        supportingContent = { Text("Just for this conversation, in Android's settings") },
+                        modifier = Modifier.clickable {
+                            runCatching { context.startActivity(viewModel.notificationSettings(state.title)) }
+                        },
+                    )
+                }
+            }
             item("pinned") { Toggle("Pin to top", null, state.pinned, viewModel::setPinned) }
             item("archived") { Toggle("Archived", null, state.archived, viewModel::setArchived) }
 
@@ -251,6 +328,15 @@ fun ConversationDetailsScreen(viewModel: ConversationDetailsViewModel, onBack: (
                 }
             }
         }
+    }
+    viewing?.let { uri ->
+        // Oldest first, like the conversation, so swiping right goes back in time.
+        val images = remember(media) { media.filter { it.isImage }.asReversed() }
+        ImageViewer(images, images.indexOfFirst { it.uri == uri }, onDismiss = { viewing = null }, onShare = share, onSave = save)
+    }
+    watching?.let { uri ->
+        val video = media.firstOrNull { it.uri == uri }
+        VideoViewer(uri, onDismiss = { watching = null }, onShare = video?.let { { share(it) } }, onSave = video?.let { { save(it) } })
     }
     if (renaming) {
         var name by remember { mutableStateOf(state.groupName.orEmpty()) }

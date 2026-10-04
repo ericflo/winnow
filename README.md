@@ -67,7 +67,7 @@ messages can't be tapped.
   the message they react to. Failed sends and MMS downloads can be retried. SMS delivery
   reports are opt-in.
 - **Conversations:** pin, archive, mute, mark read/unread, delete, block (Android's system
-  block list), name a group (just for you), an **Unread** filter, and multi-select.
+  block list), name a group (just for you), a **Photos & videos** strip in Details, an **Unread** filter, and multi-select.
   Optionally, one-time codes from services are deleted a day after they arrive. That's off by
   default, never applies to texts from people, and keeps starred codes. Swipe to archive in the inbox (or set each direction to delete,
   mark read/unread, pin, or nothing), to mark not spam in Filtered, or to unarchive in
@@ -87,6 +87,7 @@ messages can't be tapped.
 - **Share to Winnow:** text, photos, videos and contacts shared from any app open New chat
   with them attached.
 - **Notifications:** Android conversation notifications (Conversations section, priority),
+  with a sound and vibration of their own per conversation (Details → Sound and vibration),
   stacked per thread, with inline **Reply**, **Mark as read** and **Copy code**, and **chat
   bubbles** that float a conversation over other apps.
 - **Backup and restore:** messages, photos, Winnow's decisions, conversation state, sender
