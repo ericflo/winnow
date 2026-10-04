@@ -1,9 +1,15 @@
 package com.ericflo.winnow.data
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Reply reminders (Settings → Messages), as Messages calls nudges: a contact's question you
@@ -46,19 +52,36 @@ object Nudge {
         if (kind == Kind.BIRTHDAY) "${conversation.threadId}:$startOfToday:birthday" else "${conversation.threadId}:${conversation.timestamp}"
 }
 
-/** Nudges the user dismissed ("Not now"), each for the message it was about; a newer one nudges again. */
-class DismissedNudges(context: Context) {
-    private val prefs = context.getSharedPreferences("nudges", Context.MODE_PRIVATE)
-    private val _keys = MutableStateFlow(prefs.getStringSet(KEY, emptySet()).orEmpty().toSet())
-    val keys: StateFlow<Set<String>> = _keys.asStateFlow()
+/**
+ * Nudges the user dismissed ("Not now"), each for the message it was about; a newer one nudges
+ * again. Read from disk off the main thread: the inbox opens without waiting on it, and
+ * [keys] first emits once they're loaded, so a dismissed nudge never flashes back.
+ */
+class DismissedNudges(context: Context, private val scope: CoroutineScope) {
+    private val prefs = scope.async(Dispatchers.IO) { context.getSharedPreferences("nudges", Context.MODE_PRIVATE) }
+    private val _keys = MutableStateFlow<Set<String>?>(null)
+    val keys: Flow<Set<String>> = _keys.filterNotNull()
+    private val lock = Mutex()
 
-    @Synchronized
+    init {
+        scope.launch(Dispatchers.IO) {
+            val loaded = prefs.await().getStringSet(KEY, emptySet()).orEmpty().toSet()
+            lock.withLock { if (_keys.value == null) _keys.value = loaded }
+        }
+    }
+
     fun dismiss(key: String) {
-        // Ones about messages too old to nudge any more go, so this stays small.
-        val cutoff = System.currentTimeMillis() - Nudge.UNTIL_MILLIS
-        val kept = _keys.value.filter { (it.substringAfter(':').substringBefore(':').toLongOrNull() ?: 0) >= cutoff }.toSet() + key
-        prefs.edit().putStringSet(KEY, kept).apply()
-        _keys.value = kept
+        scope.launch(Dispatchers.IO) {
+            val store = prefs.await()
+            lock.withLock {
+                // Ones about messages too old to nudge any more go, so this stays small.
+                val cutoff = System.currentTimeMillis() - Nudge.UNTIL_MILLIS
+                val current = _keys.value ?: store.getStringSet(KEY, emptySet()).orEmpty().toSet()
+                val kept = current.filter { (it.substringAfter(':').substringBefore(':').toLongOrNull() ?: 0) >= cutoff }.toSet() + key
+                store.edit().putStringSet(KEY, kept).apply()
+                _keys.value = kept
+            }
+        }
     }
 
     private companion object {

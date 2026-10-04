@@ -12,6 +12,8 @@ import android.app.KeyguardManager
 import android.app.UiModeManager
 import android.app.role.RoleManager
 import android.content.Context
+import android.content.pm.ApplicationInfo
+import android.os.StrictMode
 import android.content.pm.PackageManager
 import androidx.room.Room
 import com.ericflo.winnow.backup.AutoBackup
@@ -67,6 +69,12 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        // Debug builds log main-thread disk and network work, and leaked resources: on a real
+        // phone, slower than any emulator, those are where freezes and "not responding" come from.
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.Builder().detectDiskReads().detectDiskWrites().detectNetwork().penaltyLog().build())
+            StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().detectLeakedClosableObjects().detectLeakedRegistrationObjects().penaltyLog().build())
+        }
         // Kept draft attachments nothing refers to any more. Here, as the process starts, before
         // any screen (the main one or a chat bubble) can be holding one in memory.
         container.appScope.launch(Dispatchers.IO) {
@@ -261,7 +269,7 @@ class AppContainer(private val context: Context) {
     val keyShortcuts = kotlinx.coroutines.flow.MutableSharedFlow<KeyShortcut>(extraBufferCapacity = 1)
 
     /** Reply reminders the user said "not now" to. */
-    val dismissedNudges by lazy { com.ericflo.winnow.data.DismissedNudges(context) }
+    val dismissedNudges by lazy { com.ericflo.winnow.data.DismissedNudges(context, appScope) }
 
     /** Airplane mode and mobile data, said before a send fails (see SendReadiness). */
     val sendReadiness by lazy { com.ericflo.winnow.sms.SendReadiness(context) }
