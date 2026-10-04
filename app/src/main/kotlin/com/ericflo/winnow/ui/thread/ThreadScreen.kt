@@ -103,6 +103,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -150,6 +151,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
@@ -636,9 +639,11 @@ fun ThreadScreen(
     }
 
     numberTapped?.let { number ->
+        val name by produceState<String?>(null, number) { value = withContext(Dispatchers.IO) { viewModel.contactName(number) } }
         NumberSheet(
             number = number,
-            name = viewModel.contactName(number),
+            name = name,
+            canReadContacts = viewModel.canReadContacts(),
             // This conversation's own number needs no "Send message".
             isThisConversation = single?.let { normalizeAddress(it) == normalizeAddress(number) } == true,
             onDismiss = { numberTapped = null },
@@ -811,6 +816,8 @@ private fun GroupAvatar(size: androidx.compose.ui.unit.Dp) {
 private fun NumberSheet(
     number: String,
     name: String?,
+    /** Without it, there's no telling whether the number is a contact. */
+    canReadContacts: Boolean,
     isThisConversation: Boolean,
     onDismiss: () -> Unit,
     onCall: () -> Unit,
@@ -842,7 +849,7 @@ private fun NumberSheet(
                 )
             }
             ListItem(
-                headlineContent = { Text(if (name != null) "View contact" else "Add contact") },
+                headlineContent = { Text(if (name != null) "View contact" else if (canReadContacts) "Add contact" else "Open in Contacts") },
                 leadingContent = { Icon(painterResource(R.drawable.ic_person_add), contentDescription = null) },
                 colors = colors,
                 modifier = Modifier.clickable(onClick = act(onContact)),

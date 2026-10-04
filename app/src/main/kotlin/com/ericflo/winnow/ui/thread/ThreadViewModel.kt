@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -87,8 +89,11 @@ class ThreadViewModel(
     private val title = displayNameFor(recipients, repo::displayName)
     private val subtitle = subtitleFor(title)
 
-    /** [number]'s contact name, or null if it isn't a contact. */
+    /** [number]'s contact name, or null if it isn't a contact. Reads contacts: not on the main thread. */
     fun contactName(number: String): String? = repo.displayName(number).takeIf { it != ContactLookup.formatAddress(number) }
+
+    /** Whether contacts can be read, so "not a contact" means something. */
+    fun canReadContacts(): Boolean = container.contacts.canRead()
 
     private fun subtitleFor(title: String) = when {
         recipients.size > 1 -> "${recipients.size + 1} people"
@@ -223,7 +228,13 @@ class ThreadViewModel(
     val state: StateFlow<ThreadUiState> = threadId
         .filter { it >= 0 }
         .flatMapLatest { id ->
-            combine(repo.messages(id), states.observeTimed().map { it[id] }, container.starredDao.observeKeys(id)) { messages, s, starredKeys ->
+            combine(
+                repo.messages(id),
+                states.observeTimed().map { it[id] },
+                container.starredDao.observeKeys(id),
+                // Names and photos read again when contacts change, without reloading the messages.
+                repo.contactChanges().onStart { emit(Unit) },
+            ) { messages, s, starredKeys, _ ->
                 val stars = starredKeys.toSet()
                 // Read again each time: a contact added (or renamed) while this is open shows up.
                 val name = displayNameFor(recipients, repo::displayName)
@@ -241,10 +252,14 @@ class ThreadViewModel(
                     mutedUntil = s?.takeIf { it.isMuted() }?.mutedUntil,
                     archived = s?.archived == true,
                     // A real number with no name: short codes and alphanumeric senders aren't people to add.
-                    addableContact = single?.takeIf { name == ContactLookup.formatAddress(it) && ContactLookup.isPersonalNumber(it) },
+                    addableContact = single?.takeIf {
+                        container.contacts.canRead() && name == ContactLookup.formatAddress(it) && ContactLookup.isPersonalNumber(it)
+                    },
                 )
             }
         }
+        // Contact lookups can hit the disk (the whole list, after a change).
+        .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThreadUiState(title, subtitle, recipients))
 
     /**

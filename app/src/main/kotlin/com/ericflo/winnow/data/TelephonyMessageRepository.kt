@@ -17,17 +17,16 @@ import com.ericflo.winnow.data.ChatMessage.Kind
 import com.ericflo.winnow.data.db.SenderRuleEntity
 import com.ericflo.winnow.data.db.StarredDao
 import com.ericflo.winnow.data.db.VerdictDao
+import com.ericflo.winnow.data.db.VerdictEntity
 import com.ericflo.winnow.sms.MmsSender
 import com.ericflo.winnow.sms.MmsStore
 import com.ericflo.winnow.sms.SmsSender
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
@@ -67,7 +66,8 @@ class TelephonyMessageRepository(
     }
 
     override fun conversations(): Flow<List<ConversationSummary>> {
-        val threads = changes().map {
+        // Contacts too: the list carries each conversation's name and photo.
+        val threads = merge(changes(), contacts.changes()).conflate().map {
             val started = System.nanoTime()
             queryConversations().also { Log.d(TAG, "Loaded ${it.size} conversations in ${(System.nanoTime() - started) / 1_000_000} ms") }
         }.flowOn(Dispatchers.IO)
@@ -201,14 +201,15 @@ class TelephonyMessageRepository(
         starred.deleteForThreads(threadIds)
     }
 
-    override suspend fun deleteThreadUpTo(threadId: Long, smsUpTo: Long, mmsUpTo: Long) {
-        withContext(Dispatchers.IO) {
+    override suspend fun deleteThreadUpTo(threadId: Long, smsUpTo: Long, mmsUpTo: Long): Boolean {
+        val gone = withContext(Dispatchers.IO) {
             fun upTo(id: Long) = arrayOf(threadId.toString(), id.toString())
             runCatching { resolver.delete(Telephony.Sms.CONTENT_URI, "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms._ID} <= ?", upTo(smsUpTo)) }
             runCatching { resolver.delete(Telephony.Mms.CONTENT_URI, "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms._ID} <= ?", upTo(mmsUpTo)) }
             // Deletes nothing, but afterwards Android drops the thread if it's empty, in one step:
             // a message that has just arrived keeps it.
             runCatching { resolver.delete(ContentUris.withAppendedId(Telephony.Threads.CONTENT_URI, threadId), "0 = 1", null) }
+            heads("${Telephony.Sms.THREAD_ID} = ?", arrayOf(threadId.toString())).isEmpty()
         }
         fun gone(key: String): Boolean {
             val id = key.substringAfter(':').toLongOrNull() ?: return false
@@ -220,6 +221,7 @@ class TelephonyMessageRepository(
         }
         dao.keysForThread(threadId).filter(::gone).forEach { dao.deleteForMessage(it) }
         starred.keysForThread(threadId).filter(::gone).forEach { starred.unstar(it) }
+        return gone
     }
 
     override suspend fun deleteMessage(message: ChatMessage) {
@@ -331,6 +333,18 @@ class TelephonyMessageRepository(
             senderRule = dao.senderRule(normalizeAddress(address)),
         )
         dao.setUserAction(threadId, action.name)
+        // A conversation Winnow never classified (texts from before it was the SMS app, or a
+        // classifier that timed out) has no verdict to correct: the correction gets one of its
+        // own, on the newest incoming message, so "Filter sender" moves it out of the inbox.
+        if (dao.keysForThread(threadId).isEmpty()) newestIncomingKey(threadId)?.let { key ->
+            dao.upsert(
+                VerdictEntity(
+                    messageKey = key, threadId = threadId, address = address, category = null, confidence = 1.0,
+                    action = Action.ALLOW.name, sourceKind = "rule", sourceDetail = "Not classified", model = null,
+                    costUsd = 0.0, decidedAt = System.currentTimeMillis(), userAction = action.name,
+                ),
+            )
+        }
         val rule = if (action == Action.ALLOW) SenderRule.ALWAYS_ALLOW else SenderRule.ALWAYS_FILTER
         dao.upsertSenderRule(SenderRuleEntity(normalizeAddress(address), rule.name, System.currentTimeMillis()))
         // Learning is a bonus; a failure there mustn't undo the user's correction.
@@ -348,6 +362,10 @@ class TelephonyMessageRepository(
             val action = previous.userAction
             if (action == null) onUncorrected(threadId) else newestIncoming(threadId)?.let { onCorrected(threadId, it, action) }
         }
+    }
+
+    private suspend fun newestIncomingKey(threadId: Long): String? = withContext(Dispatchers.IO) {
+        heads("${Telephony.Sms.THREAD_ID} = ?", arrayOf(threadId.toString())).firstOrNull { !it.outgoing }?.key
     }
 
     /** The thread's newest incoming message, as the classifier saw it. */
@@ -377,12 +395,8 @@ class TelephonyMessageRepository(
         }
     }
 
-    /** Emits once immediately, then whenever the SMS or MMS store (or a contact's name) changes. */
-    // Contacts in a burst (a sync) as one change: each one reloads every open list.
-    @OptIn(FlowPreview::class)
-    private fun changes(): Flow<Unit> = merge(messageChanges(), contacts.changes().debounce(CONTACTS_SETTLE_MILLIS)).conflate()
-
-    private fun messageChanges(): Flow<Unit> = callbackFlow {
+    /** Emits once immediately, then whenever the SMS or MMS store changes. */
+    private fun changes(): Flow<Unit> = callbackFlow {
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
                 trySend(Unit)
@@ -631,7 +645,6 @@ class TelephonyMessageRepository(
 
         /** PduHeaders.MESSAGE_TYPE_NOTIFICATION_IND: an MMS announced but not yet downloaded. */
         const val MESSAGE_TYPE_NOTIFICATION_IND = 0x82
-        private const val CONTACTS_SETTLE_MILLIS = 500L
 
         /** PduHeaders.FROM, as stored in the MMS addr table. */
         const val ADDR_TYPE_FROM = 0x89

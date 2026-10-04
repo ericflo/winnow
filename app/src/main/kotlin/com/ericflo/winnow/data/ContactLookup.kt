@@ -11,14 +11,23 @@ import android.provider.ContactsContract
 import android.provider.ContactsContract.CommonDataKinds.Phone
 import android.provider.ContactsContract.PhoneLookup
 import android.telephony.PhoneNumberUtils
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.update
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
-class ContactLookup(private val context: Context) {
+class ContactLookup(private val context: Context, scope: CoroutineScope? = null) {
     private data class Info(val name: String, val photoUri: String?)
 
     // NOT_FOUND caches "not a contact" so unknown senders aren't looked up on every frame.
@@ -28,6 +37,9 @@ class ContactLookup(private val context: Context) {
     // for an inbox of a few hundred conversations; this is a few milliseconds per thousand.
     @Volatile private var numbers: Map<String, Info>? = null
 
+    /** Bumped by [clear]: a lookup that started before it doesn't store what it found. */
+    private val generation = AtomicInteger()
+
     fun displayName(address: String): String? = info(address)?.name
 
     /** The contact's thumbnail photo, if they have one. */
@@ -35,44 +47,70 @@ class ContactLookup(private val context: Context) {
 
     fun isContact(address: String): Boolean = info(address) != null
 
+    /** Whether Winnow may read contacts at all; without it, everyone looks like a stranger. */
+    fun canRead(): Boolean = context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+
     fun clear() {
+        generation.incrementAndGet()
         cache.clear()
         numbers = null
     }
 
-    /**
-     * Emits whenever the contact list changes (a contact added, renamed, given a photo), after
-     * forgetting what was looked up, so names and photos are read afresh. Nothing without
-     * READ_CONTACTS: Android won't let an app watch what it can't read.
-     */
-    fun changes(): Flow<Unit> = callbackFlow {
-        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) {
-                clear()
-                trySend(Unit)
-            }
-        }
-        val watching = context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED &&
-            runCatching { context.contentResolver.registerContentObserver(ContactsContract.Contacts.CONTENT_URI, true, observer) }.isSuccess
-        awaitClose { if (watching) context.contentResolver.unregisterContentObserver(observer) }
-    }.conflate()
+    private val permissionChecks = MutableStateFlow(0)
 
-    private fun info(address: String): Info? {
-        if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
-        return cache.getOrPut(address) { query(address) ?: NOT_FOUND }.takeIf { it !== NOT_FOUND }
+    /** After a permission change: contacts may only now be readable, and so watchable. */
+    fun permissionsChanged() {
+        clear()
+        permissionChecks.update { it + 1 }
     }
 
-    private fun query(address: String): Info? {
+    /**
+     * Emits whenever the contact list changes (a contact added, renamed, given a photo), after
+     * forgetting what was looked up, so names and photos are read afresh. A burst (a sync) is one
+     * change. One watcher however many listen; none without READ_CONTACTS, as Android won't let
+     * an app watch what it can't read, until [permissionsChanged] says to look again.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
+    private val shared: Flow<Unit> = permissionChecks.flatMapLatest { check ->
+        callbackFlow {
+            val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) {
+                    clear()
+                    trySend(Unit)
+                }
+            }
+            val watching = canRead() &&
+                runCatching { context.contentResolver.registerContentObserver(ContactsContract.Contacts.CONTENT_URI, true, observer) }.isSuccess
+            // Just allowed: whatever was shown without names is worth reading again.
+            if (check > 0 && watching) trySend(Unit)
+            awaitClose { if (watching) context.contentResolver.unregisterContentObserver(observer) }
+        }
+    }.debounce(SETTLE_MILLIS).let { flow -> if (scope != null) flow.shareIn(scope, SharingStarted.WhileSubscribed(5_000)) else flow }
+
+    fun changes(): Flow<Unit> = shared
+
+    private fun info(address: String): Info? {
+        if (!canRead()) return null
+        cache[address]?.let { return it.takeIf { found -> found !== NOT_FOUND } }
+        val started = generation.get()
+        val found = query(address, started) ?: NOT_FOUND
+        // Not if the contacts changed meanwhile: it may be the old name.
+        if (generation.get() == started) cache[address] = found
+        return found.takeIf { it !== NOT_FOUND }
+    }
+
+    private fun query(address: String, started: Int): Info? {
         // A phone number the contact list doesn't have isn't a contact; only short codes,
         // emails and the like still go to PhoneLookup.
-        numberKey(address)?.let { key -> return index()[key] }
+        numberKey(address)?.let { key -> return index(started)[key] }
         val uri = Uri.withAppendedPath(PhoneLookup.CONTENT_FILTER_URI, Uri.encode(address))
         return context.contentResolver.query(uri, arrayOf(PhoneLookup.DISPLAY_NAME, PhoneLookup.PHOTO_THUMBNAIL_URI), null, null, null)?.use { c ->
             if (c.moveToFirst()) c.getString(0)?.let { Info(it, c.getString(1)) } else null
         }
     }
 
-    private fun index(): Map<String, Info> = numbers ?: loadIndex().also { numbers = it }
+    private fun index(started: Int): Map<String, Info> =
+        numbers ?: loadIndex().also { if (generation.get() == started) numbers = it }
 
     private fun loadIndex(): Map<String, Info> {
         val index = HashMap<String, Info>()
@@ -96,6 +134,7 @@ class ContactLookup(private val context: Context) {
 
     companion object {
         private val NOT_FOUND = Info("", null)
+        private const val SETTLE_MILLIS = 500L
 
         /**
          * How numbers are matched: the last 10 digits, so "+1 415-555-0192", "(415) 555-0192"

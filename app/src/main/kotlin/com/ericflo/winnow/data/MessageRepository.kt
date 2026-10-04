@@ -60,9 +60,13 @@ interface MessageRepository {
 
     /**
      * Deletes [threadId]'s messages up to these ids, with Winnow's records of them. Anything
-     * newer (a text that arrived after the rest were kept in Recently deleted) stays.
+     * newer (a text that arrived after the rest were kept in Recently deleted) stays. True if
+     * the conversation is gone; false if such a text kept it.
      */
-    suspend fun deleteThreadUpTo(threadId: Long, smsUpTo: Long, mmsUpTo: Long) = deleteThreads(listOf(threadId))
+    suspend fun deleteThreadUpTo(threadId: Long, smsUpTo: Long, mmsUpTo: Long): Boolean {
+        deleteThreads(listOf(threadId))
+        return true
+    }
 
     /** Conversations as they're deleted, from whichever screen: one open beside the list closes. */
     fun deletedThreads(): Flow<Set<Long>> = emptyFlow()
@@ -133,10 +137,8 @@ class SwitchingMessageRepository(
         current.deleteThreads(threadIds)
         deleted.emit(threadIds.toSet())
     }
-    override suspend fun deleteThreadUpTo(threadId: Long, smsUpTo: Long, mmsUpTo: Long) {
-        current.deleteThreadUpTo(threadId, smsUpTo, mmsUpTo)
-        deleted.emit(setOf(threadId))
-    }
+    override suspend fun deleteThreadUpTo(threadId: Long, smsUpTo: Long, mmsUpTo: Long): Boolean =
+        current.deleteThreadUpTo(threadId, smsUpTo, mmsUpTo).also { gone -> if (gone) deleted.emit(setOf(threadId)) }
     override suspend fun deleteMessage(message: ChatMessage) = current.deleteMessage(message)
     override suspend fun search(query: String) = current.search(query)
     override suspend fun recentMedia(limit: Int) = current.recentMedia(limit)

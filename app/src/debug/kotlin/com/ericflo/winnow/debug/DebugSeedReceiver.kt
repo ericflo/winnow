@@ -18,6 +18,11 @@ import kotlin.random.Random
  *
  *     adb shell am broadcast -n com.ericflo.winnow/.debug.DebugSeedReceiver --ei messages 5000 --ei threads 100
  *
+ * Or one unread incoming text that Winnow never classified, as if it arrived before Winnow was
+ * the SMS app (quote the whole command, so a multi-word text stays one extra):
+ *
+ *     adb shell "am broadcast -n com.ericflo.winnow/.debug.DebugSeedReceiver --es from +12065550142 --es text 'hi there'"
+ *
  * Needs Winnow to be the default SMS app (only it may write the store).
  */
 class DebugSeedReceiver : BroadcastReceiver() {
@@ -26,8 +31,20 @@ class DebugSeedReceiver : BroadcastReceiver() {
         val threads = intent.getIntExtra("threads", 100).coerceIn(1, 100)
         val container = (context.applicationContext as WinnowApp).container
         val pending = goAsync()
+        val from = intent.getStringExtra("from")
         container.appScope.launch {
             try {
+                if (from != null) {
+                    val values = ContentValues().apply {
+                        put(Telephony.Sms.ADDRESS, from)
+                        put(Telephony.Sms.BODY, intent.getStringExtra("text") ?: "Hello")
+                        put(Telephony.Sms.DATE, System.currentTimeMillis())
+                        put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_INBOX)
+                        put(Telephony.Sms.READ, 0)
+                    }
+                    Log.i(TAG, "Seeded one unclassified text: ${context.contentResolver.insert(Telephony.Sms.CONTENT_URI, values)}")
+                    return@launch
+                }
                 val random = Random(42)
                 val now = System.currentTimeMillis()
                 val started = System.nanoTime()

@@ -70,9 +70,10 @@ class IncomingMessageHandler(
         val action = route(uri, ChatMessage.Kind.MMS, threadId, sender, recipients, text.ifBlank { "[photo]" }, preview)
         // Into the gallery if the user asked: only what reached the inbox (never a filtered or
         // silenced one's), and only from people they know. A classifier that timed out lets a
-        // stranger's message through too, and the gallery may back up to the cloud.
+        // stranger's message through too, and the gallery may back up to the cloud. In a group,
+        // having texted the group doesn't vouch for everyone in it.
         if (action == Action.ALLOW && settings.current().autoSaveMedia) withContext(Dispatchers.IO) {
-            if (contacts.isContact(sender) || hasOutgoing(threadId)) saveMedia(uri)
+            if (contacts.isContact(sender) || (recipients.size == 1 && hasOutgoing(threadId))) saveMedia(uri)
         }
     }
 

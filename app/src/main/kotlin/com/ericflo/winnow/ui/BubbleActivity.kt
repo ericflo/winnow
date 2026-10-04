@@ -45,6 +45,8 @@ class BubbleActivity : ComponentActivity() {
                         onBack = ::finish,
                         onForward = { text, attachments ->
                             val token = java.util.UUID.randomUUID().toString()
+                            // One at a time: an earlier one never picked up isn't kept around.
+                            container.forwards.clear()
                             container.forwards[token] = text to attachments
                             openApp(Intent(MainActivity.ACTION_FORWARD).putExtra(MainActivity.EXTRA_TOKEN, token))
                         },

@@ -224,8 +224,10 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         threadIds.forEach { if (read) repo.markRead(it) else repo.markUnread(it) }
     }
 
-    /** Into Recently deleted, for 30 days, then gone. [onDone] gets what Undo would put back. */
-    /** In the app scope, so leaving the inbox mid-way doesn't stop it between keeping and deleting. */
+    /**
+     * Into Recently deleted, for 30 days, then gone. [onDone] gets what Undo would put back. In
+     * the app scope, so leaving the inbox mid-way doesn't stop it between keeping and deleting.
+     */
     fun delete(threadIds: Set<Long>, onDone: (List<Trash.Item>) -> Unit = {}) {
         container.appScope.launch {
             val deleted = container.trash.delete(threadIds)

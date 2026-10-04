@@ -67,13 +67,15 @@ class Trash(
         withContext(Dispatchers.IO) {
             val made = mutableSetOf<File>()
             val kept = mutableSetOf<Long>()
+            // Kept and deleted, and no new text arrived meanwhile to keep the conversation going.
+            val gone = mutableSetOf<Long>()
             try {
                 threadIds.forEach { threadId ->
                     val result = keep(threadId) ?: return@forEach
                     result.file?.let(made::add)
                     try {
                         // Exactly what was kept: a text that arrived since has a newer id, and stays.
-                        repo.deleteThreadUpTo(threadId, result.snapshot.newestSms, result.snapshot.newestMms)
+                        if (repo.deleteThreadUpTo(threadId, result.snapshot.newestSms, result.snapshot.newestMms)) gone += threadId
                         kept += threadId
                     } catch (e: CancellationException) {
                         throw e
@@ -84,9 +86,10 @@ class Trash(
                 }
             } finally {
                 withContext(NonCancellable) {
-                    if (kept.isNotEmpty()) {
-                        states.forget(kept)
-                        notifier.forget(kept)
+                    // Its pin, mute and notifications go with it; not if a new text kept it here.
+                    if (gone.isNotEmpty()) {
+                        states.forget(gone)
+                        notifier.forget(gone)
                     }
                     reload()
                 }

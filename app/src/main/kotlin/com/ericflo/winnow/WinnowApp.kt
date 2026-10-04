@@ -118,7 +118,7 @@ class AppContainer(private val context: Context) {
     val settings by lazy { SettingsRepository(context, SecretBox()) }
     val learner by lazy { Learner(database.corrections(), settings) }
     val classifiers by lazy { ClassifierFactory(OkHttpTransport()) { learner.classifier() } }
-    val contacts by lazy { ContactLookup(context) }
+    val contacts by lazy { ContactLookup(context, appScope) }
     val notifier by lazy {
         Notifier(context).also { notifier -> appScope.launch { settings.settings.collect { notifier.quickReplies = it.quickReplies } } }
     }
@@ -240,7 +240,7 @@ class AppContainer(private val context: Context) {
 
     /** Call after permission or role changes. */
     fun refreshAccess() {
-        contacts.clear()
+        contacts.permissionsChanged()
         access.value = hasSmsAccess()
     }
 

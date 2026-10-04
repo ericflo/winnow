@@ -112,6 +112,8 @@ data class DetailsUiState(
     val canBlock: Boolean = false,
     /** The group's name, if the user gave it one. */
     val groupName: String? = null,
+    /** Without contacts permission, nobody can be told apart from a stranger. */
+    val canReadContacts: Boolean = true,
 ) {
     data class Person(val address: String, val name: String, val number: String, val photoUri: String?, val isContact: Boolean)
 
@@ -202,8 +204,12 @@ class ConversationDetailsViewModel(
             senderRule = rule,
             blocked = blocked,
             canBlock = single != null && container.blockedNumbers.available(),
+            canReadContacts = container.contacts.canRead(),
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DetailsUiState(displayNameFor(recipients, repo::displayName)))
+    }
+        // Contact lookups can hit the disk (the whole list, after a change).
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DetailsUiState(displayNameFor(recipients, repo::displayName)))
 
     fun setMuted(value: Boolean, until: Long? = null) = launch { container.conversationStates.setMuted(threadId, value, until) }
 
@@ -343,7 +349,7 @@ fun ConversationDetailsScreen(
                 ListItem(
                     leadingContent = { Avatar(person.name, seed = person.address, size = 40.dp, photoUri = person.photoUri) },
                     headlineContent = { Text(person.name) },
-                    supportingContent = { Text(if (person.isContact) person.number else "Not in your contacts · tap to add") },
+                    supportingContent = { Text(if (person.isContact || !state.canReadContacts) person.number else "Not in your contacts · tap to add") },
                     trailingContent = {
                         IconButton(onClick = { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", person.address, null))) }) {
                             Icon(Icons.Filled.Call, contentDescription = "Call ${person.name}")
