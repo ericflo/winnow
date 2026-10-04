@@ -79,6 +79,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
@@ -1293,7 +1295,9 @@ private fun MessageBubble(
 ) {
     val m = item.message
     val spoken = buildString {
-        append(speaker.ifEmpty { if (m.outgoing) "You" else "Them" }).append(": ").append(m.body).append(", ").append(timeOfDay(m.timestamp))
+        append(speaker.ifEmpty { if (m.outgoing) "You" else "Them" }).append(": ")
+        m.subject?.let { append("Subject: ").append(it).append(". ") }
+        append(m.body).append(", ").append(timeOfDay(m.timestamp))
         if (m.outgoing) when (m.status) {
             ChatMessage.Status.SENDING -> append(", sending")
             ChatMessage.Status.FAILED -> append(", not sent")
@@ -1411,14 +1415,21 @@ private fun MessageBubble(
                         Spacer(Modifier.width(10.dp))
                         Text("Downloading MMS…", style = MaterialTheme.typography.bodyLarge)
                     }
-                    m.body.isBlank() -> Unit
-                    isEmojiOnly(m.body) -> Text(
+                    m.body.isBlank() && m.subject == null -> Unit
+                    m.subject == null && isEmojiOnly(m.body) -> Text(
                         m.body,
                         fontSize = 44.sp * textScale,
                         modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick).semantics { contentDescription = spoken },
                     )
                     else -> Text(
-                        linkify(m.body, links = !fraud, linkColor = if (m.outgoing) colors.onPrimaryContainer else colors.primary)
+                        buildAnnotatedString {
+                            // An MMS subject heads the bubble, in bold, as in Messages.
+                            m.subject?.let { subject ->
+                                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(subject) }
+                                if (m.body.isNotBlank()) append("\n")
+                            }
+                            append(linkify(m.body, links = !fraud, linkColor = if (m.outgoing) colors.onPrimaryContainer else colors.primary))
+                        }
                             .highlighted(highlight, if (focused) colors.tertiary.copy(alpha = 0.7f) else colors.tertiary.copy(alpha = 0.35f)),
                         style = MaterialTheme.typography.bodyLarge.scaled(textScale),
                         color = if (m.outgoing) colors.onPrimaryContainer else colors.onSurface,

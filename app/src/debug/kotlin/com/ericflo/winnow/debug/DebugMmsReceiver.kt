@@ -31,7 +31,9 @@ import java.io.ByteArrayOutputStream
  *
  * `--ez voice true` adds a voice memo (audio/amr), `--ez video true` a short clip (video/mp4),
  * `--ez gif true` an animated GIF (a dot looping over a field, drawn for this) and
- * `--ez contact true` a shared contact (text/x-vcard, fictional 555 numbers).
+ * `--ez contact true` a shared contact (text/x-vcard, fictional 555 numbers), and
+ * `--es subject "..."` a subject. Quote the whole command for adb (`adb shell "am broadcast ..."`):
+ * an unquoted multi-word value splits, and every extra after it is silently dropped.
  *
  * The default mode runs an m-retrieve-conf through [com.ericflo.winnow.sms.MmsReceiver.onDownloaded];
  * `--es mode push` runs an m-notification-ind through onPush, whose download then fails for
@@ -71,6 +73,7 @@ class DebugMmsReceiver : BroadcastReceiver() {
                         dateSeconds = System.currentTimeMillis() / 1000,
                         from = from,
                         to = to,
+                        subject = intent.getStringExtra("subject"),
                         parts = listOf(Smil.forParts(content)) + content,
                     )
                     container.mmsReceiver.onDownloaded(null, PduComposer.compose(conf), id, subscriptionId, acknowledge = false)

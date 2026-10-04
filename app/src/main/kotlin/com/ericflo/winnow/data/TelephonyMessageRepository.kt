@@ -558,7 +558,7 @@ class TelephonyMessageRepository(
                     downloadSize = c.getLong(7),
                     verdict = null,
                     kind = Kind.MMS,
-                    subject = c.getString(4)?.takeIf { it.isNotBlank() },
+                    subject = meaningfulSubject(c.getString(4)),
                     subscriptionId = if (c.isNull(6)) null else c.getInt(6).takeIf { it >= 0 },
                 )
             }

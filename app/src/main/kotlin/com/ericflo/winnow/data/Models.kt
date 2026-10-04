@@ -154,3 +154,13 @@ fun attachmentSummary(contentTypes: List<String>): String {
         else -> "${contentTypes.size} attachments"
     }
 }
+
+/**
+ * An MMS subject worth showing: null for none, and for the placeholders some phones fill in
+ * ("NoSubject", "<no subject>").
+ */
+fun meaningfulSubject(subject: String?): String? {
+    val trimmed = subject?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val bare = trimmed.removeSurrounding("<", ">").replace(" ", "").lowercase()
+    return trimmed.takeIf { bare != "nosubject" && bare != "subject" }
+}

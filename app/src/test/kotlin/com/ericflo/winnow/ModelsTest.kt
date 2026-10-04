@@ -92,4 +92,14 @@ class ModelsTest {
         assertTrue(com.ericflo.winnow.ui.components.mutedLabel(at(4, 9), today, zone).startsWith("Muted until tomorrow, 9:30"))
         assertTrue(com.ericflo.winnow.ui.components.mutedLabel(at(9, 9), today, zone).startsWith("Muted until Oct 9, 9:30"))
     }
+
+    @Test
+    fun `placeholder MMS subjects aren't shown`() {
+        assertEquals(null, com.ericflo.winnow.data.meaningfulSubject(null))
+        assertEquals(null, com.ericflo.winnow.data.meaningfulSubject("  "))
+        assertEquals(null, com.ericflo.winnow.data.meaningfulSubject("NoSubject"))
+        assertEquals(null, com.ericflo.winnow.data.meaningfulSubject("<no subject>"))
+        assertEquals(null, com.ericflo.winnow.data.meaningfulSubject("<Subject>"))
+        assertEquals("Dinner Friday", com.ericflo.winnow.data.meaningfulSubject(" Dinner Friday "))
+    }
 }
