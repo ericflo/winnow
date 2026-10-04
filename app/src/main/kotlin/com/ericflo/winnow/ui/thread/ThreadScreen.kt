@@ -160,6 +160,8 @@ import androidx.compose.material.icons.filled.Person
 import com.ericflo.winnow.data.Attachment
 import androidx.compose.material.icons.filled.Share
 import android.widget.Toast
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.semantics.selected
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -252,10 +254,34 @@ fun ThreadScreen(
     val focusKey = matches.getOrNull(matchIndex)
     BackHandler(enabled = searching) { searching = false; query = "" }
 
+    // Several messages at once: "Select" in a message's sheet starts it, taps add and remove.
+    var selected by remember { mutableStateOf(emptySet<String>()) }
+    val selectedMessages = remember(selected, state.messages) { state.messages.filter { it.key in selected } }
+    LaunchedEffect(state.messages) { selected = selected.filterTo(HashSet()) { key -> state.messages.any { it.key == key } } }
+    BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
+    var confirmDeleteSelected by remember { mutableStateOf(false) }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            if (searching) {
+            if (selected.isNotEmpty()) {
+                SelectionBar(
+                    count = selected.size,
+                    allStarred = selectedMessages.isNotEmpty() && selectedMessages.all { it.starred },
+                    canCopy = selectedMessages.any { it.body.isNotBlank() },
+                    onClose = { selected = emptySet() },
+                    onCopy = {
+                        val text = selectedMessages.sortedBy { it.timestamp }.map { it.body }.filter { it.isNotBlank() }.joinToString("\n")
+                        copy(text, if (selectedMessages.size == 1) "Message copied" else "${selectedMessages.size} messages copied")
+                        selected = emptySet()
+                    },
+                    onStar = {
+                        viewModel.setStarred(selectedMessages, starred = !selectedMessages.all { it.starred })
+                        selected = emptySet()
+                    },
+                    onDelete = { confirmDeleteSelected = true },
+                )
+            } else if (searching) {
                 ThreadSearchBar(
                     query = query,
                     onQueryChange = { query = it },
@@ -398,6 +424,8 @@ fun ThreadScreen(
                 highlight = query.trim().takeIf { searching && it.length >= 2 },
                 focusKey = focusKey.takeIf { searching },
                 onMessageNumber = onMessageNumber,
+                selected = selected,
+                onToggleSelected = { m -> selected = if (m.key in selected) selected - m.key else selected + m.key },
                 textScale = textScale,
                 onTextScale = viewModel::setTextScale,
                 modifier = Modifier.weight(1f),
@@ -417,6 +445,23 @@ fun ThreadScreen(
             onReact = { emoji -> viewModel.react(message, emoji) },
             onSave = { save(message.attachments) },
             onShare = { share(message.attachments) },
+            onSelect = { selected = setOf(message.key) },
+        )
+    }
+    if (confirmDeleteSelected) {
+        val n = selected.size
+        AlertDialog(
+            onDismissRequest = { confirmDeleteSelected = false },
+            title = { Text(if (n == 1) "Delete this message?" else "Delete $n messages?") },
+            text = { Text("${if (n == 1) "It's" else "They're"} removed from this phone. This can't be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteMessages(selectedMessages)
+                    selected = emptySet()
+                    confirmDeleteSelected = false
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDeleteSelected = false }) { Text("Cancel") } },
         )
     }
     detailsFor?.let { message -> MessageDetailsDialog(message, state, sims, onDismiss = { detailsFor = null }) }
@@ -652,6 +697,8 @@ private fun MessageList(
     highlight: String? = null,
     focusKey: String? = null,
     onMessageNumber: (String) -> Unit = {},
+    selected: Set<String> = emptySet(),
+    onToggleSelected: (ChatMessage) -> Unit = {},
     textScale: Float = 1f,
     onTextScale: (Float) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -709,24 +756,36 @@ private fun MessageList(
             when (item) {
                 is ListItem.Transport -> CenteredNote(item.text, Modifier.padding(vertical = 4.dp))
                 is ListItem.Header -> CenteredNote(item.label, Modifier.padding(top = 20.dp, bottom = 8.dp))
-                is ListItem.Bubble -> MessageBubble(
-                    item = item,
-                    senderName = item.message.sender?.let { state.senderNames[it] }?.takeIf { state.isGroup },
-                    senderPhoto = item.message.sender?.let { state.photos[it] },
-                    showTime = revealed == item.key,
-                    isLatestOutgoing = item.key == latestOutgoing,
-                    onClick = { revealed = if (revealed == item.key) null else item.key },
-                    onLongClick = { onActions(item.message) },
-                    onViewImage = onViewImage,
-                    onRetry = { onRetry(item.message) },
-                    onCopyCode = onCopyCode,
-                    audio = audio,
-                    onViewVideo = onViewVideo,
-                    highlight = highlight,
-                    focused = item.key == focusKey,
-                    onMessageNumber = onMessageNumber,
-                    textScale = liveScale,
-                )
+                is ListItem.Bubble -> {
+                    // While selecting, every tap on a message selects or deselects it.
+                    val selecting = selected.isNotEmpty()
+                    val toggle = { onToggleSelected(item.message) }
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(if (item.key in selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent)
+                            .semantics { if (selecting) this.selected = item.key in selected },
+                    ) {
+                        MessageBubble(
+                            item = item,
+                            senderName = item.message.sender?.let { state.senderNames[it] }?.takeIf { state.isGroup },
+                            senderPhoto = item.message.sender?.let { state.photos[it] },
+                            showTime = revealed == item.key,
+                            isLatestOutgoing = item.key == latestOutgoing,
+                            onClick = { if (selecting) toggle() else revealed = if (revealed == item.key) null else item.key },
+                            onLongClick = { if (selecting) toggle() else onActions(item.message) },
+                            onViewImage = { if (selecting) toggle() else onViewImage(it) },
+                            onRetry = { if (selecting) toggle() else onRetry(item.message) },
+                            onCopyCode = onCopyCode,
+                            audio = audio,
+                            onViewVideo = { if (selecting) toggle() else onViewVideo(it) },
+                            highlight = highlight,
+                            focused = item.key == focusKey,
+                            onMessageNumber = onMessageNumber,
+                            textScale = liveScale,
+                        )
+                    }
+                }
             }
         }
     }
@@ -986,6 +1045,7 @@ private fun MessageActionsSheet(
     onReact: (String) -> Unit,
     onSave: () -> Unit,
     onShare: () -> Unit,
+    onSelect: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
@@ -1043,6 +1103,13 @@ private fun MessageActionsSheet(
                 leadingContent = { Icon(if (message.starred) Icons.Outlined.Star else Icons.Filled.Star, contentDescription = null) },
                 colors = colors,
                 modifier = Modifier.clickable(onClick = act(onStar)),
+            )
+            ListItem(
+                headlineContent = { Text("Select") },
+                supportingContent = { Text("Then tap more messages to copy, star or delete them together") },
+                leadingContent = { Icon(Icons.Filled.CheckCircle, contentDescription = null) },
+                colors = colors,
+                modifier = Modifier.clickable(onClick = act(onSelect)),
             )
             ListItem(
                 headlineContent = { Text("View details") },
@@ -1350,5 +1417,31 @@ private fun SegmentCounter(text: String) {
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(start = 8.dp),
+    )
+}
+
+/** Replaces the top bar while messages are selected. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectionBar(
+    count: Int,
+    allStarred: Boolean,
+    canCopy: Boolean,
+    onClose: () -> Unit,
+    onCopy: () -> Unit,
+    onStar: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    TopAppBar(
+        navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Clear selection") } },
+        title = { Text("$count selected") },
+        actions = {
+            if (canCopy) IconButton(onClick = onCopy) { Icon(painterResource(R.drawable.ic_copy), contentDescription = "Copy text") }
+            IconButton(onClick = onStar) {
+                Icon(if (allStarred) Icons.Outlined.Star else Icons.Filled.Star, contentDescription = if (allStarred) "Unstar" else "Star")
+            }
+            IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Delete") }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
     )
 }

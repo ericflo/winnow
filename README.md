@@ -82,7 +82,7 @@ messages can't be tapped.
   uses the SIM their last text arrived on, then your default. Replies from notifications and
   scheduled texts use the same SIM, and message details say which SIM a text came in on.
 - **Messages:** react (❤️ 👍 👎 😂 ‼️ ❓), copy, forward, star, delete, details, and "Copy
-  code" for verification codes. Reactions go out as `Loved “…”`, which iPhones show as a
+  code" for verification codes. **Select** several to copy, star or delete them together. Reactions go out as `Loved “…”`, which iPhones show as a
   tapback. **Starred** (in the menu) collects starred messages from every conversation, photos
   included.
 - **Share to Winnow:** text, photos, videos and contacts shared from any app open New chat

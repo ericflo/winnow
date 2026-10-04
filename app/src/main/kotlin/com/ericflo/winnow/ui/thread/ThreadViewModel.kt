@@ -323,6 +323,17 @@ class ThreadViewModel(
         repo.send(recipients, text, subscriptionId = _selectedSim.value)
     }
 
+    fun deleteMessages(messages: List<ChatMessage>) = launch { messages.forEach { repo.deleteMessage(it) } }
+
+    /** Stars all of [messages], or unstars them all when they already are. */
+    fun setStarred(messages: List<ChatMessage>, starred: Boolean) = launch {
+        val now = System.currentTimeMillis()
+        messages.forEach { m ->
+            if (starred && !m.starred) container.starredDao.star(StarredEntity(m.key, threadId.value, now))
+            if (!starred && m.starred) container.starredDao.unstar(m.key)
+        }
+    }
+
     fun toggleStar(message: ChatMessage) = launch {
         if (message.starred) {
             container.starredDao.unstar(message.key)
