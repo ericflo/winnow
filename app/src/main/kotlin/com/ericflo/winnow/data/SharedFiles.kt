@@ -3,7 +3,9 @@ package com.ericflo.winnow.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
 import android.graphics.Matrix
+import android.graphics.Rect
 import android.media.ExifInterface
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -12,6 +14,7 @@ import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import java.io.File
 import java.util.UUID
+import kotlin.math.roundToInt
 import android.provider.ContactsContract
 
 /**
@@ -130,18 +133,7 @@ class SharedFiles(private val context: Context) {
             ExifInterface(input).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
         } ?: ExifInterface.ORIENTATION_NORMAL
         // The camera's orientation as the thumbnail shows it (mirrors too), then the quarter-turn.
-        val matrix = Matrix().apply {
-            when (orientation) {
-                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> postScale(-1f, 1f)
-                ExifInterface.ORIENTATION_ROTATE_180 -> postRotate(180f)
-                ExifInterface.ORIENTATION_FLIP_VERTICAL -> postScale(1f, -1f)
-                ExifInterface.ORIENTATION_TRANSPOSE -> { postRotate(90f); postScale(-1f, 1f) }
-                ExifInterface.ORIENTATION_ROTATE_90 -> postRotate(90f)
-                ExifInterface.ORIENTATION_TRANSVERSE -> { postRotate(270f); postScale(-1f, 1f) }
-                ExifInterface.ORIENTATION_ROTATE_270 -> postRotate(270f)
-            }
-            postRotate(90f)
-        }
+        val matrix = upright(orientation).apply { postRotate(90f) }
         val turned = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
         val file = File(dir, "${UUID.randomUUID()}.jpg")
         file.outputStream().use { turned.compress(Bitmap.CompressFormat.JPEG, 92, it) }
@@ -149,6 +141,80 @@ class SharedFiles(private val context: Context) {
         bitmap.recycle()
         OutgoingAttachment(Uri.fromFile(file).toString(), "image/jpeg", attachment.name?.substringBeforeLast('.')?.let { "$it.jpg" })
     }.onFailure { Log.w(TAG, "Couldn't rotate a photo", it) }.getOrNull()
+
+    /** A photo's EXIF orientation (normal if it has none, or isn't a format that carries one). */
+    fun orientationOf(uri: String): Int = runCatching {
+        context.contentResolver.openInputStream(Uri.parse(uri))?.use { input ->
+            ExifInterface(input).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        }
+    }.getOrNull() ?: ExifInterface.ORIENTATION_NORMAL
+
+    /** A photo's width and height as it's shown, upright; null if it can't be read. */
+    fun uprightSize(uri: String): Pair<Int, Int>? = runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(Uri.parse(uri))?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        if (PhotoCrop.swapsSides(orientationOf(uri))) bounds.outHeight to bounds.outWidth else bounds.outWidth to bounds.outHeight
+    }.getOrNull()
+
+    /**
+     * A copy of the photo [attachment] cut to [box] (fractions of it as it's shown, upright),
+     * for the composer's Crop. Cut from the full-size file, so a small crop stays sharp; at most
+     * [ROTATED_EDGE_PX] on a side. A PNG stays a PNG (screenshots); anything else becomes a JPEG.
+     */
+    fun cropped(attachment: OutgoingAttachment, box: PhotoCrop.Box): OutgoingAttachment? = runCatching {
+        val uri = Uri.parse(attachment.uri)
+        val resolver = context.contentResolver
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        val width = bounds.outWidth
+        val height = bounds.outHeight
+        if (width <= 0 || height <= 0) return null
+        val orientation = orientationOf(attachment.uri)
+        val stored = PhotoCrop.toStored(box, orientation)
+        val region = Rect(
+            (stored.left * width).roundToInt().coerceIn(0, width - 1),
+            (stored.top * height).roundToInt().coerceIn(0, height - 1),
+            (stored.right * width).roundToInt().coerceIn(1, width),
+            (stored.bottom * height).roundToInt().coerceIn(1, height),
+        )
+        if (region.width() < 1 || region.height() < 1) return null
+        var sample = 1
+        while (maxOf(region.width(), region.height()) / sample > ROTATED_EDGE_PX) sample *= 2
+        val piece = resolver.openInputStream(uri)?.use { input ->
+            BitmapRegionDecoder.newInstance(input)?.let { decoder ->
+                try {
+                    decoder.decodeRegion(region, BitmapFactory.Options().apply { inSampleSize = sample })
+                } finally {
+                    decoder.recycle()
+                }
+            }
+        } ?: return null
+        val shown = Bitmap.createBitmap(piece, 0, 0, piece.width, piece.height, upright(orientation), true)
+        val png = attachment.contentType.equals("image/png", ignoreCase = true)
+        val file = File(dir, "${UUID.randomUUID()}.${if (png) "png" else "jpg"}")
+        file.outputStream().use { shown.compress(if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, it) }
+        if (shown !== piece) shown.recycle()
+        piece.recycle()
+        OutgoingAttachment(
+            Uri.fromFile(file).toString(),
+            if (png) "image/png" else "image/jpeg",
+            attachment.name?.substringBeforeLast('.')?.let { "$it.${if (png) "png" else "jpg"}" },
+        )
+    }.onFailure { Log.w(TAG, "Couldn't crop a photo", it) }.getOrNull()
+
+    /** Turns a photo stored with EXIF [orientation] upright, mirrors and all. */
+    private fun upright(orientation: Int) = Matrix().apply {
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> postRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> { postRotate(90f); postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_90 -> postRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> { postRotate(270f); postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_270 -> postRotate(270f)
+        }
+    }
 
     /** Deletes [attachment]'s file if it's one of the copies here (a rotation's, say), now replaced. */
     fun discardCopy(attachment: OutgoingAttachment) {

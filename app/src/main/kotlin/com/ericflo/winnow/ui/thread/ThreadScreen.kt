@@ -312,6 +312,8 @@ fun ThreadScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var choosingMute by remember { mutableStateOf(false) }
     var selectingText by remember { mutableStateOf<String?>(null) }
+    /** The photo open in the crop editor. */
+    var cropping by remember { mutableStateOf<OutgoingAttachment?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var actionsFor by remember { mutableStateOf<ChatMessage?>(null) }
     var remindingFor by remember { mutableStateOf<ChatMessage?>(null) }
@@ -642,6 +644,7 @@ fun ThreadScreen(
                 },
                 onRemoveAttachment = viewModel::removeAttachment,
                 onRotateAttachment = viewModel::rotateAttachment,
+                onEditAttachment = { cropping = it },
                 subject = subject,
                 onAddSubject = viewModel::addSubject,
                 onRemoveSubject = viewModel::removeSubject,
@@ -784,6 +787,27 @@ fun ThreadScreen(
         )
     }
     selectingText?.let { text -> SelectTextDialog(text, onDismiss = { selectingText = null }) }
+    cropping?.let { photo ->
+        var size by remember(photo) { mutableStateOf<Pair<Int, Int>?>(null) }
+        LaunchedEffect(photo) {
+            size = viewModel.photoSize(photo)
+            if (size == null) {
+                cropping = null
+                snackbar.showSnackbar("Couldn't open that photo")
+            }
+        }
+        // Gone from the composer (sent, removed): nothing left to crop.
+        LaunchedEffect(photo, attachments) { if (photo !in attachments) cropping = null }
+        size?.takeIf { photo in attachments }?.let { (width, height) ->
+            CropEditor(
+                uri = photo.uri,
+                width = width,
+                height = height,
+                onCrop = { box -> viewModel.cropAttachment(photo, box); cropping = null },
+                onDismiss = { cropping = null },
+            )
+        }
+    }
     reactingWithOther?.let { message ->
         OtherReactionDialog(
             onReact = { emoji -> viewModel.react(message, emoji); reactingWithOther = null },
@@ -1151,6 +1175,9 @@ private val REPORTABLE = setOf(Category.SPAM, Category.SCAM, Category.PHISHING)
 
 /** Camera photos: the ones a rotation re-encodes without losing anything that matters. */
 private val ROTATABLE = setOf("image/jpeg", "image/jpg", "image/heic", "image/heif")
+
+/** Photos the crop editor takes: the rotatable ones, and PNGs (screenshots), which stay PNGs. GIFs may move. */
+private val CROPPABLE = ROTATABLE + "image/png"
 
 /** More than this many links, and the rest are copied with the text. */
 private const val MAX_COPY_LINKS = 3
@@ -2005,6 +2032,8 @@ private fun Composer(
     onRemoveAttachment: (OutgoingAttachment) -> Unit,
     /** A photo turned a quarter-turn: camera photos only, not stickers or GIFs, which would lose motion or transparency. */
     onRotateAttachment: (OutgoingAttachment) -> Unit = {},
+    /** Opens a photo in the crop editor. */
+    onEditAttachment: (OutgoingAttachment) -> Unit = {},
     onVoice: () -> Unit = {},
     onVideo: () -> Unit = {},
     onLocation: () -> Unit = {},
@@ -2097,11 +2126,13 @@ private fun Composer(
             ) {
                 items(attachments, key = { it.uri }) { attachment ->
                     Box {
+                        val editable = attachment.contentType.lowercase() in CROPPABLE
                         AttachmentThumbnail(
                             attachment.uri,
                             attachment.contentType,
                             attachment.name,
-                            Modifier.size(88.dp).clip(RoundedCornerShape(16.dp)),
+                            Modifier.size(88.dp).clip(RoundedCornerShape(16.dp))
+                                .then(if (editable) Modifier.clickable(onClickLabel = "Crop photo") { onEditAttachment(attachment) } else Modifier),
                         )
                         // A plain circle, not an IconButton, which would grow itself to a 48dp target and cover the photo.
                         Box(

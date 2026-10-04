@@ -8,6 +8,7 @@ import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.data.SimCard
+import com.ericflo.winnow.data.PhotoCrop
 import com.ericflo.winnow.data.Tapback
 import com.ericflo.winnow.data.StoredVerdict
 import com.ericflo.winnow.data.db.ScheduledMessageEntity
@@ -678,27 +679,42 @@ class ThreadViewModel(
      * Turns a photo in the composer a quarter-turn clockwise, in its place. Taps queue: two quick
      * ones turn it twice, each following the copy the one before (or the draft) left.
      */
-    fun rotateAttachment(attachment: OutgoingAttachment) = launch {
+    fun rotateAttachment(attachment: OutgoingAttachment) =
+        editAttachment(attachment, "Couldn't rotate that photo") { container.sharedFiles.rotated(it) }
+
+    /** Cuts a photo in the composer to [box] (see PhotoCrop), in its place. */
+    fun cropAttachment(attachment: OutgoingAttachment, box: PhotoCrop.Box) =
+        editAttachment(attachment, "Couldn't crop that photo") { container.sharedFiles.cropped(it, box) }
+
+    /**
+     * Replaces a photo in the composer with [edit]'s copy of it. Edits queue: each follows the
+     * copy the one before (or the draft) left.
+     */
+    private fun editAttachment(attachment: OutgoingAttachment, failure: String, edit: (OutgoingAttachment) -> OutgoingAttachment?) = launch {
         attachmentLock.withLock {
-            // Replaced since the tap (turned, or kept as a draft): turn what replaced it. Gone (sent, removed): nothing to do.
+            // Replaced since the tap (edited, or kept as a draft): edit what replaced it. Gone (sent, removed): nothing to do.
             var current = attachment
             repeat(MAX_KEPT_HOPS) { if (current !in _attachments.value) current = keptAs[current] ?: return@withLock }
             if (current !in _attachments.value) return@withLock
-            val turned = withContext(Dispatchers.IO) { container.sharedFiles.rotated(current) }
-            if (turned == null) {
-                _notices.emit("Couldn't rotate that photo")
+            val edited = withContext(Dispatchers.IO) { edit(current) }
+            if (edited == null) {
+                _notices.emit(failure)
                 return@withLock
             }
-            // Sent (or removed) while it turned: the original is what went, and must stay; the turned copy isn't wanted.
+            // Sent (or removed) while it was edited: the original is what went, and must stay; the copy isn't wanted.
             if (current !in _attachments.value) {
-                withContext(Dispatchers.IO) { container.sharedFiles.discardCopy(turned) }
+                withContext(Dispatchers.IO) { container.sharedFiles.discardCopy(edited) }
                 return@withLock
             }
-            keptAs[current] = turned
-            _attachments.value = _attachments.value.map { if (it == current) turned else it }
+            keptAs[current] = edited
+            _attachments.value = _attachments.value.map { if (it == current) edited else it }
             withContext(Dispatchers.IO) { container.sharedFiles.discardCopy(current) }
         }
     }
+
+    /** A photo's upright width and height, for the crop editor; null if it can't be read. */
+    suspend fun photoSize(attachment: OutgoingAttachment): Pair<Int, Int>? =
+        withContext(Dispatchers.IO) { container.sharedFiles.uprightSize(attachment.uri) }
 
     fun removeAttachment(attachment: OutgoingAttachment) {
         _attachments.value = _attachments.value - attachment
