@@ -3,6 +3,7 @@ package com.ericflo.winnow.classifier.local
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.ActionPolicy
 import com.ericflo.winnow.classifier.message.Category
+import com.ericflo.winnow.classifier.message.Origin
 import com.ericflo.winnow.classifier.message.NEEDS_HOOK
 import java.io.File
 import java.util.Locale
@@ -83,6 +84,11 @@ object LocalModelBuild {
             evaluation = MetricsCalculator.summary(classes, evaluation, unwanted).takeIf { evaluation.isNotEmpty() },
             hookless = NEEDS_HOOK.map { classes.indexOf(it.key) }.toSet(),
             quiet = Category.entries.filter { it.defaultAction != Action.ALLOW }.map { classes.indexOf(it.key) }.toSet(),
+            // What the phone actually does with each verdict, unsure ones and hookless ones included.
+            notifies = { r ->
+                val category = Category.entries.first { it.key == classes[r.predicted] }
+                ActionPolicy().resolve(category, r.confidence, Origin.ON_DEVICE, r.hasHook) == Action.ALLOW
+            },
         )
         val mistakes = corpus.indices.filter { rows[it].predicted != rows[it].label }.map { corpus[it] to rows[it] }
         val hookless = NEEDS_HOOK.map { classes.indexOf(it.key) }.toSet()

@@ -149,6 +149,11 @@ class MessageClassifierTest {
         assertEquals(Action.FILTER, policy.resolve(Category.SPAM, 0.99, Origin.ON_DEVICE, hasHook = false))
         // Providers are judged as they are.
         assertEquals(Action.FILTER, policy.resolve(Category.SCAM, 0.99, Origin.PROVIDER, hasHook = false))
+        // Not sure, and nothing to defraud with: it rings like any text ("sorry I missed your call").
+        assertEquals(Action.ALLOW, policy.resolve(Category.SCAM, 0.6, Origin.ON_DEVICE, hasHook = false))
+        assertEquals(Action.ALLOW, policy.resolve(Category.PHISHING, 0.84, Origin.ON_DEVICE, hasHook = false))
+        // With a hook, an unsure one is still kept quiet.
+        assertEquals(Action.SILENCE, policy.resolve(Category.SCAM, 0.6, Origin.ON_DEVICE, hasHook = true))
 
         val opener = MessageClassifier(emptyList(), onDevice = model).classify(InboundMessage("+14155550199", "Hi, is this David? This is Amy from yoga"))
         assertTrue(opener.action <= Action.SILENCE, "$opener")

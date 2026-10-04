@@ -45,13 +45,17 @@ data class ActionPolicy(
     /**
      * @param hasHook for on-device verdicts: whether the text carries anything a fraudster could
      *   use. A hookless "scam" reads like a real person on a new number, and a hookless
-     *   "phishing" text has nothing to phish with, so the model silences those instead of hiding them.
+     *   "phishing" text has nothing to phish with, so the model silences those instead of hiding
+     *   them, and when it isn't sure, lets them through: in cross-validation that took the real
+     *   texts (personal and transactional) losing their notification from 5.6% to 1.4%, for 2.7
+     *   points fewer unwanted texts kept quiet, all of them without a link, money or a number.
      */
     fun resolve(category: Category, confidence: Double, origin: Origin = Origin.PROVIDER, hasHook: Boolean = true): Action {
         var action = forCategory(category)
-        if (confidence < if (origin == Origin.ON_DEVICE) onDeviceMinConfidence else minConfidence) action = action.softened()
+        val unsure = confidence < if (origin == Origin.ON_DEVICE) onDeviceMinConfidence else minConfidence
+        if (unsure) action = action.softened()
         if (origin == Origin.HEURISTIC && action > heuristicCeiling) action = heuristicCeiling
-        if (origin == Origin.ON_DEVICE && category in NEEDS_HOOK && !hasHook && action > Action.SILENCE) action = Action.SILENCE
+        if (origin == Origin.ON_DEVICE && category in NEEDS_HOOK && !hasHook) action = if (unsure) Action.ALLOW else minOf(action, Action.SILENCE)
         return action
     }
 }

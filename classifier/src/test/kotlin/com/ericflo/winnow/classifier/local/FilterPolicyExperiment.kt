@@ -95,6 +95,43 @@ fun main() {
     quiet("bagged + scam lure", { i -> val t = top(pBag[i]); t in unwanted && pBag[i].max() >= 0.85 && (t != scam || lure(i)) }, { i -> top(pBag[i]) in unwanted })
     quiet("bagged + scam lure + gate(cost 2)>=0.5", { i -> val t = top(pBag[i]); t in unwanted && pBag[i].max() >= 0.85 && (t != scam || lure(i)) && pGate.getValue(2.0)[i] >= 0.5 }, { i -> top(pBag[i]) in unwanted })
 
+    // What actually reaches the user: the shipped ActionPolicy on the bagged model's verdicts, and
+    // with an "unsure" floor below which the on-device verdict is just allowed (a near coin flip
+    // between personal and scam shouldn't cost a real text its notification).
+    val categories = classes.map { name -> com.ericflo.winnow.classifier.message.Category.entries.first { it.key == name } }
+    val policy = com.ericflo.winnow.classifier.message.ActionPolicy()
+    fun action(i: Int, floor: Double): com.ericflo.winnow.classifier.message.Action {
+        val p = pBag[i]; val t = top(p)
+        if (p[t] < floor) return com.ericflo.winnow.classifier.message.Action.ALLOW
+        return policy.resolve(categories[t], p[t], com.ericflo.winnow.classifier.message.Origin.ON_DEVICE, Featurizer.hasHook(examples[i].features))
+    }
+    val ALLOW = com.ericflo.winnow.classifier.message.Action.ALLOW
+    // Personal and transactional: the texts that must keep their notification (marketing is meant to be quiet).
+    val important = setOf(classes.indexOf("personal"), classes.indexOf("transactional"))
+    val wantedIdx = labels.indices.filter { labels[it] !in unwanted }
+    val importantIdx = labels.indices.filter { labels[it] in important }
+    val unwantedIdx = labels.indices.filter { labels[it] in unwanted }
+    fun report(name: String, act: (Int) -> com.ericflo.winnow.classifier.message.Action) {
+        val muted = importantIdx.count { act(it) != ALLOW }
+        val filtered = wantedIdx.count { act(it) == com.ericflo.winnow.classifier.message.Action.FILTER }
+        val quiet = unwantedIdx.count { act(it) != ALLOW }
+        println(String.format(Locale.US, "%-46s important muted %5.1f%% (%3d)  unwanted kept quiet %5.1f%%  wanted filtered %4.2f%%", name, 100.0 * muted / importantIdx.size, muted, 100.0 * quiet / unwantedIdx.size, 100.0 * filtered / wantedIdx.size))
+    }
+    println("\nNotifications (bagged model, shipped policy):")
+    for (floor in listOf(0.0, 0.5, 0.55, 0.6, 0.65, 0.7)) report("floor $floor") { action(it, floor) }
+    // Narrower: only an unsure scam or phishing guess with nothing to defraud with is let through.
+    val needsHook = setOf(classes.indexOf("scam"), classes.indexOf("phishing"))
+    fun hooklessUnsure(i: Int, below: Double): Boolean {
+        val p = pBag[i]; val t = top(p)
+        return t in needsHook && p[t] < below && !Featurizer.hasHook(examples[i].features)
+    }
+    for (below in listOf(0.7, 0.85)) report("hookless scam/phishing < $below allowed") { if (hooklessUnsure(it, below)) ALLOW else action(it, 0.0) }
+    for (below in listOf(0.7, 0.85)) for (floor in listOf(0.55, 0.6)) report("hookless < $below allowed, floor $floor") { if (hooklessUnsure(it, below)) ALLOW else action(it, floor) }
+    println("\nWanted texts muted at floor 0 (bagged):")
+    wantedIdx.filter { action(it, 0.0) != com.ericflo.winnow.classifier.message.Action.ALLOW }.sortedBy { pBag[it].max() }.forEach { i ->
+        println(String.format(Locale.US, "  %s → %s (%.0f%%) %s: %s", classes[labels[i]], classes[top(pBag[i])], pBag[i].max() * 100, action(i, 0.0), corpus[i].body.take(80)))
+    }
+
     println("\nWanted texts filtered by the baseline rule:")
     labels.indices.filter { i -> labels[i] !in unwanted && top(pSingle[i]) in unwanted && pSingle[i].max() >= 0.85 }.forEach { i ->
         println(String.format(Locale.US, "  %s → %s (%.0f%%): %s", classes[labels[i]], classes[top(pSingle[i])], pSingle[i].max() * 100, corpus[i].body.take(90)))

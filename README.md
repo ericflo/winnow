@@ -290,9 +290,12 @@ Winnow's own filtering rule filters an unwanted category at ≥85% confidence. A
 phishing text only gets filtered if it has a hook: a link off the company's real site, money,
 a number to call, or payment or code talk. Anything without one is silenced instead, because
 a bare "hi, is this David?" reads exactly like a real person on a new number, and "your
-password was changed" has nothing to phish with. Measured that way, the rule filters
-**0.1% of wanted texts** (99.8% precision) and 70.8% of unwanted ones. Counting
-filtered and silenced, **96.2% of unwanted texts never buzz your phone**. Per category,
+password was changed" has nothing to phish with; when the model isn't sure (under 85%) such a
+text isn't even silenced, since it can't defraud anyone and might be a friend. Measured that
+way, the rule filters **0.1% of wanted texts** (99.8% precision) and 70.8% of unwanted ones.
+Counting filtered and silenced, **92.3% of unwanted texts never buzz your phone**, while only
+**2.4% of personal and transactional texts lose their notification** (6.4% before unsure,
+hookless ones were let through). Per category,
 F1 runs from 0.97 (political) to 0.79 for "likely scam", whose openers read like real new
 numbers. On 120 more texts written separately and never trained on, it got all 120 right.
 

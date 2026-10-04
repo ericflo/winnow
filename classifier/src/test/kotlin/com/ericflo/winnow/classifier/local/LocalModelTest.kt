@@ -63,7 +63,10 @@ class LocalModelTest {
     fun `Winnow's own rule rarely filters a wanted text`() {
         val rule = build.metrics.unwanted.operatingPoint
         assertTrue("false positive rate ${rule.falsePositiveRate}", rule.falsePositiveRate <= 0.005)
-        assertTrue("unwanted kept quiet ${build.metrics.unwanted.unwantedQuieted}", build.metrics.unwanted.unwantedQuieted >= 0.93)
+        // Both sides of the real policy (unsure, hookless scams ring): most unwanted texts stay
+        // quiet, and personal and transactional texts rarely lose their notification.
+        assertTrue("unwanted kept quiet ${build.metrics.unwanted.unwantedQuieted}", build.metrics.unwanted.unwantedQuieted >= 0.90)
+        assertTrue("important muted ${build.metrics.unwanted.importantMuted}", build.metrics.unwanted.importantMuted <= 0.03)
     }
 
     @Test

@@ -1290,8 +1290,8 @@
             "mcc": 0.7463075878740614,
             "kappa": 0.7162952892555706
         },
-        "unwantedQuieted": 0.9615384615384616,
-        "importantMuted": 0.064
+        "unwantedQuieted": 0.9230769230769231,
+        "importantMuted": 0.024
     },
     "perCategory": [
         {

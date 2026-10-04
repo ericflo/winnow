@@ -123,6 +123,8 @@ object MetricsCalculator {
         hookless: Set<Int> = emptySet(),
         /** Classes whose texts arrive without a notification by default (filtered or silenced). */
         quiet: Set<Int> = unwanted,
+        /** Whether a scored text would still notify under the real policy; by default, unless its top class is [quiet]. */
+        notifies: (Scored) -> Boolean = { it.predicted !in quiet },
     ): ClassifierMetrics {
         val k = classes.size
         val confusion = confusion(rows, k)
@@ -157,8 +159,8 @@ object MetricsCalculator {
             unwanted = binary(rows, unwanted, filterAt, hookless).let { b ->
                 val important = rows.filter { it.label !in quiet }
                 b.copy(
-                    unwantedQuieted = rows.filter { it.label in unwanted }.let { u -> if (u.isEmpty()) 0.0 else u.count { it.predicted in quiet }.toDouble() / u.size },
-                    importantMuted = if (important.isEmpty()) 0.0 else important.count { it.predicted in quiet }.toDouble() / important.size,
+                    unwantedQuieted = rows.filter { it.label in unwanted }.let { u -> if (u.isEmpty()) 0.0 else u.count { !notifies(it) }.toDouble() / u.size },
+                    importantMuted = if (important.isEmpty()) 0.0 else important.count { !notifies(it) }.toDouble() / important.size,
                 )
             },
             perCategory = perCategory,
