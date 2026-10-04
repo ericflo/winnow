@@ -1,6 +1,7 @@
 package com.ericflo.winnow.data.db
 
 import androidx.room.AutoMigration
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -25,10 +26,11 @@ import kotlinx.coroutines.flow.Flow
         VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class, ScheduledMessageEntity::class,
         CorrectionEntity::class, StarredEntity::class,
     ],
-    version = 9,
+    version = 10,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
+        AutoMigration(from = 9, to = 10),
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
@@ -178,6 +180,11 @@ data class VerdictEntity(
     val costUsd: Double,
     val decidedAt: Long,
     val userAction: String? = null,
+    /**
+     * Already in a daily summary, or never news for one: a restored verdict, a review of older
+     * conversations, a correction's own row. A fresh classification starts false.
+     */
+    @ColumnInfo(defaultValue = "0") val summarized: Boolean = false,
 ) {
     fun toStored(providerNames: (String) -> String) = StoredVerdict(
         category = category?.let(Category::fromKey),
@@ -265,12 +272,12 @@ interface VerdictDao {
     @Query("SELECT * FROM verdicts WHERE messageKey = :messageKey")
     suspend fun forKey(messageKey: String): VerdictEntity?
 
-    /**
-     * The action that stood for each of [keys] whose verdict was made after [after]: the user's
-     * correction, else Winnow's.
-     */
-    @Query("SELECT COALESCE(userAction, action) FROM verdicts WHERE messageKey IN (:keys) AND decidedAt > :after")
-    suspend fun effectiveActionsDecidedAfter(keys: List<String>, after: Long): List<String>
+    /** For each of [keys] not yet in a daily summary: its key and the action that stood (the user's correction, else Winnow's). */
+    @Query("SELECT messageKey, COALESCE(userAction, action) AS stood FROM verdicts WHERE messageKey IN (:keys) AND summarized = 0")
+    suspend fun unsummarized(keys: List<String>): List<KeyAction>
+
+    @Query("UPDATE verdicts SET summarized = 1 WHERE messageKey IN (:keys)")
+    suspend fun markSummarized(keys: List<String>)
 
     @Query("SELECT rule FROM sender_rules WHERE address = :address")
     suspend fun senderRule(address: String): String?
@@ -302,3 +309,6 @@ interface ConversationStateDao {
     @Query("DELETE FROM conversation_state WHERE threadId IN (:threadIds)")
     suspend fun delete(threadIds: Collection<Long>)
 }
+
+/** A verdict's message and the action that stood for it. */
+data class KeyAction(val messageKey: String, val stood: String)

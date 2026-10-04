@@ -78,7 +78,8 @@ class HistoryReviewer(
                         senderRule = dao.senderRule(normalizeAddress(c.sender))?.let { runCatching { SenderRule.valueOf(it) }.getOrNull() },
                     ),
                 )
-                dao.upsert(VerdictEntity.from(c.key, c.threadId, c.sender, verdict, System.currentTimeMillis()))
+                // An older text, reviewed now: never news for a daily summary.
+                dao.upsert(VerdictEntity.from(c.key, c.threadId, c.sender, verdict, System.currentTimeMillis()).copy(summarized = true))
                 when (verdict.action) {
                     Action.FILTER -> filtered++
                     Action.SILENCE -> silenced++

@@ -556,7 +556,8 @@ class BackupManager(
     }
 
     private suspend fun restoreVerdict(m: MessageBackup, conversation: ConversationBackup, threadId: Long, key: String) {
-        val entity = m.verdict?.toEntity(key, threadId, m.sender ?: m.to ?: conversation.recipients.first()) ?: return
+        // Restored, not received: never news for a daily summary.
+        val entity = m.verdict?.toEntity(key, threadId, m.sender ?: m.to ?: conversation.recipients.first())?.copy(summarized = true) ?: return
         verdicts.upsert(entity)
     }
 

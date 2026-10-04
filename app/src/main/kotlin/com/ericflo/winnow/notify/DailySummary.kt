@@ -67,7 +67,7 @@ class DailySummary(
         // Saved a little in the future (the clock was set back by less than the gap between
         // summaries): that's "just now" from here on, or once the clock passes it the next one
         // would look too soon and skip a day. Set back further, the gap alone keeps it to one an
-        // evening, and the message ids keep any text from being reported twice.
+        // evening; which texts count never depends on the clock (see VerdictEntity.summarized).
         if (current.dailySummaryLastAt > now && current.dailySummaryLastAt - now < MIN_GAP_MILLIS) {
             runCatching { settings.update { it.copy(dailySummaryLastAt = now) } }
             firedAt = minOf(firedAt, now)
@@ -98,19 +98,19 @@ class DailySummary(
         }
         // A debug run (force) reports the last day and leaves the real schedule alone.
         if (force) {
-            val (filtered, silenced) = counts(arrivedSince = now - DAY_MILLIS, decidedAfter = 0)
-            if (filtered + silenced > 0) notifier.showSummary(filtered, silenced)
+            val found = unsummarized(now - DAY_MILLIS)
+            if (found.filtered + found.silenced > 0) notifier.showSummary(found.filtered, found.silenced)
             return
         }
         firedAt = now
         try {
             if (isDefaultSmsApp()) {
-                // Decided since the last one (restored texts keep their old decision, so they
-                // aren't news again; a text still being classified last time is counted now),
-                // among texts from the last two days (one, the first time).
-                val window = if (last == 0L) DAY_MILLIS else 2 * DAY_MILLIS
-                val (filtered, silenced) = counts(arrivedSince = now - window, decidedAfter = last)
-                if (filtered + silenced > 0) notifier.showSummary(filtered, silenced)
+                // Texts not yet in a summary, from the last two days (one, the first time): a
+                // skipped evening's still count, and nothing counts twice whatever the clock does.
+                val found = unsummarized(now - if (last == 0L) DAY_MILLIS else 2 * DAY_MILLIS)
+                if (found.filtered + found.silenced > 0) notifier.showSummary(found.filtered, found.silenced)
+                // Only what was counted: a text decided a moment later is the next one's.
+                found.keys.chunked(500).forEach { verdicts.markSummarized(it) }
             }
         } catch (e: CancellationException) {
             throw e
@@ -125,13 +125,15 @@ class DailySummary(
         }
     }
 
+    private class Found(val filtered: Int, val silenced: Int, val keys: List<String>)
+
     /**
-     * Incoming texts that arrived since [arrivedSince] and whose verdict was made after
-     * [decidedAfter], filtered and silenced (corrections included). By arrival, so reviewing older
-     * conversations isn't "today"; by decision, so nothing is reported twice, ids being reused
-     * after deletions notwithstanding.
+     * Incoming texts that arrived since [arrivedSince] and aren't in a summary yet, filtered and
+     * silenced by the action that stood (corrections included). Texts whose verdicts were
+     * restored, came from a review of older conversations or are the user's own corrections are
+     * never news (see VerdictEntity.summarized).
      */
-    private suspend fun counts(arrivedSince: Long, decidedAfter: Long): Pair<Int, Int> {
+    private suspend fun unsummarized(arrivedSince: Long): Found {
         val resolver = context.contentResolver
         val keys = buildList {
             resolver.query(
@@ -143,17 +145,12 @@ class DailySummary(
                 "${Telephony.Mms.MESSAGE_BOX} = ${Telephony.Mms.MESSAGE_BOX_INBOX} AND ${Telephony.Mms.DATE} >= ?", arrayOf((arrivedSince / 1000).toString()), null,
             )?.use { c -> while (c.moveToNext()) add(ChatMessage.messageKey(ChatMessage.Kind.MMS, c.getLong(0))) }
         }
-        var filtered = 0
-        var silenced = 0
-        keys.chunked(500).forEach { chunk ->
-            verdicts.effectiveActionsDecidedAfter(chunk, decidedAfter).forEach { action ->
-                when (action) {
-                    "FILTER" -> filtered++
-                    "SILENCE" -> silenced++
-                }
-            }
-        }
-        return filtered to silenced
+        val rows = keys.chunked(500).flatMap { verdicts.unsummarized(it) }
+        return Found(
+            filtered = rows.count { it.stood == "FILTER" },
+            silenced = rows.count { it.stood == "SILENCE" },
+            keys = rows.map { it.messageKey },
+        )
     }
 
     private fun evening(day: LocalDate): Long = day.atTime(EVENING).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()

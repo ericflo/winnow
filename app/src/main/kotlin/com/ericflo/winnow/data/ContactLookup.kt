@@ -173,7 +173,7 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
         fun isPersonalNumber(address: String): Boolean = numberKey(address)?.startsWith("short:") == false
 
         @Volatile private var appContext: Context? = null
-        /** The SIM's country, once known; the network's isn't kept (a roaming phone is still from home). */
+        /** The SIM's country, once known. The network's is only a fallback, asked again later (a roaming phone is still from home). */
         @Volatile private var homeCountry: String? = null
         @Volatile private var network: String? = null
         @Volatile private var checkedAt = Long.MIN_VALUE

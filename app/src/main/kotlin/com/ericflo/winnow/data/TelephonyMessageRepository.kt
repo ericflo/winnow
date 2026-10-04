@@ -348,6 +348,8 @@ class TelephonyMessageRepository(
                     messageKey = key, threadId = threadId, address = address, category = null, confidence = 1.0,
                     action = Action.ALLOW.name, sourceKind = "rule", sourceDetail = NOT_CLASSIFIED, model = null,
                     costUsd = 0.0, decidedAt = System.currentTimeMillis(), userAction = action.name,
+                    // The user's own decision, not something Winnow did: never news for a daily summary.
+                    summarized = true,
                 ),
             )
         }
