@@ -152,6 +152,7 @@ private fun NudgeLine(kind: Nudge.Kind, at: Long, onDismiss: () -> Unit) {
             when (kind) {
                 Nudge.Kind.REPLY -> "Asked $ago · Reply?"
                 Nudge.Kind.FOLLOW_UP -> "You asked $ago · Follow up?"
+                Nudge.Kind.BIRTHDAY -> "🎂 Birthday today · Send wishes?"
             },
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.tertiary,

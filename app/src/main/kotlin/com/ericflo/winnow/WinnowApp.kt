@@ -253,6 +253,9 @@ class AppContainer(private val context: Context) {
     /** Reply reminders the user said "not now" to. */
     val dismissedNudges by lazy { com.ericflo.winnow.data.DismissedNudges(context) }
 
+    /** Contacts' birthdays, for birthday reminders. */
+    val birthdays by lazy { com.ericflo.winnow.data.Birthdays(context) }
+
     /** Keeps the home-screen widget current while Winnow runs. */
     val widgetUpdates by lazy { com.ericflo.winnow.widget.WidgetUpdates(context, appScope) }
 

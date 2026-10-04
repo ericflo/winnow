@@ -33,6 +33,15 @@ class NudgeTest {
     }
 
     @Test
+    fun `a contact's birthday nudges, unless they've been texted today`() {
+        val startOfToday = now - 6 * 60 * 60_000L
+        assertEquals(Nudge.Kind.BIRTHDAY, Nudge.of(convo(20 * day, asks = false), now, isContact = true, birthday = true, startOfToday = startOfToday))
+        assertEquals(Nudge.Kind.BIRTHDAY, Nudge.of(convo(3 * day), now, isContact = true, birthday = true, startOfToday = startOfToday))
+        assertNull(Nudge.of(convo(60 * 60_000L, asks = false, fromMe = true), now, isContact = true, birthday = true, startOfToday = startOfToday))
+        assertNull(Nudge.of(convo(20 * day), now, isContact = false, birthday = true, startOfToday = startOfToday))
+    }
+
+    @Test
     fun `strangers, statements, groups, drafts and mutes don't nudge`() {
         assertNull(Nudge.of(convo(3 * day), now, isContact = false))
         assertNull(Nudge.of(convo(3 * day, asks = false), now, isContact = true))

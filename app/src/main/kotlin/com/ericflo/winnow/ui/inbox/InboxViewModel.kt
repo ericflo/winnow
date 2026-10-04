@@ -27,6 +27,8 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.shareIn
 import com.ericflo.winnow.data.MediaHit
 import com.ericflo.winnow.ui.components.allWebLinks
@@ -122,7 +124,9 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         if (s.reviewPromptDismissed) ReviewStatus.Unknown else status
     }
 
-    private val nudgeInputs = combine(container.settings.settings.map { it.nudges }.distinctUntilChanged(), container.dismissedNudges.keys, ::Pair)
+    // Contacts changing (a birthday added) reads birthdays again.
+    private val contactsChanged = repo.contactChanges().onStart { emit(Unit) }.onEach { container.birthdays.clear() }
+    private val nudgeInputs = combine(container.settings.settings.map { it.nudges }.distinctUntilChanged(), container.dismissedNudges.keys, contactsChanged) { on, dismissed, _ -> on to dismissed }
 
     val state: StateFlow<InboxUiState> = combine(
         combine(all, hits, ::Pair),
@@ -151,12 +155,16 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         val matching = if (query.isBlank()) filtered else filtered.filter { it.matches(query) }
         // Only in the plain inbox: a search or a chip asked for something else.
         val now = System.currentTimeMillis()
+        val today = java.time.LocalDate.now()
+        val startOfToday = today.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
         val nudges = if (!nudgesOn || mode != ListMode.INBOX || query.isNotBlank() || filter !in setOf(InboxFilter.ALL, InboxFilter.PERSONAL)) {
             emptyMap()
         } else {
             matching.mapNotNull { c ->
-                if (Nudge.key(c) in dismissed) return@mapNotNull null
-                Nudge.of(c, now, isContact = repo.contactName(c.address) != null)?.let { c.threadId to it }
+                val contact = !c.isGroup && repo.contactName(c.address) != null
+                val kind = Nudge.of(c, now, contact, birthday = contact && container.birthdays.isBirthday(c.address, today), startOfToday = startOfToday)
+                    ?: return@mapNotNull null
+                if (Nudge.key(c, kind, startOfToday) in dismissed) null else c.threadId to kind
             }.toMap()
         }
         // Pinned first, then reminders, then the rest, each by recency as before.
@@ -182,7 +190,11 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxUiState())
 
     /** "Not now" on a reply reminder: it doesn't come back for that message. */
-    fun dismissNudge(conversation: ConversationSummary) = container.dismissedNudges.dismiss(Nudge.key(conversation))
+    fun dismissNudge(conversation: ConversationSummary) {
+        val kind = state.value.nudges[conversation.threadId] ?: return
+        val startOfToday = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        container.dismissedNudges.dismiss(Nudge.key(conversation, kind, startOfToday))
+    }
 
     fun refresh() {
         isDefault.value = container.isDefaultSmsApp()

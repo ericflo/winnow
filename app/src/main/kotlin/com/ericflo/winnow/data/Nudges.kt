@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * with "Reply?" or "Follow up?" until it's answered or dismissed.
  */
 object Nudge {
-    enum class Kind { REPLY, FOLLOW_UP }
+    enum class Kind { REPLY, FOLLOW_UP, BIRTHDAY }
 
     /** How long a question waits before it's a nudge, and how long it stays one. */
     const val AFTER_MILLIS = 2 * 24 * 60 * 60_000L
@@ -28,16 +28,22 @@ object Nudge {
      * be waiting and not so old it's moot. Not while there's a draft (the reply is underway), a
      * failed send (that says so already) or a mute.
      */
-    fun of(conversation: ConversationSummary, now: Long, isContact: Boolean): Kind? {
+    fun of(conversation: ConversationSummary, now: Long, isContact: Boolean, birthday: Boolean = false, startOfToday: Long = 0): Kind? {
         if (!isContact || conversation.isGroup || conversation.archived || conversation.isFiltered || conversation.muted) return null
+        // Their birthday, unless the user has texted them today already.
+        if (birthday && !(conversation.lastFromMe && conversation.timestamp >= startOfToday)) return Kind.BIRTHDAY
         if (conversation.draft != null || conversation.notSent || !conversation.lastAsks) return null
         val age = now - conversation.timestamp
         if (age < AFTER_MILLIS || age > UNTIL_MILLIS) return null
         return if (conversation.lastFromMe) Kind.FOLLOW_UP else Kind.REPLY
     }
 
-    /** What dismissing [conversation]'s nudge is remembered by: the conversation and its newest message's time. */
-    fun key(conversation: ConversationSummary): String = "${conversation.threadId}:${conversation.timestamp}"
+    /**
+     * What dismissing [conversation]'s [kind] of nudge is remembered by: the conversation and its
+     * newest message's time, or for a birthday, the day.
+     */
+    fun key(conversation: ConversationSummary, kind: Kind, startOfToday: Long): String =
+        if (kind == Kind.BIRTHDAY) "${conversation.threadId}:$startOfToday:birthday" else "${conversation.threadId}:${conversation.timestamp}"
 }
 
 /** Nudges the user dismissed ("Not now"), each for the message it was about; a newer one nudges again. */
@@ -50,7 +56,7 @@ class DismissedNudges(context: Context) {
     fun dismiss(key: String) {
         // Ones about messages too old to nudge any more go, so this stays small.
         val cutoff = System.currentTimeMillis() - Nudge.UNTIL_MILLIS
-        val kept = _keys.value.filter { (it.substringAfter(':').toLongOrNull() ?: 0) >= cutoff }.toSet() + key
+        val kept = _keys.value.filter { (it.substringAfter(':').substringBefore(':').toLongOrNull() ?: 0) >= cutoff }.toSet() + key
         prefs.edit().putStringSet(KEY, kept).apply()
         _keys.value = kept
     }

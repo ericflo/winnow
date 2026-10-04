@@ -308,8 +308,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
             }
             item("nudges") {
                 SwitchRow(
-                    "Reply reminders",
-                    "A contact's question you haven't answered in two days, or yours they haven't, comes back to the top of your inbox",
+                    "Reply and birthday reminders",
+                    "A contact's question you haven't answered in two days, or yours they haven't, comes back to the top of your inbox. So does a contact on their birthday.",
                     s.nudges,
                     onChange = viewModel::setNudges,
                 )
