@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
             container.codeCleaner.clean()
             // A force-stop cancels alarms without a reboot to re-arm them.
             container.scheduler.rearmAll()
+            container.reminders.rearmAll()
             runCatching { container.autoBackup.ensureScheduled() }
         }
         // With app lock on, recents shows a blank card instead of the conversation list. Android 12
@@ -156,7 +157,8 @@ class MainActivity : ComponentActivity() {
             }
             ACTION_OPEN_THREAD -> {
                 val recipients = intent.getStringExtra(EXTRA_ADDRESS) ?: return
-                pendingRoute.value = ThreadRoute(intent.getLongExtra(EXTRA_THREAD_ID, -1), recipients)
+                // A reminder opens at its message.
+                pendingRoute.value = ThreadRoute(intent.getLongExtra(EXTRA_THREAD_ID, -1), recipients, focus = intent.getStringExtra(EXTRA_FOCUS).orEmpty())
             }
             Intent.ACTION_SENDTO, Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE -> {
                 val recipients = intent.data?.let(::recipientsOf).orEmpty()
@@ -209,6 +211,8 @@ class MainActivity : ComponentActivity() {
         const val ACTION_FORWARD = "com.ericflo.winnow.FORWARD"
         const val EXTRA_TOKEN = "token"
         const val EXTRA_THREAD_ID = "thread_id"
+        /** A message key: the conversation opens scrolled to it. */
+        const val EXTRA_FOCUS = "focus"
         /** Comma-joined recipients of the thread to open. */
         const val EXTRA_ADDRESS = "address"
     }

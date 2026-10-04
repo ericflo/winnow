@@ -217,6 +217,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.InputChip
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.animation.fadeOut
@@ -308,6 +309,8 @@ fun ThreadScreen(
     var selectingText by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var actionsFor by remember { mutableStateOf<ChatMessage?>(null) }
+    var remindingFor by remember { mutableStateOf<ChatMessage?>(null) }
+    val reminders by viewModel.reminders.collectAsStateWithLifecycle()
     var detailsFor by remember { mutableStateOf<ChatMessage?>(null) }
     var viewing by rememberSaveable { mutableStateOf<String?>(null) }
     var watching by rememberSaveable { mutableStateOf<String?>(null) }
@@ -671,6 +674,7 @@ fun ThreadScreen(
             MessageList(
                 state = state,
                 scheduled = scheduled,
+                reminders = reminders,
                 onScheduledSendNow = viewModel::sendScheduledNow,
                 onScheduledEdit = viewModel::editScheduled,
                 onScheduledDelete = viewModel::cancelScheduled,
@@ -746,6 +750,8 @@ fun ThreadScreen(
             onDelete = { confirmDeleteOne = message },
             onDetails = { detailsFor = message },
             onStar = { viewModel.toggleStar(message) },
+            reminderAt = reminders[message.key],
+            onRemind = { remindingFor = message },
             onReact = { emoji -> viewModel.react(message, emoji) },
             onSave = { save(message.attachments) },
             onShare = { share(message.attachments) },
@@ -804,6 +810,20 @@ fun ThreadScreen(
                 }) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { confirmDeleteSelected = false }) { Text("Cancel") } },
+        )
+    }
+    remindingFor?.let { message ->
+        ReminderDialog(
+            current = reminders[message.key],
+            onDismiss = { remindingFor = null },
+            onPick = { at, label ->
+                remindingFor = null
+                viewModel.remind(message, at, label)
+            },
+            onRemove = {
+                remindingFor = null
+                viewModel.cancelReminder(message)
+            },
         )
     }
     detailsFor?.let { message -> MessageDetailsDialog(message, state, sims, onDismiss = { detailsFor = null }) }
@@ -1220,6 +1240,8 @@ private fun buildItems(transport: String, messages: List<ChatMessage>, unreadOnO
 private fun MessageList(
     state: ThreadUiState,
     scheduled: List<ScheduledMessageEntity>,
+    /** When messages are to come back ("Remind me"), by key. */
+    reminders: Map<String, Long> = emptyMap(),
     onScheduledSendNow: (Long) -> Unit,
     onScheduledEdit: (ScheduledMessageEntity) -> Unit,
     onScheduledDelete: (Long) -> Unit,
@@ -1374,6 +1396,7 @@ private fun MessageList(
                             onSmartLink = onSmartLink,
                             onPreviewClick = if (selecting) toggle else null,
                             fraud = state.linksOff(item.message),
+                            reminderAt = reminders[item.key],
                         )
                     }
                 }
@@ -1500,6 +1523,8 @@ private fun MessageBubble(
     onPreviewClick: (() -> Unit)? = null,
     /** Its links are off (see ThreadUiState.linksOff). */
     fraud: Boolean = item.message.verdict?.isFraud == true,
+    /** When it's to come back, if the user asked to be reminded. */
+    reminderAt: Long? = null,
 ) {
     val m = item.message
     val spoken = buildString {
@@ -1675,6 +1700,13 @@ private fun MessageBubble(
                         )
                     }
                 }
+                reminderAt?.let { at ->
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
+                        Icon(Icons.Filled.Notifications, contentDescription = null, tint = colors.primary, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Reminder · ${scheduleLabel(at)}", style = MaterialTheme.typography.labelSmall, color = colors.primary)
+                    }
+                }
                 if (fraud && m.body.contains('.')) {
                     // Its own verdict says why; a text that's off because of its sender's says that.
                     val why = m.verdict?.takeIf { it.isFraud }?.category?.label?.lowercase()?.let { "this looks like $it" }
@@ -1732,6 +1764,9 @@ private fun MessageActionsSheet(
     onDelete: () -> Unit,
     onDetails: () -> Unit,
     onStar: () -> Unit,
+    /** When it's to come back, if a reminder is set; [onRemind] sets or changes it. */
+    reminderAt: Long? = null,
+    onRemind: () -> Unit = {},
     onReact: (String) -> Unit,
     onSave: () -> Unit,
     onShare: () -> Unit,
@@ -1840,6 +1875,15 @@ private fun MessageActionsSheet(
                 colors = colors,
                 modifier = Modifier.clickable(onClick = act(onStar)),
             )
+            if (!message.isPlaceholder) {
+                ListItem(
+                    headlineContent = { Text(if (reminderAt == null) "Remind me" else "Change reminder") },
+                    supportingContent = reminderAt?.let { { Text(scheduleLabel(it)) } },
+                    leadingContent = { Icon(Icons.Filled.Notifications, contentDescription = null) },
+                    colors = colors,
+                    modifier = Modifier.clickable(onClick = act(onRemind)),
+                )
+            }
             ListItem(
                 headlineContent = { Text("Select") },
                 supportingContent = { Text("Then tap more messages to copy, star or delete them together") },

@@ -26,14 +26,15 @@ import kotlinx.coroutines.flow.Flow
 @Database(
     entities = [
         VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class, ScheduledMessageEntity::class,
-        CorrectionEntity::class, StarredEntity::class,
+        CorrectionEntity::class, StarredEntity::class, ReminderEntity::class,
     ],
-    version = 11,
+    version = 12,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
         AutoMigration(from = 9, to = 10, spec = WinnowDatabase.EverythingSummarized::class),
         AutoMigration(from = 10, to = 11),
+        AutoMigration(from = 11, to = 12),
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
@@ -52,6 +53,46 @@ abstract class WinnowDatabase : RoomDatabase() {
     abstract fun scheduled(): ScheduledMessageDao
     abstract fun corrections(): CorrectionDao
     abstract fun starred(): StarredDao
+    abstract fun reminders(): ReminderDao
+}
+
+/**
+ * "Remind me" on a message: a notification at [remindAt] that brings it back. What it says is
+ * kept here too, so the reminder still makes sense if the message is gone by then.
+ */
+@Entity(tableName = "reminders")
+data class ReminderEntity(
+    /** The message's `sms:<id>` / `mms:<id>` key. */
+    @PrimaryKey val messageKey: String,
+    val threadId: Long,
+    /** The conversation's people, joined (see joinAddresses). */
+    val recipients: String,
+    val remindAt: Long,
+    /** The message's words (or what it carries), for the notification. */
+    val preview: String,
+    /** Who wrote it: null for the user's own. */
+    val sender: String? = null,
+)
+
+@Dao
+interface ReminderDao {
+    @Query("SELECT * FROM reminders WHERE threadId = :threadId")
+    fun observeForThread(threadId: Long): Flow<List<ReminderEntity>>
+
+    @Query("SELECT * FROM reminders")
+    suspend fun all(): List<ReminderEntity>
+
+    @Query("SELECT * FROM reminders WHERE messageKey = :key")
+    suspend fun get(key: String): ReminderEntity?
+
+    @Upsert
+    suspend fun upsert(reminder: ReminderEntity)
+
+    @Query("DELETE FROM reminders WHERE messageKey = :key")
+    suspend fun delete(key: String)
+
+    @Query("DELETE FROM reminders WHERE threadId IN (:threadIds)")
+    suspend fun deleteForThreads(threadIds: Collection<Long>)
 }
 
 /** A message the user starred, by its `sms:<id>` / `mms:<id>` key. */

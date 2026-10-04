@@ -322,10 +322,9 @@ fun WinnowNavHost(
             }
             // A notification for another conversation replaces this one in place: start over on screen too.
             key(route.threadId, route.recipients) {
-            ThreadScreen(
-                // Keyed by conversation: a notification or SENDTO intent for another thread reuses this
-                // entry (launchSingleTop), and must not get the previous thread's ViewModel back.
-                viewModel = viewModel(key = "thread:${route.threadId}:${route.recipients}") {
+            // Keyed by conversation: a notification or SENDTO intent for another thread reuses this
+            // entry (launchSingleTop), and must not get the previous thread's ViewModel back.
+            val threadVm = viewModel(key = "thread:${route.threadId}:${route.recipients}") {
                     ThreadViewModel(container, route.threadId, splitAddresses(route.recipients)).also { vm ->
                         // Once: after the app is closed and this entry restored, the draft saved
                         // since (more text, more attachments) is what comes back, not the share.
@@ -338,7 +337,17 @@ fun WinnowNavHost(
                             vm.requestSearch(ThreadViewModel.SearchRequest(route.search.ifEmpty { null }, route.focus.ifEmpty { null }))
                         }
                     }
-                },
+                }
+            // A message to show, for this conversation already on screen (a reminder tapped).
+            LaunchedEffect(entry.id) {
+                entry.savedStateHandle.getStateFlow(PENDING_FOCUS, "").collect { key ->
+                    if (key.isEmpty()) return@collect
+                    entry.savedStateHandle[PENDING_FOCUS] = ""
+                    threadVm.requestSearch(ThreadViewModel.SearchRequest(null, key))
+                }
+            }
+            ThreadScreen(
+                viewModel = threadVm,
                 onBack = dropUnlessResumed { nav.popBackStack() },
                 onForward = { text, attachments -> nav.navigate(NewChatRoute(draft = text, attachments = attachments)) },
                 onReportSpam = whenResumed { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
@@ -385,6 +394,7 @@ private const val TWO_PANE_MIN_WIDTH_DP = 840
 
 /** Set on a conversation's back stack entry once its route's draft and attachments are in. */
 private const val ROUTE_APPLIED = "routeApplied"
+private const val PENDING_FOCUS = "pendingFocus"
 
 /** Below this height (a phone on its side) two panes leave no room once the keyboard is up. */
 private const val TWO_PANE_MIN_HEIGHT_DP = 480
@@ -421,14 +431,18 @@ private fun openThreadRoute(route: ThreadRoute, nav: NavHostController, threadEn
     val wanted = recipientKey(route.recipients)
     fun showing(entry: NavBackStackEntry?) =
         entry?.destination?.hasRoute<ThreadRoute>() == true && recipientKey(entry.toRoute<ThreadRoute>().recipients) == wanted
+    // Already open: it shows the message asked for, if any, where it is.
+    fun focusThere(entry: NavBackStackEntry?) {
+        if (route.focus.isNotEmpty()) entry?.savedStateHandle?.set(PENDING_FOCUS, route.focus)
+    }
     if (route.draft.isEmpty() && route.attachments.isEmpty()) {
-        if (showing(nav.currentBackStackEntry)) return
+        if (showing(nav.currentBackStackEntry)) return focusThere(nav.currentBackStackEntry)
         // Further down: back to it. A second copy would show an old draft, and save it over the
         // newer one when it closed.
         if (wanted in threadEntries.values) {
             // Never past the list: an entry on its way out can still be in the registry.
             while (!showing(nav.currentBackStackEntry) && nav.previousBackStackEntry != null && nav.popBackStack()) Unit
-            if (showing(nav.currentBackStackEntry)) return
+            if (showing(nav.currentBackStackEntry)) return focusThere(nav.currentBackStackEntry)
         }
     }
     nav.navigate(route)

@@ -165,6 +165,20 @@ class ThreadViewModel(
         .flatMapLatest { scheduler.observe(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** When messages here are to come back ("Remind me"), by message key. */
+    val reminders: StateFlow<Map<String, Long>> = threadId
+        .filter { it >= 0 }
+        .flatMapLatest { container.reminders.observe(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** Brings [message] back as a notification at [at] (moving a reminder it already has). */
+    fun remind(message: ChatMessage, at: Long, label: String) = launch {
+        container.reminders.set(message, recipients, at)
+        _notices.emit("Reminder set: $label")
+    }
+
+    fun cancelReminder(message: ChatMessage) = launch { container.reminders.cancel(message.key) }
+
     /** The undo window in seconds; null until settings have loaded. */
     private val undoSeconds: StateFlow<Int?> = container.settings.settings.map<WinnowSettings, Int?> { it.undoSendSeconds }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -909,7 +923,11 @@ class ThreadViewModel(
 
     fun retry(message: ChatMessage) = launch { repo.retry(message) }
 
-    fun delete(message: ChatMessage) = launch { repo.deleteMessage(message) }
+    fun delete(message: ChatMessage) = launch {
+        repo.deleteMessage(message)
+        // Nothing to come back to.
+        container.reminders.cancel(message.key)
+    }
 
     /** Sends a reaction as text (`Loved “…”`), which iPhones show as a tapback and Winnow folds onto [message]. */
     fun react(message: ChatMessage, emoji: String) = launch {
@@ -918,7 +936,12 @@ class ThreadViewModel(
         repo.send(recipients, text, subscriptionId = _selectedSim.value)
     }
 
-    fun deleteMessages(messages: List<ChatMessage>) = launch { messages.forEach { repo.deleteMessage(it) } }
+    fun deleteMessages(messages: List<ChatMessage>) = launch {
+        messages.forEach {
+            repo.deleteMessage(it)
+            container.reminders.cancel(it.key)
+        }
+    }
 
     /** Stars all of [messages], or unstars them all when they already are. */
     fun setStarred(messages: List<ChatMessage>, starred: Boolean) = launch {

@@ -50,6 +50,10 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.time.temporal.ChronoUnit
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 
 /** "Today, 6:00 PM", "Tomorrow, 8:00 AM", "Tue, Oct 7, 9:30 AM". */
 fun scheduleLabel(at: Long, today: LocalDate = LocalDate.now()): String {
@@ -142,6 +146,54 @@ fun SendButton(enabled: Boolean, onSend: () -> Unit, onSchedule: (at: Long, labe
             onSchedule(at, scheduleLabel(at))
         })
     }
+}
+
+/**
+ * When to be reminded of a message: in an hour, the schedule menu's quick times, or a date and
+ * time picked. [current] is the reminder it has, if any, which can be removed.
+ */
+@Composable
+fun ReminderDialog(current: Long?, onDismiss: () -> Unit, onPick: (at: Long, label: String) -> Unit, onRemove: () -> Unit) {
+    var picking by remember { mutableStateOf(false) }
+    if (picking) {
+        PickDateTimeDialog(onDismiss = onDismiss, onPicked = { at -> onPick(at, scheduleLabel(at)) }, initial = current)
+        return
+    }
+    val inAnHour = System.currentTimeMillis() + 60 * 60_000L
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Remind me") },
+        text = {
+            Column {
+                current?.let {
+                    Text(
+                        "Now: ${scheduleLabel(it)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+                val choices = listOf(inAnHour to "In an hour") + quickTimes().map { it to scheduleLabel(it) }
+                choices.forEach { (at, label) ->
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.fillMaxWidth().clickable { onPick(at, label) }.padding(vertical = 12.dp),
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable { picking = true }.padding(vertical = 12.dp),
+                ) {
+                    Icon(Icons.Filled.DateRange, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Pick date and time", style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = if (current != null) ({ TextButton(onClick = onRemove) { Text("Remove reminder") } }) else null,
+    )
 }
 
 /** A date picker, then a time picker, starting at [initial] if given. Only future times are accepted. */

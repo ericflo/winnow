@@ -229,10 +229,18 @@ class AppContainer(private val context: Context) {
     // Scheduled texts only ever go out through the real store, never the sample conversations.
     val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages.takeIf { isDefaultSmsApp() } } }
 
+    /** "Remind me" on messages. */
+    val reminders by lazy { com.ericflo.winnow.notify.Reminders(context, database.reminders(), messages::displayName) }
+
     val autoBackup by lazy { AutoBackup(context, settings, backups) }
 
     /** Recently deleted: conversations kept 30 days after the user deletes them. */
-    val trash by lazy { com.ericflo.winnow.backup.Trash(context, backups, messages, conversationStates, notifier, canWrite = ::isDefaultSmsApp) }
+    val trash by lazy {
+        com.ericflo.winnow.backup.Trash(
+            context, backups, messages, conversationStates, notifier, canWrite = ::isDefaultSmsApp,
+            onGone = { reminders.cancelForThreads(it) },
+        )
+    }
 
     val backups by lazy {
         BackupManager(

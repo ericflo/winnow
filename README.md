@@ -124,7 +124,9 @@ and opens Filtered; nothing on a quiet day.
   scheduled texts use the same SIM, and message details say which SIM a text came in on.
 - **Messages:** react (❤️ 👍 👎 😂 ‼️ ❓), copy (all or just part, with Select text),
   forward, share, star, delete, details, and "Copy code" for verification codes. **Select** several to copy, star or delete them together. Reactions go out as `Loved “…”`, which iPhones show as a
-  tapback. **Starred** (in the menu) collects starred messages from every conversation, photos
+  tapback. **Remind me** on a message brings it back as a notification later (in an hour,
+  this evening, tomorrow morning or any time), opening the conversation right at it; "In an
+  hour" there puts it off again. **Starred** (in the menu) collects starred messages from every conversation, photos
   included.
 - **Share to Winnow:** text, photos, videos and contacts shared from any app open New chat
   with them attached.

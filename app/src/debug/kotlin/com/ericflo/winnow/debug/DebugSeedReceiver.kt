@@ -26,6 +26,8 @@ import kotlin.random.Random
  * Or `--ez summary true` posts the daily summary now (whatever the setting or the last one), with
  * the last day's counts, without touching the real evening schedule.
  *
+ * Or `--el remind_in 5000` makes every pending message reminder due that many milliseconds from now.
+ *
  * Or `--ez onboarding true` shows onboarding again on the next launch (force-stop the app first),
  * to look it over; finishing or skipping it changes nothing but choosing a classifier there.
  *
@@ -42,6 +44,10 @@ class DebugSeedReceiver : BroadcastReceiver() {
             try {
                 if (intent.getBooleanExtra("summary", false)) {
                     container.dailySummary.fire(force = true)
+                    return@launch
+                }
+                if (intent.hasExtra("remind_in")) {
+                    container.reminders.bringForward(System.currentTimeMillis() + intent.getLongExtra("remind_in", 5_000))
                     return@launch
                 }
                 if (intent.getBooleanExtra("onboarding", false)) {

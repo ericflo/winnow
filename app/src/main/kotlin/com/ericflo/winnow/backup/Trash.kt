@@ -33,6 +33,8 @@ class Trash(
     private val notifier: Notifier,
     /** Deleting or putting back messages needs Winnow to be the SMS app. */
     private val canWrite: () -> Boolean,
+    /** Conversations deleted for real: what else is kept about them goes (reminders). */
+    private val onGone: suspend (Collection<Long>) -> Unit = {},
 ) {
     data class Item(
         val file: File,
@@ -89,6 +91,7 @@ class Trash(
                     if (gone.isNotEmpty()) {
                         states.forget(gone)
                         notifier.forget(gone)
+                        runCatching { onGone(gone) }
                     }
                     reload()
                 }
