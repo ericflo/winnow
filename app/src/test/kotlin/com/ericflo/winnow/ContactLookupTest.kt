@@ -22,4 +22,16 @@ class ContactLookupTest {
         assertNull(ContactLookup.numberKey("someone@example.com"))
         assertNull(ContactLookup.numberKey("AMAZON"))
     }
+
+    @Test
+    fun `home-country numbers drop their country code for display`() {
+        assertEquals("4155550177", ContactLookup.nationalForm("+14155550177", "US"))
+        assertEquals("4155550177", ContactLookup.nationalForm("+1 (415) 555-0177", "CA"))
+        assertEquals("4155550177", ContactLookup.nationalForm("14155550177", "US"))
+        // Already national, another country's, or not a full number: left as is.
+        assertEquals(null, ContactLookup.nationalForm("4155550177", "US"))
+        assertEquals(null, ContactLookup.nationalForm("+447700900123", "US"))
+        assertEquals(null, ContactLookup.nationalForm("+14155550177", "GB"))
+        assertEquals(null, ContactLookup.nationalForm("72975", "US"))
+    }
 }

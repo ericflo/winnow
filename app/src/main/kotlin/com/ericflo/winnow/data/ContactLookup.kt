@@ -167,8 +167,21 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
         /** A full phone number (7+ digits), not a short code, email or alphanumeric sender. */
         fun isPersonalNumber(address: String): Boolean = numberKey(address)?.startsWith("short:") == false
 
-        fun formatAddress(address: String): String =
-            if (address.any(Char::isLetter)) address
-            else PhoneNumberUtils.formatNumber(address, Locale.getDefault().country) ?: address
+        fun formatAddress(address: String): String {
+            if (address.any(Char::isLetter)) return address
+            val country = Locale.getDefault().country
+            // A home-country number reads the same however the carrier wrote it: "+14155550177"
+            // and "4155550177" both as (415) 555-0177, as in Messages.
+            return PhoneNumberUtils.formatNumber(nationalForm(address, country) ?: address, country) ?: address
+        }
+
+        /** [address] without its +1, for a phone in the US or Canada; null for anything else. */
+        fun nationalForm(address: String, country: String): String? {
+            if (country !in NANP) return null
+            val digits = address.filter(Char::isDigit)
+            return digits.drop(1).takeIf { digits.length == 11 && digits.startsWith('1') && address.trim().let { it.startsWith("+1") || it.startsWith("1") } }
+        }
+
+        private val NANP = setOf("US", "CA")
     }
 }
