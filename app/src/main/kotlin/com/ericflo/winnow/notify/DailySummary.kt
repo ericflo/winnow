@@ -98,20 +98,19 @@ class DailySummary(
         }
         // A debug run (force) reports the last day and leaves the real schedule alone.
         if (force) {
-            val counted = counts(now - DAY_MILLIS, afterSms = 0, afterMms = 0)
-            if (counted.filtered + counted.silenced > 0) notifier.showSummary(counted.filtered, counted.silenced)
+            val (filtered, silenced) = counts(arrivedSince = now - DAY_MILLIS, decidedAfter = 0)
+            if (filtered + silenced > 0) notifier.showSummary(filtered, silenced)
             return
         }
         firedAt = now
-        var counted: Counts? = null
         try {
             if (isDefaultSmsApp()) {
-                // After the texts the last one covered; over two days if there was one (a skipped
-                // evening's still count), one day the first time.
-                val first = current.dailySummaryLastSmsId == 0L && current.dailySummaryLastMmsId == 0L
-                val found = counts(now - if (first) DAY_MILLIS else 2 * DAY_MILLIS, current.dailySummaryLastSmsId, current.dailySummaryLastMmsId)
-                counted = found
-                if (found.filtered + found.silenced > 0) notifier.showSummary(found.filtered, found.silenced)
+                // Decided since the last one (restored texts keep their old decision, so they
+                // aren't news again; a text still being classified last time is counted now),
+                // among texts from the last two days (one, the first time).
+                val window = if (last == 0L) DAY_MILLIS else 2 * DAY_MILLIS
+                val (filtered, silenced) = counts(arrivedSince = now - window, decidedAfter = last)
+                if (filtered + silenced > 0) notifier.showSummary(filtered, silenced)
             }
         } catch (e: CancellationException) {
             throw e
@@ -120,65 +119,41 @@ class DailySummary(
         } finally {
             // Done for today whatever happened, so the re-arm below looks to tomorrow, not "now" again.
             withContext(NonCancellable) {
-                runCatching {
-                    settings.update {
-                        it.copy(
-                            dailySummaryLastAt = now,
-                            dailySummaryLastSmsId = maxOf(it.dailySummaryLastSmsId, counted?.newestSms ?: 0),
-                            dailySummaryLastMmsId = maxOf(it.dailySummaryLastMmsId, counted?.newestMms ?: 0),
-                        )
-                    }
-                }
+                runCatching { settings.update { it.copy(dailySummaryLastAt = now) } }
                 rearm()
             }
         }
     }
 
-    private class Counts(val filtered: Int, val silenced: Int, val newestSms: Long, val newestMms: Long)
-
     /**
-     * Incoming texts newer than [afterSms]/[afterMms] (by id: the store's own order, which a
-     * clock change can't move) and dated since [since], filtered and silenced by the verdict on
-     * each (corrections included). By arrival, not by when Winnow decided: a review of older
-     * conversations isn't "today".
+     * Incoming texts that arrived since [arrivedSince] and whose verdict was made after
+     * [decidedAfter], filtered and silenced (corrections included). By arrival, so reviewing older
+     * conversations isn't "today"; by decision, so nothing is reported twice, ids being reused
+     * after deletions notwithstanding.
      */
-    private suspend fun counts(since: Long, afterSms: Long, afterMms: Long): Counts {
+    private suspend fun counts(arrivedSince: Long, decidedAfter: Long): Pair<Int, Int> {
         val resolver = context.contentResolver
-        var newestSms = afterSms
-        var newestMms = afterMms
         val keys = buildList {
             resolver.query(
                 Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms._ID),
-                "${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_INBOX} AND ${Telephony.Sms._ID} > ? AND ${Telephony.Sms.DATE} >= ?",
-                arrayOf(afterSms.toString(), since.toString()), null,
-            )?.use { c ->
-                while (c.moveToNext()) {
-                    newestSms = maxOf(newestSms, c.getLong(0))
-                    add(ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)))
-                }
-            }
+                "${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_INBOX} AND ${Telephony.Sms.DATE} >= ?", arrayOf(arrivedSince.toString()), null,
+            )?.use { c -> while (c.moveToNext()) add(ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0))) }
             resolver.query(
                 Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID),
-                "${Telephony.Mms.MESSAGE_BOX} = ${Telephony.Mms.MESSAGE_BOX_INBOX} AND ${Telephony.Mms._ID} > ? AND ${Telephony.Mms.DATE} >= ?",
-                arrayOf(afterMms.toString(), (since / 1000).toString()), null,
-            )?.use { c ->
-                while (c.moveToNext()) {
-                    newestMms = maxOf(newestMms, c.getLong(0))
-                    add(ChatMessage.messageKey(ChatMessage.Kind.MMS, c.getLong(0)))
-                }
-            }
+                "${Telephony.Mms.MESSAGE_BOX} = ${Telephony.Mms.MESSAGE_BOX_INBOX} AND ${Telephony.Mms.DATE} >= ?", arrayOf((arrivedSince / 1000).toString()), null,
+            )?.use { c -> while (c.moveToNext()) add(ChatMessage.messageKey(ChatMessage.Kind.MMS, c.getLong(0))) }
         }
         var filtered = 0
         var silenced = 0
         keys.chunked(500).forEach { chunk ->
-            verdicts.effectiveActions(chunk).forEach { action ->
+            verdicts.effectiveActionsDecidedAfter(chunk, decidedAfter).forEach { action ->
                 when (action) {
                     "FILTER" -> filtered++
                     "SILENCE" -> silenced++
                 }
             }
         }
-        return Counts(filtered, silenced, newestSms, newestMms)
+        return filtered to silenced
     }
 
     private fun evening(day: LocalDate): Long = day.atTime(EVENING).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()

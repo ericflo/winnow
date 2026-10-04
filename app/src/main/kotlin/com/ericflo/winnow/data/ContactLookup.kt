@@ -185,15 +185,16 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
          */
         private fun country(): String {
             homeCountry?.let { return it }
+            val context = appContext ?: return network ?: Locale.getDefault().country.uppercase()
             // Elapsed time, not the clock: setting the clock back mustn't stop the retries.
             val now = android.os.SystemClock.elapsedRealtime()
-            val context = appContext
-            if (context != null && (checkedAt == Long.MIN_VALUE || now - checkedAt > COUNTRY_RETRY_MILLIS)) {
+            if (checkedAt == Long.MIN_VALUE || now - checkedAt > COUNTRY_RETRY_MILLIS) {
                 checkedAt = now
                 val telephony = runCatching { context.getSystemService(android.telephony.TelephonyManager::class.java) }.getOrNull()
                 homeCountry = runCatching { telephony?.simCountryIso }.getOrNull()?.takeIf { it.isNotBlank() }?.uppercase()
                 homeCountry?.let { return it }
-                network = runCatching { telephony?.networkCountryIso }.getOrNull()?.takeIf { it.isNotBlank() }?.uppercase()
+                // Kept when a later look finds none (airplane mode), so formatting doesn't flip.
+                network = runCatching { telephony?.networkCountryIso }.getOrNull()?.takeIf { it.isNotBlank() }?.uppercase() ?: network
             }
             return network ?: Locale.getDefault().country.uppercase()
         }

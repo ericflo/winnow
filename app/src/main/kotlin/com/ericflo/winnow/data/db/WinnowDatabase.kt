@@ -265,9 +265,12 @@ interface VerdictDao {
     @Query("SELECT * FROM verdicts WHERE messageKey = :messageKey")
     suspend fun forKey(messageKey: String): VerdictEntity?
 
-    /** The action that stood for each of [keys] that has a verdict: the user's correction, else Winnow's. */
-    @Query("SELECT COALESCE(userAction, action) FROM verdicts WHERE messageKey IN (:keys)")
-    suspend fun effectiveActions(keys: List<String>): List<String>
+    /**
+     * The action that stood for each of [keys] whose verdict was made after [after]: the user's
+     * correction, else Winnow's.
+     */
+    @Query("SELECT COALESCE(userAction, action) FROM verdicts WHERE messageKey IN (:keys) AND decidedAt > :after")
+    suspend fun effectiveActionsDecidedAfter(keys: List<String>, after: Long): List<String>
 
     @Query("SELECT rule FROM sender_rules WHERE address = :address")
     suspend fun senderRule(address: String): String?
