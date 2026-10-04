@@ -209,6 +209,10 @@ class ThreadViewModel(
     val enterToSend: StateFlow<Boolean> = container.settings.settings.map { it.enterToSend }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    /** Settings → Simple characters, so the composer counts what will go out. */
+    val simpleCharacters: StateFlow<Boolean> = container.settings.settings.map { it.simpleCharacters }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     /** Message text size; see [TextScale]. Pinching the conversation changes it. */
     val textScale: StateFlow<Float> = container.settings.settings
         .map { it.textScale }
@@ -609,7 +613,7 @@ class ThreadViewModel(
      */
     @OptIn(FlowPreview::class)
     val sendsAsMms: StateFlow<Boolean> = combine(draft.debounce(300), _selectedSim) { text, sim -> text to sim }
-        .map { (text, sim) -> text.length >= 100 && container.mmsSender.textNeedsMms(text, sim) }
+        .map { (text, sim) -> text.length >= 100 && container.mmsSender.textNeedsMms(container.smsSender.prepared(text), sim) }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 

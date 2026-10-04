@@ -70,6 +70,7 @@ data class SettingsBackup(
     /** Null in backups made before filtered phrases existed. */
     val filteredPhrases: List<String>? = null,
     val dailySummary: Boolean = false,
+    val simpleCharacters: Boolean = false,
 )
 
 /** A provider's non-secret settings. The API key stays on the phone it was entered on. */

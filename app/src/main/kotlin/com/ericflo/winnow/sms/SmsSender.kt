@@ -13,6 +13,7 @@ import android.telephony.SmsManager
 import android.telephony.SmsMessage
 import android.telephony.SubscriptionManager
 import com.ericflo.winnow.WinnowApp
+import com.ericflo.winnow.data.SimpleCharacters
 import kotlinx.coroutines.launch
 
 class SmsSender(
@@ -20,13 +21,19 @@ class SmsSender(
     private val deliveryReports: suspend () -> Boolean,
     /** Maps a chosen SIM to the subscription to send on (null: Android's default). */
     private val forSending: (Int?) -> Int? = { it },
+    /** Settings → Simple characters. */
+    private val simpleCharacters: suspend () -> Boolean = { false },
 ) {
+
+    /** [body] as it would go out as a text: with Simple characters on, maybe in plainer characters. */
+    suspend fun prepared(body: String): String = if (simpleCharacters()) SimpleCharacters.forSms(body, ::measureSms) else body
 
     /**
      * Records the message in the outbox and sends it; [SmsStatusReceiver] moves it to sent or
      * failed, and with delivery reports on, marks it delivered when the carrier confirms.
      */
-    suspend fun send(address: String, body: String, subscriptionId: Int? = null): Uri? {
+    suspend fun send(address: String, typed: String, subscriptionId: Int? = null): Uri? {
+        val body = prepared(typed)
         val reports = deliveryReports()
         val sub = forSending(subscriptionId)
         val values = ContentValues().apply {
@@ -98,6 +105,10 @@ class SmsSender(
         const val MAX_PARTS = 64
     }
 }
+
+/** Android's count for [text] as a text, which knows the carrier's alphabets. */
+fun measureSms(text: String): SimpleCharacters.Measure =
+    SmsMessage.calculateLength(text, false).let { SimpleCharacters.Measure(it[0], it[3] == SmsMessage.ENCODING_7BIT) }
 
 class SmsStatusReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

@@ -105,7 +105,7 @@ and opens Filtered; nothing on a quiet day.
 - **Composing:** New chat with your contacts (the people you've texted lately at the top) and Create
   group, **Forward** (photos and voice messages too), **Reply privately** to one person in a
   group, photos from the gallery or the
-  camera (each can be rotated before it goes), drafts that stick (attachments included, even after Android closes the app), an SMS segment counter, **scheduled send** (long-press Send; the menu lists everything scheduled, and each can be sent now, moved to another time, edited or deleted), **send
+  camera (each can be rotated before it goes), drafts that stick (attachments included, even after Android closes the app), an SMS segment counter, optional **simple characters** (when curly quotes, long dashes or accents would cut a text from 160 characters to 70 and cost an extra text, plain ones go instead), **scheduled send** (long-press Send; the menu lists everything scheduled, and each can be sent now, moved to another time, edited or deleted), **send
   separately** in a group (each person gets their own text, so replies come back one to one), and
   optional **undo send** (5 or 10 seconds to take a message back). **Quick replies** ("On my
   way", "Can't talk now, I'll call you later", your own) sit in the + menu and appear as one-tap

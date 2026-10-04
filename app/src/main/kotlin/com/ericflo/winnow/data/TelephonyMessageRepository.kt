@@ -104,8 +104,10 @@ class TelephonyMessageRepository(
         withContext(Dispatchers.IO) {
             // One person, nothing attached, no subject: a text, unless the carrier wants one this long
             // as an MMS. An email address only ever takes an MMS.
-            if (recipients.size == 1 && !isEmailAddress(recipients.single()) && attachments.isEmpty() && subject == null && !mms.textNeedsMms(body, subscriptionId)) {
-                sms.send(recipients.single(), body, subscriptionId)
+            // What the carrier is asked about is the text as it would go, Simple characters and all.
+            val asText = if (recipients.size == 1 && !isEmailAddress(recipients.single()) && attachments.isEmpty() && subject == null) sms.prepared(body) else null
+            if (asText != null && !mms.textNeedsMms(asText, subscriptionId)) {
+                sms.send(recipients.single(), asText, subscriptionId)
             } else {
                 mms.send(recipients, body, attachments, subscriptionId, subject)
             }

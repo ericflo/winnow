@@ -306,6 +306,15 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     onChange = viewModel::setDeliveryReports,
                 )
             }
+            item("simple-characters") {
+                SwitchRow(
+                    "Simple characters",
+                    "A curly quote, long dash or some accents cut a text from 160 characters to 70. " +
+                        "When that would take more texts, plain ones are sent instead.",
+                    s.simpleCharacters,
+                    onChange = viewModel::setSimpleCharacters,
+                )
+            }
             item("enter-to-send") {
                 SwitchRow(
                     "Enter sends",

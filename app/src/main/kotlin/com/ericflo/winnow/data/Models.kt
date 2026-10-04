@@ -59,6 +59,12 @@ data class ChatMessage(
     /** An MMS still on the carrier's server: no content yet, only a way to fetch it. */
     val isPlaceholder: Boolean get() = status == Status.DOWNLOADING || status == Status.DOWNLOAD_FAILED || status == Status.NOT_DOWNLOADED
 
+    /**
+     * Whether a reaction makes sense: one goes out as a text quoting this message, so the
+     * message has to be real and to have reached them (not one still sending or not sent).
+     */
+    val canReactTo: Boolean get() = !isPlaceholder && status != Status.SENDING && status != Status.FAILED
+
     enum class Kind { SMS, MMS }
 
     /** Unique across the SMS and MMS tables, whose ids overlap. Also the verdict key. */

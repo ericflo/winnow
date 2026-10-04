@@ -7,6 +7,8 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Star
+import com.ericflo.winnow.data.SimpleCharacters
+import com.ericflo.winnow.sms.measureSms
 import com.ericflo.winnow.data.SimCard
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -647,6 +649,7 @@ fun ThreadScreen(
                 // An email address takes only an MMS.
                 isSms = (single != null || sendSeparately) && state.recipients.none(::isEmailAddress) && attachments.isEmpty() && subjectBlank,
                 sendsAsMms = viewModel.sendsAsMms.collectAsStateWithLifecycle().value,
+                simpleCharacters = viewModel.simpleCharacters.collectAsStateWithLifecycle().value,
                 onSend = viewModel::send,
                 enterToSend = enterToSend,
                 onSendSeparately = if (state.isGroup && !sendSeparately) ({ viewModel.send(separately = true) }) else null,
@@ -1796,8 +1799,8 @@ private fun MessageActionsSheet(
         val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         fun act(action: () -> Unit) = { onDismiss(); action() }
         Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
-            // Reactions go out as text ("Loved “…”"), so they only make sense on real messages.
-            if (!message.isPlaceholder) {
+            // Reactions go out as text ("Loved “…”"), so they only make sense on messages they've seen.
+            if (message.canReactTo) {
                 Row(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
@@ -2023,6 +2026,8 @@ private fun Composer(
     isSms: Boolean,
     /** The draft is long enough that the carrier has it sent as an MMS. */
     sendsAsMms: Boolean = false,
+    /** Settings → Simple characters: count the draft as it will go out. */
+    simpleCharacters: Boolean = false,
     onSend: () -> Unit,
     onSchedule: (at: Long, label: String) -> Unit,
     enterToSend: Boolean = false,
@@ -2171,8 +2176,8 @@ private fun Composer(
                             },
                         )
                     }
-                    if (isSms && draft.length >= 100) {
-                        if (sendsAsMms) {
+                    if (isSms && draft.length >= SegmentCounterFrom) {
+                        if (sendsAsMms && draft.length >= 100) {
                             Text(
                                 "MMS",
                                 style = MaterialTheme.typography.labelSmall,
@@ -2180,7 +2185,7 @@ private fun Composer(
                                 modifier = Modifier.padding(start = 8.dp).semantics { contentDescription = "Long enough that your carrier has it sent as an MMS" },
                             )
                         } else {
-                            SegmentCounter(draft.toString())
+                            SegmentCounter(draft.toString(), simpleCharacters)
                         }
                     }
                     if (sims.size >= 2 && selectedSim != null) SimPicker(sims, selectedSim, onSelectSim)
@@ -2477,10 +2482,19 @@ private fun ThreadSearchBar(
     )
 }
 
-/** "37 / 2": characters left in the current SMS segment, and how many segments this will take. */
+/** Below this the counter never shows: even in the 70-character form, a text this short is one part. */
+private const val SegmentCounterFrom = 50
+
+/**
+ * "37 / 2": characters left in the current SMS segment, and how many segments this will take.
+ * Shown from 100 characters, or sooner when a character outside the GSM alphabet (an emoji, a
+ * curly quote) has the text going in 70-character parts.
+ */
 @Composable
-private fun SegmentCounter(text: String) {
+private fun SegmentCounter(typed: String, simpleCharacters: Boolean) {
+    val text = remember(typed, simpleCharacters) { if (simpleCharacters) SimpleCharacters.forSms(typed, ::measureSms) else typed }
     val (segments, _, remaining) = SmsMessage.calculateLength(text, false).let { Triple(it[0], it[1], it[2]) }
+    if (text.length < 100 && segments == 1 && remaining > 20) return
     Text(
         "$remaining / $segments",
         style = MaterialTheme.typography.labelSmall,

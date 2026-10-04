@@ -154,7 +154,7 @@ class AppContainer(private val context: Context) {
         SimCards(context) { debug.getBoolean(SIMULATE_SECOND_SIM, false) }
     }
     // Read when sending, not cached at startup, so a cold process honors the saved setting.
-    val smsSender by lazy { SmsSender(context, { settings.current().deliveryReports }, sims::forSending) }
+    val smsSender by lazy { SmsSender(context, { settings.current().deliveryReports }, sims::forSending) { settings.current().simpleCharacters } }
 
     val sharedFiles by lazy { SharedFiles(context) }
     val mediaExport by lazy { MediaExport(context) }

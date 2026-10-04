@@ -182,6 +182,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun deviceIsSecure(): Boolean = container.deviceIsSecure()
 
     fun setDeliveryReports(value: Boolean) = update { it.copy(deliveryReports = value) }
+    fun setSimpleCharacters(value: Boolean) = update { it.copy(simpleCharacters = value) }
 
     fun setAutoDownloadMms(value: Boolean) = update { it.copy(autoDownloadMms = value) }
 
