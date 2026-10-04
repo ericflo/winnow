@@ -262,7 +262,7 @@ fun WinnowNavHost(
                                     ThreadScreen(
                                         viewModel = thread,
                                         onBack = pane::close,
-                                        onForward = whenResumed { text -> nav.navigate(NewChatRoute(draft = text)) },
+                                        onForward = { text, attachments -> nav.navigate(NewChatRoute(draft = text, attachments = attachments)) },
                                         onReportSpam = whenResumed { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
                                         onOpenDetails = whenResumed { threadId -> nav.navigate(DetailsRoute(threadId, open.recipients)) },
                                         onMessageNumber = whenResumed { number -> nav.navigate(ThreadRoute(-1, number)) },
@@ -339,7 +339,7 @@ fun WinnowNavHost(
                     }
                 },
                 onBack = dropUnlessResumed { nav.popBackStack() },
-                onForward = whenResumed { text -> nav.navigate(NewChatRoute(draft = text)) },
+                onForward = { text, attachments -> nav.navigate(NewChatRoute(draft = text, attachments = attachments)) },
                 onReportSpam = whenResumed { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
                 onOpenDetails = whenResumed { threadId -> nav.navigate(DetailsRoute(threadId, route.recipients)) },
                 onMessageNumber = whenResumed { number -> nav.navigate(ThreadRoute(-1, number)) },

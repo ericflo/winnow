@@ -43,7 +43,7 @@ class BubbleActivity : ComponentActivity() {
                     ThreadScreen(
                         viewModel = viewModel { ThreadViewModel(container, threadId, splitAddresses(recipients), inBubble = true) },
                         onBack = ::finish,
-                        onForward = { text -> openApp(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)) },
+                        onForward = { text, _ -> openApp(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)) },
                         onReportSpam = { text ->
                             openApp(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$CARRIER_SPAM_SHORT_CODE")).putExtra("sms_body", text))
                         },

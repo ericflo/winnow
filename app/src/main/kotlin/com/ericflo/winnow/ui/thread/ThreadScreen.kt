@@ -152,6 +152,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import com.ericflo.winnow.data.TextScale
+import com.ericflo.winnow.ui.SharedAttachments
 import com.ericflo.winnow.ui.components.scaled
 import com.ericflo.winnow.data.attachmentSummary
 import com.ericflo.winnow.data.VCard
@@ -215,7 +216,8 @@ import androidx.compose.foundation.text.input.TextFieldState
 fun ThreadScreen(
     viewModel: ThreadViewModel,
     onBack: () -> Unit,
-    onForward: (String) -> Unit,
+    /** Forward a message: its text, and its attachments as [SharedAttachments] encoded them. */
+    onForward: (text: String, attachments: String) -> Unit,
     /** Opens a conversation with the carrier's spam-reporting short code, pre-filled. */
     onReportSpam: (String) -> Unit,
     onOpenDetails: (threadId: Long) -> Unit,
@@ -603,7 +605,16 @@ fun ThreadScreen(
             message = message,
             onDismiss = { actionsFor = null },
             onCopy = { copy(message.body, "Message copied") },
-            onForward = { onForward(message.body) },
+            onForward = {
+                scope.launch {
+                    val files = if (message.attachments.isEmpty()) emptyList() else viewModel.forwardable(message)
+                    if (message.attachments.isNotEmpty() && files.isEmpty() && message.body.isBlank()) {
+                        snackbar.showSnackbar("Couldn't copy that to forward it")
+                    } else {
+                        onForward(message.body, SharedAttachments.encode(files))
+                    }
+                }
+            },
             onDelete = { confirmDeleteOne = message },
             onDetails = { detailsFor = message },
             onStar = { viewModel.toggleStar(message) },

@@ -49,6 +49,25 @@ class SharedFiles(private val context: Context) {
         return if (copied) OutgoingAttachment(Uri.fromFile(file).toString(), type, name) else null
     }
 
+    /**
+     * A copy of one of a message's own attachments (an MMS part in the system store), to forward.
+     * Anything else is refused: this reads with Winnow's own permissions.
+     */
+    fun copyPart(attachment: Attachment): OutgoingAttachment? {
+        val uri = Uri.parse(attachment.uri)
+        if (uri.scheme != "content" || uri.host != "mms" || uri.pathSegments.firstOrNull() != "part") return null
+        val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(attachment.contentType) ?: "bin"
+        val file = File(dir, "${UUID.randomUUID()}.$extension")
+        val copied = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input -> file.outputStream().use { input.copyTo(it) } } != null
+        }.getOrDefault(false)
+        if (!copied) {
+            file.delete()
+            return null
+        }
+        return OutgoingAttachment(Uri.fromFile(file).toString(), attachment.contentType, attachment.name)
+    }
+
     /** A contact picked in the composer, as a vCard from the Contacts provider's own export. */
     fun contactCard(contactUri: Uri): OutgoingAttachment? {
         val lookupKey = runCatching {

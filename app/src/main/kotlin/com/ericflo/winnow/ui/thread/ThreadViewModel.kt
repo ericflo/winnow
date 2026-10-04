@@ -369,6 +369,10 @@ class ThreadViewModel(
 
     fun newCameraPhoto() = container.sharedFiles.newCameraPhoto()
 
+    /** [message]'s photos, videos, recordings and cards, copied so they can be forwarded. */
+    suspend fun forwardable(message: ChatMessage): List<OutgoingAttachment> =
+        withContext(Dispatchers.IO) { message.attachments.mapNotNull { container.sharedFiles.copyPart(it) } }
+
     fun newCameraVideo() = container.sharedFiles.newCameraVideo()
 
     /**
