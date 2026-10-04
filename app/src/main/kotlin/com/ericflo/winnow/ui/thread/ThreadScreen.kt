@@ -100,6 +100,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -110,6 +111,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -379,6 +382,16 @@ fun ThreadScreen(
     BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
     var confirmDeleteSelected by remember { mutableStateOf(false) }
     var confirmDeleteOne by remember { mutableStateOf<ChatMessage?>(null) }
+    // A phone number tapped in a message: what to do with it, rather than straight to the dialer.
+    var numberTapped by remember { mutableStateOf<String?>(null) }
+    val systemUris = LocalUriHandler.current
+    val uris = remember(systemUris) {
+        object : UriHandler {
+            override fun openUri(uri: String) {
+                if (uri.startsWith("tel:")) numberTapped = uri.removePrefix("tel:") else systemUris.openUri(uri)
+            }
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -588,6 +601,7 @@ fun ThreadScreen(
                     onDismiss = { unknownDismissed = true },
                 )
             }
+            CompositionLocalProvider(LocalUriHandler provides uris) {
             MessageList(
                 state = state,
                 scheduled = scheduled,
@@ -614,7 +628,22 @@ fun ThreadScreen(
                 onTextScale = viewModel::setTextScale,
                 modifier = Modifier.weight(1f),
             )
+            }
         }
+    }
+
+    numberTapped?.let { number ->
+        NumberSheet(
+            number = number,
+            name = viewModel.contactName(number),
+            // This conversation's own number needs no "Send message".
+            isThisConversation = single?.let { normalizeAddress(it) == normalizeAddress(number) } == true,
+            onDismiss = { numberTapped = null },
+            onCall = { runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", number, null))) } },
+            onMessage = { onMessageNumber(number) },
+            onContact = { showOrCreateContact(context, number) },
+            onCopy = { copy(number, "Number copied") },
+        )
     }
 
     actionsFor?.let { message ->
@@ -770,6 +799,58 @@ private fun GroupAvatar(size: androidx.compose.ui.unit.Dp) {
             tint = MaterialTheme.colorScheme.onTertiaryContainer,
             modifier = Modifier.size(size * 0.55f),
         )
+    }
+}
+
+/** A number from a message: call it, text it, add it to contacts, or copy it. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NumberSheet(
+    number: String,
+    name: String?,
+    isThisConversation: Boolean,
+    onDismiss: () -> Unit,
+    onCall: () -> Unit,
+    onMessage: () -> Unit,
+    onContact: () -> Unit,
+    onCopy: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+        fun act(action: () -> Unit) = { onDismiss(); action() }
+        val formatted = ContactLookup.formatAddress(number)
+        Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
+            Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+                Text(name ?: formatted, style = MaterialTheme.typography.titleMedium)
+                if (name != null) Text(formatted, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            ListItem(
+                headlineContent = { Text("Call") },
+                leadingContent = { Icon(Icons.Filled.Call, contentDescription = null) },
+                colors = colors,
+                modifier = Modifier.clickable(onClick = act(onCall)),
+            )
+            if (!isThisConversation) {
+                ListItem(
+                    headlineContent = { Text("Send message") },
+                    leadingContent = { Icon(painterResource(R.drawable.ic_chat), contentDescription = null) },
+                    colors = colors,
+                    modifier = Modifier.clickable(onClick = act(onMessage)),
+                )
+            }
+            ListItem(
+                headlineContent = { Text(if (name != null) "View contact" else "Add contact") },
+                leadingContent = { Icon(painterResource(R.drawable.ic_person_add), contentDescription = null) },
+                colors = colors,
+                modifier = Modifier.clickable(onClick = act(onContact)),
+            )
+            ListItem(
+                headlineContent = { Text("Copy number") },
+                leadingContent = { Icon(painterResource(R.drawable.ic_copy), contentDescription = null) },
+                colors = colors,
+                modifier = Modifier.clickable(onClick = act(onCopy)),
+            )
+        }
     }
 }
 

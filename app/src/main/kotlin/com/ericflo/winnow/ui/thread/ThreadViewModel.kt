@@ -87,6 +87,9 @@ class ThreadViewModel(
     private val title = displayNameFor(recipients, repo::displayName)
     private val subtitle = subtitleFor(title)
 
+    /** [number]'s contact name, or null if it isn't a contact. */
+    fun contactName(number: String): String? = repo.displayName(number).takeIf { it != ContactLookup.formatAddress(number) }
+
     private fun subtitleFor(title: String) = when {
         recipients.size > 1 -> "${recipients.size + 1} people"
         else -> recipients.singleOrNull()?.let(ContactLookup::formatAddress)?.takeIf { it != title }
