@@ -42,7 +42,7 @@ class MmsSender(
 
     fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int? = null) {
         val sub = forSending(subscriptionId)
-        val media = readAttachments(attachments)
+        val media = readAttachments(attachments, messageBudget(subscriptionId))
         val content = media + listOfNotNull(body.takeIf { it.isNotBlank() }?.let { MmsPart.plainText(it) })
         require(content.isNotEmpty()) { "nothing to send" }
         val parts = listOf(Smil.forParts(content)) + content
@@ -86,13 +86,28 @@ class MmsSender(
     }
 
     /**
-     * Reads the attachments so the whole message fits carrier limits (~1 MB). Videos, GIFs, audio
-     * and cards can't be shrunk here, so they count at their real size, and the photos, which can,
-     * share whatever is left: a voice message and a photo fit together.
+     * How many bytes of attachments one MMS can carry on the SIM [subscriptionId] would send on:
+     * the carrier's own limit (from its MMS config) less room for headers and the text, or
+     * [DEFAULT_BUDGET_BYTES] if it won't say. Carriers range from 300 KB to well over 1 MB.
      */
-    private fun readAttachments(attachments: List<OutgoingAttachment>): List<MmsPart> {
+    fun messageBudget(subscriptionId: Int?): Int {
+        val sub = forSending(subscriptionId)
+        val max = runCatching {
+            context.getSystemService(SmsManager::class.java)
+                .let { if (sub != null) it.createForSubscriptionId(sub) else it }
+                .carrierConfigValues.getInt(SmsManager.MMS_CONFIG_MAX_MESSAGE_SIZE, 0)
+        }.getOrDefault(0)
+        return budgetFor(max)
+    }
+
+    /**
+     * Reads the attachments so the whole message fits in [budget]. Videos, GIFs, audio and cards
+     * can't be shrunk here, so they count at their real size, and the photos, which can, share
+     * whatever is left: a voice message and a photo fit together.
+     */
+    private fun readAttachments(attachments: List<OutgoingAttachment>, budget: Int): List<MmsPart> {
         val parts = arrayOfNulls<MmsPart>(attachments.size)
-        var left = MESSAGE_BUDGET_BYTES
+        var left = budget
         attachments.forEachIndexed { i, attachment ->
             if (!isPhoto(attachment)) parts[i] = readAttachment(attachment, i + 1, left).also { left -= it.data.size }
         }
@@ -182,8 +197,18 @@ class MmsSender(
     }
 
     companion object {
-        /** About what carriers accept for one MMS, all parts together. */
-        const val MESSAGE_BUDGET_BYTES = 900_000
+        /** About what carriers accept for one MMS, all parts together, when the carrier doesn't say. */
+        const val DEFAULT_BUDGET_BYTES = 900_000
+        /** The PDU's headers and SMIL, and room for the text. */
+        private const val HEADER_BYTES = 8_000
+        private const val MIN_BUDGET_BYTES = 100_000
+        /** Whatever a carrier claims: some configs say far more than the network takes. */
+        private const val MAX_BUDGET_BYTES = 2_000_000
+
+        /** Attachments' share of a carrier's [maxMessageSize] (0 or less: it didn't say). */
+        fun budgetFor(maxMessageSize: Int): Int =
+            if (maxMessageSize <= 0) DEFAULT_BUDGET_BYTES
+            else (maxMessageSize - maxMessageSize / 20 - HEADER_BYTES).coerceIn(MIN_BUDGET_BYTES, MAX_BUDGET_BYTES)
 
         /** Photos are shrunk to fit; GIFs (which would lose their animation), video and audio go as they are. */
         fun canShrink(contentType: String) = contentType.startsWith("image/") && contentType != "image/gif"

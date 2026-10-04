@@ -365,14 +365,14 @@ class ThreadViewModel(
             if (size != null && attachment.contentType.startsWith("video/") && size > roomLeft()) {
                 // Too big for what the rest of the message leaves; made to fit.
                 shrinkVideo(attachment)
-            } else if (size != null && size > MmsSender.MESSAGE_BUDGET_BYTES) {
+            } else if (size != null && size > budget()) {
                 val what = when {
                     attachment.contentType == "image/gif" -> "That GIF is"
                     attachment.contentType.startsWith("video/") -> "That video is"
                     attachment.contentType.startsWith("audio/") -> "That recording is"
                     else -> "That attachment is"
                 }
-                _notices.emit("$what too big to send by MMS (${size / 1000} KB; about ${MmsSender.MESSAGE_BUDGET_BYTES / 1000} KB fits)")
+                _notices.emit("$what too big to send by MMS (${size / 1000} KB; your carrier takes about ${budget() / 1000} KB)")
             } else {
                 _attachments.value = _attachments.value + attachment
             }
@@ -456,8 +456,11 @@ class ThreadViewModel(
         val taken = withContext(Dispatchers.IO) {
             others.sumOf { a -> if (MmsSender.canShrink(a.contentType)) MmsSender.MIN_PHOTO_BYTES.toLong() else container.sharedFiles.sizeOf(a.uri) ?: 0L }
         }
-        return MmsSender.MESSAGE_BUDGET_BYTES - taken
+        return budget() - taken
     }
+
+    /** What one MMS can carry on the SIM this conversation sends from. */
+    private fun budget(): Long = container.mmsSender.messageBudget(_selectedSim.value).toLong()
 
     private suspend fun shrinkVideo(video: OutgoingAttachment) {
         // Whatever the rest of the message leaves: other videos, recordings and cards at their
