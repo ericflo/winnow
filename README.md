@@ -128,6 +128,9 @@ and opens Filtered; nothing on a quiet day.
   this evening, tomorrow morning or any time), opening the conversation right at it; "In an
   hour" there puts it off again. **Starred** (in the menu) collects starred messages from every conversation, photos
   included.
+- **Home-screen widget:** the inbox's newest conversations (never anything filtered or
+  archived), unread ones in bold, a tap opening each, and Start chat; it keeps up as texts
+  arrive. With app lock on, it only says Winnow is locked.
 - **Share to Winnow:** text, photos, videos and contacts shared from any app open New chat
   with them attached.
 - **Notifications:** Android conversation notifications (Conversations section, priority),

@@ -73,6 +73,8 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
         }
         container.appScope.launch { container.trash.purgeExpired() }
         container.appScope.launch { runCatching { container.dailySummary.rearm() } }
+        // A widget on the home screen follows the inbox while the app runs.
+        container.widgetUpdates.start()
         // Yesterday's notification photos: their notifications are gone.
         container.appScope.launch(Dispatchers.IO) { runCatching { container.notifier.purgeImages() } }
     }
@@ -118,7 +120,8 @@ class AppContainer(private val context: Context) {
         appScope.launch(Dispatchers.Main) { android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show() }
     }
 
-    private val database by lazy {
+    /** Winnow's own tables; outside here only to watch them (see WidgetUpdates). */
+    internal val database by lazy {
         Room.databaseBuilder(context, WinnowDatabase::class.java, "winnow.db").build()
     }
     val settings by lazy { SettingsRepository(context, SecretBox()) }
@@ -228,6 +231,9 @@ class AppContainer(private val context: Context) {
     val historyReviewer by lazy { HistoryReviewer(context, appScope, verdictDao, contacts, settings, classifiers) }
     // Scheduled texts only ever go out through the real store, never the sample conversations.
     val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages.takeIf { isDefaultSmsApp() } } }
+
+    /** Keeps the home-screen widget current while Winnow runs. */
+    val widgetUpdates by lazy { com.ericflo.winnow.widget.WidgetUpdates(context, appScope) }
 
     /** "Remind me" on messages. */
     val reminders by lazy { com.ericflo.winnow.notify.Reminders(context, database.reminders(), messages::displayName) }

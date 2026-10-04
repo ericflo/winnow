@@ -5,4 +5,22 @@
         <item name="android:windowBackground">@android:color/system_neutral1_10</item>
         <item name="android:windowSplashScreenBackground">@android:color/system_neutral1_10</item>
     </style>
+
+    <!-- The widget picker's preview of the Conversations widget (layout/widget_conversations_preview). -->
+    <style name="WidgetPreviewName">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:textColor">@android:color/system_neutral1_900</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:maxLines">1</item>
+    </style>
+
+    <style name="WidgetPreviewLine">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@android:color/system_neutral2_700</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:maxLines">1</item>
+    </style>
 </resources>

@@ -66,6 +66,8 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
+    implementation(libs.glance.appwidget)
+    implementation(libs.glance.material3)
     implementation(libs.coil.compose)
     implementation(libs.coil.gif)
     implementation(libs.media3.transformer)
