@@ -227,11 +227,10 @@ class ConversationDetailsViewModel(
         reload()
     }
 
+    /** Into Recently deleted, for 30 days, then gone. */
     fun delete(onDone: () -> Unit) = launch {
-        repo.deleteThreads(setOf(threadId))
-        container.conversationStates.forget(setOf(threadId))
-        container.notifier.forget(setOf(threadId))
-        onDone()
+        if (container.trash.delete(setOf(threadId))) onDone()
+        else container.toast("Couldn't keep it in Recently deleted, so it wasn't deleted")
     }
 
     private fun reload() = launch {
@@ -484,7 +483,7 @@ fun ConversationDetailsScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Delete this conversation?") },
-            text = { Text("Messages are removed from this phone. This can't be undone.") },
+            text = { Text("It goes to Recently deleted, where it can be restored for 30 days.") },
             confirmButton = { TextButton(onClick = { confirmDelete = false; viewModel.delete(onDeleted) }) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
         )

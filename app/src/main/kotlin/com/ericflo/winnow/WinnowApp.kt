@@ -71,6 +71,7 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
         container.appScope.launch(Dispatchers.IO) {
             container.draftAttachments.sweep(container.conversationStates.all().map { it.draftAttachments })
         }
+        container.appScope.launch { container.trash.purgeExpired() }
     }
 
     /**
@@ -203,6 +204,9 @@ class AppContainer(private val context: Context) {
     val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages.takeIf { isDefaultSmsApp() } } }
 
     val autoBackup by lazy { AutoBackup(context, settings, backups) }
+
+    /** Recently deleted: conversations kept 30 days after the user deletes them. */
+    val trash by lazy { com.ericflo.winnow.backup.Trash(context, backups, messages, conversationStates, notifier) }
 
     val backups by lazy {
         BackupManager(

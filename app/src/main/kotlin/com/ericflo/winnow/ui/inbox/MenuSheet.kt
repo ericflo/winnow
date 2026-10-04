@@ -42,6 +42,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.ericflo.winnow.R
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
 
 /** Full-screen menu behind the header button, laid out like the Messages account sheet. */
 @Composable
@@ -55,6 +56,8 @@ fun MenuSheet(
     onMarkAllRead: () -> Unit,
     scheduledCount: Int = 0,
     onOpenScheduled: () -> Unit = {},
+    trashCount: Int = 0,
+    onOpenTrash: () -> Unit = {},
     onOpenSettings: () -> Unit,
     onMakeDefault: () -> Unit,
 ) {
@@ -85,6 +88,10 @@ fun MenuSheet(
                     // Only while there's something scheduled, so it doesn't crowd the menu otherwise.
                     if (scheduledCount > 0) {
                         MenuItem(rememberVectorPainter(Icons.Filled.DateRange), "Scheduled", trailing = scheduledCount.toString(), onClick = onOpenScheduled)
+                        MenuDivider()
+                    }
+                    if (trashCount > 0) {
+                        MenuItem(rememberVectorPainter(Icons.Filled.Delete), "Recently deleted", trailing = trashCount.toString(), onClick = onOpenTrash)
                         MenuDivider()
                     }
                     MenuItem(rememberVectorPainter(Icons.Outlined.CheckCircle), "Mark all as read", onClick = onMarkAllRead)

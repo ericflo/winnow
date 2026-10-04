@@ -173,6 +173,8 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     }
 
     /** Texts waiting for their send time, for the menu. */
+    val trashCount: StateFlow<Int> = container.trash.items.map { it.size }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
     val scheduledCount: StateFlow<Int> = container.scheduler.observeAll()
         .map { it.size }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
@@ -219,10 +221,9 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         threadIds.forEach { if (read) repo.markRead(it) else repo.markUnread(it) }
     }
 
+    /** Into Recently deleted, for 30 days, then gone. */
     fun delete(threadIds: Set<Long>) = launch {
-        repo.deleteThreads(threadIds)
-        states.forget(threadIds)
-        container.notifier.forget(threadIds)
+        if (!container.trash.delete(threadIds)) container.toast("Couldn't keep a conversation in Recently deleted, so it wasn't deleted")
     }
 
     /** "Not spam" for a filtered 1:1 conversation: always allow its sender. */

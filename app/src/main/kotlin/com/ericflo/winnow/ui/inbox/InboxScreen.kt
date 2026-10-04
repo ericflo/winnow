@@ -121,11 +121,13 @@ fun InboxScreen(
     onMakeDefault: () -> Unit,
     onOpenStarred: () -> Unit = {},
     onOpenScheduled: () -> Unit = {},
+    onOpenTrash: () -> Unit = {},
     /** In the two-pane layout, the conversation open beside the list. */
     openThreadId: Long? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val scheduledCount by viewModel.scheduledCount.collectAsStateWithLifecycle()
+    val trashCount by viewModel.trashCount.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
         viewModel.refresh()
         onPauseOrDispose { }
@@ -408,6 +410,11 @@ fun InboxScreen(
                 menuOpen = false
                 onOpenScheduled()
             },
+            trashCount = trashCount,
+            onOpenTrash = {
+                menuOpen = false
+                onOpenTrash()
+            },
             onOpenActivity = {
                 menuOpen = false
                 onOpenActivity()
@@ -542,7 +549,7 @@ fun DeleteDialog(count: Int, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (count == 1) "Delete this conversation?" else "Delete $count conversations?") },
-        text = { Text("Messages are removed from this phone. This can't be undone.") },
+        text = { Text("Recently deleted keeps them for 30 days, in case you want them back.") },
         confirmButton = { TextButton(onClick = onConfirm) { Text("Delete") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

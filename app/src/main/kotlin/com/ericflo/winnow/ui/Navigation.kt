@@ -41,6 +41,8 @@ import com.ericflo.winnow.data.OutgoingAttachment
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import com.ericflo.winnow.ui.scheduled.ScheduledScreen
+import com.ericflo.winnow.ui.trash.RecentlyDeletedScreen
+import com.ericflo.winnow.ui.trash.RecentlyDeletedViewModel
 import com.ericflo.winnow.ui.scheduled.ScheduledViewModel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -123,6 +125,9 @@ data object StarredRoute
 
 @Serializable
 data object ScheduledRoute
+
+@Serializable
+data object RecentlyDeletedRoute
 
 /**
  * [draft] carries a forwarded message into the conversation the user picks; [with] (comma-joined
@@ -225,6 +230,7 @@ fun WinnowNavHost(
                         onMakeDefault = onMakeDefault,
                         onOpenStarred = { nav.navigate(StarredRoute) },
                         onOpenScheduled = { nav.navigate(ScheduledRoute) },
+                        onOpenTrash = { nav.navigate(RecentlyDeletedRoute) },
                         openThreadId = opened?.threadId.takeIf { twoPane },
                     )
                 }
@@ -268,6 +274,9 @@ fun WinnowNavHost(
                     }
                 }
             }
+        }
+        composable<RecentlyDeletedRoute> {
+            RecentlyDeletedScreen(viewModel = viewModel { RecentlyDeletedViewModel(container) }, onBack = dropUnlessResumed { nav.popBackStack() })
         }
         composable<ScheduledRoute> {
             ScheduledScreen(viewModel = viewModel { ScheduledViewModel(container) }, onBack = dropUnlessResumed { nav.popBackStack() }, onOpenThread = openThread)

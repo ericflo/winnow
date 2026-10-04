@@ -738,9 +738,11 @@ class ThreadViewModel(
         val id = threadId.value
         container.appScope.launch {
             try {
-                repo.deleteThreads(setOf(id))
-                states.forget(setOf(id))
-                container.notifier.forget(setOf(id))
+                // Kept in Recently deleted for 30 days first.
+                if (!container.trash.delete(setOf(id))) {
+                    _notices.emit("Couldn't keep it in Recently deleted, so it wasn't deleted")
+                    return@launch
+                }
                 withContext(Dispatchers.Main) { onDone() }
             } catch (e: CancellationException) {
                 throw e

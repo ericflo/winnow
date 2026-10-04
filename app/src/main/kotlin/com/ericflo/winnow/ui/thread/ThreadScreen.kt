@@ -718,7 +718,7 @@ fun ThreadScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Delete this conversation?") },
-            text = { Text("Messages are removed from this phone. This can't be undone.") },
+            text = { Text("It goes to Recently deleted, where it can be restored for 30 days.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false

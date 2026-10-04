@@ -264,7 +264,11 @@ class BackupManager(
         ))
     }
 
-    private suspend fun readConversations(media: MutableMap<String, Long>): List<ConversationBackup> {
+    /**
+     * [only], when given, limits it to those conversations (Recently deleted keeps one at a time).
+     */
+    internal suspend fun readConversations(media: MutableMap<String, Long>, only: Set<Long>? = null): List<ConversationBackup> {
+        val inThreads = only?.let { ids -> " AND ${Sms.THREAD_ID} IN (${ids.joinToString(",")})" }.orEmpty()
         val recipients = resolver.threadRecipients()
         val verdictsByKey = verdicts.all().associateBy { it.messageKey }
         val stars = starred.all().mapTo(HashSet()) { it.messageKey }
@@ -273,7 +277,7 @@ class BackupManager(
         resolver.query(
             Sms.CONTENT_URI,
             arrayOf(Sms._ID, Sms.THREAD_ID, Sms.ADDRESS, Sms.BODY, Sms.DATE, Sms.TYPE, Sms.STATUS, Sms.READ),
-            "${Sms.TYPE} != ${Sms.MESSAGE_TYPE_DRAFT}", null, null,
+            "${Sms.TYPE} != ${Sms.MESSAGE_TYPE_DRAFT}$inThreads", null, null,
         )?.use { c ->
             while (c.moveToNext()) {
                 val threadId = c.getLong(1)
@@ -306,13 +310,19 @@ class BackupManager(
         resolver.query(
             Mms.CONTENT_URI,
             arrayOf(Mms._ID, Mms.THREAD_ID, Mms.DATE, Mms.MESSAGE_BOX, Mms.SUBJECT, Mms.READ),
-            "${Mms.MESSAGE_BOX} != ${Mms.MESSAGE_BOX_DRAFTS} AND ${Mms.MESSAGE_TYPE} != ${MmsStore.MESSAGE_TYPE_NOTIFICATION_IND}", null, null,
+            "${Mms.MESSAGE_BOX} != ${Mms.MESSAGE_BOX_DRAFTS} AND ${Mms.MESSAGE_TYPE} != ${MmsStore.MESSAGE_TYPE_NOTIFICATION_IND}" +
+                only?.let { ids -> " AND ${Mms.THREAD_ID} IN (${ids.joinToString(",")})" }.orEmpty(),
+            null, null,
         )?.use { c ->
             while (c.moveToNext()) {
                 rows += MmsRow(c.getLong(0), c.getLong(1), c.getLong(2), c.getInt(3), c.getString(4)?.takeIf { it.isNotBlank() }, c.getInt(5) != 0)
             }
         }
-        val parts = if (rows.isEmpty()) emptyMap() else mmsParts(null)
+        val parts = when {
+            rows.isEmpty() -> emptyMap()
+            only == null -> mmsParts(null)
+            else -> mmsParts("${Mms.Part.MSG_ID} IN (${rows.joinToString(",") { it.id.toString() }})")
+        }
         for (row in rows) {
             val own = parts[row.id].orEmpty()
             val incoming = row.box == Mms.MESSAGE_BOX_INBOX
@@ -409,7 +419,7 @@ class BackupManager(
      * Adds the messages this phone doesn't have yet, and Winnow's verdicts for messages it has
      * but never classified (after a reinstall, say). Returns (added, already present).
      */
-    private suspend fun restoreMessages(backup: WinnowBackup, spool: File): Pair<Int, Int> {
+    internal suspend fun restoreMessages(backup: WinnowBackup, spool: File): Pair<Int, Int> {
         val total = backup.messageCount
         val classified = verdicts.all().mapTo(HashSet()) { it.messageKey }
         var done = 0

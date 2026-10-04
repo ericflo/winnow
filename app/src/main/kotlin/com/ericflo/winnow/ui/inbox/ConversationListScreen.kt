@@ -73,7 +73,7 @@ fun ConversationListScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text(if (picked.size == 1) "Delete this conversation?" else "Delete ${picked.size} conversations?") },
-            text = { Text("Their messages are removed from this phone. This can't be undone.") },
+            text = { Text("Recently deleted keeps them for 30 days, in case you want them back.") },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(selected)
