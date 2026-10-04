@@ -14,7 +14,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -79,10 +84,22 @@ fun CropEditor(uri: String, width: Int, height: Int, onDone: (PhotoCrop.Box, Lis
     var drawing by remember(uri) { mutableStateOf(false) }
     val strokes = remember(uri) { mutableStateListOf<PhotoCrop.Stroke>() }
     var color by remember { mutableIntStateOf(PEN_COLORS.first().second.toArgb()) }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+    val edited = box != PhotoCrop.Box.FULL || strokes.isNotEmpty()
+    var confirmingDiscard by remember { mutableStateOf(false) }
+    // Back or ×: straight out if nothing's changed, else ask first.
+    val leave = { if (edited) confirmingDiscard = true else onDismiss() }
+    Dialog(onDismissRequest = leave, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        if (confirmingDiscard) {
+            AlertDialog(
+                onDismissRequest = { confirmingDiscard = false },
+                title = { Text("Discard your edits?") },
+                confirmButton = { TextButton(onClick = onDismiss) { Text("Discard") } },
+                dismissButton = { TextButton(onClick = { confirmingDiscard = false }) { Text("Keep editing") } },
+            )
+        }
         Column(Modifier.fillMaxSize().background(Color.Black).safeDrawingPadding()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-                IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Cancel", tint = Color.White) }
+                IconButton(onClick = leave) { Icon(Icons.Filled.Close, contentDescription = "Cancel", tint = Color.White) }
                 Text("Edit photo", style = MaterialTheme.typography.titleLarge, color = Color.White)
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = { onDone(box, strokes.toList()) }, enabled = box != PhotoCrop.Box.FULL || strokes.isNotEmpty()) { Text("Done") }
@@ -130,23 +147,33 @@ fun CropEditor(uri: String, width: Int, height: Int, onDone: (PhotoCrop.Box, Lis
                 modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp),
             ) {
                 if (drawing) {
-                    PEN_COLORS.forEach { (name, swatch) ->
-                        val selected = swatch.toArgb() == color
-                        Box(
-                            Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(if (selected) Color.White else Color.Transparent)
-                                .padding(if (selected) 3.dp else 4.dp)
-                                .clip(CircleShape)
-                                // A dark pen shows against the black around it.
-                                .background(Color.Gray)
-                                .padding(1.dp)
-                                .clip(CircleShape)
-                                .background(swatch)
-                                .selectable(selected = selected, role = Role.RadioButton) { color = swatch.toArgb() }
-                                .semantics { contentDescription = name },
-                        )
+                    Row(Modifier.selectableGroup()) {
+                        PEN_COLORS.forEach { (name, swatch) ->
+                            val selected = swatch.toArgb() == color
+                            // A finger-sized target around a smaller circle.
+                            Box(
+                                Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .selectable(selected = selected, role = Role.RadioButton) { color = swatch.toArgb() }
+                                    .semantics { contentDescription = name },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(if (selected) Color.White else Color.Transparent)
+                                        .padding(if (selected) 3.dp else 4.dp)
+                                        .clip(CircleShape)
+                                        // A dark pen shows against the black around it.
+                                        .background(Color.Gray)
+                                        .padding(1.dp)
+                                        .clip(CircleShape)
+                                        .background(swatch),
+                                )
+                            }
+                        }
                     }
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = { strokes.removeAt(strokes.lastIndex) }, enabled = strokes.isNotEmpty()) { Text("Undo") }
@@ -205,19 +232,27 @@ private fun DrawLayer(strokes: List<PhotoCrop.Stroke>, color: Int, enabled: Bool
     // Only while drawing does it take touches at all: otherwise they go to the crop box beneath.
     Canvas(
         modifier.then(if (!enabled) Modifier else Modifier.pointerInput(Unit) {
-            val w = size.width - 2 * reach
-            val h = size.height - 2 * reach
-            fun at(o: Offset) = PhotoCrop.Point(((o.x - reach) / w).coerceIn(0f, 1f), ((o.y - reach) / h).coerceIn(0f, 1f))
-            detectDragGestures(
-                onDragStart = { drawing.clear(); drawing += at(it) },
-                onDragEnd = {
-                    if (drawing.isNotEmpty()) onStroke(PhotoCrop.Stroke(drawing.toList(), currentColor, pen / w))
+            fun w() = size.width - 2 * reach
+            fun h() = size.height - 2 * reach
+            fun at(o: Offset) = PhotoCrop.Point(((o.x - reach) / w()).coerceIn(0f, 1f), ((o.y - reach) / h()).coerceIn(0f, 1f))
+            // From the moment the finger lands, not once it's moved far enough to be a drag: a line
+            // starts where it was touched, and a tap is a dot.
+            try {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    down.consume()
                     drawing.clear()
-                },
-                onDragCancel = { drawing.clear() },
-            ) { change, _ ->
-                change.consume()
-                drawing += at(change.position)
+                    drawing += at(down.position)
+                    val lifted = drag(down.id) { change ->
+                        change.consume()
+                        drawing += at(change.position)
+                    }
+                    if (lifted && drawing.isNotEmpty()) onStroke(PhotoCrop.Stroke(drawing.toList(), currentColor, pen / w()))
+                    drawing.clear()
+                }
+            } finally {
+                // Drawing switched off mid-line (Crop tapped with another finger): no half line left behind.
+                drawing.clear()
             }
         }),
     ) {
@@ -233,7 +268,7 @@ private fun DrawLayer(strokes: List<PhotoCrop.Stroke>, color: Int, enabled: Bool
             drawPath(path, Color(argb), style = Stroke(width = width * w, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
         strokes.forEach { line(it.points, it.argb, it.width) }
-        line(drawing, currentColor, pen / w)
+        if (enabled) line(drawing, currentColor, pen / w)
     }
 }
 
