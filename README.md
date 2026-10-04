@@ -98,7 +98,7 @@ and opens Filtered; nothing on a quiet day.
   can be restored from there. Opening a conversation marks where its **new messages** begin. Full-text search covers SMS and MMS, and each conversation can be searched on its own,
   with matches highlighted; a search result opens its conversation at that message, and so
   does a starred one. Settings links to Android's blocked-numbers list.
-- **Composing:** New chat with your contacts (the people you text most at the top) and Create
+- **Composing:** New chat with your contacts (the people you've texted lately at the top) and Create
   group, **Forward** (photos and voice messages too), **Reply privately** to one person in a
   group, photos from the gallery or the
   camera (each can be rotated before it goes), drafts that stick (attachments included, even after Android closes the app), an SMS segment counter, **scheduled send** (long-press Send; the menu lists everything scheduled, and each can be sent now, moved to another time, edited or deleted), **send
