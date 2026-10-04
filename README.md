@@ -79,16 +79,20 @@ messages can't be tapped.
   you allow it), leaving "Tap to download" in the conversation.
 - **Conversations:** pin, archive, mute (for an hour, 8 hours, a day, or until you turn it
   back on), mark read/unread, delete, block (Android's system
-  block list), name a group (just for you), a **Photos & videos** strip in Details, **Export** to a text file, an **Unread** filter, and multi-select.
+  block list), name a group (just for you), **Add people** (a new group with everyone in it plus whoever you add), a **Photos & videos** strip in Details, **Export** to a text file, an **Unread** filter, and multi-select (in Filtered and Archived too, to rescue or clear several at once).
   Optionally, one-time codes from services are deleted a day after they arrive. That's off by
   default, never applies to texts from people, and keeps starred codes. Swipe to archive in the inbox (or set each direction to delete,
   mark read/unread, pin, or nothing), to mark not spam in Filtered, or to unarchive in
   Archived. Archiving and "not spam" can be undone, and deleting asks first. Opening a conversation marks where its **new messages** begin. Full-text search covers SMS and MMS, and each conversation can be searched on its own,
-  with matches highlighted. Settings links to Android's blocked-numbers list.
+  with matches highlighted; a search result opens its conversation at that message, and so
+  does a starred one. Settings links to Android's blocked-numbers list.
 - **Composing:** New chat with your contacts and Create group, photos from the gallery or the
-  camera, drafts that stick, an SMS segment counter, **scheduled send** (long-press Send; the menu lists everything scheduled), **send
+  camera, drafts that stick (attachments included, even after Android closes the app), an SMS segment counter, **scheduled send** (long-press Send; the menu lists everything scheduled, and each can be sent now, moved to another time, edited or deleted), **send
   separately** in a group (each person gets their own text, so replies come back one to one), and
-  optional **undo send** (5 or 10 seconds to take a message back).
+  optional **undo send** (5 or 10 seconds to take a message back). A text that doesn't go out
+  (no signal, a carrier refusal, a scheduled one that fails) says so in a notification, and a
+  message that fails after you've left its conversation is waiting in the composer when you
+  come back.
 - **Dual SIM:** on a phone with two SIMs, a badge in the composer shows which one a text
   goes out on, and tapping it switches. Each conversation remembers its SIM. Otherwise it
   uses the SIM their last text arrived on, then your default. Replies from notifications and
