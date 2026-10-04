@@ -91,10 +91,11 @@ fun ConversationListScreen(
             items(state.conversations, key = { it.threadId }) { conversation ->
                 val swipe = when {
                     filtered && !conversation.isGroup -> Triple(rememberVectorPainter(Icons.Filled.CheckCircle), "Not spam") {
-                        viewModel.allow(conversation)
-                        scope.launch {
-                            val result = snackbar.showSnackbar("${conversation.displayName} will always reach your inbox", actionLabel = "Undo")
-                            if (result == SnackbarResult.ActionPerformed) viewModel.block(conversation)
+                        viewModel.allow(conversation) { previous ->
+                            scope.launch {
+                                val result = snackbar.showSnackbar("${conversation.displayName} will always reach your inbox", actionLabel = "Undo")
+                                if (result == SnackbarResult.ActionPerformed) viewModel.undo(previous)
+                            }
                         }
                     }
                     !filtered -> Triple(painterResource(R.drawable.ic_unarchive), "Unarchive") {
@@ -102,7 +103,9 @@ fun ConversationListScreen(
                     }
                     else -> null
                 }
-                SwipeAction(enabled = swipe != null, icon = swipe?.first ?: painterResource(R.drawable.ic_archive), label = swipe?.second.orEmpty(), onSwipe = { swipe?.third?.invoke() }) {
+                // Either way does the same thing here; both remove the row from this list.
+                val action = swipe?.let { (icon, label, run) -> Swipe(icon, label, removes = true) { run() } }
+                SwipeAction(start = action, end = action) {
                     ConversationRow(
                         conversation,
                         showVerdict = filtered,

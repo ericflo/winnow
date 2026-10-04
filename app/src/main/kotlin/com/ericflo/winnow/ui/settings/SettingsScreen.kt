@@ -73,6 +73,12 @@ import com.ericflo.winnow.data.TextScale
 import com.ericflo.winnow.data.ThemeMode
 import com.ericflo.winnow.ui.components.scaled
 import kotlin.math.roundToInt
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.material.icons.filled.Check
+import com.ericflo.winnow.data.SwipeChoice
 
 private val Action.label: String
     get() = when (this) {
@@ -193,6 +199,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                 )
             }
             item("text-size") { TextSizeRow(s.textScale, viewModel::setTextScale) }
+            item("swipe-right") { SwipeChoiceRow("Swipe right", s.swipeRight) { viewModel.setSwipe(right = true, value = it) } }
+            item("swipe-left") { SwipeChoiceRow("Swipe left", s.swipeLeft) { viewModel.setSwipe(right = false, value = it) } }
 
             section("Messages")
             item("notifications") {
@@ -570,4 +578,29 @@ private fun TextSizeRow(scale: Float, onChange: (Float) -> Unit) {
             }
         },
     )
+}
+
+/** What swiping an inbox conversation one way does, picked from a menu. */
+@Composable
+private fun SwipeChoiceRow(title: String, choice: SwipeChoice, onChange: (SwipeChoice) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        ListItem(
+            headlineContent = { Text(title) },
+            supportingContent = { Text(choice.label) },
+            modifier = Modifier.clickable(onClickLabel = "Change") { open = true },
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, offset = DpOffset(16.dp, 0.dp)) {
+            SwipeChoice.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label) },
+                    trailingIcon = { if (option == choice) Icon(Icons.Filled.Check, contentDescription = "Selected") },
+                    onClick = {
+                        open = false
+                        onChange(option)
+                    },
+                )
+            }
+        }
+    }
 }

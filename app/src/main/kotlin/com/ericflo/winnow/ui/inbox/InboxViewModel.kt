@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.ericflo.winnow.data.SwipeChoice
+import com.ericflo.winnow.data.PreviousVerdict
 
 enum class ListMode { INBOX, FILTERED, ARCHIVED }
 
@@ -119,6 +121,11 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         query.value = value
     }
 
+    /** What swiping a conversation right and left does, from Settings. */
+    val swipes: StateFlow<Pair<SwipeChoice, SwipeChoice>> = container.settings.settings
+        .map { it.swipeRight to it.swipeLeft }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SwipeChoice.ARCHIVE to SwipeChoice.ARCHIVE)
+
     fun markAllRead() = launch { repo.markAllRead() }
 
     fun setPinned(threadIds: Set<Long>, pinned: Boolean) = launch { states.setPinned(threadIds, pinned) }
@@ -136,9 +143,12 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     }
 
     /** "Not spam" for a filtered 1:1 conversation: always allow its sender. */
-    fun allow(conversation: ConversationSummary) = launch {
-        if (!conversation.isGroup) repo.overrideVerdict(conversation.threadId, conversation.address, Action.ALLOW)
+    fun allow(conversation: ConversationSummary, onDone: (PreviousVerdict) -> Unit = {}) = launch {
+        if (!conversation.isGroup) onDone(repo.overrideVerdict(conversation.threadId, conversation.address, Action.ALLOW))
     }
+
+    /** Takes back a correction, leaving the conversation as it was before. */
+    fun undo(previous: PreviousVerdict) = launch { repo.restoreVerdict(previous) }
 
     /** Always filter the sender of a 1:1 conversation. */
     fun block(conversation: ConversationSummary) = launch {

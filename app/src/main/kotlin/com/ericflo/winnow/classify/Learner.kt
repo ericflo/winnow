@@ -51,6 +51,12 @@ class Learner(private val dao: CorrectionDao, private val settings: SettingsRepo
         retrain()
     }
 
+    /** Drops what was learned from one conversation, when its correction is undone. */
+    suspend fun unlearn(threadId: Long) {
+        lock.withLock { dao.deleteForThread(threadId) }
+        retrain()
+    }
+
     suspend fun forget() {
         dao.deleteAll()
         retrain()

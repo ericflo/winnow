@@ -44,6 +44,7 @@ class TelephonyMessageRepository(
     private val retryDownload: (mmsId: Long) -> Unit,
     /** The user overrode Winnow's call on the thread's newest incoming message, for the on-device model to learn from. */
     private val onCorrected: suspend (threadId: Long, message: InboundMessage, action: Action) -> Unit = { _, _, _ -> },
+    private val onUncorrected: suspend (threadId: Long) -> Unit = {},
 ) : MessageRepository {
     private val resolver = context.contentResolver
 
@@ -211,12 +212,31 @@ class TelephonyMessageRepository(
         return SearchHit(threadId, people, displayNameFor(people, ::displayName), body, date)
     }
 
-    override suspend fun overrideVerdict(threadId: Long, address: String, action: Action) {
+    override suspend fun overrideVerdict(threadId: Long, address: String, action: Action): PreviousVerdict {
+        val previous = PreviousVerdict(
+            threadId,
+            address,
+            userAction = dao.userAction(threadId)?.let { runCatching { Action.valueOf(it) }.getOrNull() },
+            senderRule = dao.senderRule(normalizeAddress(address)),
+        )
         dao.setUserAction(threadId, action.name)
         val rule = if (action == Action.ALLOW) SenderRule.ALWAYS_ALLOW else SenderRule.ALWAYS_FILTER
         dao.upsertSenderRule(SenderRuleEntity(normalizeAddress(address), rule.name, System.currentTimeMillis()))
         // Learning is a bonus; a failure there mustn't undo the user's correction.
         newestIncoming(threadId)?.let { runCatching { onCorrected(threadId, it, action) } }
+        return previous
+    }
+
+    override suspend fun restoreVerdict(previous: PreviousVerdict) {
+        val threadId = previous.threadId
+        dao.setUserAction(threadId, previous.userAction?.name)
+        val address = normalizeAddress(previous.address)
+        if (previous.senderRule == null) dao.deleteSenderRule(address)
+        else dao.upsertSenderRule(SenderRuleEntity(address, previous.senderRule, System.currentTimeMillis()))
+        runCatching {
+            val action = previous.userAction
+            if (action == null) onUncorrected(threadId) else newestIncoming(threadId)?.let { onCorrected(threadId, it, action) }
+        }
     }
 
     /** The thread's newest incoming message, as the classifier saw it. */

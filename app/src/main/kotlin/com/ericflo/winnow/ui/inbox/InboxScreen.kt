@@ -62,7 +62,8 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxDefaults
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -70,6 +71,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -93,6 +95,8 @@ import com.ericflo.winnow.ui.components.Avatar
 import com.ericflo.winnow.ui.review.ReviewInboxCard
 import com.ericflo.winnow.ui.components.shortTimestamp
 import kotlinx.coroutines.launch
+import com.ericflo.winnow.data.SwipeChoice
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 
 @Composable
 fun InboxScreen(
@@ -118,6 +122,9 @@ fun InboxScreen(
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<Long>()) }
     var confirmDelete by remember { mutableStateOf(false) }
+    // A conversation swiped toward Delete, waiting on the confirmation.
+    var swipedToDelete by remember { mutableStateOf<Long?>(null) }
+    val swipes by viewModel.swipes.collectAsStateWithLifecycle()
     var makeDefaultDismissed by rememberSaveable { mutableStateOf(false) }
     val atTop by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
     val farDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 6 } }
@@ -200,7 +207,22 @@ fun InboxScreen(
                     }
                     items(state.conversations, key = { it.threadId }) { conversation ->
                         val open = { onOpenThread(conversation.threadId, conversation.recipients) }
-                        SwipeToArchive(enabled = selected.isEmpty() && !searching, onArchive = { archive(setOf(conversation.threadId)) }) {
+                        val enabled = selected.isEmpty() && !searching
+                        @Composable
+                        fun swipe(choice: SwipeChoice): Swipe? = if (!enabled) null else when (choice) {
+                            SwipeChoice.ARCHIVE -> Swipe(painterResource(R.drawable.ic_archive), "Archive", removes = true) { archive(setOf(conversation.threadId)) }
+                            SwipeChoice.DELETE -> Swipe(rememberVectorPainter(Icons.Filled.Delete), "Delete", destructive = true) { swipedToDelete = conversation.threadId }
+                            SwipeChoice.READ -> if (conversation.unread) {
+                                Swipe(rememberVectorPainter(Icons.Outlined.CheckCircle), "Mark as read") { viewModel.setRead(setOf(conversation.threadId), true) }
+                            } else {
+                                Swipe(rememberVectorPainter(Icons.Outlined.MailOutline), "Mark as unread") { viewModel.setRead(setOf(conversation.threadId), false) }
+                            }
+                            SwipeChoice.PIN -> Swipe(painterResource(R.drawable.ic_pin), if (conversation.pinned) "Unpin" else "Pin") {
+                                viewModel.setPinned(setOf(conversation.threadId), !conversation.pinned)
+                            }
+                            SwipeChoice.NONE -> null
+                        }
+                        SwipeAction(start = swipe(swipes.first), end = swipe(swipes.second)) {
                             ConversationRow(
                                 conversation,
                                 showVerdict = conversation.verdict?.effectiveAction == Action.SILENCE,
@@ -268,6 +290,17 @@ fun InboxScreen(
         }
     }
 
+    swipedToDelete?.let { id ->
+        DeleteDialog(
+            count = 1,
+            onConfirm = {
+                viewModel.delete(setOf(id))
+                swipedToDelete = null
+            },
+            onDismiss = { swipedToDelete = null },
+        )
+    }
+
     if (confirmDelete) {
         DeleteDialog(
             count = selected.size,
@@ -313,39 +346,65 @@ fun InboxScreen(
     }
 }
 
-/** Swipe either way to archive, as in Messages. */
-@Composable
-fun SwipeToArchive(enabled: Boolean, onArchive: () -> Unit, content: @Composable () -> Unit) =
-    SwipeAction(enabled, painterResource(R.drawable.ic_archive), "Archive", onArchive, content)
+/**
+ * What a swipe does: [icon] and [label] show under the row as it slides, and [run] runs once
+ * it's swiped away. A row that [removes] itself from the list stays swiped; any other slides back.
+ */
+class Swipe(
+    val icon: Painter,
+    val label: String,
+    val removes: Boolean = false,
+    val destructive: Boolean = false,
+    val run: () -> Unit,
+)
 
-/** A row that runs [onSwipe] when swiped away in either direction, showing [icon] underneath. */
+/** A row with a [Swipe] toward the end ([start], a right swipe in left-to-right) and/or the start ([end]). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SwipeAction(
-    enabled: Boolean,
-    icon: Painter,
-    label: String,
-    onSwipe: () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    if (!enabled) {
+fun SwipeAction(start: Swipe?, end: Swipe?, content: @Composable () -> Unit) {
+    if (start == null && end == null) {
         content()
         return
     }
-    val state = rememberSwipeToDismissBoxState()
+    val threshold = SwipeToDismissBoxDefaults.positionalThreshold
+    // Not rememberSwipeToDismissBoxState(), which is saveable: a lazy list restores saved state
+    // when an item's key comes back, and a restored "dismissed" row would run its swipe again
+    // (archive, Undo, archived again).
+    val state = remember { SwipeToDismissBoxState(SwipeToDismissBoxValue.Settled, threshold) }
+    val scope = rememberCoroutineScope()
+    val currentStart by rememberUpdatedState(start)
+    val currentEnd by rememberUpdatedState(end)
+    // Must keep its identity: SwipeToDismissBox restarts its dismiss effect when this changes,
+    // and calls it again with whatever direction the row has by then, Settled included.
+    val onDismiss = remember(state) {
+        { value: SwipeToDismissBoxValue ->
+            val swipe = when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> currentStart
+                SwipeToDismissBoxValue.EndToStart -> currentEnd
+                SwipeToDismissBoxValue.Settled -> null
+            }
+            swipe?.run?.invoke()
+            if (swipe?.removes != true) scope.launch { state.reset() }
+        }
+    }
     SwipeToDismissBox(
         state = state,
-        onDismiss = { onSwipe() },
+        enableDismissFromStartToEnd = start != null,
+        enableDismissFromEndToStart = end != null,
+        onDismiss = onDismiss,
         backgroundContent = {
-            val start = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            val toEnd = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            val swipe = (if (toEnd) start else end) ?: return@SwipeToDismissBox
+            val colors = MaterialTheme.colorScheme
+            val (container, onContainer) = if (swipe.destructive) colors.errorContainer to colors.onErrorContainer else colors.primaryContainer to colors.onPrimaryContainer
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 28.dp),
+                modifier = Modifier.fillMaxSize().background(container).padding(horizontal = 28.dp),
             ) {
-                if (!start) Spacer(Modifier.weight(1f))
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                if (!toEnd) Spacer(Modifier.weight(1f))
+                Icon(swipe.icon, contentDescription = null, tint = onContainer)
                 Spacer(Modifier.width(8.dp))
-                Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(swipe.label, style = MaterialTheme.typography.labelLarge, color = onContainer)
             }
         },
     ) { content() }

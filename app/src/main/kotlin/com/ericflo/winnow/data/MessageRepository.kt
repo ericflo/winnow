@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.flatMapLatest
 /** An image or file chosen in the composer, not yet sent. */
 data class OutgoingAttachment(val uri: String, val contentType: String, val name: String?)
 
+/** What a correction replaced, so Undo can put it back exactly. */
+data class PreviousVerdict(val threadId: Long, val address: String, val userAction: Action?, val senderRule: String?)
+
 /**
  * The message store. Winnow-only state (pinned, archived, muted, drafts) lives in
  * [ConversationStateStore] and is merged in by the UI layer.
@@ -52,7 +55,10 @@ interface MessageRepository {
     suspend fun search(query: String): List<SearchHit>
 
     /** Records the user's correction for a thread and remembers it for the sender. */
-    suspend fun overrideVerdict(threadId: Long, address: String, action: Action)
+    suspend fun overrideVerdict(threadId: Long, address: String, action: Action): PreviousVerdict
+
+    /** Undoes [overrideVerdict]: the earlier correction and sender rule come back, and what was learned is unlearned. */
+    suspend fun restoreVerdict(previous: PreviousVerdict)
 
     /** Every decision Winnow has recorded. */
     fun verdictRecords(): Flow<List<VerdictRecord>>
@@ -98,5 +104,6 @@ class SwitchingMessageRepository(
     override suspend fun search(query: String) = current.search(query)
     override suspend fun overrideVerdict(threadId: Long, address: String, action: Action) =
         current.overrideVerdict(threadId, address, action)
+    override suspend fun restoreVerdict(previous: PreviousVerdict) = current.restoreVerdict(previous)
     override fun verdictRecords() = isLive.flatMapLatest { if (it) live.verdictRecords() else demo.verdictRecords() }
 }

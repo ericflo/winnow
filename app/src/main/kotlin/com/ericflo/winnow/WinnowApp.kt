@@ -133,6 +133,7 @@ class AppContainer(private val context: Context) {
                 context, verdictDao, database.starred(), contacts, smsSender, mmsSender,
                 retryDownload = { mmsReceiver.retryDownload(it) },
                 onCorrected = { threadId, message, action -> learner.learn(threadId, message, action) },
+                onUncorrected = { threadId -> learner.unlearn(threadId) },
             ),
             demo = DemoMessageRepository(context.packageName),
             isLive = access,

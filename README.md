@@ -67,8 +67,9 @@ messages can't be tapped.
 - **Conversations:** pin, archive, mute, mark read/unread, delete, block (Android's system
   block list), name a group (just for you), an **Unread** filter, and multi-select.
   Optionally, one-time codes from services are deleted a day after they arrive. That's off by
-  default, never applies to texts from people, and keeps starred codes. Swipe to archive in the inbox, to mark not spam in Filtered,
-  or to unarchive in Archived. Full-text search covers SMS and MMS, and each conversation can be searched on its own,
+  default, never applies to texts from people, and keeps starred codes. Swipe to archive in the inbox (or set each direction to delete,
+  mark read/unread, pin, or nothing), to mark not spam in Filtered, or to unarchive in
+  Archived. Archiving and "not spam" can be undone, and deleting asks first. Full-text search covers SMS and MMS, and each conversation can be searched on its own,
   with matches highlighted. Settings links to Android's blocked-numbers list.
 - **Composing:** New chat with your contacts and Create group, photos from the gallery or the
   camera, drafts that stick, an SMS segment counter, **scheduled send** (long-press Send), and

@@ -91,7 +91,15 @@ class DemoMessageRepository(private val packageName: String) : MessageRepository
             }
         }.sortedByDescending { it.timestamp }
 
-    override suspend fun overrideVerdict(threadId: Long, address: String, action: Action) =
+    override suspend fun overrideVerdict(threadId: Long, address: String, action: Action): PreviousVerdict {
+        val before = threads.value.firstOrNull { it.threadId == threadId }?.messages?.firstNotNullOfOrNull { it.verdict?.userAction }
+        setUserAction(threadId, action)
+        return PreviousVerdict(threadId, address, before, senderRule = null)
+    }
+
+    override suspend fun restoreVerdict(previous: PreviousVerdict) = setUserAction(previous.threadId, previous.userAction)
+
+    private fun setUserAction(threadId: Long, action: Action?) =
         updateThread(threadId) { t -> t.copy(messages = t.messages.map { m -> m.copy(verdict = m.verdict?.copy(userAction = action)) }) }
 
     override fun verdictRecords(): Flow<List<VerdictRecord>> = threads.map { list ->

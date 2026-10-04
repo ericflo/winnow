@@ -4,6 +4,7 @@ import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classifier.message.RedactionPolicy
 import com.ericflo.winnow.data.ProviderKind
+import com.ericflo.winnow.data.SwipeChoice
 import com.ericflo.winnow.data.TextScale
 import com.ericflo.winnow.data.ThemeMode
 import com.ericflo.winnow.data.WinnowSettings
@@ -31,6 +32,8 @@ fun WinnowSettings.toBackup() = SettingsBackup(
     categoryActions = categoryActions.entries.associate { (c, a) -> c.key to a.name },
     theme = theme.name,
     textScale = textScale,
+    swipeRight = swipeRight.name,
+    swipeLeft = swipeLeft.name,
 )
 
 /** These settings with [backup]'s applied. API keys already on this phone are kept. */
@@ -55,6 +58,8 @@ fun WinnowSettings.restoring(backup: SettingsBackup) = copy(
     deliveryReports = backup.deliveryReports,
     theme = ThemeMode.entries.firstOrNull { it.name == backup.theme } ?: theme,
     textScale = TextScale.clamp(backup.textScale),
+    swipeRight = SwipeChoice.entries.firstOrNull { it.name == backup.swipeRight } ?: swipeRight,
+    swipeLeft = SwipeChoice.entries.firstOrNull { it.name == backup.swipeLeft } ?: swipeLeft,
     categoryActions = categoryActions + backup.categoryActions.mapNotNull { (key, action) ->
         val category = Category.fromKey(key) ?: return@mapNotNull null
         Action.entries.firstOrNull { it.name == action }?.let { category to it }

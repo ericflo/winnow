@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import com.ericflo.winnow.data.SwipeChoice
 
 sealed interface TrialState {
     data object Idle : TrialState
@@ -103,6 +104,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun setTheme(value: ThemeMode) = update { it.copy(theme = value) }
 
     fun setTextScale(value: Float) = update { it.copy(textScale = TextScale.clamp(value)) }
+
+    fun setSwipe(right: Boolean, value: SwipeChoice) = update { if (right) it.copy(swipeRight = value) else it.copy(swipeLeft = value) }
 
     fun setAction(category: Category, action: Action) = update { it.copy(categoryActions = it.categoryActions + (category to action)) }
 

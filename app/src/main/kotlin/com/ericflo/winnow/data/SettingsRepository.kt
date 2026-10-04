@@ -68,6 +68,15 @@ data class ProviderSettings(
     val zeroRetention: Boolean = false,
 )
 
+/** What swiping a conversation in the inbox does. */
+enum class SwipeChoice(val label: String) {
+    ARCHIVE("Archive"),
+    DELETE("Delete"),
+    READ("Mark read or unread"),
+    PIN("Pin or unpin"),
+    NONE("Nothing"),
+}
+
 /** Light or dark, or whatever the phone is set to. */
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
@@ -100,6 +109,9 @@ data class WinnowSettings(
     /** Ask the carrier to confirm delivery of each SMS. Off by default, as in Messages. */
     val deliveryReports: Boolean = false,
     val theme: ThemeMode = ThemeMode.SYSTEM,
+    /** Swiping an inbox conversation toward the end (right, in left-to-right languages). */
+    val swipeRight: SwipeChoice = SwipeChoice.ARCHIVE,
+    val swipeLeft: SwipeChoice = SwipeChoice.ARCHIVE,
     /** See [TextScale]. */
     val textScale: Float = 1f,
     /** The user said "Not now" to reviewing older conversations. */
@@ -166,6 +178,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             deliveryReports = this[DELIVERY_REPORTS] ?: false,
             theme = this[THEME]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: defaults.theme,
             textScale = TextScale.clamp(this[TEXT_SCALE] ?: 1f),
+            swipeRight = this[SWIPE_RIGHT]?.let { runCatching { SwipeChoice.valueOf(it) }.getOrNull() } ?: defaults.swipeRight,
+            swipeLeft = this[SWIPE_LEFT]?.let { runCatching { SwipeChoice.valueOf(it) }.getOrNull() } ?: defaults.swipeLeft,
             reviewPromptDismissed = this[REVIEW_DISMISSED] ?: false,
             onboarded = this[ONBOARDED] ?: false,
             categoryActions = Category.entries.associateWith { c ->
@@ -198,6 +212,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[DELIVERY_REPORTS] = s.deliveryReports
         this[THEME] = s.theme.name
         this[TEXT_SCALE] = TextScale.clamp(s.textScale)
+        this[SWIPE_RIGHT] = s.swipeRight.name
+        this[SWIPE_LEFT] = s.swipeLeft.name
         this[REVIEW_DISMISSED] = s.reviewPromptDismissed
         this[ONBOARDED] = s.onboarded
         s.categoryActions.forEach { (c, a) -> this[actionKey(c)] = a.name }
@@ -221,6 +237,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val DELIVERY_REPORTS = booleanPreferencesKey("sms.delivery_reports")
         val THEME = stringPreferencesKey("display.theme")
         val TEXT_SCALE = floatPreferencesKey("display.text_scale")
+        val SWIPE_RIGHT = stringPreferencesKey("inbox.swipe_right")
+        val SWIPE_LEFT = stringPreferencesKey("inbox.swipe_left")
         val REVIEW_DISMISSED = booleanPreferencesKey("review.prompt_dismissed")
         val ONBOARDED = booleanPreferencesKey("onboarding.done")
 

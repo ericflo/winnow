@@ -55,6 +55,8 @@ data class SettingsBackup(
     val categoryActions: Map<String, String> = emptyMap(),
     val theme: String = "SYSTEM",
     val textScale: Float = 1f,
+    val swipeRight: String = "ARCHIVE",
+    val swipeLeft: String = "ARCHIVE",
 )
 
 /** A provider's non-secret settings. The API key stays on the phone it was entered on. */
