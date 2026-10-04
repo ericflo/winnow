@@ -49,6 +49,20 @@ class NotificationActionReceiver : BroadcastReceiver() {
                         container.toast("Couldn't send your reply${e.message?.let { ": $it" }.orEmpty()}. It's saved in the conversation.")
                     }
                 }
+                // "Try again" on a "not sent" notice: the failed text, or a scheduled one that failed.
+                if (intent.action == ACTION_RETRY) {
+                    container.notifier.cancelNotSent(threadId)
+                    val key = intent.getStringExtra(EXTRA_KEY).orEmpty()
+                    val scheduled = key.removePrefix(SCHEDULED_PREFIX).takeIf { key.startsWith(SCHEDULED_PREFIX) }?.toLongOrNull()
+                    if (scheduled != null) {
+                        container.scheduler.forgetFailure(scheduled)
+                        // A second failure says so again.
+                        runCatching { container.scheduler.sendNow(scheduled) }.onFailure { container.scheduler.notifyFailed(scheduled) }
+                    } else {
+                        container.messages.messagesByKey(listOf(key)).firstOrNull()?.let { container.messages.retry(it.message) }
+                    }
+                    return@launch
+                }
                 // The same correction as "Always filter": the sender's texts go to Filtered from now on,
                 // and the on-phone model learns from this one.
                 if (intent.action == ACTION_SPAM && recipients.size == 1) {
@@ -75,6 +89,10 @@ class NotificationActionReceiver : BroadcastReceiver() {
         const val ACTION_MARK_READ = "com.ericflo.winnow.MARK_READ"
         const val ACTION_COPY_CODE = "com.ericflo.winnow.COPY_CODE"
         const val ACTION_SPAM = "com.ericflo.winnow.SPAM"
+        const val ACTION_RETRY = "com.ericflo.winnow.RETRY"
+        /** The message to try again: a message key, or [SCHEDULED_PREFIX] and a scheduled text's id. */
+        const val EXTRA_KEY = "message_key"
+        const val SCHEDULED_PREFIX = "scheduled:"
         const val EXTRA_CODE = "code"
         const val EXTRA_THREAD_ID = "thread_id"
         const val EXTRA_RECIPIENTS = "recipients"

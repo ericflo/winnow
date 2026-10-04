@@ -216,7 +216,10 @@ class MmsSentReceiver : BroadcastReceiver() {
                 if (container.visibleThread.value == threadId) return@launch
                 val recipients = store.recipients(id)
                 val text = store.parts(id).firstOrNull { it.contentType == "text/plain" }?.data?.toString(Charsets.UTF_8)
-                container.notifier.showNotSent(threadId, recipients, displayNameFor(recipients, container.messages::displayName), text ?: "a picture message")
+                container.notifier.showNotSent(
+                    threadId, recipients, displayNameFor(recipients, container.messages::displayName), text ?: "a picture message",
+                    retryKey = "mms:$id",
+                )
             } catch (e: Exception) {
                 Log.w("WinnowMms", "Couldn't say an MMS wasn't sent", e)
             } finally {

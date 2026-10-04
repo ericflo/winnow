@@ -82,13 +82,16 @@ class MessageScheduler(
         if (id.toString() in told) return
         failures.edit().putStringSet(TOLD, told + id.toString()).apply()
         val recipients = splitAddresses(message.recipients)
-        container.notifier.showNotSent(message.threadId, recipients, displayNameFor(recipients, container.messages::displayName), message.body, scheduled = true)
+        container.notifier.showNotSent(
+            message.threadId, recipients, displayNameFor(recipients, container.messages::displayName), message.body, scheduled = true,
+            retryKey = "scheduled:$id",
+        )
     }
 
     /** Scheduled texts the user has been told failed; forgotten once they're sent or deleted. */
     private val failures by lazy { context.getSharedPreferences("scheduled_failures", Context.MODE_PRIVATE) }
 
-    private fun forgetFailure(id: Long) {
+    fun forgetFailure(id: Long) {
         val told = failures.getStringSet(TOLD, emptySet()).orEmpty()
         if (id.toString() in told) failures.edit().putStringSet(TOLD, told - id.toString()).apply()
     }

@@ -3,6 +3,7 @@ package com.ericflo.winnow.sms
 import android.app.Activity
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -136,7 +137,10 @@ class SmsStatusReceiver : BroadcastReceiver() {
                     val threadId = c.getLong(0)
                     val address = c.getString(1).orEmpty()
                     if (container.visibleThread.value == threadId) return@use
-                    container.notifier.showNotSent(threadId, listOf(address), container.messages.displayName(address), c.getString(2).orEmpty())
+                    container.notifier.showNotSent(
+                        threadId, listOf(address), container.messages.displayName(address), c.getString(2).orEmpty(),
+                        retryKey = "sms:${ContentUris.parseId(uri)}",
+                    )
                 }
             } catch (e: Exception) {
                 android.util.Log.w("WinnowSms", "Couldn't say a text wasn't sent", e)

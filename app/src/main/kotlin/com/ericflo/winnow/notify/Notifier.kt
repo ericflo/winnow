@@ -40,7 +40,7 @@ class Notifier(private val context: Context) {
      * that failed when its time came). Tapping opens the conversation, where it can be retried;
      * opening the conversation any other way clears it too.
      */
-    fun showNotSent(threadId: Long, recipients: List<String>, title: String, body: String, scheduled: Boolean = false) {
+    fun showNotSent(threadId: Long, recipients: List<String>, title: String, body: String, scheduled: Boolean = false, retryKey: String? = null) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val open = Intent(context, MainActivity::class.java)
             .setAction(MainActivity.ACTION_OPEN_THREAD)
@@ -67,6 +67,13 @@ class Notifier(private val context: Context) {
                     .setContentTitle(heading)
                     .build(),
             )
+            .apply {
+                if (retryKey != null) {
+                    addAction(R.drawable.ic_notification, "Try again", actionIntent(NotificationActionReceiver.ACTION_RETRY, threadId, joinAddresses(recipients), mutable = false) {
+                        putExtra(NotificationActionReceiver.EXTRA_KEY, retryKey)
+                    })
+                }
+            }
             .build()
         manager.notify(TAG_NOT_SENT, notificationId(threadId), notification)
     }
