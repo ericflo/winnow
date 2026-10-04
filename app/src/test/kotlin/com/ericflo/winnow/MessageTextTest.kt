@@ -45,6 +45,19 @@ class MessageTextTest {
     }
 
     @Test
+    fun `street addresses open in maps`() {
+        assertEquals(
+            listOf("geo:0,0?q=1600%20Amphitheatre%20Parkway%2C%20Mountain%20View%2C%20CA%2094043"),
+            links("Meet me at 1600 Amphitheatre Parkway, Mountain View, CA 94043 on Friday"),
+        )
+        assertEquals(listOf("geo:0,0?q=221%20W%2045th%20St"), links("Dinner at 221 W 45th St."))
+        assertEquals(listOf("geo:0,0?q=12%20Oak%20Ln%20Apt%204"), links("I'm at 12 Oak Ln Apt 4, buzz me"))
+        // Lowercase words and counts aren't streets.
+        assertEquals(emptyList<String>(), links("I have 2 dogs on the way home"))
+        assertEquals(emptyList<String>(), links("Order #4521 Main course is ready"))
+    }
+
+    @Test
     fun `links open with a scheme Android matches`() {
         assertEquals(listOf("https://BIT.LY/x"), allWebLinks("HTTPS://BIT.LY/x"))
         assertEquals(listOf("https://httpbin.org"), allWebLinks("try httpbin.org"))

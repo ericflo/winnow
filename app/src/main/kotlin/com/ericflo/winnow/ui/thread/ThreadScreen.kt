@@ -183,6 +183,8 @@ import com.ericflo.winnow.data.LinkPreview
 import com.ericflo.winnow.ui.components.LinkPreviewCard
 import com.ericflo.winnow.ui.components.firstWebLink
 import com.ericflo.winnow.data.normalizeAddress
+import com.ericflo.winnow.data.SmartAction
+import com.ericflo.winnow.data.SmartLink
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.input.key.Key
@@ -204,6 +206,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.InputChip
 import androidx.compose.runtime.derivedStateOf
@@ -391,6 +394,8 @@ fun ThreadScreen(
     var confirmDeleteSelected by remember { mutableStateOf(false) }
     var confirmDeleteOne by remember { mutableStateOf<ChatMessage?>(null) }
     var reactingWithOther by remember { mutableStateOf<ChatMessage?>(null) }
+    // A place, date or flight tapped in a message: its text, and where in it.
+    var smartTapped by remember { mutableStateOf<Pair<String, SmartLink>?>(null) }
     // A phone number tapped in a message: what to do with it, rather than straight to the dialer.
     var numberTapped by remember { mutableStateOf<String?>(null) }
     val systemUris = LocalUriHandler.current
@@ -632,6 +637,8 @@ fun ThreadScreen(
                 unreadOnOpen = unreadOnOpen,
                 linkPreviewSenders = linkPreviewSenders,
                 loadPreview = viewModel::preview,
+                loadSmartLinks = viewModel::smartLinks,
+                onSmartLink = { text, link -> smartTapped = text to link },
                 selected = selected,
                 onToggleSelected = { m -> selected = if (m.key in selected) selected - m.key else selected + m.key },
                 textScale = textScale,
@@ -642,6 +649,16 @@ fun ThreadScreen(
         }
     }
 
+    smartTapped?.let { (text, link) ->
+        SmartLinkSheet(
+            text = text,
+            link = link,
+            loadActions = { viewModel.smartActions(text, link) },
+            onRun = { it.run(context) },
+            onCopy = { copy(text.substring(link.start, link.end), "Copied") },
+            onDismiss = { smartTapped = null },
+        )
+    }
     numberTapped?.let { number ->
         val name by produceState<String?>(null, number) { value = withContext(Dispatchers.IO) { viewModel.contactName(number) } }
         NumberSheet(
@@ -820,6 +837,52 @@ private fun GroupAvatar(size: androidx.compose.ui.unit.Dp) {
             tint = MaterialTheme.colorScheme.onTertiaryContainer,
             modifier = Modifier.size(size * 0.55f),
         )
+    }
+}
+
+/** A place, date or flight from a message, and what Android offers to do with it. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SmartLinkSheet(
+    text: String,
+    link: SmartLink,
+    loadActions: suspend () -> List<SmartAction>,
+    onRun: (SmartAction) -> Unit,
+    onCopy: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val actions by produceState<List<SmartAction>?>(null, text, link) { value = loadActions() }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+        val icon = when {
+            link.isPlace -> Icons.Filled.LocationOn
+            link.isDate -> Icons.Filled.DateRange
+            else -> Icons.Filled.Info
+        }
+        Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
+            Text(
+                text.substring(link.start, link.end),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+            when (val loaded = actions) {
+                null -> LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp))
+                else -> loaded.forEach { action ->
+                    ListItem(
+                        headlineContent = { Text(action.title) },
+                        leadingContent = { Icon(icon, contentDescription = null) },
+                        colors = colors,
+                        modifier = Modifier.clickable { onDismiss(); onRun(action) },
+                    )
+                }
+            }
+            ListItem(
+                headlineContent = { Text("Copy") },
+                leadingContent = { Icon(painterResource(R.drawable.ic_copy), contentDescription = null) },
+                colors = colors,
+                modifier = Modifier.clickable { onDismiss(); onCopy() },
+            )
+        }
     }
 }
 
@@ -1100,6 +1163,9 @@ private fun MessageList(
     unreadOnOpen: List<String> = emptyList(),
     linkPreviewSenders: Set<String>? = null,
     loadPreview: suspend (String) -> LinkPreview? = { null },
+    /** Places, dates and flights in a message's text, from Android's text classifier. */
+    loadSmartLinks: suspend (String) -> List<SmartLink> = { emptyList() },
+    onSmartLink: (String, SmartLink) -> Unit = { _, _ -> },
     selected: Set<String> = emptySet(),
     onToggleSelected: (ChatMessage) -> Unit = {},
     textScale: Float = 1f,
@@ -1224,6 +1290,8 @@ private fun MessageList(
                             // Whether this message may load a preview, decided here where the sender is known.
                             linkPreviews = linkPreviewSenders != null && previewAllowed(item.message, state.recipients, linkPreviewSenders),
                             loadPreview = loadPreview,
+                            loadSmartLinks = loadSmartLinks,
+                            onSmartLink = onSmartLink,
                             onPreviewClick = if (selecting) toggle else null,
                         )
                     }
@@ -1345,6 +1413,9 @@ private fun MessageBubble(
     speaker: String = "",
     linkPreviews: Boolean = false,
     loadPreview: suspend (String) -> LinkPreview? = { null },
+    /** Places, dates and flights in a message's text, from Android's text classifier. */
+    loadSmartLinks: suspend (String) -> List<SmartLink> = { emptyList() },
+    onSmartLink: (String, SmartLink) -> Unit = { _, _ -> },
     onPreviewClick: (() -> Unit)? = null,
 ) {
     val m = item.message
@@ -1368,6 +1439,8 @@ private fun MessageBubble(
         RoundedCornerShape(if (item.firstInGroup) big else small, big, big, if (item.lastInGroup) big else small)
     }
     val fraud = m.verdict?.isFraud == true
+    // Found off the main thread, after the text is showing; never for fraud, whose links are off.
+    val smart by produceState(emptyList<SmartLink>(), m.body, fraud) { value = if (fraud) emptyList() else loadSmartLinks(m.body) }
     val showAvatarColumn = senderName != null
 
     Column(
@@ -1482,7 +1555,12 @@ private fun MessageBubble(
                                 withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(subject) }
                                 if (m.body.isNotBlank()) append("\n")
                             }
-                            append(linkify(m.body, links = !fraud, linkColor = if (m.outgoing) colors.onPrimaryContainer else colors.primary))
+                            append(
+                                linkify(
+                                    m.body, links = !fraud, linkColor = if (m.outgoing) colors.onPrimaryContainer else colors.primary,
+                                    smart = smart, onSmart = { onSmartLink(m.body, it) },
+                                ),
+                            )
                         }
                             .highlighted(highlight, if (focused) colors.tertiary.copy(alpha = 0.7f) else colors.tertiary.copy(alpha = 0.35f)),
                         style = MaterialTheme.typography.bodyLarge.scaled(textScale),

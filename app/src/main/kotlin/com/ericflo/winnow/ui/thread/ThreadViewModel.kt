@@ -39,6 +39,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import com.ericflo.winnow.data.Attachment
 import com.ericflo.winnow.data.LinkPreview
+import com.ericflo.winnow.data.SmartAction
+import com.ericflo.winnow.data.SmartLink
 import com.ericflo.winnow.data.normalizeAddress
 import kotlinx.coroutines.CompletableDeferred
 import com.ericflo.winnow.data.CurrentLocation
@@ -275,6 +277,10 @@ class ThreadViewModel(
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     suspend fun preview(url: String): LinkPreview? = container.linkPreviews.get(url)
+
+    suspend fun smartLinks(text: String): List<SmartLink> = container.smartLinks.find(text)
+
+    suspend fun smartActions(text: String, link: SmartLink): List<SmartAction> = container.smartLinks.actions(text, link)
 
     /** The real thread id, once a new conversation's thread has been created; negative before. */
     fun currentThreadId(): Long = threadId.value

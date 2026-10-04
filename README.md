@@ -69,8 +69,10 @@ straight to Filtered, decided on the phone; whole words only, so "vote" doesn't 
   Any attachment can be saved to the phone or shared to another app. **Link previews**
   (off by default) show a link's title and picture, but only for your own links and texts
   from people in your contacts or that you've texted. Strangers and filtered texts never
-  make Winnow fetch anything. Tracking numbers (UPS, USPS, FedEx) link to the carrier, and a
-  phone number in a message offers Call, Send message, Add contact and Copy. Shared contacts show as cards with **Add contact** and **Message**, and
+  make Winnow fetch anything. Tracking numbers (UPS, USPS, FedEx) link to the carrier, street
+  addresses open in Maps, dates and flight numbers offer what Android's on-device text
+  classifier suggests (add to calendar, flight status), and a phone number in a message offers
+  Call, Send message, Add contact and Copy. Shared contacts show as cards with **Add contact** and **Message**, and
   Attach → Contact sends one (its photo left out, so it fits). Attach → **Voice message**
   records one (AAC, stopping at 5 minutes or 800 KB, so it always fits an MMS), and
   **Location** puts a map link for where you are into the draft (one fix, nothing tracked).
