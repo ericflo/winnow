@@ -568,6 +568,9 @@ class TelephonyMessageRepository(
                     timestamp = c.getLong(1) * 1000,
                     outgoing = box != Telephony.Mms.MESSAGE_BOX_INBOX,
                     status = when {
+                        // A sent one a delivery report says arrived.
+                        c.getInt(3) != MESSAGE_TYPE_NOTIFICATION_IND && box == Telephony.Mms.MESSAGE_BOX_SENT && c.getInt(5) == MmsStore.DELIVERED ->
+                            ChatMessage.Status.DELIVERED
                         c.getInt(3) != MESSAGE_TYPE_NOTIFICATION_IND -> mmsStatus(box)
                         c.getInt(5) == MmsStore.STATUS_DOWNLOAD_FAILED -> ChatMessage.Status.DOWNLOAD_FAILED
                         c.getInt(5) == MmsStore.STATUS_DEFERRED -> ChatMessage.Status.NOT_DOWNLOADED

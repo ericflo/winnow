@@ -18,6 +18,7 @@ import com.ericflo.winnow.data.OwnNumbers
 import com.ericflo.winnow.data.normalizeAddress
 import com.ericflo.winnow.mms.ContentTypes
 import com.ericflo.winnow.mms.MmsPduException
+import com.ericflo.winnow.mms.DeliveryInd
 import com.ericflo.winnow.mms.NotificationInd
 import com.ericflo.winnow.mms.NotifyRespInd
 import com.ericflo.winnow.mms.PduComposer
@@ -45,12 +46,18 @@ class MmsReceiver(
 ) {
     /** A WAP push carrying an m-notification-ind. */
     suspend fun onPush(pdu: ByteArray, subscriptionId: Int) {
-        val ind = try {
-            PduParser.parse(pdu) as? NotificationInd
+        val parsed = try {
+            PduParser.parse(pdu)
         } catch (e: MmsPduException) {
             Log.w(TAG, "Unreadable MMS notification", e)
             null
-        } ?: return
+        }
+        // A delivery report for an MMS Winnow sent (asked for when delivery reports are on).
+        if (parsed is DeliveryInd) {
+            if (!store.markDelivered(parsed.messageId, parsed.status)) Log.i(TAG, "Delivery report for a message that isn't here")
+            return
+        }
+        val ind = parsed as? NotificationInd ?: return
         // Carriers announce again when they think the first went unanswered.
         store.findNotification(ind.contentLocation, ind.transactionId)?.let { existing ->
             Log.i(TAG, "Repeated MMS notification ${ind.transactionId}; already have it")

@@ -98,6 +98,18 @@ class MmsStore(private val context: Context) {
     }
 
     /**
+     * Records a delivery report on the sent message the carrier named by its Message-ID: its
+     * status column takes the report's X-Mms-Status (retrieved means delivered). In a group, the
+     * first report to arrive. Returns whether a sent message matched.
+     */
+    fun markDelivered(messageId: String, status: Int): Boolean = resolver.update(
+        Mms.CONTENT_URI,
+        ContentValues().apply { put(Mms.STATUS, status) },
+        "${Mms.MESSAGE_ID} = ? AND ${Mms.MESSAGE_BOX} = ${Mms.MESSAGE_BOX_SENT} AND (${Mms.STATUS} IS NULL OR ${Mms.STATUS} != $DELIVERED)",
+        arrayOf(messageId),
+    ) > 0
+
+    /**
      * A placeholder already stored for this announcement, if the carrier is repeating itself.
      * Matched on the content location, which names one message, else the transaction ID.
      */
@@ -252,6 +264,8 @@ class MmsStore(private val context: Context) {
         const val STATUS_DOWNLOAD_FAILED = 0x87
         /** PduHeaders.STATUS_DEFERRED: the recipient will fetch it later. */
         const val STATUS_DEFERRED = 0x83
+        /** X-Mms-Status retrieved, on a sent message: a delivery report said it arrived. */
+        const val DELIVERED = 0x81
 
     }
 }

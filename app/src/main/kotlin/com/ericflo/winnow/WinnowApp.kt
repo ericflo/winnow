@@ -171,7 +171,7 @@ class AppContainer(private val context: Context) {
     val visibleThread = MutableStateFlow<Long?>(null)
     val mmsStore by lazy { MmsStore(context) }
     val mmsFiles by lazy { MmsFiles(context) }
-    val mmsSender by lazy { MmsSender(context, mmsStore, mmsFiles, sims::forSending) }
+    val mmsSender by lazy { MmsSender(context, mmsStore, mmsFiles, sims::forSending) { settings.current().deliveryReports } }
     val mmsReceiver by lazy {
         MmsReceiver(context, mmsStore, mmsFiles, OwnNumbers(context), incoming) { subscriptionId ->
             val s = settings.current()

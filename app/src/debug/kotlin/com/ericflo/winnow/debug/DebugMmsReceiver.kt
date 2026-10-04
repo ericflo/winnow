@@ -35,6 +35,9 @@ import java.io.ByteArrayOutputStream
  * `--es subject "..."` a subject. Quote the whole command for adb (`adb shell "am broadcast ..."`):
  * an unquoted multi-word value splits, and every extra after it is silently dropped.
  *
+ * `--es mode delivered --el sent <mms _id>` gives that sent MMS a Message-ID and pushes an
+ * m-delivery-ind for it through onPush, as a carrier's delivery report would arrive.
+ *
  * The default mode runs an m-retrieve-conf through [com.ericflo.winnow.sms.MmsReceiver.onDownloaded];
  * `--es mode push` runs an m-notification-ind through onPush, whose download then fails for
  * want of an MMSC, which exercises the retry path.
@@ -55,7 +58,16 @@ class DebugMmsReceiver : BroadcastReceiver() {
         val pending = goAsync()
         container.appScope.launch {
             try {
-                if (intent.getStringExtra("mode") == "push") {
+                if (intent.getStringExtra("mode") == "delivered") {
+                    val sent = intent.getLongExtra("sent", -1)
+                    val messageId = "debug-delivered-$sent"
+                    context.contentResolver.update(
+                        android.content.ContentUris.withAppendedId(android.provider.Telephony.Mms.CONTENT_URI, sent),
+                        android.content.ContentValues().apply { put(android.provider.Telephony.Mms.MESSAGE_ID, messageId) }, null, null,
+                    )
+                    val report = com.ericflo.winnow.mms.DeliveryInd(messageId = messageId, status = com.ericflo.winnow.mms.MmsStatus.RETRIEVED, to = from)
+                    container.mmsReceiver.onPush(PduComposer.compose(report), subscriptionId)
+                } else if (intent.getStringExtra("mode") == "push") {
                     val ind = NotificationInd(transactionId = id, contentLocation = "http://mmsc.invalid/$id", from = from, messageSize = 50_000)
                     container.mmsReceiver.onPush(PduComposer.compose(ind), subscriptionId)
                 } else {

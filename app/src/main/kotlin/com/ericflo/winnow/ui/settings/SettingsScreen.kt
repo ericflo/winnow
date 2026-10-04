@@ -264,8 +264,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
             }
             item("delivery-reports") {
                 SwitchRow(
-                    "SMS delivery reports",
-                    "Ask your carrier to confirm each text arrived, and show \"Delivered\"",
+                    "Delivery reports",
+                    "Ask your carrier to confirm each text and MMS arrived, and show \"Delivered\"",
                     s.deliveryReports,
                     onChange = viewModel::setDeliveryReports,
                 )

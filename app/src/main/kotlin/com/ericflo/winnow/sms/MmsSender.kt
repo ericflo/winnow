@@ -40,9 +40,11 @@ class MmsSender(
     private val files: MmsFiles,
     /** Maps a chosen SIM to the subscription to send on (null: Android's default). */
     private val forSending: (Int?) -> Int? = { it },
+    /** Whether to ask the carrier for delivery reports (Settings → SMS delivery reports). */
+    private val deliveryReports: suspend () -> Boolean = { false },
 ) {
 
-    fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int? = null) {
+    suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int? = null) {
         val sub = forSending(subscriptionId)
         val media = readAttachments(attachments, messageBudget(subscriptionId))
         val content = media + listOfNotNull(body.takeIf { it.isNotBlank() }?.let { MmsPart.plainText(it) })
@@ -51,28 +53,30 @@ class MmsSender(
         val threadId = Telephony.Threads.getOrCreateThreadId(context, recipients.toSet())
         val uri = store.insertOutgoing(threadId, recipients, parts, sub ?: SubscriptionManager.getDefaultSmsSubscriptionId())
             ?: error("couldn't store the outgoing MMS; is Winnow the default SMS app?")
-        transmit(uri, recipients, parts, sub)
+        transmit(uri, recipients, parts, sub, deliveryReports())
     }
 
-    fun retry(mmsId: Long) {
+    suspend fun retry(mmsId: Long) {
         val uri = ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, mmsId)
         store.setBox(uri, Telephony.Mms.MESSAGE_BOX_OUTBOX)
         // Retry on the SIM it was first sent from; back to failed if it can't even be handed off.
         try {
-            transmit(uri, store.recipients(mmsId), store.parts(mmsId), forSending(store.subscriptionId(mmsId)))
+            transmit(uri, store.recipients(mmsId), store.parts(mmsId), forSending(store.subscriptionId(mmsId)), deliveryReports())
         } catch (e: Exception) {
             store.setBox(uri, Telephony.Mms.MESSAGE_BOX_FAILED)
             throw e
         }
     }
 
-    private fun transmit(message: Uri, recipients: List<String>, parts: List<MmsPart>, subscriptionId: Int?) {
+    private fun transmit(message: Uri, recipients: List<String>, parts: List<MmsPart>, subscriptionId: Int?, deliveryReport: Boolean) {
         val pdu = PduComposer.compose(
             SendReq(
                 transactionId = "T" + UUID.randomUUID().toString().replace("-", "").take(12),
                 to = recipients,
                 dateSeconds = System.currentTimeMillis() / 1000,
                 parts = parts,
+                // The carrier answers with an m-delivery-ind; see MmsReceiver.onPush.
+                deliveryReport = deliveryReport.takeIf { it },
             ),
         )
         val file = files.write("send", pdu)
