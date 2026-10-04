@@ -74,6 +74,10 @@ data class WinnowSettings(
     val zdrOnly: Boolean = false,
     /** Let the on-device model decide, without asking the provider, when it's very sure. */
     val decideOnPhoneWhenSure: Boolean = false,
+    /** Ask for a fingerprint, face or the screen lock to open Winnow. */
+    val appLock: Boolean = false,
+    /** Keep new-message notifications off the lock screen. */
+    val hideOnLockScreen: Boolean = false,
     /** Ask the carrier to confirm delivery of each SMS. Off by default, as in Messages. */
     val deliveryReports: Boolean = false,
     /** The user said "Not now" to reviewing older conversations. */
@@ -133,6 +137,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             privacy = privacy,
             zdrOnly = this[ZDR_ONLY] ?: false,
             decideOnPhoneWhenSure = this[DECIDE_ON_PHONE] ?: false,
+            appLock = this[APP_LOCK] ?: false,
+            hideOnLockScreen = this[HIDE_ON_LOCK_SCREEN] ?: false,
             deliveryReports = this[DELIVERY_REPORTS] ?: false,
             reviewPromptDismissed = this[REVIEW_DISMISSED] ?: false,
             onboarded = this[ONBOARDED] ?: false,
@@ -159,6 +165,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[STRIP_URLS] = s.privacy.redaction.stripUrlPaths
         this[ZDR_ONLY] = s.zdrOnly
         this[DECIDE_ON_PHONE] = s.decideOnPhoneWhenSure
+        this[APP_LOCK] = s.appLock
+        this[HIDE_ON_LOCK_SCREEN] = s.hideOnLockScreen
         this[DELIVERY_REPORTS] = s.deliveryReports
         this[REVIEW_DISMISSED] = s.reviewPromptDismissed
         this[ONBOARDED] = s.onboarded
@@ -176,6 +184,8 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val STRIP_URLS = booleanPreferencesKey("privacy.strip_urls")
         val ZDR_ONLY = booleanPreferencesKey("privacy.zdr_only")
         val DECIDE_ON_PHONE = booleanPreferencesKey("privacy.decide_on_phone_when_sure")
+        val APP_LOCK = booleanPreferencesKey("security.app_lock")
+        val HIDE_ON_LOCK_SCREEN = booleanPreferencesKey("security.hide_on_lock_screen")
         val DELIVERY_REPORTS = booleanPreferencesKey("sms.delivery_reports")
         val REVIEW_DISMISSED = booleanPreferencesKey("review.prompt_dismissed")
         val ONBOARDED = booleanPreferencesKey("onboarding.done")

@@ -165,6 +165,13 @@ fun ThreadScreen(
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewModel.addAttachment(OutgoingAttachment(uri.toString(), context.contentResolver.getType(uri) ?: "image/jpeg", null))
     }
+    // The camera app writes into a file of ours, so nothing depends on its permissions later.
+    var cameraTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+        val target = cameraTarget
+        cameraTarget = null
+        if (taken && target != null) viewModel.addAttachment(OutgoingAttachment(target, "image/jpeg", "photo.jpg"))
+    }
     val single = state.recipients.singleOrNull()
 
     Scaffold(
@@ -258,6 +265,11 @@ fun ThreadScreen(
                 onDraftChange = viewModel::setDraft,
                 attachments = attachments,
                 onAttach = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onCamera = {
+                    val (file, uri) = viewModel.newCameraPhoto()
+                    cameraTarget = android.net.Uri.fromFile(file).toString()
+                    runCatching { camera.launch(uri) }.onFailure { cameraTarget = null }
+                },
                 onRemoveAttachment = viewModel::removeAttachment,
                 isSms = single != null && attachments.isEmpty(),
                 onSend = viewModel::send,
@@ -819,6 +831,7 @@ private fun Composer(
     onDraftChange: (String) -> Unit,
     attachments: List<OutgoingAttachment>,
     onAttach: () -> Unit,
+    onCamera: () -> Unit,
     onRemoveAttachment: (OutgoingAttachment) -> Unit,
     isSms: Boolean,
     onSend: () -> Unit,
@@ -853,7 +866,7 @@ private fun Composer(
         Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)) {
             Surface(shape = RoundedCornerShape(28.dp), color = colors.surfaceContainerHigh, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 16.dp)) {
-                    IconButton(onClick = onAttach) { Icon(Icons.Outlined.AddCircle, contentDescription = "Attach a photo") }
+                    AttachMenu(onGallery = onAttach, onCamera = onCamera)
                     Box(Modifier.weight(1f).padding(vertical = 16.dp)) {
                         if (draft.isEmpty()) {
                             val kind = if (isSms) "Text message" else "MMS message"
@@ -880,6 +893,27 @@ private fun Composer(
             }
             Spacer(Modifier.width(8.dp))
             SendButton(enabled = draft.isNotBlank() || attachments.isNotEmpty(), onSend = onSend, onSchedule = onSchedule)
+        }
+    }
+}
+
+/** The composer's "+": a photo from the gallery, or a new one from the camera. */
+@Composable
+private fun AttachMenu(onGallery: () -> Unit, onCamera: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(Icons.Outlined.AddCircle, contentDescription = "Attach") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                leadingIcon = { Icon(painterResource(R.drawable.ic_photo), contentDescription = null) },
+                text = { Text("Gallery") },
+                onClick = { open = false; onGallery() },
+            )
+            DropdownMenuItem(
+                leadingIcon = { Icon(painterResource(R.drawable.ic_camera), contentDescription = null) },
+                text = { Text("Camera") },
+                onClick = { open = false; onCamera() },
+            )
         }
     }
 }

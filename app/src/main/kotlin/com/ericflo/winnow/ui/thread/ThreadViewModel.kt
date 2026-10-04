@@ -170,6 +170,8 @@ class ThreadViewModel(
         _attachments.value = _attachments.value + attachment
     }
 
+    fun newCameraPhoto() = container.sharedFiles.newCameraPhoto()
+
     fun removeAttachment(attachment: OutgoingAttachment) {
         _attachments.value = _attachments.value - attachment
     }

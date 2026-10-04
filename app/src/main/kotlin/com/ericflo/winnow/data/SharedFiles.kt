@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
 import android.webkit.MimeTypeMap
+import androidx.core.content.FileProvider
 import java.io.File
 import java.util.UUID
 
@@ -39,9 +40,15 @@ class SharedFiles(private val context: Context) {
         const val TAG = "WinnowShare"
     }
 
+    /** A fresh file for the camera app to write a photo into, and the URI to hand it. */
+    fun newCameraPhoto(): Pair<File, Uri> {
+        val file = File(File(context.cacheDir, "camera").apply { mkdirs() }, "${UUID.randomUUID()}.jpg")
+        return file to FileProvider.getUriForFile(context, "${context.packageName}.mms", file)
+    }
+
     /** Drops shares the user never sent. */
     fun cleanUp(olderThanMillis: Long = 24 * 60 * 60_000L) {
         val cutoff = System.currentTimeMillis() - olderThanMillis
-        dir.listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.delete() }
+        listOf(dir, File(context.cacheDir, "camera")).forEach { d -> d.listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.delete() } }
     }
 }

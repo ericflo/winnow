@@ -66,8 +66,8 @@ messages can't be tapped.
 - **Conversations:** pin, archive, mute, mark read/unread, delete, block (Android's system
   block list), and multi-select. Swipe to archive in the inbox, to mark not spam in Filtered,
   or to unarchive in Archived. Full-text search covers SMS and MMS.
-- **Composing:** New chat with your contacts and Create group, drafts that stick, an SMS
-  segment counter, and **scheduled send** (long-press Send).
+- **Composing:** New chat with your contacts and Create group, photos from the gallery or the
+  camera, drafts that stick, an SMS segment counter, and **scheduled send** (long-press Send).
 - **Dual SIM:** on a phone with two SIMs, a badge in the composer shows which one a text
   goes out on, and tapping it switches. Each conversation remembers its SIM. Otherwise it
   uses the SIM their last text arrived on, then your default. Replies from notifications and
@@ -138,6 +138,10 @@ payload for any message.
 - The sender's number isn't shared unless you turn that on.
 - **Zero-retention only** mode skips any provider you haven't marked as keeping no data.
 - API keys are encrypted with the Android Keystore.
+- **Lock Winnow** asks for your fingerprint, face or screen lock after a minute away, and
+  blanks Winnow's card in recents. **Hide texts on the lock screen** keeps new-message
+  notifications off it entirely. Even without that, a locked phone set to hide sensitive
+  content shows only "New message".
 - **On this phone only** keeps everything local. Winnow's own model (below) decides, and
   it only filters when it's at least 85% sure; otherwise it silences.
 - **Decide on this phone when it's sure** keeps texts the model is very sure about (95%+)

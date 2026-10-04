@@ -2,4 +2,6 @@
 <!-- PDUs handed to the system MMS service live here, briefly. -->
 <paths>
     <cache-path name="mms" path="mms/" />
+    <!-- Photos taken from the composer's Camera option, until they're sent. -->
+    <cache-path name="camera" path="camera/" />
 </paths>

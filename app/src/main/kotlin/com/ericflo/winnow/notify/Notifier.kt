@@ -45,6 +45,8 @@ class Notifier(private val context: Context) {
         /** A verification code in [body], offered as a one-tap "Copy" action. */
         code: String? = null,
         senderPhotoUri: String? = null,
+        /** Keep the notification off the lock screen entirely. */
+        hideOnLockScreen: Boolean = false,
     ) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val id = notificationId(threadId)
@@ -112,6 +114,15 @@ class Notifier(private val context: Context) {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setAutoCancel(true)
             .setContentIntent(PendingIntent.getActivity(context, id, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            // What a locked phone shows when Android hides notification contents: no name, no text.
+            .setVisibility(if (hideOnLockScreen) NotificationCompat.VISIBILITY_SECRET else NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(
+                NotificationCompat.Builder(context, CHANNEL_MESSAGES)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setContentTitle("New message")
+                    .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                    .build(),
+            )
         if (code != null) {
             val copy = actionIntent(NotificationActionReceiver.ACTION_COPY_CODE, threadId, joined, mutable = false) {
                 putExtra(NotificationActionReceiver.EXTRA_CODE, code)

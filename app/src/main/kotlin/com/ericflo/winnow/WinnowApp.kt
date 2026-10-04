@@ -2,6 +2,7 @@ package com.ericflo.winnow
 
 import android.Manifest
 import android.app.Application
+import android.app.KeyguardManager
 import android.app.role.RoleManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -23,6 +24,7 @@ import com.ericflo.winnow.data.SecretBox
 import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.data.SettingsRepository
 import com.ericflo.winnow.data.SharedFiles
+import com.ericflo.winnow.ui.lock.AppLock
 import com.ericflo.winnow.data.SimCards
 import com.ericflo.winnow.data.SimChoice
 import com.ericflo.winnow.data.SwitchingMessageRepository
@@ -74,6 +76,9 @@ class AppContainer(private val context: Context) {
     val smsSender by lazy { SmsSender(context, { settings.current().deliveryReports }, sims::forSending) }
 
     val sharedFiles by lazy { SharedFiles(context) }
+
+    /** Process-wide, so rotating the screen or reopening the activity doesn't re-lock. */
+    val appLock = AppLock()
 
     /** Photos shared into Winnow, waiting for the user to pick a conversation. */
     val pendingShare = MutableStateFlow<List<OutgoingAttachment>>(emptyList())
@@ -128,6 +133,8 @@ class AppContainer(private val context: Context) {
         if (available.size < 2) return null
         return SimChoice.pick(available, conversationStates.get(threadId).subscriptionId, messages.lastIncomingSubscription(threadId), sims.systemDefault())
     }
+
+    fun deviceIsSecure(): Boolean = context.getSystemService(KeyguardManager::class.java).isDeviceSecure
 
     fun isDefaultSmsApp(): Boolean = context.getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_SMS)
 

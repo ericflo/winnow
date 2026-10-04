@@ -106,6 +106,7 @@ class IncomingMessageHandler(
                     body = preview,
                     code = VerificationCodes.find(text),
                     senderPhotoUri = contacts.photoUri(sender),
+                    hideOnLockScreen = settings.current().hideOnLockScreen,
                 )
             }
             Action.SILENCE -> Unit

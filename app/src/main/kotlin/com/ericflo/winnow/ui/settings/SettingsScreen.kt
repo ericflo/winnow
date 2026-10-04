@@ -179,7 +179,28 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                     "SMS delivery reports",
                     "Ask your carrier to confirm each text arrived, and show \"Delivered\"",
                     s.deliveryReports,
-                    viewModel::setDeliveryReports,
+                    onChange = viewModel::setDeliveryReports,
+                )
+            }
+
+            section("Security")
+            item("app-lock") {
+                val secure = viewModel.deviceIsSecure()
+                SwitchRow(
+                    "Lock Winnow",
+                    if (secure) "Ask for your fingerprint, face or screen lock to open Winnow after a minute away"
+                    else "Set a screen lock in Android's settings first",
+                    s.appLock && secure,
+                    enabled = secure,
+                    onChange = viewModel::setAppLock,
+                )
+            }
+            item("hide-lock-screen") {
+                SwitchRow(
+                    "Hide texts on the lock screen",
+                    "New-message notifications only appear once the phone is unlocked",
+                    s.hideOnLockScreen,
+                    onChange = viewModel::setHideOnLockScreen,
                 )
             }
 
@@ -368,7 +389,7 @@ private fun LazyListScope.privacyItems(s: WinnowSettings, vm: SettingsViewModel)
                 "Decide on this phone when it's sure",
                 "Texts Winnow's built-in model is very sure about are never sent to ${s.provider.label}. Fewer texts leave your phone.",
                 s.decideOnPhoneWhenSure,
-                vm::setDecideOnPhoneWhenSure,
+                onChange = vm::setDecideOnPhoneWhenSure,
             )
         }
     }
@@ -415,12 +436,12 @@ private fun LazyListScope.privacyItems(s: WinnowSettings, vm: SettingsViewModel)
 }
 
 @Composable
-private fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun SwitchRow(title: String, subtitle: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     ListItem(
         headlineContent = { Text(title) },
         supportingContent = { Text(subtitle) },
-        trailingContent = { Switch(checked = checked, onCheckedChange = onChange) },
-        modifier = Modifier.clickable { onChange(!checked) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) },
+        modifier = Modifier.clickable(enabled = enabled) { onChange(!checked) },
     )
 }
 

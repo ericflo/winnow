@@ -8,6 +8,13 @@ import android.os.Build
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import com.ericflo.winnow.ui.lock.LockScreen
+import com.ericflo.winnow.ui.lock.AppLock
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.Modifier
+import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -37,6 +44,8 @@ class MainActivity : ComponentActivity() {
         container.refreshAccess()
     }
 
+    private val appLock get() = container.appLock
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -47,16 +56,48 @@ class MainActivity : ComponentActivity() {
             // A force-stop cancels alarms without a reboot to re-arm them.
             container.scheduler.rearmAll()
         }
-        setContent {
-            WinnowTheme {
-                WinnowNavHost(
-                    container = container,
-                    pendingRoute = pendingRoute,
-                    onRouteConsumed = { pendingRoute.value = null },
-                    onMakeDefault = ::requestDefaultSmsRole,
-                )
+        // Track the setting; the first value decides whether a cold start is locked.
+        lifecycleScope.launch {
+            container.settings.settings.collect { s ->
+                val first = !appLock.settingsLoaded
+                appLock.enabled = s.appLock && container.deviceIsSecure()
+                appLock.settingsLoaded = true
+                // With app lock on, recents shows a blank card instead of the conversation list.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(!appLock.enabled)
+                if (first) startLock()
             }
         }
+        setContent {
+            WinnowTheme {
+                val lock by appLock.state.collectAsStateWithLifecycle()
+                Box(Modifier.fillMaxSize()) {
+                    WinnowNavHost(
+                        container = container,
+                        pendingRoute = pendingRoute,
+                        onRouteConsumed = { pendingRoute.value = null },
+                        onMakeDefault = ::requestDefaultSmsRole,
+                    )
+                    if (lock != AppLock.State.UNLOCKED) {
+                        LockScreen(checking = lock == AppLock.State.CHECKING, onUnlock = { appLock.authenticate(this@MainActivity) })
+                    }
+                }
+            }
+        }
+    }
+
+    private fun startLock() {
+        appLock.onStart()
+        if (appLock.state.value == AppLock.State.LOCKED) appLock.authenticate(this)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (appLock.settingsLoaded) startLock()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        appLock.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {

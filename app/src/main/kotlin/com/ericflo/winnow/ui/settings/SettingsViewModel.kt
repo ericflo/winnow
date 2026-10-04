@@ -81,6 +81,13 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setDecideOnPhoneWhenSure(value: Boolean) = update { it.copy(decideOnPhoneWhenSure = value) }
 
+    fun setAppLock(value: Boolean) = update { it.copy(appLock = value) }
+
+    fun setHideOnLockScreen(value: Boolean) = update { it.copy(hideOnLockScreen = value) }
+
+    /** App lock needs a screen lock to check against. */
+    fun deviceIsSecure(): Boolean = container.deviceIsSecure()
+
     fun setDeliveryReports(value: Boolean) = update { it.copy(deliveryReports = value) }
 
     fun setAction(category: Category, action: Action) = update { it.copy(categoryActions = it.categoryActions + (category to action)) }

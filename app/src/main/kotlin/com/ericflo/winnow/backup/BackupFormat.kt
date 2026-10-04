@@ -48,6 +48,7 @@ data class SettingsBackup(
     val stripUrlPaths: Boolean,
     val zdrOnly: Boolean,
     val decideOnPhoneWhenSure: Boolean = false,
+    val hideOnLockScreen: Boolean = false,
     val deliveryReports: Boolean,
     val categoryActions: Map<String, String> = emptyMap(),
 )

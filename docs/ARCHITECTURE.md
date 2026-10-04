@@ -181,6 +181,13 @@ Confidence below `ActionPolicy.minConfidence` (0.7) softens the action one step
   incoming message, else the system default. The SMS and MMS senders send on that
   subscription, retries reuse the one a message was first sent on, and scheduled texts store
   theirs. Debug builds can add a pretend second SIM that routes to the real one.
+- **App lock** (`ui/lock/AppLock.kt`): process-wide, so rotation doesn't re-lock. A cold
+  start, or a return after more than a minute away, covers the UI and shows the platform
+  `BiometricPrompt` (strong biometric or device credential). The minute's grace means picking a
+  photo doesn't trip it. It fails open if the phone can no longer authenticate (the screen
+  lock was removed). `setRecentsScreenshotEnabled(false)` blanks the recents card on 13+.
+- **Lock-screen privacy:** message notifications carry a public version ("New message", no
+  sender or text). "Hide texts on the lock screen" makes them `VISIBILITY_SECRET`.
 - **Tapbacks:** iPhone and Google Messages reaction texts (`Tapback.parse`) are folded into
   reaction pills on the message they quote.
 
