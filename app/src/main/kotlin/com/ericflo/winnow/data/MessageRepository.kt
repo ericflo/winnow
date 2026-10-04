@@ -62,6 +62,9 @@ interface MessageRepository {
 
     suspend fun search(query: String): List<SearchHit>
 
+    /** Who a conversation is with, by its thread; empty if there's no such thread. */
+    suspend fun recipientsFor(threadId: Long): List<String> = emptyList()
+
     /** The newest photos and videos across every conversation. */
     suspend fun recentMedia(limit: Int = 240): List<MediaHit> = emptyList()
 
@@ -123,6 +126,7 @@ class SwitchingMessageRepository(
     override suspend fun deleteMessage(message: ChatMessage) = current.deleteMessage(message)
     override suspend fun search(query: String) = current.search(query)
     override suspend fun recentMedia(limit: Int) = current.recentMedia(limit)
+    override suspend fun recipientsFor(threadId: Long) = current.recipientsFor(threadId)
     override suspend fun textsWithLinks(limit: Int) = current.textsWithLinks(limit)
     override suspend fun overrideVerdict(threadId: Long, address: String, action: Action) =
         current.overrideVerdict(threadId, address, action)

@@ -208,6 +208,8 @@ class Notifier(private val context: Context) {
                     .setPerson(person)
                     .setIcon(photo?.let(IconCompat::createWithBitmap) ?: IconCompat.createWithResource(context, R.mipmap.ic_launcher))
                     .setIntent(open)
+                    // Offered by name in the share sheet (see res/xml/shortcuts.xml).
+                    .setCategories(setOf(SHARE_CATEGORY))
                     .build(),
             )
         }
@@ -250,6 +252,21 @@ class Notifier(private val context: Context) {
     }
 
     /** Clears the conversation's notifications, "not sent" included: the user is looking at it. */
+    /**
+     * Keeps a conversation the user texts in among Android's conversation shortcuts: the share
+     * sheet's direct targets and the launcher icon's long-press menu, most used first.
+     */
+    fun publishConversation(threadId: Long, recipients: List<String>, title: String, photoUri: String?) {
+        if (threadId < 0) return
+        val photo = photoUri?.let { uri ->
+            runCatching { context.contentResolver.openInputStream(Uri.parse(uri))?.use(BitmapFactory::decodeStream) }.getOrNull()
+        }
+        val person = Person.Builder().setName(title).setKey(joinAddresses(recipients)).apply {
+            photo?.let { setIcon(IconCompat.createWithBitmap(it)) }
+        }.build()
+        pushShortcut(threadId, joinAddresses(recipients), title, person, photo)
+    }
+
     fun cancel(threadId: Long) {
         cancelMessages(threadId)
         manager.cancel(TAG_NOT_SENT, notificationId(threadId))
@@ -299,6 +316,7 @@ class Notifier(private val context: Context) {
 
     private companion object {
         const val CHANNEL_MESSAGES = "messages"
+        const val SHARE_CATEGORY = "com.ericflo.winnow.category.SHARE_TARGET"
         const val CHANNEL_NOT_SENT = "not_sent"
         const val TAG = "thread"
         const val TAG_NOT_SENT = "not_sent"

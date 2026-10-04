@@ -174,12 +174,19 @@ class MainActivity : ComponentActivity() {
             listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
         }
         val type = intent.type
+        // Picked by name in the share sheet: straight to that conversation.
+        val directThread = intent.getStringExtra(Intent.EXTRA_SHORTCUT_ID)?.removePrefix("thread-")?.toLongOrNull()
         // The app scope, not this activity's: a rotation mid-copy mustn't drop the share.
         container.appScope.launch {
             val attachments = withContext(Dispatchers.IO) { streams.mapNotNull { container.sharedFiles.import(it, type) } }
             if (text.isBlank() && attachments.isEmpty()) return@launch
+            val recipients = directThread?.let { container.messages.recipientsFor(it) }.orEmpty()
             // The copied files ride in the route itself, which survives the process being killed.
-            pendingRoute.value = NewChatRoute(draft = text, attachments = SharedAttachments.encode(attachments))
+            pendingRoute.value = if (directThread != null && recipients.isNotEmpty()) {
+                ThreadRoute(directThread, joinAddresses(recipients), text, SharedAttachments.encode(attachments))
+            } else {
+                NewChatRoute(draft = text, attachments = SharedAttachments.encode(attachments))
+            }
         }
     }
 

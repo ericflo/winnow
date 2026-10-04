@@ -528,6 +528,11 @@ class ThreadViewModel(
         _attachments.value = emptyList()
         _sendSeparately.value = false
         val sim = _selectedSim.value
+        // People the user texts become share-sheet targets too, not only people who text them.
+        container.appScope.launch {
+            val s = state.value
+            container.notifier.publishConversation(threadId.value, recipients, s.title, recipients.singleOrNull()?.let { s.photos[it] })
+        }
         val window = (undoSeconds.value ?: 0) * 1000L
         // Claimed right here, on the main thread, so a second Send meanwhile waits for this one.
         val waiting = if (window > 0) PendingSend(text, files, System.currentTimeMillis() + window, window, apart) else null

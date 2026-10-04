@@ -231,6 +231,10 @@ class TelephonyMessageRepository(
         hits.sortedByDescending { it.timestamp }.take(50)
     }
 
+    override suspend fun recipientsFor(threadId: Long): List<String> = withContext(Dispatchers.IO) {
+        resolver.threadRecipients()[threadId].orEmpty()
+    }
+
     override suspend fun recentMedia(limit: Int): List<MediaHit> = withContext(Dispatchers.IO) {
         data class Part(val id: Long, val mmsId: Long, val type: String, val name: String?)
         val parts = mutableListOf<Part>()
