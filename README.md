@@ -60,9 +60,11 @@ with it (an "always allow" on texts you now call spam), so that sender's next te
 afresh; labeling one message leaves the rule alone and says it's still there. **Train Winnow** (menu) works through your backlog in rounds of 20
 conversations with people outside your contacts. Winnow shows its guess for each, mostly the
 ones it's least sure of. You tap ✓ when it's right, "All right" for a whole group, or its guess
-to fix it. Finishing the round labels what you answered and retrains, so the next round's
-guesses use your answers, and the round-by-round score shows how often it was right before
-it saw them. Labels stay on the phone (only hashed word fingerprints, never the text) and go
+to fix it (tap the text to read all of it, and the earlier texts the label covers). Its other
+guesses update as you answer, so fixing one text moves its lookalikes in the round with it.
+Finishing the round labels what you answered and retrains; the summary lists where it was
+wrong. Swipe a conversation left (in the inbox, Filtered or Archived) to label it from
+anywhere. Labels stay on the phone (only hashed word fingerprints, never the text) and go
 into backups.
 
 <table>
@@ -297,34 +299,19 @@ without one.
 
 ## How accurate it is
 
-**Filtered → How accurate is Winnow?** answers in two parts, kept apart on purpose.
+**Filtered → How accurate is Winnow?** is about your texts only.
 
-**On your texts** comes only from what you checked yourself: Train Winnow guesses you
-answered, and texts Winnow judged on arrival that you labeled later. It shows how many of
-those it got right, and a percentage once there are at least ten. Until you've labeled
-something, it says nothing has been measured, rather than showing a number.
+**On your texts** comes from what you checked yourself: Train Winnow guesses you answered,
+and texts Winnow judged on arrival that you labeled later. It shows how many of those it got
+right, and a percentage once there are at least ten.
 
-**How the built-in model was tested** is folded away below, and says plainly that none of
-it is about your messages. Everything from here to the end of this section is that test: the
-on-phone model scored on the hand-written texts in `classifier/training/`, using 5-fold
-cross-validation, so every text is scored by a model that never saw it.
-
-| Accuracy | Macro F1 | Cohen's κ | MCC | ROC AUC (unwanted vs. wanted) | Avg. precision | Calibration error |
-|---|---|---|---|---|---|---|
-| 91.7% | 0.92 | 0.90 | 0.90 | 0.989 | 0.988 | 0.010 |
-
-Winnow's own filtering rule filters an unwanted category at ≥85% confidence. A scam or
-phishing text only gets filtered if it has a hook: a link off the company's real site, money,
-a number to call, or payment or code talk. Anything without one is silenced instead, because
-a bare "hi, is this David?" reads exactly like a real person on a new number, and "your
-password was changed" has nothing to phish with; when the model isn't sure (under 85%) such a
-text isn't even silenced, since it can't defraud anyone and might be a friend. Measured that
-way, the rule filters **0.1% of wanted texts** (99.8% precision) and 70.8% of unwanted ones.
-Counting filtered and silenced, **92.3% of the unwanted test texts would never buzz a phone**,
-while only **2.4% of the personal and transactional ones would lose their notification** (6.4%
-before unsure, hookless ones were let through). Per category,
-F1 runs from 0.97 (political) to 0.79 for "likely scam", whose openers read like real new
-numbers. On 120 more texts written separately and never trained on, it got all 120 right.
+Below it, **every chart is worked out from your labels**: ROC and precision–recall curves for
+unwanted vs. wanted (both follow your finger and move with the threshold explorer), calibration
+("does 90% sure mean right 90% of the time?"), each category's precision, recall, F1 and AUC,
+the confusion matrix, and coverage. They're cross-validated on the phone: each labeled text is
+scored by the model refit without that conversation's labels, so they show how it does on texts
+like yours it hasn't been taught. They're redrawn whenever you label, and appear once there are
+20 labeled texts in at least two categories.
 
 <table>
   <tr>
@@ -343,15 +330,29 @@ numbers. On 120 more texts written separately and never trained on, it got all 1
   </tr>
 </table>
 
-The ROC and precision–recall curves follow your finger, and both move with the threshold
-slider, which redraws caught, missed, wrongly flagged and let through, plus precision,
-recall, F1, MCC and κ. The report also covers calibration (does "90% sure" mean right 90% of
-the time?), each category's precision, recall, F1 and one-vs-rest AUC, and the confusion
-matrix. The same numbers are in [classifier/training/REPORT.md](classifier/training/REPORT.md).
+### How the built-in model was tested
 
-The test texts are hand-written to show their category clearly, so real traffic will score
-lower. These figures are for the on-phone model. A classifier service like Jev shows up only
-in "On your texts", which comes from your labels.
+This is for developers; the app doesn't show it. The on-phone model was scored on the
+hand-written texts in `classifier/training/` with 5-fold cross-validation (every text scored
+by a model that never saw it). Those texts were written to show their category clearly, so
+real traffic scores lower.
+
+| Accuracy | Macro F1 | Cohen's κ | MCC | ROC AUC (unwanted vs. wanted) | Avg. precision | Calibration error |
+|---|---|---|---|---|---|---|
+| 91.7% | 0.92 | 0.90 | 0.90 | 0.989 | 0.988 | 0.010 |
+
+Winnow's own filtering rule filters an unwanted category at ≥85% confidence. A scam or
+phishing text only gets filtered if it has a hook: a link off the company's real site, money,
+a number to call, or payment or code talk. Anything without one is silenced instead, because
+a bare "hi, is this David?" reads exactly like a real person on a new number, and "your
+password was changed" has nothing to phish with; when the model isn't sure (under 85%) such a
+text isn't even silenced, since it can't defraud anyone and might be a friend. On the test
+texts, the rule filters 0.1% of wanted ones (99.8% precision) and 70.8% of unwanted ones;
+counting filtered and silenced, 92.3% of the unwanted test texts would never buzz a phone,
+while 2.4% of the personal and transactional ones would lose their notification. Per category,
+F1 runs from 0.97 (political) to 0.79 for "likely scam", whose openers read like real new
+numbers. On 120 more texts written separately and never trained on, it got all 120 right. The
+full numbers are in [classifier/training/REPORT.md](classifier/training/REPORT.md).
 
 It also **learns from your labels and corrections**. A label, "Not spam" or "Filter sender"
 teaches it about that message's content, so similar texts from other senders follow; a sender

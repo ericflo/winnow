@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -29,7 +30,6 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -58,20 +58,23 @@ import com.ericflo.winnow.classifier.local.CategoryMetrics
 import com.ericflo.winnow.classifier.local.ClassifierMetrics
 import com.ericflo.winnow.classifier.local.CoveragePoint
 import com.ericflo.winnow.classifier.local.CurvePoint
+import com.ericflo.winnow.classifier.local.PersonalEvaluation
 import com.ericflo.winnow.classifier.message.Action
+import com.ericflo.winnow.classifier.message.ActionPolicy
 import com.ericflo.winnow.classifier.message.Category
+import java.text.NumberFormat
+import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
-import java.text.NumberFormat
-import java.util.Locale
-import kotlin.math.abs
-import kotlin.math.roundToInt
-import kotlin.math.sqrt
 
 /**
  * What's known about Winnow on the user's own texts: only things they actually judged. A
@@ -97,14 +100,28 @@ data class Agreement(
     val agreed: Int get() = labeledAgreed + trainAgreed
 }
 
-data class MetricsUiState(val metrics: ClassifierMetrics? = null, val agreement: Agreement = Agreement(0, 0, 0, 0))
+/** The charts' numbers, from the user's labels; [labels] counts them, and [metrics] is null until there are enough. */
+data class Mine(val metrics: ClassifierMetrics?, val labels: Int, val categories: Int)
+
+data class MetricsUiState(
+    /** Null while the first computation runs. */
+    val mine: Mine? = null,
+    val agreement: Agreement = Agreement(0, 0, 0, 0),
+)
 
 class MetricsViewModel(container: AppContainer) : ViewModel() {
+    /**
+     * Recomputed whenever a label is added, changed or taken back, so the charts move as the user
+     * labels; a computation still running when the next change comes is dropped for the newer one.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val mine = container.correctionDao.observeAll().mapLatest { rows -> computeMine(rows) }.flowOn(Dispatchers.Default)
+
     val state: StateFlow<MetricsUiState> = combine(
-        flow { emit(ClassifierMetrics.bundled) }.flowOn(Dispatchers.Default),
+        mine,
         container.verdictDao.observeAll(),
         flow { emit(container.training.history()) },
-    ) { metrics, verdicts, rounds ->
+    ) { mine, verdicts, rounds ->
         // Rules (contacts, codes, sender rules) aren't classifications, so they don't count either way.
         // Counted per conversation: a correction applies to every verdict in its thread at once.
         val decided = verdicts.filter { it.sourceKind != "rule" }.groupBy { it.threadId }
@@ -115,7 +132,7 @@ class MetricsViewModel(container: AppContainer) : ViewModel() {
         val judged = labeled.filter { it.atArrival && it.sourceKind != "rule" && it.category != null }
             .groupBy { it.threadId }.values.map { rows -> rows.maxBy { it.decidedAt } }
         MetricsUiState(
-            metrics = metrics,
+            mine = mine,
             agreement = Agreement(
                 decisions = decided.size,
                 corrected = corrected.size,
@@ -132,10 +149,34 @@ class MetricsViewModel(container: AppContainer) : ViewModel() {
 }
 
 /**
- * How accurate Winnow is. First, and only from the user's own texts, how its calls compare with
- * the labels and corrections they gave. Then, kept apart and folded away, how the built-in
- * model scored on Winnow's own test texts, labeled as exactly that: none of those numbers are
- * about the user's messages, and nothing on this screen may suggest they are.
+ * The user's labels as the evaluation takes them: per message, in their conversation. Other
+ * corrections, and labels whose message a restore hasn't found yet, go into every refit
+ * unscored. Ones made by an older featurizer mean nothing to this model and are left out.
+ */
+private fun computeMine(rows: List<com.ericflo.winnow.data.db.CorrectionEntity>): Mine {
+    val model = com.ericflo.winnow.classifier.local.LocalModel.bundled
+    val current = rows.filter { it.featurizerVersion == com.ericflo.winnow.classifier.local.Featurizer.VERSION }
+    fun buckets(e: com.ericflo.winnow.data.db.CorrectionEntity) = e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray()
+    val (labeled, rest) = current.partition { it.messageKey != null && it.threadId != null && !it.messageKey.startsWith("restored:") }
+    val labels = labeled.mapNotNull { e ->
+        val label = model.classes.indexOf(e.label).takeIf { it >= 0 } ?: return@mapNotNull null
+        com.ericflo.winnow.classifier.local.PersonalEvaluation.Label(buckets(e), label, e.threadId!!)
+    }
+    val others = rest.mapNotNull { e ->
+        val label = model.classes.indexOf(e.label).takeIf { it >= 0 } ?: return@mapNotNull null
+        com.ericflo.winnow.classifier.local.Correction(buckets(e), label)
+    }
+    val metrics = runCatching {
+        com.ericflo.winnow.classifier.local.PersonalEvaluation.metrics(model, labels, others, ActionPolicy().onDeviceMinConfidence)
+    }.getOrNull()
+    return Mine(metrics, labels.size, labels.map { it.label }.distinct().size)
+}
+
+/**
+ * How accurate Winnow is, and only on the user's own texts: how its calls compared with the
+ * labels and corrections they gave, then every chart (ROC, precision–recall, calibration, per
+ * category, confusion matrix, coverage) worked out from their labels by cross-validation and
+ * redrawn as they label. Nothing here comes from Winnow's own test texts.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -149,70 +190,60 @@ fun MetricsScreen(viewModel: MetricsViewModel, onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        val m = state.metrics ?: return@Scaffold
         // One threshold, shared by both curves and the explorer, so they move together.
         var threshold by rememberSaveable { mutableStateOf(0.5) }
-        var showTest by rememberSaveable { mutableStateOf(false) }
         LazyColumn(
             contentPadding = padding,
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         ) {
             item("you") { AgreementCard(state.agreement) }
-            item("test-header") {
-                Section("How the built-in model was tested") {
-                    Text(
-                        "Before Winnow ever saw your texts, its built-in model was tested on ${count(m.examples)} example texts written for that. " +
-                            "None of them are yours, and none of the numbers below are about your messages.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    TextButton(onClick = { showTest = !showTest }, contentPadding = PaddingValues(0.dp)) {
-                        Text(if (showTest) "Hide the test results" else "Show the test results")
-                    }
-                }
-            }
-            if (!showTest) {
-                item("footer-short") { Spacer(Modifier.height(32.dp)) }
-                return@LazyColumn
-            }
-            item("hero") { Hero(m) }
-            item("roc") { RocCard(m.unwanted, threshold) { threshold = it } }
-            item("explorer") { ThresholdExplorer(m.unwanted, threshold) { threshold = it } }
-            item("pr") { PrecisionRecallCard(m.unwanted, threshold) { threshold = it } }
-            item("calibration") {
-                Section("Does “90% sure” mean right 90% of the time?") {
-                    CalibrationChart(m.calibration)
-                    Legend(listOf(MaterialTheme.colorScheme.primary to "Right this often", MaterialTheme.colorScheme.tertiary to "How sure it was"))
-                    MetricRow(listOf("Calibration error" to f3(m.ece), "Log loss" to f3(m.logLoss), "Brier score" to f3(m.brier)))
-                    Note("Bars should meet their line: then confidence can be taken at face value. The numbers above bars count texts in each range; faded bars have few.")
-                }
-            }
-            item("categories") { PerCategory(m.perCategory) }
-            item("confusion") { ConfusionMatrix(m) }
-            item("coverage") { CoverageCard(m.coverage) }
-            m.evaluation?.let { e ->
-                item("blind") {
-                    Section("Blind test") {
+            val mine = state.mine
+            val m = mine?.metrics
+            if (mine == null) {
+                item("working") { Section("Your labels") { Text("Working it out from your labels…", style = MaterialTheme.typography.bodyMedium) } }
+            } else if (m == null) {
+                item("not-yet") {
+                    Section("Charts from your labels") {
                         Text(
-                            "${count(e.examples)} more test texts, written separately and never used for training, scored by the model that ships. " +
-                                "They were written for testing too, so expect less on real messages.",
+                            "Every chart here is worked out from the texts you've labeled, and redrawn as you label more. " +
+                                "They appear once there are ${PersonalEvaluation.MIN_LABELS} labeled texts in at least two categories: " +
+                                "you have ${count(mine.labels)} in ${mine.categories}. Train Winnow (in the menu) is the quickest way there.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        MetricRow(listOf("Accuracy" to pct(e.accuracy), "Macro F1" to f2(e.macroF1), "Cohen's κ" to f2(e.kappa)))
-                        MetricRow(listOf("MCC" to f2(e.mcc), "ROC AUC" to f3(e.auc), "" to ""))
                     }
                 }
+            } else {
+                item("method") {
+                    Note(
+                        "From your ${count(m.examples)} labeled texts, redrawn whenever you label. Each was scored by Winnow's model refit " +
+                            "without that conversation's labels, so these show how it does on texts like yours it hasn't been taught.",
+                    )
+                }
+                item("hero") { Hero(m) }
+                val b = m.unwanted
+                if (b.positives > 0 && b.negatives > 0) {
+                    item("roc") { RocCard(b, threshold) { threshold = it } }
+                    item("explorer") { ThresholdExplorer(b, threshold) { threshold = it } }
+                    item("pr") { PrecisionRecallCard(b, threshold) { threshold = it } }
+                } else {
+                    item("one-sided") {
+                        Note("The unwanted-vs-wanted charts need labels on both sides: some texts you'd filter and some you wouldn't.")
+                    }
+                }
+                item("calibration") {
+                    Section("Does “90% sure” mean right 90% of the time?") {
+                        CalibrationChart(m.calibration)
+                        Legend(listOf(MaterialTheme.colorScheme.primary to "Right this often", MaterialTheme.colorScheme.tertiary to "How sure it was"))
+                        MetricRow(listOf("Calibration error" to f3(m.ece), "Log loss" to f3(m.logLoss), "Brier score" to f3(m.brier)))
+                        Note("Bars should meet their line: then confidence can be taken at face value. The numbers above bars count texts in each range; faded bars have few.")
+                    }
+                }
+                item("categories") { PerCategory(m.perCategory.filter { it.support > 0 }) }
+                item("confusion") { ConfusionMatrix(m) }
+                item("coverage") { CoverageCard(m.coverage) }
             }
-            item("footer") {
-                Text(
-                    "${m.method} Every test text was written to show its category clearly, so real traffic will score lower. " +
-                        "These numbers are for Winnow's own model (${m.model}) on those test texts; how it does on yours is at the top.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 32.dp),
-                )
-            }
+            item("footer") { Spacer(Modifier.height(32.dp)) }
         }
     }
 }
@@ -227,13 +258,13 @@ private fun Hero(m: ClassifierMetrics) {
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("On the test texts: unwanted vs. wanted", style = MaterialTheme.typography.titleMedium, color = c.onSurface)
+            Text("On your labeled texts: unwanted vs. wanted", style = MaterialTheme.typography.titleMedium, color = c.onSurface)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 ScoreGauge(m.unwanted.auc, "ROC AUC", size = 140.dp)
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
-                    BigNumber(pct(m.accuracy), "of the ${count(m.examples)} test texts put in the right one of 7 categories")
-                    BigNumber(pct(m.unwanted.operatingPoint.falsePositiveRate), "of the wanted test texts would be filtered")
-                    BigNumber(pct(m.unwanted.unwantedQuieted), "of the unwanted test texts would arrive without a sound")
+                    BigNumber(pct(m.accuracy), "of your ${count(m.examples)} labeled texts put in the category you gave")
+                    BigNumber(pct(m.unwanted.operatingPoint.falsePositiveRate), "of the ones you'd keep would be filtered")
+                    BigNumber(pct(m.unwanted.unwantedQuieted), "of the ones you'd filter would arrive without a sound")
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -353,8 +384,8 @@ private fun ThresholdExplorer(b: BinaryMetrics, threshold: Double, onThreshold: 
             "Winnow's own rule is stricter than any single threshold: it filters only when the top category is an unwanted one and it's at least 85% sure, " +
                 "and never filters a scam or phishing text with no hook (no link off the company's real site, money, number to call, or payment or code talk): " +
                 "a bare “hi, is this David?” reads exactly like a real person on a new number, and “your password was changed” has nothing to phish with. " +
-                "On the test texts, that filters ${pct(rule.recall)} of the unwanted ones with ${pct(rule.precision)} precision and ${pct(rule.falsePositiveRate)} of the wanted ones (F1 ${f2(rule.f1)}, MCC ${f2(rule.mcc)}, κ ${f2(rule.kappa)}). " +
-                "The rest are silenced rather than filtered: ${pct(b.unwantedQuieted)} of the unwanted test texts would arrive without a sound.",
+                "On your labeled texts, that filters ${pct(rule.recall)} of the unwanted ones with ${pct(rule.precision)} precision and ${pct(rule.falsePositiveRate)} of the wanted ones (F1 ${f2(rule.f1)}, MCC ${f2(rule.mcc)}, κ ${f2(rule.kappa)}). " +
+                "The rest are silenced rather than filtered: ${pct(b.unwantedQuieted)} of the unwanted ones would arrive without a sound.",
         )
     }
 }
@@ -451,7 +482,7 @@ private fun ConfusionMatrix(m: ClassifierMetrics) {
 private fun CoverageCard(points: List<CoveragePoint>) {
     val c = MaterialTheme.colorScheme
     Section("When it's sure") {
-        Text("How many of the test texts reach each level of confidence, and how often those are right.", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+        Text("How many of your labeled texts reach each level of confidence, and how often those are right.", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
         points.forEach { p ->
             val role = when (p.threshold) {
                 0.85 -> "Where Winnow filters on its own"

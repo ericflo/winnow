@@ -182,6 +182,9 @@ interface CorrectionDao {
     @Query("SELECT COUNT(*) FROM corrections")
     fun observeCount(): Flow<Int>
 
+    @Query("SELECT * FROM corrections")
+    fun observeAll(): Flow<List<CorrectionEntity>>
+
     @Insert
     suspend fun insert(correction: CorrectionEntity)
 

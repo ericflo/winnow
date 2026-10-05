@@ -142,7 +142,8 @@ class AppContainer(private val context: Context) {
         Room.databaseBuilder(context, WinnowDatabase::class.java, "winnow.db").build()
     }
     val settings by lazy { SettingsRepository(context, SecretBox()) }
-    val learner by lazy { Learner(database.corrections(), settings) }
+    val correctionDao by lazy { database.corrections() }
+    val learner by lazy { Learner(correctionDao, settings) }
     val classifiers by lazy { ClassifierFactory(OkHttpTransport()) { learner.classifier() } }
     val contacts by lazy { ContactLookup(context, appScope) }
     val smartLinks by lazy {
