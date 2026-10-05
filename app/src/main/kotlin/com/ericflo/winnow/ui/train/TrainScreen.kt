@@ -641,11 +641,19 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
                     (if (st.tally.failed > 0) " · ${st.tally.failed} to try again" else ""),
                 style = MaterialTheme.typography.bodyMedium,
             )
+            st.pausedFor?.let { millis ->
+                Text(
+                    com.ericflo.winnow.classify.Bootstrap.pauseText(o.provider, st.trouble, millis),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             TextButton(onClick = viewModel::stopBootstrap, contentPadding = PaddingValues(0.dp)) { Text("Stop") }
         }
         is com.ericflo.winnow.classify.BootstrapStatus.Finished -> BootstrapCard(if (st.stopped) "Stopped" else "${o.provider} labeled your backlog") {
             Text(
-                "${st.tally.labeled} texts labeled, for ${money(st.tally.costUsd)}. Winnow's model has learned from them; your own labels count for more and always win." +
+                (if (st.tally.labeled == 0) "No texts labeled this time."
+                else "${plural(st.tally.labeled, "text")} labeled, for ${money(st.tally.costUsd)}. Winnow's model has learned from them; your own labels count for more and always win.") +
                     (if (st.tally.unsure > 0) " ${st.tally.unsure} more got an answer too unsure to teach." else "") +
                     (if (st.tally.kept > 0) " ${st.tally.kept} stayed on your phone, as your privacy settings say." else "") +
                     (if (st.tally.failed > 0) " ${st.tally.failed} got no answer and will be tried next time." else "") +

@@ -37,7 +37,14 @@ import kotlinx.coroutines.withContext
 sealed interface BootstrapStatus {
     data object Idle : BootstrapStatus
 
-    data class Running(val done: Int, val total: Int, val tally: Bootstrap.Tally) : BootstrapStatus
+    /** [pausedFor] is set while the run waits out [trouble] (rate limiting, no connection) before retrying. */
+    data class Running(
+        val done: Int,
+        val total: Int,
+        val tally: Bootstrap.Tally,
+        val pausedFor: Long? = null,
+        val trouble: Pacer.Trouble? = null,
+    ) : BootstrapStatus
 
     data class Finished(val total: Int, val tally: Bootstrap.Tally, val stopped: Boolean, val error: String? = null) : BootstrapStatus
 }
@@ -142,16 +149,19 @@ class Bootstrap(
             var tally = Tally()
             var done = 0
             _status.value = BootstrapStatus.Running(0, texts.size, tally)
-            val gate = Semaphore(CONCURRENCY)
-            var failuresInARow = 0
-            var error: String? = null
+            // What's left to send; texts that failed for a reason waiting can fix go back to its front.
+            val queue = ArrayDeque(texts)
+            val pacer = Pacer(maxConcurrency = CONCURRENCY)
+            var batches = 0
+            var lastDetail = ""
             try {
-                for (batch in texts.chunked(BATCH)) {
+                while (queue.isNotEmpty()) {
+                    val batch = List(minOf(BATCH, queue.size)) { queue.removeFirst() }
                     // Everything is checked again before each batch: the user may have changed a
                     // setting, set a sender rule or labeled a conversation since the plan was made.
                     val current = settings.current()
                     unavailable(current)?.let { reason ->
-                        _status.value = BootstrapStatus.Finished(texts.size, tally, stopped = true, error = reason)
+                        _status.value = BootstrapStatus.Finished(texts.size, tally.copy(failed = tally.failed + batch.size + queue.size), stopped = true, error = reason)
                         return@launch
                     }
                     // The provider decides every text: no deciding on the phone when sure, a generous wait.
@@ -162,16 +172,20 @@ class Bootstrap(
                         .map { t -> t.withRule(rules[com.ericflo.winnow.data.normalizeAddress(t.sender)]) }
                         .partition { t -> t.threadId in judged || contacts.isContact(t.sender) || classifier.staysOnPhone(t.message()) }
                     tally = tally.copy(kept = tally.kept + stay.size)
+                    done += stay.size
+                    val gate = Semaphore(pacer.concurrency)
                     val results = go.map { t -> async(Dispatchers.IO) { gate.withPermit { t to runCatching { classifier.classify(t.message()) }.getOrNull() } } }.awaitAll()
                     val labels = mutableListOf<CorrectionEntity>()
                     val filed = mutableListOf<VerdictEntity>()
                     val answered = mutableListOf<String>()
+                    val retry = mutableListOf<Text>()
+                    val troubles = mutableListOf<Pacer.Trouble>()
                     for ((t, verdict) in results) {
                         val answer = verdict?.takeIf { it.source is VerdictSource.Provider && it.category != null }
                         when {
                             answer != null -> {
-                                failuresInARow = 0
                                 answered += t.key
+                                done++
                                 tally = tally.copy(costUsd = tally.costUsd + answer.costUsd)
                                 val row = label(t, answer)
                                 tally = if (row != null) tally.copy(labeled = tally.labeled + 1) else tally.copy(unsure = tally.unsure + 1)
@@ -179,21 +193,46 @@ class Bootstrap(
                                 // Dated by the message: a verdict on an old text mustn't become the conversation's latest.
                                 filed += VerdictEntity.from(t.key, t.threadId, t.sender, answer, t.date).copy(summarized = true)
                             }
-                            verdict?.source is VerdictSource.Rule -> tally = tally.copy(kept = tally.kept + 1)
+                            verdict?.source is VerdictSource.Rule -> {
+                                tally = tally.copy(kept = tally.kept + 1)
+                                done++
+                            }
                             else -> {
-                                failuresInARow++
-                                tally = tally.copy(failed = tally.failed + 1, costUsd = tally.costUsd + (verdict?.costUsd ?: 0.0))
-                                error = (verdict?.source as? VerdictSource.OnDevice)?.fallbackReason ?: "no answer"
+                                lastDetail = (verdict?.source as? VerdictSource.OnDevice)?.fallbackReason ?: "no answer"
+                                tally = tally.copy(costUsd = tally.costUsd + (verdict?.costUsd ?: 0.0))
+                                val trouble = Pacer.troubleOf(lastDetail)
+                                troubles += trouble
+                                if (trouble == Pacer.Trouble.REJECTED) {
+                                    // This one text the service won't take: skipped, offered again next run.
+                                    tally = tally.copy(failed = tally.failed + 1)
+                                    done++
+                                } else {
+                                    retry += t
+                                }
                             }
                         }
                     }
-                    save(labels, filed, retrain = (done / BATCH) % RETRAIN_EVERY_BATCHES == RETRAIN_EVERY_BATCHES - 1)
+                    save(labels, filed, retrain = ++batches % RETRAIN_EVERY_BATCHES == 0)
                     remember(answered)
-                    done += batch.size
+                    queue.addAll(0, retry)
                     _status.value = BootstrapStatus.Running(done, texts.size, tally)
-                    if (failuresInARow >= MAX_FAILURES_IN_A_ROW) {
-                        _status.value = BootstrapStatus.Finished(texts.size, tally, stopped = true, error = failure(current.provider.label, error.orEmpty()))
-                        return@launch
+                    when (val next = pacer.after(answered.size, troubles, System.currentTimeMillis())) {
+                        Pacer.Next.Go -> Unit
+                        is Pacer.Next.Wait -> {
+                            _status.value = BootstrapStatus.Running(done, texts.size, tally, pausedFor = next.millis, trouble = next.trouble)
+                            kotlinx.coroutines.delay(next.millis)
+                            _status.value = BootstrapStatus.Running(done, texts.size, tally)
+                        }
+                        is Pacer.Next.GiveUp -> {
+                            // What wasn't answered is offered again next run.
+                            _status.value = BootstrapStatus.Finished(
+                                texts.size,
+                                tally.copy(failed = tally.failed + queue.size),
+                                stopped = true,
+                                error = failure(current.provider.label, lastDetail),
+                            )
+                            return@launch
+                        }
                     }
                 }
                 _status.value = BootstrapStatus.Finished(texts.size, tally, stopped = false)
@@ -332,6 +371,17 @@ class Bootstrap(
         }
         private const val KEY_ASKED = "asked"
 
+        /** Why a run is waiting, in words: shown on its card and in its notification. */
+        fun pauseText(provider: String, trouble: Pacer.Trouble?, millis: Long): String {
+            val why = when (trouble) {
+                Pacer.Trouble.RATE_LIMITED -> "$provider is limiting how fast it answers"
+                else -> "$provider can't be reached right now"
+            }
+            val seconds = (millis + 999) / 1000
+            val wait = if (seconds >= 60) "${(seconds + 59) / 60} min" else "$seconds s"
+            return "$why. Trying again in $wait."
+        }
+
         /** Newest received texts sent per conversation: enough to know it, few enough to keep sending down. */
         const val PER_CONVERSATION = 3
         /** Below this, the provider's answer is a guess, and isn't taught. */
@@ -340,7 +390,6 @@ class Bootstrap(
         private const val BATCH = 24
         /** The model is refit every this many batches as a run goes, and at its end. */
         private const val RETRAIN_EVERY_BATCHES = 10
-        private const val MAX_FAILURES_IN_A_ROW = 8
         private const val PROVIDER_TIMEOUT_MILLIS = 15_000L
     }
 }

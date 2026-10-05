@@ -41,7 +41,7 @@ class BootstrapService : Service() {
             return START_NOT_STICKY
         }
         createChannel(this)
-        startForeground(NOTIFICATION_RUNNING, progress(0, 0, null), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        startForeground(NOTIFICATION_RUNNING, progress(0, 0, null, null), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         if (wakeLock == null) {
             wakeLock = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "winnow:bootstrap").apply {
                 setReferenceCounted(false)
@@ -50,9 +50,13 @@ class BootstrapService : Service() {
         }
         bootstrap.start()
         scope.launch {
+            val provider = runCatching { (application as WinnowApp).container.settings.current().provider.label }.getOrDefault("The service")
             bootstrap.status.collectLatest { status ->
                 when (status) {
-                    is BootstrapStatus.Running -> notify(NOTIFICATION_RUNNING, progress(status.done, status.total, status.tally))
+                    is BootstrapStatus.Running -> notify(
+                        NOTIFICATION_RUNNING,
+                        progress(status.done, status.total, status.tally, status.pausedFor?.let { Bootstrap.pauseText(provider, status.trouble, it) }),
+                    )
                     is BootstrapStatus.Finished -> {
                         notify(NOTIFICATION_DONE, finished(status))
                         stopSelf()
@@ -90,12 +94,12 @@ class BootstrapService : Service() {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
-    private fun progress(done: Int, total: Int, tally: Bootstrap.Tally?): Notification {
+    private fun progress(done: Int, total: Int, tally: Bootstrap.Tally?, paused: String?): Notification {
         val stop = PendingIntent.getService(this, 1, Intent(this, BootstrapService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Labeling your backlog")
-            .setContentText(if (total == 0) "Starting…" else "$done of $total texts" + (tally?.let { " · ${it.labeled} labeled" } ?: ""))
+            .setContentText(paused ?: if (total == 0) "Starting…" else "$done of $total texts" + (tally?.let { " · ${it.labeled} labeled" } ?: ""))
             .setProgress(total, done, total == 0)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
