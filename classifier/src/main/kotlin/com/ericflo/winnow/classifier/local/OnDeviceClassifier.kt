@@ -63,6 +63,15 @@ class OnDeviceClassifier(
     fun learn(corrections: List<Correction>, stopped: () -> Boolean = { false }): OnDeviceClassifier =
         withAdjustments(Personalizer.train(model, corrections, stopped = stopped))
 
+    /**
+     * This classifier with [corrections] taught on top of what it has learned already, rather
+     * than everything fitted again: a few answers' worth of work, not every label's. Close to a
+     * full refit, not equal to one (what it learned before isn't weighed against the new ones),
+     * so it's for a quick look (Train's guesses following the answers), not for keeping.
+     */
+    fun learnMore(corrections: List<Correction>, stopped: () -> Boolean = { false }): OnDeviceClassifier =
+        withAdjustments(adjustments + Personalizer.train(model, corrections, stopped = stopped, prior = adjustments))
+
     companion object {
         const val MODEL_NAME = "winnow-local-1"
     }

@@ -161,17 +161,20 @@ class Learner(
      * far, so fixing one text fixes the guesses on texts like it straight away.
      */
     suspend fun preview(extra: List<Pair<InboundMessage, Category>>): OnDeviceClassifier {
-        val rows = dao.all()
+        // Everything saved, as fitted (or kept from the last fit), and the answers taught on top:
+        // a few answers' worth of fitting each time, not every label's (thousands, after a
+        // backlog run), which on a phone took seconds an answer.
+        val current = classifier()
         return withContext(Dispatchers.Default) {
             val more = extra.mapNotNull { (message, category) -> base.correction(message, setOf(category)) }
             val job = currentCoroutineContext()
             // A newer answer cancels this preview; the fit stops then rather than running on.
             try {
-                base.learn(corrections(rows) + more, stopped = { !job.isActive })
+                current.learnMore(more, stopped = { !job.isActive })
             } catch (e: java.util.concurrent.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                trained ?: base
+                current
             }
         }
     }

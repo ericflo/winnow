@@ -123,4 +123,21 @@ class PersonalizerTest {
             assertEquals(4, epochs)
         }
     }
+
+    @Test
+    fun `answers taught on top of what was learned move their messages, and nothing on top changes nothing`() {
+        val learned = base.learn(listOf(base.correction(promo, setOf(Category.PERSONAL))!!))
+        assertEquals(learned.classify(promo).distribution, learned.learnMore(emptyList()).classify(promo).distribution)
+        val heater = InboundMessage("+12065550123", "Landlord here: please test your heater before Friday")
+        val more = learned.learnMore(listOf(base.correction(heater, setOf(Category.REMINDER))!!))
+        assertEquals(Category.REMINDER, more.classify(heater).category)
+        // What was learned before still stands.
+        assertEquals(learned.classify(promo).category, more.classify(promo).category)
+    }
+
+    @Test
+    fun `learning on top of nothing is the same as learning afresh`() {
+        val c = listOf(base.correction(promo, setOf(Category.PERSONAL))!!)
+        assertEquals(base.learn(c).classify(promo).distribution, base.learnMore(c).classify(promo).distribution)
+    }
 }

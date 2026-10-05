@@ -28,6 +28,19 @@ class Adjustments(internal val weights: Map<Int, FloatArray>) {
         }
     }
 
+    /** These and [other] together: a bucket in both gets the sum. */
+    operator fun plus(other: Adjustments): Adjustments {
+        if (other.weights.isEmpty()) return this
+        if (weights.isEmpty()) return other
+        val sum = HashMap<Int, FloatArray>(weights.size + other.weights.size)
+        for ((bucket, row) in weights) sum[bucket] = row.copyOf()
+        for ((bucket, row) in other.weights) {
+            val into = sum[bucket]
+            if (into == null) sum[bucket] = row.copyOf() else for (c in row.indices) into[c] += row[c]
+        }
+        return Adjustments(sum)
+    }
+
     /** Writes these compactly, to keep them between runs of the app (see [readFrom]). */
     fun writeTo(out: java.io.DataOutputStream) {
         out.writeInt(weights.size)
@@ -77,6 +90,11 @@ object Personalizer {
         learningRate: Double = 0.5,
         l2: Double = 1e-3,
         stopped: () -> Boolean = { false },
+        /**
+         * Already learned, and taken as part of the model: what's returned is only what
+         * [corrections] add on top (see OnDeviceClassifier.learnMore).
+         */
+        prior: Adjustments = Adjustments.NONE,
     ): Adjustments {
         // Corrections come from storage and backups: drop any that don't fit this model.
         @Suppress("NAME_SHADOWING")
@@ -86,7 +104,7 @@ object Personalizer {
             .filter { it.buckets.isNotEmpty() }
         if (corrections.isEmpty()) return Adjustments.NONE
         val k = base.classes.size
-        val baseScores = corrections.map { base.scores(it.buckets) }
+        val baseScores = corrections.map { base.scores(it.buckets, prior) }
         // Each bucket any correction uses gets a row; each correction, its buckets' rows.
         val rowOf = HashMap<Int, Int>()
         val rows = corrections.map { c -> IntArray(c.buckets.size) { j -> rowOf.getOrPut(c.buckets[j]) { rowOf.size } } }
