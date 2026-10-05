@@ -433,6 +433,7 @@ fun InboxScreen(
                                 onOpenTrash = onOpenTrash,
                                 onRetry = viewModel::relist,
                                 onShare = { runCatching { context.startActivity(viewModel.shareProblems()) } },
+                                progress = viewModel::listingProgress,
                             )
                         }
                     } else if (
@@ -975,7 +976,7 @@ private fun ProblemCard(count: Int, onShare: () -> Unit, onDismiss: () -> Unit) 
             Text(if (count == 1) "Winnow ran into a problem" else "Winnow ran into $count problems", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                "It crashed or stopped responding since you last opened it. The details are on this phone; sharing them helps get it fixed.",
+                "Something went wrong since you last opened it (a crash, a freeze, or something it couldn't do). The details are on this phone; sharing them helps get it fixed.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1054,7 +1055,25 @@ private fun EmptyInboxCard(
     onOpenTrash: () -> Unit,
     onRetry: () -> Unit,
     onShare: () -> Unit,
+    progress: () -> com.ericflo.winnow.data.ListingProgress? = { null },
 ) {
+    if (why == EmptyInbox.Listing) {
+        // The first listing since Winnow could read texts: how far it's got, every second.
+        var now by remember { mutableStateOf(System.currentTimeMillis()) }
+        LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(1_000); now = System.currentTimeMillis() } }
+        val p = progress()
+        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.CircularProgressIndicator(Modifier.size(28.dp))
+            Spacer(Modifier.width(16.dp))
+            Column {
+                Text("Reading your conversations…", style = MaterialTheme.typography.titleMedium)
+                if (p != null && now - p.startedAt > 3_000) {
+                    Text("${(now - p.startedAt) / 1000} s · ${p.step}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        return
+    }
     val n = { x: Int -> java.text.NumberFormat.getIntegerInstance().format(x) }
     val plural = { x: Int, noun: String -> if (x == 1) "1 $noun" else "${n(x)} ${noun}s" }
     val (title, body) = when (why) {
@@ -1075,6 +1094,7 @@ private fun EmptyInboxCard(
         is EmptyInbox.AllDeleted -> "Your conversations are in Recently deleted" to
             "${plural(why.trashed, "conversation")} can be restored from Recently deleted for 30 days after deleting."
         EmptyInbox.Nothing -> "No texts on this phone yet" to "Conversations show up here as texts arrive. Start one with Start chat."
+        EmptyInbox.Listing -> "" to ""
     }
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
@@ -1100,7 +1120,7 @@ private fun EmptyInboxCard(
                         if (why.trashed > 0) OutlinedButton(onClick = onOpenTrash) { Text("Recently deleted") }
                     }
                     is EmptyInbox.AllDeleted -> Button(onClick = onOpenTrash) { Text("Open Recently deleted") }
-                    EmptyInbox.Nothing -> Unit
+                    EmptyInbox.Nothing, EmptyInbox.Listing -> Unit
                 }
             }
             if (why is EmptyInbox.NoAccess && !why.isDefault) RestrictedSettingHelp(Modifier.padding(top = 4.dp))

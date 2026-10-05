@@ -87,6 +87,10 @@ class TelephonyMessageRepository(
 
     override fun listHealth(): ListHealth? = health
 
+    @Volatile private var progress: ListingProgress? = null
+
+    override fun listingProgress(): ListingProgress? = progress
+
     private val relists = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     override fun relist() {
@@ -102,6 +106,7 @@ class TelephonyMessageRepository(
             runCatching { queryConversations() }
                 .onSuccess { lastGood = it }
                 .getOrElse { e ->
+                    progress = null
                     Log.e(TAG, "Couldn't list conversations", e)
                     health = (health ?: ListHealth(System.currentTimeMillis(), 0, 0, 0, 0, 0, 0))
                         .copy(at = System.currentTimeMillis(), listed = lastGood?.size ?: 0, failures = listOf("listing: ${e::class.simpleName}: ${e.message}"))
@@ -581,11 +586,18 @@ class TelephonyMessageRepository(
      */
     private fun queryConversations(): List<Pair<ConversationSummary, String?>> {
         val failures = mutableListOf<String>()
-        // Each step on its own: one that fails costs what it adds, not the whole list.
-        fun <T> step(name: String, empty: T, block: () -> T): T = runCatching(block).getOrElse { e ->
-            Log.e(TAG, "Listing conversations: $name failed", e)
-            failures += "$name: ${e::class.simpleName}: ${e.message}"
-            empty
+        val timings = mutableListOf<Pair<String, Long>>()
+        val started = System.currentTimeMillis()
+        // Each step on its own: one that fails costs what it adds, not the whole list. Each is
+        // timed, and the one under way is known, so a listing that takes long can say where.
+        fun <T> step(name: String, empty: T, block: () -> T): T {
+            val at = System.currentTimeMillis()
+            progress = ListingProgress(name, started, at, timings.toList())
+            return runCatching(block).getOrElse { e ->
+                Log.e(TAG, "Listing conversations: $name failed", e)
+                failures += "$name: ${e::class.simpleName}: ${e.message}"
+                empty
+            }.also { timings += name to (System.currentTimeMillis() - at) }
         }
         val named = step("who's in each conversation", emptyMap()) { resolver.threadRecipients() }
         val newestByThread = step("newest messages", emptyMap<Long, Head>()) { newestPerThread() ?: emptyMap<Long, Head>().also { failures += "newest messages: the store returned nothing" } }
@@ -602,6 +614,8 @@ class TelephonyMessageRepository(
         }
         val mmsText = step("picture message text", emptyMap()) { mmsSnippets(newestByThread.values.filter { it.kind == Kind.MMS }.map { it.id }) }
 
+        val summarizing = System.currentTimeMillis()
+        progress = ListingProgress("names and photos", started, summarizing, timings.toList())
         val list = newestByThread.mapNotNull { (threadId, newest) ->
             val people = recipients[threadId]?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
             val raw = when (newest.kind) {
@@ -628,6 +642,9 @@ class TelephonyMessageRepository(
             // A placeholder has no verdict yet, so the thread keeps its latest one instead of losing it.
             summary to newest.key.takeIf { !newest.outgoing && !newest.placeholder }
         }.sortedByDescending { it.first.timestamp }
+        timings += "names and photos" to (System.currentTimeMillis() - summarizing)
+        progress = null
+        Log.d(TAG, "Listing steps: " + timings.joinToString { "${it.first} ${it.second} ms" })
         health = ListHealth(
             at = System.currentTimeMillis(),
             threads = snippets.size,
@@ -637,6 +654,8 @@ class TelephonyMessageRepository(
             withoutPeople = unnamed.count { found[it].isNullOrEmpty() },
             listed = list.size,
             failures = failures,
+            steps = timings,
+            millis = System.currentTimeMillis() - started,
         )
         return list
     }

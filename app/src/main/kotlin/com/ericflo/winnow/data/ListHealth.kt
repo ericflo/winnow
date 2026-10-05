@@ -18,7 +18,13 @@ data class ListHealth(
     val listed: Int,
     /** Steps that failed, in words ("conversation list: SecurityException: …"). */
     val failures: List<String> = emptyList(),
+    /** How long each step took, in order, and the whole listing. */
+    val steps: List<Pair<String, Long>> = emptyList(),
+    val millis: Long = 0,
 )
+
+/** A listing under way: the step it's on, and since when (it and the whole listing). */
+data class ListingProgress(val step: String, val startedAt: Long, val stepStartedAt: Long, val done: List<Pair<String, Long>>)
 
 /** What the phone's message store holds, counted directly: -1 where it couldn't be counted. */
 data class StoreCounts(val sms: Int, val mms: Int, val threads: Int) {

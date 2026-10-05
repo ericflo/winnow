@@ -34,4 +34,23 @@ class ContactLookupTest {
         assertEquals(null, ContactLookup.nationalForm("+14155550177", "GB"))
         assertEquals(null, ContactLookup.nationalForm("72975", "US"))
     }
+
+    @Test
+    fun `north american numbers format as Android does, without asking it`() {
+        assertEquals("(415) 555-0177", ContactLookup.nanpFormat("4155550177"))
+        // Not a real area code or exchange (they can't start with 0 or 1), or not ten digits: left to Android.
+        assertNull(ContactLookup.nanpFormat("1155550177"))
+        assertNull(ContactLookup.nanpFormat("4151550177"))
+        assertNull(ContactLookup.nanpFormat("415555017"))
+        assertNull(ContactLookup.nanpFormat("41555501a7"))
+    }
+
+    @Test
+    fun `rcs ids are known for what they are`() {
+        org.junit.Assert.assertTrue(com.ericflo.winnow.data.isRcsAddress("a1b2c3d4e5f60718@rcs.google.com"))
+        org.junit.Assert.assertTrue(com.ericflo.winnow.data.isRcsAddress("bot@rbm.goog"))
+        org.junit.Assert.assertFalse(com.ericflo.winnow.data.isRcsAddress("someone@example.com"))
+        org.junit.Assert.assertFalse(com.ericflo.winnow.data.isRcsAddress("+14155550177"))
+        org.junit.Assert.assertFalse(com.ericflo.winnow.data.isRcsAddress("someone@rcsmail.com"))
+    }
 }

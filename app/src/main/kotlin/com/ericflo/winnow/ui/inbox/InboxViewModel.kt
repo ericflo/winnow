@@ -135,6 +135,11 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     /** The inbox itself, not Filtered or Archived. */
     val isInbox: Boolean get() = mode == ListMode.INBOX
 
+    private var watchdog: kotlinx.coroutines.Job? = null
+
+    /** The listing under way, for the empty inbox to say how long it's been. */
+    fun listingProgress() = repo.listingProgress()
+
     /** Said once per run of the app: the problem report already has it. */
     private var listingReported = false
 
@@ -149,18 +154,33 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
             .mapLatest { (all, access, trashed) ->
                 val (live, default) = access
                 if (all.any { !it.isFiltered && !it.archived }) return@mapLatest null
+                val health = repo.listHealth()
                 // Filed elsewhere is known from the list itself; only an empty list needs the store counted.
-                val counts = if (live && all.isEmpty()) repo.storeCounts() else if (live) StoreCounts(0, 0, 0) else null
+                val counts = if (live && all.isEmpty() && health != null) repo.storeCounts() else if (live) StoreCounts(0, 0, 0) else null
                 EmptyInbox.of(
-                    live, default, counts, repo.listHealth(),
+                    live, default, counts, health,
                     listed = all.size, filtered = all.count { it.isFiltered }, archived = all.count { it.archived && !it.isFiltered }, trashed = trashed,
                 )
             }
             .onEach { e ->
-                // Texts on the phone and none listed: in the problem report, for the user to send on.
+                // A listing that finished and found texts on the phone but none to list: in the problem report.
                 if (e is EmptyInbox.NotListed && !listingReported) {
                     listingReported = true
                     container.problems.note(com.ericflo.winnow.diagnostics.ProblemLog.Kind.LISTING, EmptyInbox.report(e.counts, e.health))
+                }
+                // One that hasn't finished: reported only if it's still going after a long while, with where it is.
+                watchdog?.cancel()
+                if (e == EmptyInbox.Listing) watchdog = viewModelScope.launch {
+                    kotlinx.coroutines.delay(SLOW_LISTING_MILLIS)
+                    if (repo.listHealth() == null && !listingReported && container.isLive.value) {
+                        listingReported = true
+                        val progress = repo.listingProgress()
+                        val elapsed = progress?.let { System.currentTimeMillis() - it.startedAt } ?: SLOW_LISTING_MILLIS
+                        container.problems.note(
+                            com.ericflo.winnow.diagnostics.ProblemLog.Kind.LISTING,
+                            EmptyInbox.slowReport(runCatching { repo.storeCounts() }.getOrNull(), progress, elapsed),
+                        )
+                    }
                 }
             }
             .flowOn(kotlinx.coroutines.Dispatchers.IO)
@@ -459,6 +479,8 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     }
 
     private companion object {
+        /** How long a first listing may take before it's reported as a problem, with where it's stuck. */
+        const val SLOW_LISTING_MILLIS = 45_000L
         val NUMBER_PUNCTUATION = setOf(' ', '+', '-', '(', ')', '.')
 
         /** More conversations than this labeled at once, and a note says it's under way. */

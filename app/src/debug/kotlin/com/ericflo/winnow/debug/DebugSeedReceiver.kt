@@ -66,6 +66,49 @@ class DebugSeedReceiver : BroadcastReceiver() {
                     container.reminders.bringForward(System.currentTimeMillis() + intent.getLongExtra("remind_in", 5_000))
                     return@launch
                 }
+                if (intent.getBooleanExtra("checkformat", false)) {
+                    // Winnow's own formatting of North American numbers against Android's, number by number.
+                    val r = Random(5)
+                    var mismatches = 0
+                    repeat(5000) {
+                        val n = (2 + r.nextInt(8)).toString() + (0 until 2).joinToString("") { r.nextInt(10).toString() } +
+                            (2 + r.nextInt(8)).toString() + (0 until 6).joinToString("") { r.nextInt(10).toString() }
+                        val ours = com.ericflo.winnow.data.ContactLookup.nanpFormat(n)
+                        val android = android.telephony.PhoneNumberUtils.formatNumber(n, "US")
+                        if (ours != android) { mismatches++; if (mismatches < 10) Log.w(TAG, "format $n: ours $ours, Android's $android") }
+                    }
+                    Log.i(TAG, "Format check: $mismatches of 5000 differ")
+                    return@launch
+                }
+                if (intent.hasExtra("groups")) {
+                    // --ei groups N --ei per M: N group conversations of 3–6 people with M picture messages
+                    // each, like a phone with many family and friend groups. Every fifth group's members
+                    // write from RCS addresses ("<id>@rcs.google.com"), as Google Messages leaves them.
+                    val groups = intent.getIntExtra("groups", 300)
+                    val per = intent.getIntExtra("per", 7)
+                    val store = com.ericflo.winnow.sms.MmsStore(context)
+                    val random = Random(11)
+                    val now = System.currentTimeMillis() / 1000
+                    val started = System.nanoTime()
+                    var written = 0
+                    repeat(groups) { g ->
+                        val rcs = g % 5 == 0
+                        val size = 3 + random.nextInt(4)
+                        val members = List(size) { m ->
+                            if (rcs) "%016x@rcs.google.com".format(random.nextLong()) else "+1%s555%04d".format(listOf("206", "425", "253", "360")[g % 4], 100 + (g * 7 + m) % 100)
+                        }.distinct()
+                        val threadId = Telephony.Threads.getOrCreateThreadId(context, members.toSet())
+                        repeat(per) { i ->
+                            val from = members[random.nextInt(members.size)].takeIf { random.nextInt(4) != 0 }
+                            val box = if (from != null) Telephony.Mms.MESSAGE_BOX_INBOX else Telephony.Mms.MESSAGE_BOX_SENT
+                            val parts = listOf(com.ericflo.winnow.mms.MmsPart.plainText(LINES[random.nextInt(LINES.size)]))
+                            val at = now - random.nextInt(400 * 86_400) - (per - i) * 60L
+                            if (store.insertRestored(threadId, box, at, read = true, subject = null, from = from, to = members - from.orEmpty(), parts = parts) != null) written++
+                        }
+                    }
+                    Log.i(TAG, "Seeded $written MMS across $groups group threads in ${(System.nanoTime() - started) / 1_000_000} ms")
+                    return@launch
+                }
                 if (intent.hasExtra("mms")) {
                     val count = intent.getIntExtra("mms", 3000)
                     val members = (intent.getStringExtra("group") ?: "+12065550121,+12065550122,+12065550123").split(',').map { it.trim() }

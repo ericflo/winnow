@@ -19,7 +19,7 @@ class EmptyInboxTest {
         filtered: Int = 0,
         archived: Int = 0,
         trashed: Int = 0,
-        health: ListHealth? = null,
+        health: ListHealth? = ListHealth(0, 0, 0, 0, 0, 0, listed),
     ) = EmptyInbox.of(live, isDefault, counts, health, listed, filtered, archived, trashed)
 
     @Test
@@ -43,6 +43,24 @@ class EmptyInboxTest {
         val report = EmptyInbox.report(texts, health)
         assertTrue(report, "38000 texts, 3000 picture messages and 1550 conversations" in report)
         assertTrue(report, "Failed: who's in each conversation: SecurityException: denied" in report)
+    }
+
+    @Test
+    fun beforeAListingHasFinishedNothingIsClaimed() {
+        // Just made the SMS app again: the list from before (empty) is still showing.
+        assertEquals(EmptyInbox.Listing, of(health = null))
+        assertEquals(EmptyInbox.Listing, of(health = null, counts = none))
+        // Not the SMS app says so whatever the listing.
+        assertEquals(EmptyInbox.NoAccess(isDefault = false), of(live = false, isDefault = false, counts = null, health = null))
+    }
+
+    @Test
+    fun aSlowListingSaysWhereItIs() {
+        val p = com.ericflo.winnow.data.ListingProgress("newest messages", startedAt = 0, stepStartedAt = System.currentTimeMillis() - 40_000, done = listOf("who's in each conversation" to 1200L))
+        val r = EmptyInbox.slowReport(texts, p, 50_000)
+        assertTrue(r, "has taken 50 s" in r)
+        assertTrue(r, "Under way: newest messages, for 40 s" in r)
+        assertTrue(r, "Done: who's in each conversation in 1200 ms" in r)
     }
 
     @Test

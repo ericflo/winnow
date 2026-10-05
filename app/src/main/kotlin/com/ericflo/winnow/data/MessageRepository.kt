@@ -135,6 +135,9 @@ interface MessageRepository {
 
     /** Lists the conversations again now, whether or not the store says anything changed. */
     fun relist() {}
+
+    /** The listing under way, if one is (see [ListingProgress]). */
+    fun listingProgress(): ListingProgress? = null
 }
 
 /** "Mom" for one recipient; "Alex, Sam, (555) 555-0199" for a group, using first names where known. */
@@ -161,7 +164,17 @@ class SwitchingMessageRepository(
 ) : MessageRepository {
     private val current: MessageRepository get() = if (isLive.value) live else demo
 
-    private val list = isLive.flatMapLatest { if (it) live.conversations() else demo.conversations() }
+    /** When Winnow could last start reading the store: a listing from before that is about another phone state. */
+    @Volatile private var liveSince = 0L
+
+    private val list = isLive.flatMapLatest {
+        if (it) {
+            liveSince = System.currentTimeMillis()
+            live.conversations()
+        } else {
+            demo.conversations()
+        }
+    }
 
     // One list for every screen and job that reads it (the inbox, Filtered, the widget, Train, a
     // backlog run): one query of the whole store per change, not one each, and the newest list
@@ -202,7 +215,10 @@ class SwitchingMessageRepository(
         current.overrideVerdict(threadId, address, action)
     override suspend fun restoreVerdict(previous: PreviousVerdict) = current.restoreVerdict(previous)
     override fun verdictRecords() = isLive.flatMapLatest { if (it) live.verdictRecords() else demo.verdictRecords() }
-    override fun listHealth() = current.listHealth()
+    // Only a listing that finished since Winnow could read the store: until then, what's shown
+    // is the empty list from before (while it couldn't), not a listing that found nothing.
+    override fun listHealth() = if (!isLive.value) null else live.listHealth()?.takeIf { it.at >= liveSince }
+    override fun listingProgress() = if (isLive.value) live.listingProgress() else null
     override fun relist() = live.relist()
     // Counted whether or not Winnow may read the texts: the count is what says it can't.
     override suspend fun storeCounts() = live.storeCounts()

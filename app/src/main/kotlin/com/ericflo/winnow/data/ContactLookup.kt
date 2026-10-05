@@ -155,6 +155,8 @@ class ContactLookup(private val context: Context, private val scope: CoroutineSc
         // A phone number the contact list doesn't have isn't a contact; only short codes,
         // emails and the like still go to PhoneLookup.
         numberKey(address)?.let { key -> return index(started)[key] }
+        // An RCS id: no contact has one, so there's nothing to look up (and a lookup each costs).
+        if (isRcsAddress(address)) return null
         // An email address (an MMS from or to one) is looked up among contacts' emails.
         if (isEmailAddress(address)) {
             val byEmail = Uri.withAppendedPath(ContactsContract.CommonDataKinds.Email.CONTENT_LOOKUP_URI, Uri.encode(address.trim()))
@@ -325,9 +327,30 @@ class ContactLookup(private val context: Context, private val scope: CoroutineSc
         fun formatAddress(address: String): String {
             if (address.any(Char::isLetter)) return address
             val country = country()
+            // Formatting a number costs about half a millisecond, and listing the conversations
+            // formats every number in them: 1,800 conversations took a second for this alone.
+            // Kept by country too, since that's what it depends on.
+            formatted[address]?.takeIf { it.first == country }?.let { return it.second }
             // A home-country number reads the same however the carrier wrote it: "+14155550177"
             // and "4155550177" both as (415) 555-0177, as in Messages.
-            return PhoneNumberUtils.formatNumber(nationalForm(address, country) ?: address, country) ?: address
+            val national = nationalForm(address, country) ?: address.takeIf { country in NANP && it.length == 10 && it.all(Char::isDigit) }
+            val result = national?.let(::nanpFormat) ?: PhoneNumberUtils.formatNumber(national ?: address, country) ?: address
+            if (formatted.size > MAX_FORMATTED) formatted.clear()
+            formatted[address] = country to result
+            return result
+        }
+
+        private val formatted = ConcurrentHashMap<String, Pair<String, String>>()
+        private const val MAX_FORMATTED = 20_000
+
+        /**
+         * A ten-digit North American number as Android formats one, "(415) 555-0177", without
+         * asking Android (which takes about half a millisecond a number); null if it isn't one.
+         * Pure, so it's unit-tested against what Android gives.
+         */
+        fun nanpFormat(national: String): String? {
+            if (national.length != 10 || !national.all(Char::isDigit) || national[0] < '2' || national[3] < '2') return null
+            return "(${national.substring(0, 3)}) ${national.substring(3, 6)}-${national.substring(6)}"
         }
 
         /** [address] without its +1, for a phone in the US or Canada; null for anything else. */

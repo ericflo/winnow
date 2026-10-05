@@ -185,6 +185,17 @@ fun normalizeAddress(address: String): String {
  */
 fun isEmailAddress(address: String): Boolean = EMAIL.matches(address.trim())
 
+/**
+ * An RCS address, as Google Messages leaves one in the message store for a chat it had over RCS
+ * ("<id>@rcs.google.com"; business chats, "@rbm.goog"): not a number or an email anyone has, so
+ * it names no one and no contact can have it.
+ */
+fun isRcsAddress(address: String): Boolean {
+    val a = address.trim().lowercase()
+    val domain = a.substringAfterLast('@', "")
+    return domain.isNotEmpty() && (domain.startsWith("rcs.") || domain.contains(".rcs.") || domain.endsWith("rbm.goog") || domain.endsWith("rcs.telephony.goog"))
+}
+
 /** A local part, then a domain of dot-separated labels ending in a 2+ letter TLD (no "a@b..com" or trailing dot). */
 private val EMAIL = Regex("""[^\s@,;<>():]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}""")
 
