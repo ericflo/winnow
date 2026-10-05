@@ -208,6 +208,14 @@ interface CorrectionDao {
     @Query("DELETE FROM corrections WHERE id IN (:ids)")
     suspend fun deleteIds(ids: Collection<Long>)
 
+    /** Moves a label from key [from] to its message's key here, [to] (a restore gave it a new one). */
+    @Query("UPDATE corrections SET messageKey = :to, threadId = :threadId WHERE messageKey = :from")
+    suspend fun relink(from: String, to: String, threadId: Long)
+
+    /** Labels still under a restore's placeholder keys: their messages didn't come back, so they keep teaching unlinked. */
+    @Query("UPDATE corrections SET messageKey = NULL, threadId = NULL WHERE messageKey LIKE :prefix || '%'")
+    suspend fun unlinkPrefixed(prefix: String)
+
     /** A conversation's own correction ("Not spam", "Filter sender"), if it has one. */
     @Query("SELECT * FROM corrections WHERE threadId = :threadId AND messageKey IS NULL")
     suspend fun forThread(threadId: Long): List<CorrectionEntity>

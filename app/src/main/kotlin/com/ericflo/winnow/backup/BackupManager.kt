@@ -331,7 +331,7 @@ class BackupManager(
             conversations = if (canReadMessages()) readConversations(media) else emptyList(),
             scheduled = scheduledDao.all().map { ScheduledBackup(splitAddresses(it.recipients), it.body, it.sendAt) },
             corrections = corrections.all().map { c ->
-                CorrectionBackup(c.buckets.split(',').mapNotNull(String::toIntOrNull), c.label, c.featurizerVersion, c.createdAt)
+                CorrectionBackup(c.buckets.split(',').mapNotNull(String::toIntOrNull), c.label, c.featurizerVersion, c.createdAt, c.messageKey)
             },
         )
         var saved = 0
@@ -386,6 +386,8 @@ class BackupManager(
         val inThreads = only?.let { ids -> " AND ${Sms.THREAD_ID} IN (${ids.joinToString(",")})" }.orEmpty() + picked(ChatMessage.Kind.SMS, Sms._ID)
         val recipients = resolver.threadRecipients()
         val verdictsByKey = verdicts.all().associateBy { it.messageKey }
+        // Messages the user labeled: their key goes with them, for their label to follow.
+        val labeled = corrections.all().mapNotNullTo(HashSet()) { it.messageKey }
         val stars = starred.all().mapTo(HashSet()) { it.messageKey }
         // Reminders still to come, for the message they were set on (not another that took its id).
         val reminded = reminders?.all().orEmpty()
@@ -420,6 +422,7 @@ class BackupManager(
                     starred = ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)) in stars,
                     remindAt = remindAt(ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)), c.getLong(4)),
                     was = ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)).takeIf { keepIdentity },
+                    labelKey = ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)).takeIf { it in labeled },
                 )
             }
         }
@@ -466,6 +469,7 @@ class BackupManager(
                 starred = ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id) in stars,
                 remindAt = remindAt(ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id), row.date * 1000),
                 was = ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id).takeIf { keepIdentity },
+                labelKey = ChatMessage.messageKey(ChatMessage.Kind.MMS, row.id).takeIf { it in labeled },
             )
         }
 
@@ -517,12 +521,22 @@ class BackupManager(
             rules.forEach { verdicts.upsertSenderRule(SenderRuleEntity(it.address, it.rule, it.createdAt)) }
             if (rules.isNotEmpty()) restored += plural(rules.size, "sender rule")
 
+            // A label waits under a placeholder key until its message is back (see relinkLabel).
             val learned = corrections.all().mapTo(HashSet()) { it.buckets to it.label }
             val lessons = backup.corrections.filter { (it.buckets.joinToString(",") to it.label) !in learned }
-            lessons.forEach { corrections.insert(CorrectionEntity(threadId = null, buckets = it.buckets.joinToString(","), label = it.label, featurizerVersion = it.featurizerVersion, createdAt = it.createdAt)) }
+            lessons.forEach {
+                corrections.insert(
+                    CorrectionEntity(
+                        threadId = null, buckets = it.buckets.joinToString(","), label = it.label, featurizerVersion = it.featurizerVersion,
+                        createdAt = it.createdAt, messageKey = it.messageKey?.let { key -> RESTORED_LABEL + key },
+                    ),
+                )
+            }
             if (lessons.isNotEmpty()) {
                 learner.reload()
-                restored += plural(lessons.size, "correction")
+                val labels = lessons.count { it.messageKey != null }
+                if (labels > 0) restored += plural(labels, "label")
+                if (lessons.size > labels) restored += plural(lessons.size - labels, "correction")
             }
 
             val message = if (!canWriteMessages()) {
@@ -543,6 +557,8 @@ class BackupManager(
             // The key it was opened with is gone (the password changed meanwhile): ask for it.
             _status.value = BackupStatus.NeedsPassword(uri)
         } finally {
+            // Labels whose messages didn't come back (Winnow isn't the SMS app yet, say) keep teaching, unlinked.
+            runCatching { corrections.unlinkPrefixed(RESTORED_LABEL) }
             spool.deleteRecursively()
             unlocked.remove(uri)
         }
@@ -590,6 +606,7 @@ class BackupManager(
                 knownTexts.forEach { m ->
                     val (key, inThread) = textsEverywhere.getValue(textKey(m)!!)
                     if (key !in classified) restoreVerdict(m, conversation, inThread, key)
+                    relinkLabel(m, key, inThread)
                     if (m.starred) starred.star(StarredEntity(key, inThread, System.currentTimeMillis()))
                     restoreReminder(m, key, inThread, conversation)
                 }
@@ -608,6 +625,7 @@ class BackupManager(
             here.forEach { (m, at) ->
                 val (key, inThread) = at
                 if (key !in classified) restoreVerdict(m, conversation, inThread, key)
+                relinkLabel(m, key, inThread)
                 if (m.starred) starred.star(StarredEntity(key, inThread, System.currentTimeMillis()))
                 restoreReminder(m, key, inThread, conversation)
             }
@@ -623,6 +641,7 @@ class BackupManager(
                     added++
                     settled(m)
                     restoreVerdict(m, conversation, threadId, ChatMessage.messageKey(ChatMessage.Kind.SMS, id))
+                    relinkLabel(m, ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId)
                     if (m.starred) starred.star(StarredEntity(ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId, System.currentTimeMillis()))
                     restoreReminder(m, ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId, conversation)
                 }
@@ -644,6 +663,7 @@ class BackupManager(
                     added++
                     settled(m)
                     restoreVerdict(m, conversation, threadId, ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)))
+                    relinkLabel(m, ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)), threadId)
                     if (m.starred) starred.star(StarredEntity(ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)), threadId, System.currentTimeMillis()))
                     restoreReminder(m, ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)), threadId, conversation)
                 }
@@ -763,6 +783,20 @@ class BackupManager(
         )
     }
 
+    /**
+     * [m]'s label follows it to [key] in conversation [threadId]: one from a backup (waiting under
+     * its placeholder key), or one kept while it sat in Recently deleted (under the key it had).
+     * A label this message already has here wins, and the stale copy goes: it would teach the
+     * same thing twice.
+     */
+    private suspend fun relinkLabel(m: MessageBackup, key: String, threadId: Long) {
+        val from = listOfNotNull(m.labelKey?.let { RESTORED_LABEL + it }, m.was?.takeIf { it != key })
+        for (old in from) {
+            if (corrections.forMessages(listOf(key)).isNotEmpty()) corrections.deleteForMessages(listOf(old))
+            else corrections.relink(old, key, threadId)
+        }
+    }
+
     private suspend fun restoreVerdict(m: MessageBackup, conversation: ConversationBackup, threadId: Long, key: String) {
         // Restored, not received: never news for a daily summary.
         val entity = m.verdict?.toEntity(key, threadId, m.sender ?: m.to ?: conversation.recipients.first())?.copy(summarized = true) ?: return
@@ -867,6 +901,9 @@ class BackupManager(
         const val TAG = "WinnowBackup"
         const val SMS_BATCH = 250
 
+        /** A restored label's key until its message is back: never a real message key, so it can't collide with one. */
+        const val RESTORED_LABEL = "restored:"
+
         fun format(n: Int): String = NumberFormat.getIntegerInstance().format(n)
 
         fun plural(n: Int, noun: String) = "${format(n)} $noun${if (n == 1) "" else "s"}"
@@ -876,6 +913,10 @@ class BackupManager(
         private fun allPresent(n: Int) =
             if (n == 1) "Its one message was already on this phone." else "All ${format(n)} messages were already on this phone."
 
-        fun also(restored: List<String>) = if (restored.isEmpty()) "" else " Also restored ${restored.joinToString(" and ")}."
+        fun also(restored: List<String>) = when (restored.size) {
+            0 -> ""
+            1 -> " Also restored ${restored.single()}."
+            else -> " Also restored ${restored.dropLast(1).joinToString(", ")} and ${restored.last()}."
+        }
     }
 }

@@ -132,6 +132,11 @@ data class MessageBackup(
      * lookalikes are: two photos sent in the same second are each their own.
      */
     val was: String? = null,
+    /**
+     * Its key on the phone it was backed up from, when the user labeled it: its label in
+     * [WinnowBackup.corrections] names it by this, and follows it to its new key on restore.
+     */
+    val labelKey: String? = null,
 ) {
     /** Identifies the message across backup, phone and re-import, to skip duplicates. */
     val fingerprint: String get() = fingerprint(kind, date, outgoing, body, parts.size)
@@ -165,7 +170,14 @@ data class VerdictBackup(
 
 /** A correction the on-device model learned from: feature buckets and a category, no text. */
 @Serializable
-data class CorrectionBackup(val buckets: List<Int>, val label: String, val featurizerVersion: Int, val createdAt: Long)
+data class CorrectionBackup(
+    val buckets: List<Int>,
+    val label: String,
+    val featurizerVersion: Int,
+    val createdAt: Long,
+    /** A label's message, by its key on the phone it was backed up from ([MessageBackup.labelKey]). */
+    val messageKey: String? = null,
+)
 
 @Serializable
 data class ScheduledBackup(val recipients: List<String>, val body: String, val sendAt: Long)

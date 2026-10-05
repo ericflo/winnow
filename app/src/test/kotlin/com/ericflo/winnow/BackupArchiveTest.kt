@@ -23,7 +23,11 @@ class BackupArchiveTest {
     private val backup = WinnowBackup(
         createdAt = 1_791_000_000_000,
         senderRules = listOf(SenderRuleBackup("4155550123", "ALWAYS_FILTER", 1)),
-        corrections = listOf(CorrectionBackup(listOf(17, 4096, 30001), "personal", featurizerVersion = 1, createdAt = 5)),
+        corrections = listOf(
+            CorrectionBackup(listOf(17, 4096, 30001), "personal", featurizerVersion = 1, createdAt = 5),
+            // A label, naming its message by the key it had on the phone it came from.
+            CorrectionBackup(listOf(9, 2048), "phishing", featurizerVersion = 1, createdAt = 6, messageKey = "sms:41"),
+        ),
         conversations = listOf(
             ConversationBackup(
                 recipients = listOf("+14155550181", "+14155550182"),
@@ -42,7 +46,8 @@ class BackupArchiveTest {
                 recipients = listOf("+13185550182"),
                 messages = listOf(
                     MessageBackup("sms", 1_790_000_200_000, outgoing = false, sender = "+13185550182", body = "E-ZPass: pay now",
-                        verdict = VerdictBackup("phishing", 0.98, "FILTER", "provider", "systemone:typesafe", "jev-1.13")),
+                        verdict = VerdictBackup("phishing", 0.98, "FILTER", "provider", "systemone:typesafe", "jev-1.13", userCategory = "phishing"),
+                        labelKey = "sms:41"),
                 ),
             ),
         ),
