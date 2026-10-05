@@ -91,6 +91,25 @@ class Learner(private val dao: CorrectionDao, private val settings: SettingsRepo
         return dropped
     }
 
+    /**
+     * For a correction ("Not spam", "Filter sender") of [threadId] to [action]: drops the user's
+     * labels on [keys] that contradict it, and every classifier-service label in the conversation
+     * that does (several of those could otherwise outweigh the user's one correction). Returns
+     * them all, so an undo puts them back as they were.
+     */
+    suspend fun dropForCorrection(threadId: Long, keys: Collection<String>, action: Action): List<CorrectionEntity> {
+        val policy = settings.current().actionPolicy
+        val dropped = lock.withLock {
+            val provider = dao.providerForThread(threadId).filter { c -> Category.fromKey(c.label)?.let(policy::forCategory) != action }
+            val mine = if (keys.isEmpty()) emptyList() else dao.forMessages(keys).filterNot { it.fromProvider }
+            val all = mine + provider
+            dao.deleteIds(all.map { it.id })
+            all
+        }
+        if (dropped.isNotEmpty()) retrain()
+        return dropped
+    }
+
     /** The on-device classifier with everything the user has taught it. */
     suspend fun classifier(): OnDeviceClassifier = trained ?: retrain()
 

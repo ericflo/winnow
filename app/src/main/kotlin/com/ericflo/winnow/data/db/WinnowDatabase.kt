@@ -214,6 +214,9 @@ interface CorrectionDao {
     @Query("DELETE FROM corrections WHERE source = 'provider'")
     suspend fun deleteProviderLabels()
 
+    @Query("SELECT * FROM corrections WHERE source = 'provider' AND threadId = :threadId")
+    suspend fun providerForThread(threadId: Long): List<CorrectionEntity>
+
     @Insert
     suspend fun insert(correction: CorrectionEntity)
 

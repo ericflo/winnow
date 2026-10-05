@@ -42,6 +42,9 @@ class Adjustments(internal val weights: Map<Int, FloatArray>) {
  * the same order, so the same result (PersonalizerTest checks it against the plain version).
  */
 object Personalizer {
+    /** A label of weight w is pulled toward probability LIGHT_FLOOR + (1 - LIGHT_FLOOR) * w: 0.74 at 0.35, certainty at 1. */
+    private const val LIGHT_FLOOR = 0.6
+
     fun train(base: LocalModel, corrections: List<Correction>, epochs: Int = 40, learningRate: Double = 0.5, l2: Double = 1e-3): Adjustments {
         // Corrections come from storage and backups: drop any that don't fit this model.
         @Suppress("NAME_SHADOWING")
@@ -62,6 +65,17 @@ object Personalizer {
         val squares = DoubleArray(rowOf.size * k) { 1e-8 }
         val scores = DoubleArray(k)
         val temperature = base.temperature.toDouble()
+        // A lighter label (weight under 1, a classifier service's) is a soft target: its category
+        // is pulled toward a probability short of certainty, the rest keep the base model's
+        // proportions. The user's own (weight 1) are pulled all the way, so where the two meet
+        // the user's wins, and alone a lighter one still teaches less.
+        val targets = corrections.mapIndexed { n, c ->
+            if (c.weight >= 1.0) return@mapIndexed null
+            val bp = LocalModel.softmax(baseScores[n], temperature)
+            val t = LIGHT_FLOOR + (1 - LIGHT_FLOOR) * c.weight.coerceIn(0.0, 1.0)
+            val rest = 1.0 - bp[c.label]
+            DoubleArray(k) { j -> if (j == c.label) t else if (rest <= 1e-12) (1 - t) / (k - 1) else (1 - t) * bp[j] / rest }
+        }
 
         repeat(epochs) {
             for (n in corrections.indices) {
@@ -71,12 +85,16 @@ object Personalizer {
                 for (r in own) { val at = r * k; for (c in 0 until k) scores[c] += weights[at + c] * value }
                 val p = LocalModel.softmax(scores, temperature)
                 for (c in 0 until k) {
-                    val g = (p[c] - if (c == labels[n]) 1.0 else 0.0) * weightOf[n]
+                    val g = p[c] - (targets[n]?.get(c) ?: if (c == labels[n]) 1.0 else 0.0)
                     for (r in own) {
                         val at = r * k + c
                         val gi = g * value + l2 * weights[at]
                         squares[at] += gi * gi
-                        weights[at] -= learningRate * gi / sqrt(squares[at])
+                        // The weight scales the step, not the gradient AdaGrad normalizes by: scaling
+                        // that would cancel out, and a lighter label would teach a feature only it
+                        // has as fully as the user's own. At weight 1 this is the plain update.
+                        val step = if (weightOf[n] == 1.0) gi else g * value * weightOf[n] + l2 * weights[at]
+                        weights[at] -= learningRate * step / sqrt(squares[at])
                     }
                 }
             }

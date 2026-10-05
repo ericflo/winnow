@@ -522,8 +522,15 @@ class BackupManager(
             if (rules.isNotEmpty()) restored += plural(rules.size, "sender rule")
 
             // A label waits under a placeholder key until its message is back (see relinkLabel).
-            val learned = corrections.all().mapTo(HashSet()) { it.buckets to it.label }
-            val lessons = backup.corrections.filter { (it.buckets.joinToString(",") to it.label) !in learned }
+            // The user's own are only matched against the user's own: one that a classifier
+            // service's label happens to equal must still come back, as the user's.
+            val here = corrections.all()
+            val learnedByUser = here.filterNot { it.fromProvider }.mapTo(HashSet()) { it.buckets to it.label }
+            val learnedAtAll = here.mapTo(HashSet()) { it.buckets to it.label }
+            val lessons = backup.corrections.filter { c ->
+                val id = c.buckets.joinToString(",") to c.label
+                if (c.source == CorrectionEntity.SOURCE_PROVIDER) id !in learnedAtAll else id !in learnedByUser
+            }
             lessons.forEach {
                 corrections.insert(
                     CorrectionEntity(
@@ -535,9 +542,11 @@ class BackupManager(
             }
             if (lessons.isNotEmpty()) {
                 learner.reload()
-                val labels = lessons.count { it.messageKey != null }
+                val (fromProvider, mine) = lessons.partition { it.source == CorrectionEntity.SOURCE_PROVIDER }
+                val labels = mine.count { it.messageKey != null }
                 if (labels > 0) restored += plural(labels, "label")
-                if (lessons.size > labels) restored += plural(lessons.size - labels, "correction")
+                if (mine.size > labels) restored += plural(mine.size - labels, "correction")
+                if (fromProvider.isNotEmpty()) restored += "${format(fromProvider.size)} from your classifier service"
             }
 
             val message = if (!canWriteMessages()) {
@@ -793,8 +802,20 @@ class BackupManager(
     private suspend fun relinkLabel(m: MessageBackup, key: String, threadId: Long) {
         val from = listOfNotNull(m.labelKey?.let { RESTORED_LABEL + it }, m.was?.takeIf { it != key })
         for (old in from) {
-            if (corrections.forMessages(listOf(key)).isNotEmpty()) corrections.deleteForMessages(listOf(old))
-            else corrections.relink(old, key, threadId)
+            val coming = corrections.forMessages(listOf(old))
+            if (coming.isEmpty()) continue
+            val there = corrections.forMessages(listOf(key))
+            val comingIsMine = coming.any { !it.fromProvider }
+            when {
+                there.isEmpty() -> corrections.relink(old, key, threadId)
+                // The user's label beats a classifier service's already on the message.
+                comingIsMine && there.all { it.fromProvider } -> {
+                    corrections.deleteForMessages(listOf(key))
+                    corrections.relink(old, key, threadId)
+                }
+                // Otherwise the one here stays (the user's, or a service's over a service's).
+                else -> corrections.deleteForMessages(listOf(old))
+            }
         }
     }
 

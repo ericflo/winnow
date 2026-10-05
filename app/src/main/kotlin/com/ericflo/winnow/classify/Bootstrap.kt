@@ -68,17 +68,26 @@ class Bootstrap(
     /** Told when a run ends, so counts elsewhere (older conversations to review) catch up. */
     private val onFinished: () -> Unit = {},
 ) {
-    /** What a run would send: [texts] from [conversations] conversations. */
-    data class Plan(val conversations: Int, val texts: Int)
+    /**
+     * What a run would send: [texts] from [conversations] conversations, under [privacy] (what
+     * the confirmation describes: whether people the user wrote to, codes or the sender's number
+     * go, and what's masked).
+     */
+    data class Plan(val conversations: Int, val texts: Int, val privacy: com.ericflo.winnow.classifier.message.PrivacyPolicy)
 
-    /** How a run went: texts [labeled], [kept] on the phone by a privacy rule, [failed] (tried again next time), what it cost. */
-    data class Tally(val labeled: Int = 0, val kept: Int = 0, val failed: Int = 0, val costUsd: Double = 0.0)
+    /**
+     * How a run went: texts [labeled] (taught to the model), [unsure] (answered, too unsure to
+     * teach), [kept] on the phone by a privacy rule at send time, [failed] (tried again next
+     * time), and what the answers cost.
+     */
+    data class Tally(val labeled: Int = 0, val unsure: Int = 0, val kept: Int = 0, val failed: Int = 0, val costUsd: Double = 0.0)
 
     private class Text(
         val key: String,
         val threadId: Long,
         val sender: String,
         val body: String,
+        val date: Long,
         val repliedTo: Boolean,
         val senderRule: com.ericflo.winnow.classifier.message.SenderRule? = null,
     )
@@ -92,6 +101,18 @@ class Bootstrap(
     private var job: Job? = null
     private val base by lazy { OnDeviceClassifier() }
 
+    /** The texts of the last plan shown, which a run started from it sends (checked again as it goes). */
+    @Volatile private var planned: List<Text>? = null
+
+    /** Texts the service has answered, sure or not: never sent again. */
+    private val prefs by lazy { context.getSharedPreferences("bootstrap", Context.MODE_PRIVATE) }
+
+    private fun asked(): Set<String> = prefs.getStringSet(KEY_ASKED, emptySet()).orEmpty().toSet()
+
+    private fun remember(keys: Collection<String>) {
+        if (keys.isNotEmpty()) prefs.edit().putStringSet(KEY_ASKED, asked() + keys).apply()
+    }
+
     /** Why a run can't start with these [settings], in words; null when it can. */
     fun unavailable(settings: WinnowSettings): String? {
         val kind = settings.provider
@@ -99,42 +120,64 @@ class Bootstrap(
         if (classifiers.provider(settings) == null) return "Finish setting up ${kind.label} in Settings first."
         if (!settings.settingsFor(kind).zeroRetention) return "Turn on zero data retention for ${kind.label} in Settings first."
         if (DataHandling.REMOTE_ZERO_RETENTION !in settings.effectivePrivacy.allowedDataHandling) return "Your privacy settings don't allow sending texts to ${kind.label}."
+        // Without contacts, a contact can't be told from a stranger, and their texts would go.
+        if (!contacts.canRead()) return "Let Winnow see your contacts first, so texts from them stay on your phone."
         return null
     }
 
     suspend fun plan(): Plan {
-        val texts = candidates(settings.current())
-        return Plan(texts.map { it.threadId }.distinct().size, texts.size)
+        val current = settings.current()
+        val texts = candidates(current)
+        planned = texts
+        return Plan(texts.map { it.threadId }.distinct().size, texts.size, current.effectivePrivacy)
     }
 
     fun start() {
         if (job?.isActive == true) return
         job = scope.launch {
-            val current = settings.current()
-            if (unavailable(current) != null) return@launch
-            val texts = candidates(current)
+            val first = settings.current()
+            if (unavailable(first) != null) return@launch
+            val texts = planned ?: candidates(first)
+            planned = null
             var tally = Tally()
             var done = 0
             _status.value = BootstrapStatus.Running(0, texts.size, tally)
-            // The provider decides every text: no deciding on the phone when sure, a generous wait.
-            val classifier = classifiers.create(current.copy(decideOnPhoneWhenSure = false), timeoutMillis = PROVIDER_TIMEOUT_MILLIS)
             val gate = Semaphore(CONCURRENCY)
             var failuresInARow = 0
             var error: String? = null
             try {
                 for (batch in texts.chunked(BATCH)) {
-                    val results = batch.map { t -> async(Dispatchers.IO) { gate.withPermit { t to runCatching { classifier.classify(t.message()) }.getOrNull() } } }.awaitAll()
+                    // Everything is checked again before each batch: the user may have changed a
+                    // setting, set a sender rule or labeled a conversation since the plan was made.
+                    val current = settings.current()
+                    unavailable(current)?.let { reason ->
+                        _status.value = BootstrapStatus.Finished(texts.size, tally, stopped = true, error = reason)
+                        return@launch
+                    }
+                    // The provider decides every text: no deciding on the phone when sure, a generous wait.
+                    val classifier = classifiers.create(current.copy(decideOnPhoneWhenSure = false), timeoutMillis = PROVIDER_TIMEOUT_MILLIS)
+                    val judged = verdicts.judgedThreads().toSet()
+                    val rules = senderRules()
+                    val (stay, go) = batch
+                        .map { t -> t.withRule(rules[com.ericflo.winnow.data.normalizeAddress(t.sender)]) }
+                        .partition { t -> t.threadId in judged || contacts.isContact(t.sender) || classifier.staysOnPhone(t.message()) }
+                    tally = tally.copy(kept = tally.kept + stay.size)
+                    val results = go.map { t -> async(Dispatchers.IO) { gate.withPermit { t to runCatching { classifier.classify(t.message()) }.getOrNull() } } }.awaitAll()
                     val labels = mutableListOf<CorrectionEntity>()
                     val filed = mutableListOf<VerdictEntity>()
-                    val now = System.currentTimeMillis()
+                    val answered = mutableListOf<String>()
                     for ((t, verdict) in results) {
                         val answer = verdict?.takeIf { it.source is VerdictSource.Provider && it.category != null }
                         when {
                             answer != null -> {
                                 failuresInARow = 0
-                                tally = tally.copy(labeled = tally.labeled + 1, costUsd = tally.costUsd + answer.costUsd)
-                                label(t, answer, now)?.let { labels += it }
-                                filed += VerdictEntity.from(t.key, t.threadId, t.sender, answer, now).copy(summarized = true)
+                                answered += t.key
+                                tally = tally.copy(costUsd = tally.costUsd + answer.costUsd)
+                                val row = label(t, answer)
+                                tally = if (row != null) tally.copy(labeled = tally.labeled + 1) else tally.copy(unsure = tally.unsure + 1)
+                                row?.let { labels += it }
+                                // Dated by the message: a verdict on an old text mustn't become the conversation's latest.
+                                filed += VerdictEntity.from(t.key, t.threadId, t.sender, answer, t.date).copy(summarized = true)
                             }
                             verdict?.source is VerdictSource.Rule -> tally = tally.copy(kept = tally.kept + 1)
                             else -> {
@@ -145,6 +188,7 @@ class Bootstrap(
                         }
                     }
                     save(labels, filed, retrain = (done / BATCH) % RETRAIN_EVERY_BATCHES == RETRAIN_EVERY_BATCHES - 1)
+                    remember(answered)
                     done += batch.size
                     _status.value = BootstrapStatus.Running(done, texts.size, tally)
                     if (failuresInARow >= MAX_FAILURES_IN_A_ROW) {
@@ -156,6 +200,9 @@ class Bootstrap(
             } catch (e: CancellationException) {
                 _status.value = BootstrapStatus.Finished(texts.size, tally, stopped = true)
                 throw e
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Bootstrap run failed", e)
+                _status.value = BootstrapStatus.Finished(texts.size, tally, stopped = true, error = "Something went wrong (${e.message ?: e::class.simpleName}). What was learned is kept.")
             } finally {
                 // Whatever was learned is in the model, however the run ended.
                 withContext(kotlinx.coroutines.NonCancellable) {
@@ -170,21 +217,27 @@ class Bootstrap(
         job?.cancel()
     }
 
+    /** After the user forgets what the service taught: a later run (confirmed again) may ask afresh. */
+    fun forgetAsked() {
+        prefs.edit().remove(KEY_ASKED).apply()
+    }
+
     /** Back to idle once the user has seen how a run ended. */
     fun dismiss() {
         if (job?.isActive != true) _status.value = BootstrapStatus.Idle
     }
 
-    private fun label(t: Text, verdict: Verdict, now: Long): CorrectionEntity? {
+    private fun label(t: Text, verdict: Verdict): CorrectionEntity? {
         // An unsure answer would teach the model a guess.
         if (verdict.confidence < MIN_CONFIDENCE) return null
-        val correction = base.correction(t.message(), setOf(verdict.category ?: return null)) ?: return null
+        val category = verdict.category ?: return null
+        val correction = base.correction(t.message(), setOf(category)) ?: return null
         return CorrectionEntity(
             threadId = t.threadId,
             buckets = correction.buckets.joinToString(","),
-            label = verdict.category!!.key,
+            label = category.key,
             featurizerVersion = Featurizer.VERSION,
-            createdAt = now,
+            createdAt = System.currentTimeMillis(),
             messageKey = t.key,
             source = CorrectionEntity.SOURCE_PROVIDER,
         )
@@ -197,47 +250,50 @@ class Bootstrap(
         filed.filterNot { it.messageKey in had }.forEach { verdicts.upsert(it) }
     }
 
+    private suspend fun senderRules() =
+        verdicts.allSenderRules().associate { it.address to runCatching { com.ericflo.winnow.classifier.message.SenderRule.valueOf(it.rule) }.getOrNull() }
+
     /**
-     * The texts a run sends, newest conversations first: up to [PER_CONVERSATION] of each one's
-     * newest received texts, from people who aren't contacts, in conversations of two the user
-     * hasn't labeled or corrected, skipping texts anything has taught the model already. People
-     * the user has written to, and verification codes, are left out unless their privacy settings
-     * send those.
+     * The texts a run sends, newest conversations first. Of each conversation with someone who
+     * isn't a contact, that the user hasn't labeled or corrected: its newest [PER_CONVERSATION]
+     * received texts, and never older ones, less any the service has answered or anything has
+     * taught the model. So a later run sends only what's arrived since. What the pipeline would
+     * keep on the phone (people the user wrote to, codes, sender rules, filtered words, as their
+     * privacy settings say) isn't planned, and is checked again when sent.
      */
     private suspend fun candidates(current: WinnowSettings): List<Text> = withContext(Dispatchers.IO) {
         val conversations = repo.conversations().first().filter { !it.isGroup && !contacts.isContact(it.address) }
         val judged = verdicts.judgedThreads().toSet()
         val wanted = conversations.filter { it.threadId !in judged }.associateBy { it.threadId }
         val replied = threadsWithOutgoing()
-        val knownAllowed = current.effectivePrivacy.classifyKnownConversations
-        // Codes stay on the phone unless the privacy settings send them: not planned, never sent.
-        val codesAllowed = current.effectivePrivacy.classifyVerificationCodes
-        val taught = corrections.taughtKeys().toHashSet()
-        val byThread = HashMap<Long, MutableList<Text>>()
+        val done = corrections.taughtKeys().toHashSet().apply { addAll(asked()) }
+        val newest = HashMap<Long, MutableList<Text>>()
         context.contentResolver.query(
             Telephony.Sms.CONTENT_URI,
-            arrayOf(Telephony.Sms._ID, Telephony.Sms.THREAD_ID, Telephony.Sms.ADDRESS, Telephony.Sms.BODY),
+            arrayOf(Telephony.Sms._ID, Telephony.Sms.THREAD_ID, Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE),
             "${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_INBOX}", null, "${Telephony.Sms.DATE} DESC",
         )?.use { c ->
             while (c.moveToNext()) {
                 val threadId = c.getLong(1)
-                if (threadId !in wanted || (threadId in replied && !knownAllowed)) continue
-                val list = byThread.getOrPut(threadId) { mutableListOf() }
-                if (list.size >= PER_CONVERSATION) continue
+                if (threadId !in wanted) continue
                 val body = c.getString(3).orEmpty()
-                if (body.isBlank() || (!codesAllowed && com.ericflo.winnow.classifier.message.VerificationCodes.find(body) != null)) continue
-                val key = ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0))
-                if (key in taught) continue
-                list += Text(key, threadId, c.getString(2).orEmpty().ifBlank { wanted.getValue(threadId).address }, body, threadId in replied)
+                if (body.isBlank()) continue
+                // The newest few, whatever becomes of them: an answered one keeps its slot.
+                val list = newest.getOrPut(threadId) { mutableListOf() }
+                if (list.size >= PER_CONVERSATION) continue
+                val sender = c.getString(2).orEmpty().ifBlank { wanted.getValue(threadId).address }
+                list += Text(ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0)), threadId, sender, body, c.getLong(4), threadId in replied)
             }
         }
-        // The pipeline's own first checks decide what stays on the phone; the plan agrees with them exactly.
-        val rules = verdicts.allSenderRules().associate { it.address to runCatching { com.ericflo.winnow.classifier.message.SenderRule.valueOf(it.rule) }.getOrNull() }
+        val rules = senderRules()
         val gate = classifiers.create(current)
-        conversations.filter { it.threadId in byThread }.flatMap { byThread.getValue(it.threadId) }
-            .map { t -> Text(t.key, t.threadId, t.sender, t.body, t.repliedTo, rules[com.ericflo.winnow.data.normalizeAddress(t.sender)]) }
+        conversations.filter { it.threadId in newest }.flatMap { newest.getValue(it.threadId) }
+            .filterNot { it.key in done }
+            .map { t -> t.withRule(rules[com.ericflo.winnow.data.normalizeAddress(t.sender)]) }
             .filterNot { gate.staysOnPhone(it.message()) }
     }
+
+    private fun Text.withRule(rule: com.ericflo.winnow.classifier.message.SenderRule?) = Text(key, threadId, sender, body, date, repliedTo, rule)
 
     private fun threadsWithOutgoing(): Set<Long> {
         val threads = HashSet<Long>()
@@ -255,6 +311,9 @@ class Bootstrap(
     private fun Text.message() = InboundMessage(sender = sender, body = body, senderInContacts = false, userHasMessagedSender = repliedTo, senderRule = senderRule)
 
     companion object {
+        private const val TAG = "WinnowBootstrap"
+        private const val KEY_ASKED = "asked"
+
         /** Newest received texts sent per conversation: enough to know it, few enough to keep sending down. */
         const val PER_CONVERSATION = 3
         /** Below this, the provider's answer is a guess, and isn't taught. */

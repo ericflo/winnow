@@ -70,7 +70,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     val providerLearned: StateFlow<Int> = container.learner.providerCount.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     fun forgetProviderLabels() {
-        viewModelScope.launch { runCatching { container.learner.forgetProviderLabels() } }
+        viewModelScope.launch { runCatching { container.learner.forgetProviderLabels(); container.bootstrap.forgetAsked() } }
     }
 
     fun forgetLearning() {

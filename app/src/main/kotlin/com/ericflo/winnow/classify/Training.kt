@@ -76,8 +76,9 @@ class Training(
         val backlog = all.filter { c -> eligible(c) && c.threadId !in judged && !knownEmpty(c) }
         val classifier = learner.classifier()
         // What the classifier service said of each conversation, from its newest label there.
+        // Its label on the conversation's newest text (message ids grow with time), not its latest run's.
         val provider = corrections.all().filter { it.fromProvider && it.threadId != null }
-            .groupBy { it.threadId!! }.mapValues { (_, rows) -> Category.fromKey(rows.maxBy { it.createdAt }.label) }
+            .groupBy { it.threadId!! }.mapValues { (_, rows) -> Category.fromKey(rows.maxBy { r -> r.messageKey?.substringAfter(':')?.toLongOrNull() ?: 0 }.label) }
         // A first, cheap guess from each conversation's latest text, to choose the batch. Where the
         // service and the model disagree comes first: that's where the user's answer counts most.
         val guessed = backlog.map { c ->

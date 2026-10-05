@@ -99,4 +99,16 @@ class PersonalizerTest {
         val taught = base.learn(listOf(asMarketing.copy(weight = 0.3), asPersonal))
         assertEquals(Category.PERSONAL, taught.classify(promo).category)
     }
+
+    @Test
+    fun `a lighter label teaches less, even where it is the only label`() {
+        val correction = base.correction(promo, setOf(Category.PERSONAL))!!
+        val full = base.learn(listOf(correction)).classify(promo)
+        val light = base.learn(listOf(correction.copy(weight = 0.35))).classify(promo)
+        // Both move it, but only the user's own makes the model sure.
+        assertEquals(Category.PERSONAL, full.category)
+        assertEquals(Category.PERSONAL, light.category)
+        assertTrue("full ${full.confidence}", full.confidence > 0.95)
+        assertTrue("light ${light.confidence}", light.confidence in 0.6..0.85)
+    }
 }

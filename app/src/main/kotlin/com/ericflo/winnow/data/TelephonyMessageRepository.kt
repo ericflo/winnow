@@ -52,7 +52,7 @@ class TelephonyMessageRepository(
     /** The user overrode Winnow's call on the thread's newest incoming message, for the on-device model to learn from. */
     private val onCorrected: suspend (threadId: Long, message: InboundMessage, action: Action) -> Unit = { _, _, _ -> },
     /** Drops labels a correction contradicts from what was learned, returning them for an undo. */
-    private val onLabelsDropped: suspend (keys: List<String>) -> List<CorrectionEntity> = { emptyList() },
+    private val onLabelsDropped: suspend (threadId: Long, keys: List<String>, action: Action) -> List<CorrectionEntity> = { _, _, _ -> emptyList() },
     /** Puts dropped labels back. */
     private val onLabelsRestored: suspend (labels: List<CorrectionEntity>) -> Unit = {},
     private val onUncorrected: suspend (threadId: Long) -> Unit = {},
@@ -398,7 +398,7 @@ class TelephonyMessageRepository(
             senderRule = dao.senderRule(normalizeAddress(address)),
             insertedKey = unclassified,
             rows = before.map { PreviousVerdict.UserState(it.messageKey, it.userAction, it.userCategory) },
-            labels = runCatching { onLabelsDropped(contradicted) }.getOrDefault(emptyList()),
+            labels = runCatching { onLabelsDropped(threadId, contradicted, action) }.getOrDefault(emptyList()),
         )
         dao.setUserAction(threadId, action.name)
         if (contradicted.isNotEmpty()) dao.clearLabels(contradicted)

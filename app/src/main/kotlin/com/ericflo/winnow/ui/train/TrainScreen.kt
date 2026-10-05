@@ -491,7 +491,7 @@ private fun CandidateRow(
                     // The classifier service's own answer, so its part in the guess is plain to see.
                     c.providerSays?.let { says ->
                         Text(
-                            if (says == c.guess) "$providerName agrees" else "$providerName said ${says.label}",
+                            "$providerName said ${says.label}",
                             style = MaterialTheme.typography.labelMedium,
                             color = if (says == c.guess) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.tertiary,
                             modifier = Modifier.padding(start = 32.dp, top = 2.dp),
@@ -631,6 +631,7 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
             LinearProgressIndicator(progress = { if (st.total == 0) 0f else st.done.toFloat() / st.total }, modifier = Modifier.fillMaxWidth())
             Text(
                 "${st.done} of ${st.total} texts · ${st.tally.labeled} labeled · ${money(st.tally.costUsd)} so far" +
+                    (if (st.tally.unsure > 0) " · ${st.tally.unsure} too unsure to teach" else "") +
                     (if (st.tally.kept > 0) " · ${st.tally.kept} kept on your phone" else "") +
                     (if (st.tally.failed > 0) " · ${st.tally.failed} to try again" else ""),
                 style = MaterialTheme.typography.bodyMedium,
@@ -640,6 +641,7 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
         is com.ericflo.winnow.classify.BootstrapStatus.Finished -> BootstrapCard(if (st.stopped) "Stopped" else "${o.provider} labeled your backlog") {
             Text(
                 "${st.tally.labeled} texts labeled, for ${money(st.tally.costUsd)}. Winnow's model has learned from them; your own labels count for more and always win." +
+                    (if (st.tally.unsure > 0) " ${st.tally.unsure} more got an answer too unsure to teach." else "") +
                     (if (st.tally.kept > 0) " ${st.tally.kept} stayed on your phone, as your privacy settings say." else "") +
                     (if (st.tally.failed > 0) " ${st.tally.failed} got no answer and will be tried next time." else "") +
                     (st.error?.let { " $it" } ?: ""),
@@ -650,13 +652,13 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
         com.ericflo.winnow.classify.BootstrapStatus.Idle -> when {
             o.plan.texts == 0 && o.taught == 0 -> Unit
             o.plan.texts == 0 -> Text(
-                "${o.provider} has labeled your backlog (${o.taught} texts). New conversations are labeled as they arrive.",
+                "${o.provider} has labeled your backlog (${o.taught} texts). When new conversations come in, they're offered here to label too.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             else -> BootstrapCard(if (o.taught > 0) "Finish labeling your backlog with ${o.provider}" else "Let ${o.provider} label your backlog first") {
                 Text(
-                    "It would label ${o.plan.texts} texts from ${o.plan.conversations} conversations with people who aren't in your contacts, " +
+                    "It would label ${plural(o.plan.texts, "text")} from ${plural(o.plan.conversations, "conversation")} with people who aren't in your contacts, " +
                         "so Winnow learns your texts before you've labeled many, and these rounds bring only what it still can't settle.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -671,19 +673,9 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
     if (confirming) {
         AlertDialog(
             onDismissRequest = { confirming = false },
-            title = { Text("Send ${o.plan.texts} texts to ${o.provider}?") },
+            title = { Text("Send ${plural(o.plan.texts, "text")} to ${o.provider}?") },
             text = {
-                Text(
-                    "The newest ${com.ericflo.winnow.classify.Bootstrap.PER_CONVERSATION} texts of each of ${o.plan.conversations} conversations with people who aren't in your contacts go to " +
-                        "${o.provider}, one at a time, with zero data retention: " +
-                        (if (o.provider.contains("OpenRouter")) "OpenRouter is told to use only endpoints that keep nothing. "
-                        else "you've confirmed ${o.provider} keeps nothing (Winnow can't check that itself). ") +
-                        "They're redacted as always: long numbers, emails and the paths of links are masked, and the sender's number isn't sent. " +
-                        "Texts from contacts, people you've written to, and codes stay on your phone.\n\n" +
-                        "Its answers teach Winnow's model (counting for less than your labels, which always win) and file texts Winnow never sorted. " +
-                        (o.estimateUsd?.let { "At OpenRouter's price for Jev that's about ${money(it)} in all. " } ?: "${o.provider} bills each one as usual; the cost so far shows as it goes. ") +
-                        "You can stop at any time and pick up later.",
-                )
+                Text(consentText(o, money))
             },
             confirmButton = { TextButton(onClick = { confirming = false; viewModel.startBootstrap() }) { Text("Start") } },
             dismissButton = { TextButton(onClick = { confirming = false }) { Text("Not now") } },
@@ -700,3 +692,38 @@ private fun BootstrapCard(title: String, content: @Composable () -> Unit) {
         }
     }
 }
+
+/**
+ * What the bootstrap will do, as the confirmation says it: worked out from the user's own
+ * privacy settings, so every claim in it is true of this run.
+ */
+private fun consentText(o: BootstrapOffer, money: (Double) -> String): String {
+    val p = o.plan.privacy
+    val r = p.redaction
+    val masked = listOfNotNull("long numbers".takeIf { r.maskDigitRuns }, "email addresses".takeIf { r.maskEmails }, "the paths of links".takeIf { r.stripUrlPaths })
+    val stay = listOfNotNull(
+        "contacts",
+        "people you've written to".takeIf { !p.classifyKnownConversations },
+        "verification codes".takeIf { !p.classifyVerificationCodes },
+        "senders you've set a rule for",
+    )
+    fun list(items: List<String>) = when (items.size) {
+        0 -> ""
+        1 -> items[0]
+        else -> items.dropLast(1).joinToString(", ") + " and " + items.last()
+    }
+    return buildString {
+        append("Up to the newest ${com.ericflo.winnow.classify.Bootstrap.PER_CONVERSATION} texts of each of ${plural(o.plan.conversations, "conversation")} with people who aren't in your contacts go to ${o.provider}, a few at a time, with zero data retention: ")
+        append(if (o.provider.contains("OpenRouter")) "OpenRouter is told to use only endpoints that keep nothing. " else "you've confirmed ${o.provider} keeps nothing (Winnow can't check that itself). ")
+        append(if (masked.isEmpty()) "Your settings send them unmasked. " else "${list(masked).replaceFirstChar { it.uppercase() }} are masked first, as your settings say. ")
+        append(if (p.shareSenderAddress) "Your settings send the sender's number with each. " else "The sender's number isn't sent. ")
+        append("Texts from ${list(stay)} stay on your phone.")
+        if (p.classifyKnownConversations) append(" Your settings do send texts from people you've written to.")
+        if (p.classifyVerificationCodes) append(" Your settings do send verification codes.")
+        append("\n\nIts answers teach Winnow's model (counting for less than your labels, which always win) and file texts Winnow never sorted. ")
+        append(o.estimateUsd?.let { "At OpenRouter's price for Jev that's about ${money(it)} in all. " } ?: "${o.provider} bills each one as usual; the cost so far shows as it goes. ")
+        append("You can stop at any time and pick up later; texts it has answered aren't sent again.")
+    }
+}
+
+private fun plural(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"

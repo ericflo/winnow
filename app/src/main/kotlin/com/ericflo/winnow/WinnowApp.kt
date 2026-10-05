@@ -247,7 +247,7 @@ class AppContainer(private val context: Context) {
                 retryDownload = { mmsReceiver.retryDownload(it) },
                 onCorrected = { threadId, message, action -> learner.learn(threadId, message, action) },
                 onUncorrected = { threadId -> learner.unlearn(threadId) },
-                onLabelsDropped = { keys -> learner.dropLabels(keys) },
+                onLabelsDropped = { threadId, keys, action -> learner.dropForCorrection(threadId, keys, action) },
                 onLabelsRestored = { labels -> learner.unlabel(emptyList(), labels) },
             ),
             demo = NoAccessMessageRepository(),
