@@ -49,6 +49,8 @@ class IncomingMessageHandler(
     private val visibleThread: StateFlow<Long?>,
     /** Saves an attachment to the phone's gallery (see "Save received photos and videos"). */
     private val saveToPhone: (Attachment) -> String? = { null },
+    /** Teaches the on-device model a classifier service's answer (see Learner.learnFromAnswer). */
+    private val learnFromAnswer: suspend (threadId: Long, key: String, message: InboundMessage, category: com.ericflo.winnow.classifier.message.Category) -> Boolean = { _, _, _, _ -> false },
 ) {
 
     suspend fun onSmsDelivered(address: String, body: String, sentAt: Long, subscriptionId: Int) {
@@ -160,8 +162,9 @@ class IncomingMessageHandler(
         // The store reuses a deleted message's id, and a deletion Winnow didn't make (another app's,
         // a restore elsewhere) leaves its verdict behind: that one isn't this message's.
         dao.deleteForMessage(key)
+        var asked: InboundMessage? = null
         val verdict = try {
-            withTimeout(BUDGET_MILLIS) { classify(sender, text, threadId) }
+            withTimeout(BUDGET_MILLIS) { classify(sender, text, threadId) { asked = it } }
         } catch (e: TimeoutCancellationException) {
             Log.w(TAG, "Classification over budget; delivering normally")
             null
@@ -182,6 +185,11 @@ class IncomingMessageHandler(
                 VerdictEntity.from(key, threadId, sender, verdict, System.currentTimeMillis()).copy(atArrival = true)
                     .copy(userAction = corrected?.name, userCategory = existing?.userCategory, summarized = existing?.summarized ?: false),
             )
+        }
+        // The service's answer goes on teaching the on-device model, unless the user has had their say.
+        val message = asked
+        if (verdict != null && message != null && corrected == null && existing?.userCategory == null && teaches(verdict, settings.current().learnFromProvider)) {
+            runCatching { learnFromAnswer(threadId, key, message, verdict.category!!) }.onFailure { Log.w(TAG, "Couldn't learn from an answer", it) }
         }
         val action = corrected ?: verdict?.action ?: Action.ALLOW
         // A new message brings an archived conversation back, unless it's being filtered.
@@ -244,7 +252,7 @@ class IncomingMessageHandler(
         }
     }
 
-    private suspend fun classify(address: String, body: String, threadId: Long): Verdict {
+    private suspend fun classify(address: String, body: String, threadId: Long, onMessage: (InboundMessage) -> Unit): Verdict {
         val current = settings.current()
         val message = InboundMessage(
             sender = address,
@@ -253,6 +261,7 @@ class IncomingMessageHandler(
             userHasMessagedSender = withContext(Dispatchers.IO) { hasOutgoing(threadId) },
             senderRule = dao.senderRule(normalizeAddress(address))?.let { runCatching { SenderRule.valueOf(it) }.getOrNull() },
         )
+        onMessage(message)
         return classifiers.create(current, timeoutMillis = PROVIDER_TIMEOUT_MILLIS).classify(message)
     }
 
@@ -304,6 +313,15 @@ class IncomingMessageHandler(
         const val PROVIDER_TIMEOUT_MILLIS = 5_000L
     }
 }
+
+/**
+ * Whether [verdict] should teach the on-device model as its text arrives: a classifier service
+ * answered, sure enough not to be guessing, and the user wants the model taught. Pure, so it's
+ * unit-tested.
+ */
+fun teaches(verdict: Verdict, learnFromProvider: Boolean): Boolean =
+    learnFromProvider && verdict.source is com.ericflo.winnow.classifier.message.VerdictSource.Provider &&
+        verdict.category != null && verdict.confidence >= Learner.MIN_TEACH_CONFIDENCE
 
 /** "Picture message (48 KB) · tap to download". */
 fun deferredPreview(sizeBytes: Long): String {

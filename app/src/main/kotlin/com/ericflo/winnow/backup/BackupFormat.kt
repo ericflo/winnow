@@ -55,6 +55,8 @@ data class SettingsBackup(
     val stripUrlPaths: Boolean,
     val zdrOnly: Boolean,
     val decideOnPhoneWhenSure: Boolean = false,
+    /** Null in backups made before the model learned from a service's answers as texts arrived: the phone keeps its own. */
+    val learnFromProvider: Boolean? = null,
     val hideOnLockScreen: Boolean = false,
     val undoSendSeconds: Int = 0,
     val deleteOldCodes: Boolean = false,

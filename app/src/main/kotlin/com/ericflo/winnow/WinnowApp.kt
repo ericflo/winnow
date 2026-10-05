@@ -153,7 +153,7 @@ class AppContainer(private val context: Context) {
     val learner by lazy {
         // Kept for this install: an update (a new model, a new way of fitting) fits afresh.
         val install = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
-        Learner(correctionDao, settings, com.ericflo.winnow.classify.PersonalModelStore(java.io.File(context.filesDir, "personal-model.bin"), install), database.fits())
+        Learner(correctionDao, settings, com.ericflo.winnow.classify.PersonalModelStore(java.io.File(context.filesDir, "personal-model.bin"), install), database.fits(), appScope)
     }
     /** Backlog runs and every answer they got (see RunEntity). */
     val runDao by lazy { database.runs() }
@@ -161,6 +161,10 @@ class AppContainer(private val context: Context) {
     val fitDao by lazy { database.fits() }
     /** Evaluations the user ran (see EvalEntity). */
     val evalDao by lazy { database.evals() }
+    /** Why a text went where it did (see Provenance). */
+    val provenance by lazy {
+        com.ericflo.winnow.classify.ProvenanceSource(verdictDao, correctionDao, runDao, fitDao, settings, com.ericflo.winnow.data.MessageTexts(context))
+    }
     val classifiers by lazy {
         // Without contacts, a contact's text looks like a stranger's: none may go to a classifier service.
         ClassifierFactory(OkHttpTransport(), { learner.classifier() }) { if (contacts.canRead()) null else ClassifierFactory.CONTACTS_HIDDEN }
@@ -375,7 +379,10 @@ class AppContainer(private val context: Context) {
     }
 
     val incoming by lazy {
-        IncomingMessageHandler(context, verdictDao, contacts, settings, classifiers, notifier, conversationStates, visibleThread, saveToPhone = mediaExport::save)
+        IncomingMessageHandler(
+            context, verdictDao, contacts, settings, classifiers, notifier, conversationStates, visibleThread, saveToPhone = mediaExport::save,
+            learnFromAnswer = { threadId, key, message, category -> learner.learnFromAnswer(threadId, key, message, category) },
+        )
     }
 
     /** The SIM a new message to [threadId] should go out on; null for Android's default. */

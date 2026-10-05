@@ -550,7 +550,7 @@ class Bootstrap(
         /** Newest received texts sent per conversation: enough to know it, few enough to keep sending down. */
         const val PER_CONVERSATION = 3
         /** Below this, the provider's answer is a guess, and isn't taught. */
-        const val MIN_CONFIDENCE = 0.7
+        const val MIN_CONFIDENCE = Learner.MIN_TEACH_CONFIDENCE
         private const val CONCURRENCY = 3
         private const val BATCH = 24
         /** The model is refit every this many batches as a run goes, and at its end. */

@@ -1075,6 +1075,9 @@ class ThreadViewModel(
      * Moves [messages] to Recently deleted (in the app's scope: leaving doesn't stop it halfway).
      * Their reminders are kept with them, and come back if they do.
      */
+    /** Why Winnow did what it did with the message [key] (see Provenance). */
+    suspend fun explain(key: String) = container.provenance.explain(key)
+
     fun deleteMessages(messages: List<ChatMessage>) = launch {
         val kept = mutableListOf<Trash.Item>()
         for ((thread, some) in messages.groupBy { it.threadId }) {

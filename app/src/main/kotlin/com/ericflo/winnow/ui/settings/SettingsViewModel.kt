@@ -171,6 +171,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setDecideOnPhoneWhenSure(value: Boolean) = update { it.copy(decideOnPhoneWhenSure = value) }
 
+    fun setLearnFromProvider(value: Boolean) = update { it.copy(learnFromProvider = value) }
+
     fun setAppLock(value: Boolean) = update { it.copy(appLock = value) }
 
     fun setHideOnLockScreen(value: Boolean) = update { it.copy(hideOnLockScreen = value) }

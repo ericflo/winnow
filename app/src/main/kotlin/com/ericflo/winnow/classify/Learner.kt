@@ -16,6 +16,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -31,6 +32,8 @@ class Learner(
     private val store: PersonalModelStore? = null,
     /** Where each fit is recorded, for the model's history (see ModelFitEntity). */
     private val fits: com.ericflo.winnow.data.db.ModelFitDao? = null,
+    /** Where a refit after labels that come one at a time runs (see [learnFromAnswer]). */
+    private val scope: kotlinx.coroutines.CoroutineScope? = null,
 ) {
     private val base by lazy { OnDeviceClassifier() }
     private val lock = Mutex()
@@ -205,6 +208,47 @@ class Learner(
         if (retrain) retrain()
     }
 
+    /**
+     * A classifier service's answer about [message] as it arrived, taught to the model the way a
+     * backlog run's are (see [teach]): its feature buckets, never its text, counting for
+     * [PROVIDER_WEIGHT] of one of the user's labels, and never over the user's own. The refit
+     * waits a little, so a burst of texts makes one. False if there was nothing to learn.
+     */
+    suspend fun learnFromAnswer(threadId: Long, key: String, message: InboundMessage, category: Category): Boolean {
+        val correction = withContext(Dispatchers.Default) { base.correction(message, setOf(category)) } ?: return false
+        teach(
+            listOf(
+                CorrectionEntity(
+                    threadId = threadId,
+                    buckets = correction.buckets.joinToString(","),
+                    label = category.key,
+                    featurizerVersion = Featurizer.VERSION,
+                    createdAt = System.currentTimeMillis(),
+                    messageKey = key,
+                    source = CorrectionEntity.SOURCE_PROVIDER,
+                    runId = null,
+                ),
+            ),
+            retrain = false,
+        )
+        refitSoon()
+        return true
+    }
+
+    private var pendingRefit: kotlinx.coroutines.Job? = null
+
+    /** A refit in a little while, replacing one already waiting. */
+    private fun refitSoon() {
+        val s = scope ?: return
+        synchronized(this) {
+            pendingRefit?.cancel()
+            pendingRefit = s.launch {
+                kotlinx.coroutines.delay(REFIT_AFTER_MILLIS)
+                retrain()
+            }
+        }
+    }
+
     /** Forgets what a classifier service taught, keeping the user's own labels and corrections. */
     suspend fun forgetProviderLabels() {
         lock.withLock { dao.deleteProviderLabels() }
@@ -253,6 +297,12 @@ class Learner(
          * the model the backlog, little enough that one of the user's outweighs several of its.
          */
         const val PROVIDER_WEIGHT = 0.35
+
+        /** How long a label learned as a text arrived waits for others before the model is refit. */
+        const val REFIT_AFTER_MILLIS = 20_000L
+
+        /** Below this, a classifier service's answer is a guess, and isn't taught (as in a backlog run). */
+        const val MIN_TEACH_CONFIDENCE = 0.7
 
         /** Fits recorded for the model's history, newest first, besides any kept or named. */
         const val FITS_KEPT = 500

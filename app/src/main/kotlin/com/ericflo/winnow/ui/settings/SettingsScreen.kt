@@ -634,6 +634,15 @@ private fun LazyListScope.privacyItems(s: WinnowSettings, vm: SettingsViewModel)
                 onChange = vm::setDecideOnPhoneWhenSure,
             )
         }
+        item("p-learn") {
+            SwitchRow(
+                "Keep teaching the on-device model",
+                "${s.provider.label}'s answers on texts as they arrive teach Winnow's built-in model, counting for less than your own labels, " +
+                    "so it goes on learning your texts while ${s.provider.label} decides. Only answers at least 70% sure teach it.",
+                s.learnFromProvider,
+                onChange = vm::setLearnFromProvider,
+            )
+        }
     }
     item("p-contacts") {
         SwitchRow("Keep contacts' messages on this phone", "Texts from saved contacts are always delivered and never sent to a provider.", !p.classifyContacts) { on ->

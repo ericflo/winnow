@@ -299,6 +299,7 @@ fun WinnowNavHost(
                                         onReportSpam = whenResumed { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
                                         onOpenDetails = whenResumed { threadId -> nav.navigate(DetailsRoute(threadId, open.recipients)) },
                                         onMessageNumber = whenResumed { number -> nav.navigate(ThreadRoute(-1, number)) },
+                onOpenRun = whenResumed { runId -> nav.navigate(RunRoute(runId)) },
                                         showBack = !twoPane,
                                     )
                                 }
@@ -410,6 +411,7 @@ fun WinnowNavHost(
                 onReportSpam = whenResumed { text -> nav.navigate(ThreadRoute(-1, CARRIER_SPAM_SHORT_CODE, text)) },
                 onOpenDetails = whenResumed { threadId -> nav.navigate(DetailsRoute(threadId, route.recipients)) },
                 onMessageNumber = whenResumed { number -> nav.navigate(ThreadRoute(-1, number)) },
+                onOpenRun = whenResumed { runId -> nav.navigate(RunRoute(runId)) },
             )
             }
         }

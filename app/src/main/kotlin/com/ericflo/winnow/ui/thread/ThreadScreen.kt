@@ -261,8 +261,12 @@ fun ThreadScreen(
     onMessageNumber: (String) -> Unit = {},
     /** False in the two-pane layout, where the conversation list stays beside it. */
     showBack: Boolean = true,
+    /** A backlog run's results (see RunScreen), from why a text was sorted as it was. */
+    onOpenRun: (Long) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // The message whose "why" is open (see ProvenanceSheet), by key.
+    var explaining by rememberSaveable { mutableStateOf<String?>(null) }
     val sims by viewModel.sims.collectAsStateWithLifecycle()
     val selectedSim by viewModel.selectedSim.collectAsStateWithLifecycle()
     val blocked by viewModel.blocked.collectAsStateWithLifecycle()
@@ -732,7 +736,12 @@ fun ThreadScreen(
         Column(Modifier.padding(padding).fillMaxSize()) {
             val verdictShown = state.verdict?.let { it.effectiveAction != Action.ALLOW || it.userAction != null } == true
             state.verdict?.takeIf { verdictShown }?.let { verdict ->
-                VerdictBanner(verdict, onAllow = viewModel::allow, onFilter = viewModel::filter, onReport = { confirmReport = true }, onRelabel = { labelingConversation = true })
+                // Why: the newest received message Winnow decided, which is what the banner shows.
+                val decided = state.messages.lastOrNull { !it.outgoing && it.verdict != null }
+                VerdictBanner(
+                    verdict, onAllow = viewModel::allow, onFilter = viewModel::filter, onReport = { confirmReport = true }, onRelabel = { labelingConversation = true },
+                    onWhy = decided?.let { m -> { explaining = m.key } },
+                )
             }
             val ownNumberDismissed by viewModel.ownNumberCardDismissed.collectAsStateWithLifecycle()
             if (state.isGroup && !phoneNumbersAllowed && !ownNumberDismissed) {
@@ -847,6 +856,7 @@ fun ThreadScreen(
             onSelectText = { selectingText = words },
             onReactOther = { reactingWithOther = message },
             onLabel = if (com.ericflo.winnow.classify.Labeler.labelable(message)) ({ labelingMessage = message }) else null,
+            onWhy = if (!message.outgoing && message.verdict != null) ({ explaining = message.key }) else null,
             links = if (state.linksOff(message)) emptyList() else allWebLinks(message.body),
             onCopyLink = { copy(it, "Link copied") },
             onShareText = {
@@ -856,6 +866,9 @@ fun ThreadScreen(
         )
     }
     selectingText?.let { text -> SelectTextDialog(text, onDismiss = { selectingText = null }) }
+    explaining?.let { key ->
+        com.ericflo.winnow.ui.insight.ProvenanceSheet(load = { viewModel.explain(key) }, onDismiss = { explaining = null }, onOpenRun = onOpenRun)
+    }
     if (labelingConversation) {
         val newest = state.messages.lastOrNull(com.ericflo.winnow.classify.Labeler::labelable)
         LabelSheet(
@@ -1213,7 +1226,7 @@ private fun UnknownSenderBanner(onAddContact: () -> Unit, onFilter: () -> Unit, 
 
 /** Why Winnow handled this conversation the way it did, and the one-tap correction. */
 @Composable
-private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter: () -> Unit, onReport: () -> Unit, onRelabel: () -> Unit) {
+private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter: () -> Unit, onReport: () -> Unit, onRelabel: () -> Unit, onWhy: (() -> Unit)? = null) {
     val (container, content) = categoryColors(if (verdict.userAction == Action.ALLOW) null else verdict.category)
     val label = verdict.category?.label ?: "This sender"
     val percent = if (verdict.confidence < 1.0) " · ${(verdict.confidence * 100).toInt()}%" else ""
@@ -1257,6 +1270,7 @@ private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter:
             // In the banner's own ink: the app's accent reads poorly on a red or amber banner.
             val buttons = ButtonDefaults.textButtonColors(contentColor = content)
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                onWhy?.let { TextButton(onClick = it, colors = buttons) { Text("Why?") } }
                 if (verdict.labeledByUser) {
                     TextButton(onClick = onRelabel, colors = buttons) { Text("Change label", fontWeight = FontWeight.SemiBold) }
                     return@Row
@@ -1947,6 +1961,8 @@ private fun MessageActionsSheet(
     onReactOther: () -> Unit = {},
     /** Label this received message (see Labeler); null for one the user sent. */
     onLabel: (() -> Unit)? = null,
+    /** Why Winnow sorted this received message as it did (see ProvenanceSheet); null when it kept no verdict. */
+    onWhy: (() -> Unit)? = null,
     /** The message's links, to copy on their own; none for fraud, whose links can't be tapped either. */
     links: List<String> = emptyList(),
     onCopyLink: (String) -> Unit = {},
@@ -1988,6 +2004,15 @@ private fun MessageActionsSheet(
                     leadingContent = { Icon(painterResource(R.drawable.ic_label), contentDescription = null) },
                     colors = colors,
                     modifier = Modifier.clickable(onClick = act(onLabel)),
+                )
+            }
+            if (onWhy != null) {
+                ListItem(
+                    headlineContent = { Text("Why Winnow sorted this") },
+                    supportingContent = { Text(message.verdict?.source?.let { "$it · what each thought, and what it taught" } ?: "Who decided, and what it taught") },
+                    leadingContent = { Icon(painterResource(R.drawable.ic_insights), contentDescription = null) },
+                    colors = colors,
+                    modifier = Modifier.clickable(onClick = act(onWhy)),
                 )
             }
             if (message.body.isNotBlank() || message.subject != null) {

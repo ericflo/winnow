@@ -107,6 +107,11 @@ data class WinnowSettings(
     val zdrOnly: Boolean = false,
     /** Let the on-device model decide, without asking the provider, when it's very sure. */
     val decideOnPhoneWhenSure: Boolean = false,
+    /**
+     * Keep teaching the on-device model from the classifier service's answers as texts arrive,
+     * as a backlog run does: so it goes on learning while the service decides. On by default.
+     */
+    val learnFromProvider: Boolean = true,
     /** Ask for a fingerprint, face or the screen lock to open Winnow. */
     val appLock: Boolean = false,
     /** Delete one-time codes from services a day after they arrive. Off unless the user turns it on. */
@@ -214,6 +219,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             privacy = privacy,
             zdrOnly = this[ZDR_ONLY] ?: false,
             decideOnPhoneWhenSure = this[DECIDE_ON_PHONE] ?: false,
+            learnFromProvider = this[LEARN_FROM_PROVIDER] ?: true,
             appLock = this[APP_LOCK] ?: false,
             hideOnLockScreen = this[HIDE_ON_LOCK_SCREEN] ?: false,
             undoSendSeconds = this[UNDO_SEND_SECONDS] ?: 0,
@@ -269,6 +275,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[STRIP_URLS] = s.privacy.redaction.stripUrlPaths
         this[ZDR_ONLY] = s.zdrOnly
         this[DECIDE_ON_PHONE] = s.decideOnPhoneWhenSure
+        this[LEARN_FROM_PROVIDER] = s.learnFromProvider
         this[APP_LOCK] = s.appLock
         this[HIDE_ON_LOCK_SCREEN] = s.hideOnLockScreen
         this[UNDO_SEND_SECONDS] = s.undoSendSeconds
@@ -311,6 +318,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val STRIP_URLS = booleanPreferencesKey("privacy.strip_urls")
         val ZDR_ONLY = booleanPreferencesKey("privacy.zdr_only")
         val DECIDE_ON_PHONE = booleanPreferencesKey("privacy.decide_on_phone_when_sure")
+        val LEARN_FROM_PROVIDER = booleanPreferencesKey("model.learn_from_provider")
         val APP_LOCK = booleanPreferencesKey("security.app_lock")
         val HIDE_ON_LOCK_SCREEN = booleanPreferencesKey("security.hide_on_lock_screen")
         val UNDO_SEND_SECONDS = intPreferencesKey("compose.undo_send_seconds")
