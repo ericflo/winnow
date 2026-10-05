@@ -118,7 +118,7 @@ class Training(
             val c = byId.getValue(threadId)
             // A colleague in a work profile is a contact too (asked of Android only for the ones picked).
             if (threadId !in before && contacts.isContact(c.address)) continue
-            val messages = repo.messagesNow(threadId)
+            val messages = repo.messagesNow(threadId, newestSenders = Labeler.SENDERS_NEEDED)
             val covered = Labeler.examplesFrom(messages, c.recipients)
             val newest = covered.lastOrNull()
             if (newest == null) {

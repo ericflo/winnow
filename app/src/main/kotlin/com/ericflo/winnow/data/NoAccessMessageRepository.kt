@@ -15,7 +15,7 @@ class NoAccessMessageRepository : MessageRepository {
 
     override fun messages(threadId: Long): Flow<List<ChatMessage>> = flowOf(emptyList())
 
-    override suspend fun messagesNow(threadId: Long): List<ChatMessage> = emptyList()
+    override suspend fun messagesNow(threadId: Long, newestSenders: Int): List<ChatMessage> = emptyList()
 
     override fun displayName(address: String): String = ContactLookup.formatAddress(address)
 

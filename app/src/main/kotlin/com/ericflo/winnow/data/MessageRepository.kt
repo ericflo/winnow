@@ -37,8 +37,13 @@ interface MessageRepository {
 
     fun messages(threadId: Long): Flow<List<ChatMessage>>
 
-    /** A conversation's messages as they are now, without verdicts: a one-off read, cheaper than [messages]. */
-    suspend fun messagesNow(threadId: Long): List<ChatMessage>
+    /**
+     * A conversation's messages as they are now, without verdicts: a one-off read, cheaper than
+     * [messages]. In a group, who sent each received MMS is asked of the store one at a time, so a
+     * caller that only needs the newest can say so with [newestSenders]: older ones may then come
+     * without a sender.
+     */
+    suspend fun messagesNow(threadId: Long, newestSenders: Int = Int.MAX_VALUE): List<ChatMessage>
 
     /** A contact name, or a formatted number. */
     fun displayName(address: String): String
@@ -145,7 +150,7 @@ class SwitchingMessageRepository(
 
     override fun conversations() = isLive.flatMapLatest { if (it) live.conversations() else demo.conversations() }
     override fun messages(threadId: Long) = isLive.flatMapLatest { if (it) live.messages(threadId) else demo.messages(threadId) }
-    override suspend fun messagesNow(threadId: Long) = current.messagesNow(threadId)
+    override suspend fun messagesNow(threadId: Long, newestSenders: Int) = current.messagesNow(threadId, newestSenders)
     override fun displayName(address: String) = current.displayName(address)
     override fun photoUri(address: String) = current.photoUri(address)
     override fun contactName(address: String) = current.contactName(address)

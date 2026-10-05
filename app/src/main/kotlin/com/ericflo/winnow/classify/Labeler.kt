@@ -67,7 +67,8 @@ class Labeler(
         var labeledConversations = 0
         val action = settings.current().actionPolicy.forCategory(category)
         for ((threadId, recipients) in conversations) {
-            val messages = repo.messagesNow(threadId)
+            // A label covers the newest few received: only their senders are needed, not a long group chat's every one.
+            val messages = repo.messagesNow(threadId, newestSenders = SENDERS_NEEDED)
             val examples = examplesFrom(messages, recipients)
             if (examples.isEmpty()) continue
             val undo = label(threadId, recipients, examples, hasOutgoing = messages.any { it.outgoing }, category, retrain = false)
@@ -201,6 +202,9 @@ class Labeler(
         const val PER_CONVERSATION = 5
 
         /** The messages a conversation label covers: its newest received ones with something in them. */
+        /** Senders to look up when labeling: [PER_CONVERSATION]'s worth, with room for downloads not made. */
+        const val SENDERS_NEEDED = 60
+
         fun examplesFrom(messages: List<ChatMessage>, recipients: List<String>): List<ChatMessage> =
             messages.filter(::labelable).takeLast(PER_CONVERSATION)
 

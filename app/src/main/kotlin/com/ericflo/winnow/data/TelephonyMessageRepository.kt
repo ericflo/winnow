@@ -92,7 +92,8 @@ class TelephonyMessageRepository(
         }
     }
 
-    override suspend fun messagesNow(threadId: Long): List<ChatMessage> = withContext(Dispatchers.IO) { queryThread(threadId) }
+    override suspend fun messagesNow(threadId: Long, newestSenders: Int): List<ChatMessage> =
+        withContext(Dispatchers.IO) { queryThread(threadId, newestSenders = newestSenders) }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     override fun messages(threadId: Long): Flow<List<ChatMessage>> {
