@@ -22,6 +22,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import java.util.concurrent.atomic.AtomicInteger
+import com.ericflo.winnow.classifier.message.MessageClassifier
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 
 sealed interface ReviewStatus {
@@ -66,31 +72,49 @@ class HistoryReviewer(
             val pending = candidates()
             val classifier = classifiers.create(settings.current())
             val replied = threadsWithOutgoing()
-            var filtered = 0
-            var silenced = 0
-            pending.forEachIndexed { i, c ->
-                _status.value = ReviewStatus.Running(i, pending.size)
-                // Labeled, or arrived and classified, since the review began: that verdict stands.
-                if (dao.forKey(c.key) != null) return@forEachIndexed
-                val verdict = classifier.classify(
-                    InboundMessage(
-                        sender = c.sender,
-                        body = c.body,
-                        senderInContacts = contacts.isContact(c.sender),
-                        userHasMessagedSender = c.threadId in replied,
-                        senderRule = dao.senderRule(normalizeAddress(c.sender))?.let { runCatching { SenderRule.valueOf(it) }.getOrNull() },
-                    ),
-                )
-                // An older text, reviewed now: never news for a daily summary.
-                dao.upsert(VerdictEntity.from(c.key, c.threadId, c.sender, verdict, System.currentTimeMillis()).copy(summarized = true))
-                when (verdict.action) {
-                    Action.FILTER -> filtered++
-                    Action.SILENCE -> silenced++
-                    Action.ALLOW -> Unit
-                }
-            }
-            _status.value = ReviewStatus.Finished(pending.size, filtered, silenced)
+            val filtered = AtomicInteger()
+            val silenced = AtomicInteger()
+            val done = AtomicInteger()
+            // A few at once, as a backlog run asks: one at a time, a thousand conversations sent to
+            // a classifier service take many minutes. Each is saved as it's decided, so one stopped
+            // partway (Winnow closed) goes on from there next time.
+            val gate = Semaphore(CONCURRENCY)
+            _status.value = ReviewStatus.Running(0, pending.size)
+            pending.map { c -> async { gate.withPermit { review(c, classifier, replied, filtered, silenced) }; _status.value = ReviewStatus.Running(done.incrementAndGet(), pending.size) } }.awaitAll()
+            _status.value = ReviewStatus.Finished(pending.size, filtered.get(), silenced.get())
         }
+    }
+
+    private suspend fun review(
+        c: Candidate,
+        classifier: MessageClassifier,
+        replied: Set<Long>,
+        filtered: AtomicInteger,
+        silenced: AtomicInteger,
+    ) {
+        // Labeled, or arrived and classified, since the review began: that verdict stands.
+        if (dao.forKey(c.key) != null) return
+        val verdict = classifier.classify(
+            InboundMessage(
+                sender = c.sender,
+                body = c.body,
+                senderInContacts = contacts.isContact(c.sender),
+                userHasMessagedSender = c.threadId in replied,
+                senderRule = dao.senderRule(normalizeAddress(c.sender))?.let { runCatching { SenderRule.valueOf(it) }.getOrNull() },
+            ),
+        )
+        // An older text, reviewed now: never news for a daily summary.
+        dao.upsert(VerdictEntity.from(c.key, c.threadId, c.sender, verdict, System.currentTimeMillis()).copy(summarized = true))
+        when (verdict.action) {
+            Action.FILTER -> filtered.incrementAndGet()
+            Action.SILENCE -> silenced.incrementAndGet()
+            Action.ALLOW -> Unit
+        }
+    }
+
+    private companion object {
+        /** Conversations sent to the classifier at once (as a backlog run does). */
+        const val CONCURRENCY = 3
     }
 
     private fun canReadSms() =
