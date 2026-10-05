@@ -193,6 +193,7 @@ class MainActivity : ComponentActivity() {
         when (intent?.action) {
             ACTION_NEW_CHAT -> pendingRoute.value = NewChatRoute()
             ACTION_OPEN_FILTERED -> pendingRoute.value = FilteredRoute
+            ACTION_OPEN_TRAIN -> pendingRoute.value = TrainRoute
             ACTION_FORWARD -> container.forwards.remove(intent.getStringExtra(EXTRA_TOKEN) ?: return)?.let { (text, attachments) ->
                 pendingRoute.value = NewChatRoute(draft = text, attachments = attachments)
             }
@@ -248,6 +249,8 @@ class MainActivity : ComponentActivity() {
         const val ACTION_NEW_CHAT = "com.ericflo.winnow.NEW_CHAT"
         /** The daily summary's notification. */
         const val ACTION_OPEN_FILTERED = "com.ericflo.winnow.OPEN_FILTERED"
+        /** The backlog-labeling notification (see BootstrapService). */
+        const val ACTION_OPEN_TRAIN = "com.ericflo.winnow.OPEN_TRAIN"
         /** A forward from a chat bubble; its text and files wait in [AppContainer.forwards] under [EXTRA_TOKEN]. */
         const val ACTION_FORWARD = "com.ericflo.winnow.FORWARD"
         const val EXTRA_TOKEN = "token"

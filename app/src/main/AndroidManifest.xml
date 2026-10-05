@@ -33,6 +33,11 @@
     <!-- Scheduled send: exact alarms if the user allows them, re-armed after a reboot. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Labeling the backlog with a classifier service (Train Winnow), which the user starts and can
+         stop from its notification: it runs on with the screen off or the app closed. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!--
       No platform backup or device transfer: API keys are sealed to this phone's Keystore.
@@ -132,6 +137,11 @@
             android:name=".backup.AutoBackupJob"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <service
+            android:name=".classify.BootstrapService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".sms.MmsRetryJob"

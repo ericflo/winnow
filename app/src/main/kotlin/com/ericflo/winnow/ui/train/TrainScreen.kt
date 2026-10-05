@@ -151,7 +151,8 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    fun startBootstrap() = container.bootstrap.start()
+    /** In a foreground service, so the run goes on with the screen off or Winnow closed. */
+    fun startBootstrap() = com.ericflo.winnow.classify.BootstrapService.start(container.appContext)
 
     fun stopBootstrap() = container.bootstrap.stop()
 

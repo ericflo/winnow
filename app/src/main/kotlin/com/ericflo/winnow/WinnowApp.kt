@@ -119,6 +119,9 @@ const val SIMULATE_REPLIES = "simulate_replies"
 
 /** Hand-rolled dependency graph. Small enough that a DI framework would cost more than it saves. */
 class AppContainer(private val context: Context) {
+    /** The application context, for starting services from view models. */
+    val appContext: Context get() = context
+
     // Background work (receivers, reviews, sends) must never take the app down with it.
     val appScope = CoroutineScope(
         SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, e -> Log.e("Winnow", "Background task failed", e) },
