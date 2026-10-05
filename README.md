@@ -101,6 +101,33 @@ rate limiting, an outage, a model it doesn't have), and picks up where it left o
 text the service turns down is skipped, but if it turns down a whole batch with nothing answered,
 the request itself is wrong, so the run stops after those 24 rather than sending the backlog.
 
+Every run is kept: its notification opens what Jev said of each text, beside what the on-phone
+model had made of it just before and makes of it now and your own label where you gave one
+(Train Winnow → Past runs keeps them all). With Jev on, the on-phone model keeps learning from
+its sure answers as texts arrive (Settings can turn that off).
+
+**See what decided each text, and why.** Long-press a received text (or tap Why? on a filtered
+or silenced conversation) for who decided it and why it was them (Jev, with its finer kind,
+how long it took and whether your labels went with the question; the on-phone model, which fit
+of it, and why it and not Jev; a rule), what each of you, Jev and the model thought side by
+side, how the category became what happened, and what it taught the model. Activity is built
+around the same: who decided your texts, day by day, what each one did and how often you
+changed it, and every decision with its reason.
+
+**Winnow's model** (menu) opens the on-phone model up. *Overview*: what it learned from, how
+it does on your own labels (cross-validated), how you, Jev and the model agree pair by pair,
+who decided your texts, and the honest answer to whether your labels make Jev better (they
+reach it only as examples in backlog runs; they train the on-phone model). *Evaluate*: score
+the model now, as it ships, on your labels only, with another weight for Jev's labels, any kept
+fit, and Jev's recorded answers, side by side and with every miss; replay how it learned; ask
+Jev about your labeled texts with and without your examples to measure what they change; and
+make a better-scoring rebuild the model. *Lab*: retrain on the phone, design models (the
+personal layer, a linear model retrained from scratch, or a neural network, deeper and wider,
+every setting yours), train them here, score them on your labels and put one in use. *Inside*:
+how it's built, what your teaching changed most, and how it reads any text you type.
+*History*: every fit. All of it runs on the phone; only the Jev comparison sends anything,
+after asking.
+
 Labels stay on the phone (only hashed word fingerprints, never the text) and go
 into backups.
 

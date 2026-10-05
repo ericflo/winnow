@@ -106,8 +106,8 @@ reads the unredacted message: nothing leaves the phone, so there's nothing to re
   For a linear model that equals averaging their scores, so the ensemble costs nothing at
   run time; it improved recall and calibration (ECE 0.015 → 0.009).
 - **Deeper models:** a wide-and-deep network (the linear model plus a 16–64-unit hidden
-  layer) did worse in cross-validation on every measure, so it doesn't ship.
-  `DeepExperiment` keeps it reproducible; it's worth revisiting once there's much more data.
+  layer) did worse in cross-validation on every measure, so it doesn't ship as the default.
+  `DeepExperiment` keeps it reproducible; the Lab lets a user train one on their own labels.
 
 - **Learning from corrections** (`Personalizer`, app `Learner`): overriding a verdict
   stores the newest incoming message's feature buckets, never its text, in Room
@@ -131,6 +131,30 @@ reads the unredacted message: nothing leaves the phone, so there's nothing to re
   `winnow-local-metrics.json` beside the model, which the app's **Classifier accuracy**
   screen (Filtered → How accurate is Winnow?) reads. The stale check covers that file too.
   `MetricsCalculatorTest` checks the math against hand-computed values.
+- **Provenance** (app `Provenance`, `ModelInsight`): every verdict records the on-device
+  model's own opinion whoever decided (`localCategory`, `localConfidence`), which fit of it
+  that was (`localModel`: `winnow-local-1·<fit>`, the fit named by a hash of what it learned
+  from, or `winnow-lab·<id>`), why a provider didn't decide (`fallbackReason`, including
+  "sure enough not to ask"), the provider's latency, the run that decided it and the examples
+  its question carried. Every fit is recorded (`model_fits`), every backlog run and each of its
+  answers beside the model's opinion just before (`runs`, `run_answers`). "Why Winnow sorted
+  this", the Activity log and the model screen's agreement figures are built from these alone.
+- **Live learning:** with a provider deciding, its answers at 70% or surer teach the
+  personal layer as texts arrive, at the provider weight; a burst refits once, after 20 s.
+- **Evaluations** (app `Evaluator`, `ExamplesExperiment`): scoring on the user's own labels,
+  each subject in the only fair way for it: cross-validated by conversation for whatever
+  learns from them, all labels for the shipped model, labels made after a kept fit
+  (`ModelSnapshots`) for that fit, recorded answers for the provider. Results and their items
+  are kept (`evals`, `eval_items`). The examples experiment asks the provider about labeled
+  texts twice, plainly and with the user's examples (never from the text's own conversation).
+- **The Lab** (`Recipe`, `RecipeTrainer`, `NeuralModel`, app `ModelLab`): models the user
+  designs and trains on the phone: the personal layer with its fitting changed, a linear model
+  retrained from scratch on the bundled corpus (`ShippedCorpus`, bundled from
+  `training/corpus` at build time) and the user's labels, or a neural network (a summed
+  embedding per bucket, up to three ReLU hidden layers, an optional linear "wide" part,
+  AdaGrad, L2, inverted dropout), each scored by conversation-wise cross-validation with its
+  temperature fitted on those held-out scores, then trained on everything. A trained model
+  put in use answers in the personal layer's place (`OnDeviceClassifier.custom`).
 - **Dev tasks:** `./gradlew :classifier:tuneLocalModel` grid-searches the trainer settings
   by cross-validated macro F1, and `:classifier:evalMistakes` lists the evaluation set's
   misses.
