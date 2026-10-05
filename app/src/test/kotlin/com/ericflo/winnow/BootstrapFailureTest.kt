@@ -28,4 +28,14 @@ class BootstrapFailureTest {
             text,
         )
     }
+
+    @Test
+    fun aMissingModelAndATurnedDownRequestSayWhatToCheck() {
+        val missing = Bootstrap.failure("Jev via OpenRouter", "Provider unavailable (systemone:openrouter: HTTP 404 No endpoints found matching your data policy)")
+        assertTrue(missing, missing.startsWith("Jev via OpenRouter has nothing that matches what was asked for. Check the model in Settings"))
+        assertTrue(missing, missing.endsWith("(systemone:openrouter: HTTP 404 No endpoints found matching your data policy)"))
+        val rejected = Bootstrap.failure("Jev (TypeSafe)", "x: HTTP 422 criteria: too many options")
+        assertTrue(rejected, rejected.startsWith("Jev (TypeSafe) turned down every text it was sent, so the run stopped there."))
+        assertTrue(rejected, rejected.endsWith("(x: HTTP 422 criteria: too many options)"))
+    }
 }

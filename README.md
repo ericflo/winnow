@@ -95,7 +95,9 @@ just those. Jev costs about $0.0001 a text (most of each request is the 79 optio
 backlog of a few thousand texts is well under a dollar. A run goes on with
 the screen off or Winnow closed (a foreground service, with progress and Stop in a quiet
 notification), stops itself if the service stops answering (saying why: a refused key, no credit,
-rate limiting, an outage), and picks up where it left off next time.
+rate limiting, an outage, a model it doesn't have), and picks up where it left off next time. A
+text the service turns down is skipped, but if it turns down a whole batch with nothing answered,
+the request itself is wrong, so the run stops after those 24 rather than sending the backlog.
 
 Labels stay on the phone (only hashed word fingerprints, never the text) and go
 into backups.

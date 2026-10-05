@@ -421,6 +421,10 @@ class Bootstrap(
                 Regex("""HTTP 40[13]\b""").containsMatchIn(detail) -> "$provider refused the API key. Check it in Settings."
                 Regex("""HTTP 402\b""").containsMatchIn(detail) -> "$provider says the account needs credit."
                 Regex("""HTTP 429\b""").containsMatchIn(detail) -> "$provider is limiting how fast it answers. Try again in a while."
+                Regex("""HTTP (40[45]|410)\b""").containsMatchIn(detail) ->
+                    "$provider has nothing that matches what was asked for. Check the model in Settings, and the address if you set one."
+                Regex("""HTTP 4\d\d\b""").containsMatchIn(detail) ->
+                    "$provider turned down every text it was sent, so the run stopped there."
                 Regex("""HTTP 5\d\d\b""").containsMatchIn(detail) -> "$provider is having trouble. Try again later."
                 else -> "$provider couldn't be reached. Check your connection and try again."
             }

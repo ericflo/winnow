@@ -13,6 +13,9 @@ class PacerTest {
         assertEquals(Trouble.REFUSED, Pacer.troubleOf("x: HTTP 402 payment required"))
         assertEquals(Trouble.RATE_LIMITED, Pacer.troubleOf("x: HTTP 429 slow down"))
         assertEquals(Trouble.REJECTED, Pacer.troubleOf("x: HTTP 400 bad request"))
+        assertEquals(Trouble.REJECTED, Pacer.troubleOf("x: HTTP 422 unprocessable"))
+        assertEquals(Trouble.REFUSED, Pacer.troubleOf("x: HTTP 404 model not found"))
+        assertEquals(Trouble.REFUSED, Pacer.troubleOf("x: HTTP 405 method not allowed"))
         assertEquals(Trouble.UNAVAILABLE, Pacer.troubleOf("x: HTTP 503 down"))
         assertEquals(Trouble.UNAVAILABLE, Pacer.troubleOf("x: timeout"))
         assertEquals(Trouble.UNAVAILABLE, Pacer.troubleOf("x: unexpected end of stream on http://h/..."))
@@ -62,5 +65,27 @@ class PacerTest {
     fun aRefusedKeyEndsItAtOnceAndOneBadTextIsJustSkipped() {
         assertEquals(Next.GiveUp(Trouble.REFUSED), Pacer().after(0, listOf(Trouble.REFUSED), now = 0))
         assertEquals(Next.Go, Pacer().after(23, listOf(Trouble.REJECTED), now = 0))
+    }
+
+    @Test
+    fun aServiceThatTurnsDownEveryTextEndsTheRunInsteadOfSendingTheWholeBacklog() {
+        // A whole batch turned down, nothing answered: the request is wrong, not the texts.
+        assertEquals(Next.GiveUp(Trouble.REJECTED), Pacer().after(0, List(24) { Trouble.REJECTED }, now = 0))
+        // Small batches add up while nothing is answered.
+        val p = Pacer()
+        repeat(3) { assertEquals(Next.Go, p.after(0, List(3) { Trouble.REJECTED }, now = it * 1_000L)) }
+        assertEquals(Next.GiveUp(Trouble.REJECTED), p.after(0, List(3) { Trouble.REJECTED }, now = 3_000))
+    }
+
+    @Test
+    fun turnedDownTextsAmongAnswersAreJustSkipped() {
+        val p = Pacer()
+        // Most of a batch turned down, but one answer shows the request is fine.
+        repeat(20) { assertEquals(Next.Go, p.after(1, List(20) { Trouble.REJECTED }, now = it * 1_000L)) }
+        // And an answer starts the count again.
+        val q = Pacer()
+        q.after(0, List(9) { Trouble.REJECTED }, now = 0)
+        q.after(5, emptyList(), now = 1_000)
+        assertEquals(Next.Go, q.after(0, List(9) { Trouble.REJECTED }, now = 2_000))
     }
 }
