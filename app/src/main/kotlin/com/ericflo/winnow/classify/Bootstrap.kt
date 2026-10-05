@@ -192,7 +192,7 @@ class Bootstrap(
                     done += batch.size
                     _status.value = BootstrapStatus.Running(done, texts.size, tally)
                     if (failuresInARow >= MAX_FAILURES_IN_A_ROW) {
-                        _status.value = BootstrapStatus.Finished(texts.size, tally, stopped = true, error = "${current.provider.label} stopped answering ($error). Try again later.")
+                        _status.value = BootstrapStatus.Finished(texts.size, tally, stopped = true, error = failure(current.provider.label, error.orEmpty()))
                         return@launch
                     }
                 }
@@ -312,6 +312,24 @@ class Bootstrap(
 
     companion object {
         private const val TAG = "WinnowBootstrap"
+
+        /**
+         * Why a run stopped, in words first and the provider's own detail after: a refused key or
+         * an unreachable server are what the user can do something about. Pure, so it's unit-tested.
+         */
+        fun failure(provider: String, detail: String): String {
+            val plain = when {
+                Regex("""HTTP 40[13]\b""").containsMatchIn(detail) -> "$provider refused the API key. Check it in Settings."
+                Regex("""HTTP 402\b""").containsMatchIn(detail) -> "$provider says the account needs credit."
+                Regex("""HTTP 429\b""").containsMatchIn(detail) -> "$provider is limiting how fast it answers. Try again in a while."
+                Regex("""HTTP 5\d\d\b""").containsMatchIn(detail) -> "$provider is having trouble. Try again later."
+                else -> "$provider couldn't be reached. Check your connection and try again."
+            }
+            // "Provider unavailable (systemone:x: systemone:x: …)": the id once is plenty.
+            val tidy = detail.removePrefix("Provider unavailable (").removeSuffix(")")
+                .replace(Regex("""^([\w:.-]+): \1: """), "$1: ").take(160)
+            return if (tidy.isBlank()) plain else "$plain ($tidy)"
+        }
         private const val KEY_ASKED = "asked"
 
         /** Newest received texts sent per conversation: enough to know it, few enough to keep sending down. */
