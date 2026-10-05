@@ -1,7 +1,8 @@
 package com.ericflo.winnow.data.db
 
 import androidx.room.AutoMigration
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 import androidx.room.migration.AutoMigrationSpec
 import androidx.room.ColumnInfo
 import androidx.room.Dao
@@ -46,47 +47,51 @@ import kotlinx.coroutines.flow.Flow
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
+    // Specs take the connection, not a SupportSQLiteDatabase: Room hands the latter only to
+    // Android's own SQLite, so a spec written that way would be skipped where migrations are tested.
+
     /**
      * 9 to 10 adds VerdictEntity.summarized. What came before is taken as reported, or the first
      * summary after the update would repeat the last one's.
      */
     class EverythingSummarized : AutoMigrationSpec {
-        override fun onPostMigrate(db: SupportSQLiteDatabase) {
-            db.execSQL("UPDATE verdicts SET summarized = 1")
+        override fun onPostMigrate(connection: SQLiteConnection) {
+            connection.execSQL("UPDATE verdicts SET summarized = 1")
         }
     }
 
     /** 12 to 13 adds ReminderEntity.fromMe: a reminder with no sender was on the user's own message. */
+    class RemindersFromMe : AutoMigrationSpec {
+        override fun onPostMigrate(connection: SQLiteConnection) {
+            connection.execSQL("UPDATE reminders SET fromMe = 1 WHERE sender IS NULL")
+        }
+    }
+
     /**
-     * Which verdicts Winnow made as the text arrived. Before this was recorded, a review of
-     * older conversations, a correction's own row and a restored verdict were all written as
-     * already summarized, and a live decision wasn't (until a daily summary, which is off unless
-     * turned on), so that's the best there is: a live one that was summarized is left out, which
-     * undercounts, never the other way.
+     * 14 to 15: which verdicts Winnow made as the text arrived. Before this was recorded, a
+     * review of older conversations, a correction's own row and a restored verdict were all
+     * written as already summarized, and a live decision wasn't (until a daily summary, which is
+     * off unless turned on), so that's the best there is: a live one that was summarized is left
+     * out, which undercounts, never the other way.
      */
+    class ArrivalsMarked : AutoMigrationSpec {
+        override fun onPostMigrate(connection: SQLiteConnection) {
+            connection.execSQL("UPDATE verdicts SET atArrival = 1 WHERE summarized = 0")
+        }
+    }
+
     /**
-     * The move to six categories: everything that said phishing or "likely scam" says spam, in
-     * verdicts, labels and what the model learned; and the user's labels from before (all but
-     * political, which they said stand) come back to Train Winnow to be confirmed or changed.
+     * 16 to 17, the move to six categories: everything that said phishing or "likely scam" says
+     * spam, in verdicts, labels and what the model learned; and the user's labels from before
+     * (all but political, which they said stand) come back to Train Winnow to be confirmed or
+     * changed.
      */
     class SixCategories : AutoMigrationSpec {
-        override fun onPostMigrate(db: SupportSQLiteDatabase) {
-            db.execSQL("UPDATE verdicts SET category = 'spam' WHERE category IN ('phishing', 'scam')")
-            db.execSQL("UPDATE verdicts SET userCategory = 'spam' WHERE userCategory IN ('phishing', 'scam')")
-            db.execSQL("UPDATE corrections SET label = 'spam' WHERE label IN ('phishing', 'scam')")
-            db.execSQL("UPDATE verdicts SET recheck = 1 WHERE userCategory IS NOT NULL AND userCategory != 'political'")
-        }
-    }
-
-    class ArrivalsMarked : AutoMigrationSpec {
-        override fun onPostMigrate(db: SupportSQLiteDatabase) {
-            db.execSQL("UPDATE verdicts SET atArrival = 1 WHERE summarized = 0")
-        }
-    }
-
-    class RemindersFromMe : AutoMigrationSpec {
-        override fun onPostMigrate(db: SupportSQLiteDatabase) {
-            db.execSQL("UPDATE reminders SET fromMe = 1 WHERE sender IS NULL")
+        override fun onPostMigrate(connection: SQLiteConnection) {
+            connection.execSQL("UPDATE verdicts SET category = 'spam' WHERE category IN ('phishing', 'scam')")
+            connection.execSQL("UPDATE verdicts SET userCategory = 'spam' WHERE userCategory IN ('phishing', 'scam')")
+            connection.execSQL("UPDATE corrections SET label = 'spam' WHERE label IN ('phishing', 'scam')")
+            connection.execSQL("UPDATE verdicts SET recheck = 1 WHERE userCategory IS NOT NULL AND userCategory != 'political'")
         }
     }
 
