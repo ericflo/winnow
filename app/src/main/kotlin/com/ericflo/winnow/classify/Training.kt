@@ -96,8 +96,9 @@ class Training(
         // The user's labels from before the six categories, by conversation: the newest one's category.
         val before = verdicts.toRecheck().groupBy { it.threadId }
             .mapValues { (_, rows) -> rows.maxBy { it.decidedAt }.userCategory?.let(Category::fromKey) }
-        // Rechecks come from any conversation the user labeled, contacts' included; the rest are strangers'.
-        val backlog = all.filter { c -> !c.isGroup && (c.threadId in before || eligible(c)) && c.threadId !in judged && !knownEmpty(c) }
+        // Rechecks come from any conversation the user labeled, contacts' and groups' included (a
+        // group blast is labeled as often as anything); the rest are strangers' own conversations.
+        val backlog = all.filter { c -> (c.threadId in before || eligible(c)) && c.threadId !in judged && !knownEmpty(c) }
         val classifier = learner.classifier()
         val details = verdicts.providerDetails().associate { it.threadId to it.subcategory }
         // What the classifier service said of each conversation, from its newest label there.
@@ -152,7 +153,8 @@ class Training(
             backlog = backlog.count { !knownEmpty(it) },
             labeled = all.count { it.threadId in judged && eligible(it) },
             rechecks = candidates.count { it.threadId in before },
-            toRecheck = before.size,
+            // Those a round can show: not a conversation deleted since, nor one with nothing received in it.
+            toRecheck = backlog.count { it.threadId in before && !knownEmpty(it) },
         )
     }
 
