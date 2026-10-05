@@ -157,6 +157,9 @@ class TelephonyMessageRepository(
     }
 
     override suspend fun send(recipients: List<String>, body: String, attachments: List<OutgoingAttachment>, subscriptionId: Int?, subject: String?) {
+        // An RCS id isn't an address a text can go to: as an MMS it would go to the carrier's
+        // email gateway, and bounce or vanish. Never sent, whatever asked.
+        require(recipients.none(::isRcsAddress)) { "An RCS chat's people can only be reached through Google Messages" }
         withContext(Dispatchers.IO) {
             // One person, nothing attached, no subject: a text, unless the carrier wants one this long
             // as an MMS. An email address only ever takes an MMS.

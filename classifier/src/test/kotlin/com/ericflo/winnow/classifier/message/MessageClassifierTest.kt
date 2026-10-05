@@ -63,6 +63,24 @@ class MessageClassifierTest {
     }
 
     @Test
+    fun `someone from an rcs chat never reaches the provider, a business on rcs can`() = runTest {
+        val provider = FakeProvider { mapOf("friend_chat" to 1.0) }
+        val classifier = MessageClassifier(listOf(provider))
+        val family = InboundMessage("3f9a0c1d2e4b5a69@rcs.google.com", "Dinner at Grandma's Sunday?")
+        assertTrue(classifier.staysOnPhone(family))
+        val verdict = classifier.classify(family)
+        assertEquals(VerdictSource.Rule(LocalRules.RCS_CHAT), verdict.source)
+        assertEquals(Action.ALLOW, verdict.action)
+        assertEquals(0, provider.seen.size)
+        // A business's RCS messages (RCS Business Messaging) are sorted like any other.
+        assertFalse(classifier.staysOnPhone(InboundMessage("acme@rbm.goog", "20% off today only")))
+        classifier.classify(InboundMessage("acme@rbm.goog", "20% off today only"))
+        assertEquals(1, provider.seen.size)
+        // An ordinary email address isn't an RCS id.
+        assertFalse(RcsIds.isRcs("someone@rcsmail.com"))
+    }
+
+    @Test
     fun `sender rules override everything without classifying`() = runTest {
         val classifier = MessageClassifier(listOf(FakeProvider { mapOf("friend_chat" to 1.0) }))
         val filtered = classifier.classify(stranger.copy(senderInContacts = true, senderRule = SenderRule.ALWAYS_FILTER))

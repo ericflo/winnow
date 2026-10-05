@@ -265,6 +265,8 @@ fun ThreadScreen(
     showBack: Boolean = true,
     /** A backlog run's results (see RunScreen), from why a text was sorted as it was. */
     onOpenRun: (Long) -> Unit = {},
+    /** A new conversation with these people (from an RCS chat, its people with real numbers). */
+    onNewGroup: (List<String>) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     // The message whose "why" is open (see ProvenanceSheet), by key.
@@ -669,6 +671,10 @@ fun ThreadScreen(
             val pending by viewModel.pending.collectAsStateWithLifecycle()
             Column {
             pending?.let { UndoBar(it, onUndo = viewModel::undoSend) }
+            if (state.cantSend) {
+                RcsCantSend(textable = state.textable, onNewGroup = { onNewGroup(state.textable) }, onWhy = { rcsWhy = true })
+                return@Column
+            }
             Composer(
                 sims = sims,
                 selectedSim = sims.firstOrNull { it.subscriptionId == selectedSim },
@@ -2874,3 +2880,24 @@ private fun DeletingDialog() {
     )
 }
 
+
+/** In place of the composer, in an RCS chat whose people are RCS ids: why nothing can be sent, and what can. */
+@Composable
+private fun RcsCantSend(textable: List<String>, onNewGroup: () -> Unit, onWhy: () -> Unit) {
+    Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Winnow can't send to this chat", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Google Messages kept only RCS ids for its people, not their numbers, and a text can't go to an RCS id. " +
+                    if (textable.isEmpty()) "Write to them from Google Messages, or start a new group with their numbers."
+                    else "You can start a new group with the ${if (textable.size == 1) "one" else textable.size.toString()} whose number Winnow knows.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (textable.isNotEmpty()) androidx.compose.material3.Button(onClick = onNewGroup) { Text(if (textable.size == 1) "Text them" else "New group with them") }
+                TextButton(onClick = onWhy) { Text("About RCS") }
+            }
+        }
+    }
+}

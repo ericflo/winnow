@@ -87,7 +87,8 @@ class RoleWatch(private val context: Context) {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != Telephony.Sms.Intents.ACTION_DEFAULT_SMS_PACKAGE_CHANGED) return
             val container = (context.applicationContext as? com.ericflo.winnow.WinnowApp)?.container ?: return
-            val isDefault = intent.getBooleanExtra(Telephony.Sms.Intents.EXTRA_IS_DEFAULT_SMS_APP, container.isDefaultSmsApp())
+            // Asked of Android, not taken from the broadcast: any app can send one, so its word isn't proof.
+            val isDefault = container.isDefaultSmsApp()
             val pending = goAsync()
             kotlinx.coroutines.CoroutineScope(container.appScope.coroutineContext).launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {

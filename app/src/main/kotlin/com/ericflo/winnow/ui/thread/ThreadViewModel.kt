@@ -97,6 +97,12 @@ data class ThreadUiState(
      */
     val rcs: Boolean get() = recipients.any(::isRcsAddress) || messages.any { m -> m.sender?.let(::isRcsAddress) == true }
 
+    /** Some of its people are RCS ids, which no text can be sent to (see RcsCantSend). */
+    val cantSend: Boolean get() = recipients.any(::isRcsAddress)
+
+    /** Its people Winnow can text: the ones with real numbers, for a new group with them. */
+    val textable: List<String> get() = recipients.filterNot(::isRcsAddress)
+
     /** Several people write here (a group, or an RCS chat whose people the store didn't list): bubbles say who. */
     val showsSenders: Boolean get() = isGroup || messages.mapNotNullTo(HashSet()) { it.sender }.size > 1
 
@@ -865,6 +871,8 @@ class ThreadViewModel(
         val files = _attachments.value
         val subject = sendableSubject()
         if (text.isEmpty() && files.isEmpty() && subject == null || _pending.value != null) return
+        // An RCS chat's people can't be texted (see ThreadUiState.cantSend): the composer isn't offered either.
+        if (recipients.any(::isRcsAddress)) return
         val apart = (separately || _sendSeparately.value) && recipients.size > 1
         // Replying means the new messages have been read; the divider has done its job.
         _unreadOnOpen.value = emptyList()

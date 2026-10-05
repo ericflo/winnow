@@ -82,6 +82,23 @@ enum class Action {
 /** The user's explicit decision about a sender, which overrides classification. */
 enum class SenderRule { ALWAYS_ALLOW, ALWAYS_FILTER }
 
+/**
+ * RCS ids, as Google Messages leaves them in the phone's store for a chat it had over RCS
+ * ("<id>@rcs.google.com"), in place of the person's number.
+ */
+object RcsIds {
+    /** Any RCS id: a person's, or a business's ("@rbm.goog", RCS Business Messaging). */
+    fun isRcs(address: String): Boolean {
+        val domain = address.trim().lowercase().substringAfterLast('@', "")
+        return domain.isNotEmpty() && (domain.startsWith("rcs.") || domain.contains(".rcs.") || domain.endsWith("rcs.telephony.goog") || isBusinessDomain(domain))
+    }
+
+    /** A person's RCS id: someone the user chatted with in Google Messages, never a business. */
+    fun isPerson(address: String): Boolean = isRcs(address) && !isBusinessDomain(address.trim().lowercase().substringAfterLast('@', ""))
+
+    private fun isBusinessDomain(domain: String) = domain == "rbm.goog" || domain.endsWith(".rbm.goog")
+}
+
 enum class SenderKind(val wire: String) {
     PHONE_NUMBER("phone_number"),
     SHORT_CODE("short_code"),

@@ -305,6 +305,7 @@ fun WinnowNavHost(
                                         onOpenDetails = whenResumed { threadId -> nav.navigate(DetailsRoute(threadId, open.recipients)) },
                                         onMessageNumber = whenResumed { number -> nav.navigate(ThreadRoute(-1, number)) },
                 onOpenRun = whenResumed { runId -> nav.navigate(RunRoute(runId)) },
+                onNewGroup = whenResumed { people -> nav.navigate(NewChatRoute(with = joinAddresses(people))) },
                                         showBack = !twoPane,
                                     )
                                 }
@@ -428,6 +429,7 @@ fun WinnowNavHost(
                 onOpenDetails = whenResumed { threadId -> nav.navigate(DetailsRoute(threadId, route.recipients)) },
                 onMessageNumber = whenResumed { number -> nav.navigate(ThreadRoute(-1, number)) },
                 onOpenRun = whenResumed { runId -> nav.navigate(RunRoute(runId)) },
+                onNewGroup = whenResumed { people -> nav.navigate(NewChatRoute(with = joinAddresses(people))) },
             )
             }
         }

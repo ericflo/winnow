@@ -27,12 +27,18 @@ internal object LocalRules {
             Verdict.rule(Category.PERSONAL, Action.ALLOW, "Sender is in your contacts")
         message.userHasMessagedSender && !privacy.classifyKnownConversations ->
             Verdict.rule(Category.PERSONAL, Action.ALLOW, "You've texted this sender before")
+        // Someone the user chatted with in Google Messages, over RCS: their number isn't in the
+        // store, so they can't be found in contacts, but they're never a stranger's spam to send off.
+        RcsIds.isPerson(message.sender) && !privacy.classifyKnownConversations ->
+            Verdict.rule(Category.PERSONAL, Action.ALLOW, RCS_CHAT)
         looksLikeVerificationCode(message.body) && !privacy.classifyVerificationCodes ->
             Verdict.rule(Category.TRANSACTIONAL, Action.ALLOW, "Verification code, kept on this phone")
         else -> null
     }
 
     fun looksLikeVerificationCode(body: String): Boolean = VerificationCodes.find(body) != null
+
+    const val RCS_CHAT = "Someone from an RCS chat in Google Messages, kept on this phone"
 }
 
 /**
