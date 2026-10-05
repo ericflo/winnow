@@ -144,6 +144,13 @@ What a provider sees for a stranger's text (also visible in Settings → Try it)
 ```
 
 - Contacts, people you've texted, and verification codes are decided locally and never sent.
+  A contact is someone in the phone's contact list (`ContactLookup` indexes every number in
+  one query) or a colleague in a work profile, which Android only answers for one number at a
+  time (`PhoneLookup.ENTERPRISE_CONTENT_FILTER_URI`): asked only where it decides something
+  (`isContact`; counting and choosing use `inContactList`), kept ten minutes, and kept while
+  work apps are paused. If contacts can't be read at all, a contact can't be told from a
+  stranger, so `ClassifierFactory` sets `MessageClassifier.keepOnPhone` and nothing is sent
+  anywhere (Settings' Try it excepted, as it's no one's message); the inbox says so.
 - Runs of 4+ digits become `####`, emails become `[email]`, links keep only their domain.
 - The sender's number isn't sent unless you opt in.
 - "Zero-retention providers only" skips every provider not marked ZDR. Marking is the user's
@@ -165,8 +172,12 @@ Confidence below `ActionPolicy.minConfidence` (0.7) softens the action one step
 - **Messages** live in the system Telephony provider. `TelephonyMessageRepository` reads
   threads from `content://mms-sms/conversations?simple=true` plus canonical addresses (so
   groups have every participant), merges SMS and MMS, and writes as the default SMS app.
-  `DemoMessageRepository` serves the sample conversations until SMS access is granted.
-  `SwitchingMessageRepository` picks between them.
+  `NoAccessMessageRepository` (empty) stands in until SMS access is granted, and
+  `SwitchingMessageRepository` picks between them. It also shares one conversation list among
+  everything that reads it (the inbox, Filtered, the widget, Train, a backlog run). Who sent a
+  received MMS is a query per message, so a one-to-one conversation takes the other person,
+  and a group first loads with its newest 60 senders and then with all of them; a long
+  conversation's list of bubbles is built off the main thread.
 - **Winnow's own state** is in Room (`WinnowDatabase`, auto-migrated):
   - `verdicts`: one row per message key (`sms:<id>` / `mms:<id>`), with the user's correction
   - `sender_rules`: always allow or always filter, per sender
@@ -185,7 +196,9 @@ Confidence below `ActionPolicy.minConfidence` (0.7) softens the action one step
   they're re-armed at boot, at app start and on exact-alarm permission changes. A message is
   deleted only after its send has been handed off.
 - **Older conversations** (`HistoryReviewer`): only on request, classifies each thread's
-  newest incoming message that has no verdict, under the same privacy gate. It never notifies.
+  newest incoming message that has no verdict, under the same privacy gate, three at a time.
+  It never notifies. When the classifier service is asked and doesn't answer, nothing is saved
+  for that conversation (it waits for the next review), and six such in a row end the review.
 - **Activity** summarizes the verdict table: actions, categories, and who decided (on the
   phone or a classifier service).
 - **Dual SIM** (`data/Sims.kt`): `SimCards` lists active subscriptions (READ_PHONE_STATE,
