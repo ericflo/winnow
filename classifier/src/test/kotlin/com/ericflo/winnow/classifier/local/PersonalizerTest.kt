@@ -91,4 +91,12 @@ class PersonalizerTest {
         }
         return weights.mapValues { (_, row) -> FloatArray(k) { row[it].toFloat() } }
     }
+
+    @Test
+    fun `a lighter label gives way to a full one on the same text`() {
+        val asPersonal = base.correction(promo, setOf(Category.PERSONAL))!!
+        val asMarketing = base.correction(promo, setOf(Category.MARKETING))!!
+        val taught = base.learn(listOf(asMarketing.copy(weight = 0.3), asPersonal))
+        assertEquals(Category.PERSONAL, taught.classify(promo).category)
+    }
 }

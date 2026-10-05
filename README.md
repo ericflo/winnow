@@ -64,7 +64,23 @@ to fix it (tap the text to read all of it, and the earlier texts the label cover
 guesses update as you answer, so fixing one text moves its lookalikes in the round with it.
 Finishing the round labels what you answered and retrains; the summary lists where it was
 wrong. Swipe a conversation left (in the inbox, Filtered or Archived) to label it from
-anywhere. Labels stay on the phone (only hashed word fingerprints, never the text) and go
+anywhere.
+
+**Let Jev label your backlog first.** With a classifier service set up (Jev via TypeSafe or
+OpenRouter) and marked zero data retention, Train Winnow offers to send the newest three
+received texts of each conversation with someone who isn't a contact, after a confirmation that
+says how many and what leaves the phone. They go through the same pipeline as a new text: the
+same redaction, and the same rules keep contacts, people you've written to, verification codes
+and senders you've set a rule for on the phone. On OpenRouter, each request asks for
+zero-retention endpoints only (`"provider": {"zdr": true}`); with a direct TypeSafe key, zero
+retention is TypeSafe's own policy, which you confirm in Settings. Jev's answers teach the
+on-phone model at about a third of the weight of your own labels (yours always win, and replace
+Jev's on the same text) and file texts Winnow never sorted. Each round then puts first the
+conversations where Jev and the on-phone model disagree, and shows what Jev said beside every
+guess. Jev's labels never count as right answers on the accuracy screen, and Settings can forget
+just those. On OpenRouter, Jev costs about $0.00003 a text, so a whole backlog is a few cents.
+
+Labels stay on the phone (only hashed word fingerprints, never the text) and go
 into backups.
 
 <table>

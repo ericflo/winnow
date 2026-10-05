@@ -71,6 +71,29 @@ class MessageClassifierTest {
     }
 
     @Test
+    fun `what stays on the phone is exactly what classify keeps from the provider`() = runTest {
+        val provider = FakeProvider { mapOf("scam" to 1.0) }
+        val classifier = MessageClassifier(listOf(provider), filteredPhrases = FilteredPhrases(listOf("toll")))
+        val kept = listOf(
+            stranger.copy(senderRule = SenderRule.ALWAYS_ALLOW),
+            stranger.copy(senderRule = SenderRule.ALWAYS_FILTER),
+            stranger.copy(senderInContacts = true),
+            stranger.copy(userHasMessagedSender = true),
+            InboundMessage("72975", "Your verification code is 482913. Don't share it."),
+            stranger, // has the filtered word "toll"
+        )
+        kept.forEach { m ->
+            assertTrue(classifier.staysOnPhone(m), "$m")
+            classifier.classify(m)
+        }
+        assertTrue(provider.seen.isEmpty(), "none of them reached the provider")
+        val sent = InboundMessage("+15555550124", "Hi, is this Dana?")
+        assertFalse(classifier.staysOnPhone(sent))
+        classifier.classify(sent)
+        assertEquals(1, provider.seen.size)
+    }
+
+    @Test
     fun `provider sees redacted text and no sender address by default`() = runTest {
         val provider = FakeProvider { mapOf("scam" to 1.0) }
         MessageClassifier(listOf(provider)).classify(stranger)

@@ -66,6 +66,13 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     /** How many corrections the on-device model has learned from. */
     val learned: StateFlow<Int> = container.learner.count.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
+    /** Labels the classifier service gave the backlog (Train Winnow), forgotten apart from the user's. */
+    val providerLearned: StateFlow<Int> = container.learner.providerCount.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    fun forgetProviderLabels() {
+        viewModelScope.launch { runCatching { container.learner.forgetProviderLabels() } }
+    }
+
     fun forgetLearning() {
         viewModelScope.launch { runCatching { container.learner.forget() } }
     }

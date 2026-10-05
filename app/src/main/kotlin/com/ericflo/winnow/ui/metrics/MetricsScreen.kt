@@ -157,14 +157,15 @@ private fun computeMine(rows: List<com.ericflo.winnow.data.db.CorrectionEntity>)
     val model = com.ericflo.winnow.classifier.local.LocalModel.bundled
     val current = rows.filter { it.featurizerVersion == com.ericflo.winnow.classifier.local.Featurizer.VERSION }
     fun buckets(e: com.ericflo.winnow.data.db.CorrectionEntity) = e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray()
-    val (labeled, rest) = current.partition { it.messageKey != null && it.threadId != null && !it.messageKey.startsWith("restored:") }
+    // A classifier service's labels teach the model but are never the answer key: only the user's are.
+    val (labeled, rest) = current.partition { !it.fromProvider && it.messageKey != null && it.threadId != null && !it.messageKey.startsWith("restored:") }
     val labels = labeled.mapNotNull { e ->
         val label = model.classes.indexOf(e.label).takeIf { it >= 0 } ?: return@mapNotNull null
         com.ericflo.winnow.classifier.local.PersonalEvaluation.Label(buckets(e), label, e.threadId!!)
     }
     val others = rest.mapNotNull { e ->
         val label = model.classes.indexOf(e.label).takeIf { it >= 0 } ?: return@mapNotNull null
-        com.ericflo.winnow.classifier.local.Correction(buckets(e), label)
+        com.ericflo.winnow.classifier.local.Correction(buckets(e), label, if (e.fromProvider) com.ericflo.winnow.classify.Learner.PROVIDER_WEIGHT else 1.0)
     }
     val metrics = runCatching {
         com.ericflo.winnow.classifier.local.PersonalEvaluation.metrics(model, labels, others, ActionPolicy().onDeviceMinConfidence)

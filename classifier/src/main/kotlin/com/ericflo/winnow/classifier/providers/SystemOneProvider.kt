@@ -43,6 +43,12 @@ data class SystemOneConfig(
     val dataHandling: DataHandling = DataHandling.REMOTE,
     val extraHeaders: Map<String, String> = emptyMap(),
     val maxAttempts: Int = 2,
+    /**
+     * Ask the router to use zero-data-retention endpoints only: OpenRouter's
+     * `"provider": {"zdr": true}`, which it accepts on its Jev endpoints. Set when the user
+     * turns on zero retention for this provider, so that switch is a request, not just a label.
+     */
+    val zeroRetentionRouting: Boolean = false,
 ) {
     val url: String get() = baseUrl.trimEnd('/') + path
 
@@ -93,7 +99,7 @@ class SystemOneProvider(
     override val descriptor = ProviderDescriptor(config.id, config.displayName, config.dataHandling)
 
     override suspend fun decide(request: DecisionRequest): DecisionResponse {
-        val body = SystemOneWire.encodeRequest(config.model, request)
+        val body = SystemOneWire.encodeRequest(config.model, request, zeroRetention = config.zeroRetentionRouting)
         val headers = buildMap {
             config.apiKey?.let { put("Authorization", "Bearer $it") }
             putAll(config.extraHeaders)
@@ -129,8 +135,9 @@ class SystemOneProvider(
 object SystemOneWire {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun encodeRequest(model: String, request: DecisionRequest): String = buildJsonObject {
+    fun encodeRequest(model: String, request: DecisionRequest, zeroRetention: Boolean = false): String = buildJsonObject {
         put("model", model)
+        if (zeroRetention) putJsonObject("provider") { put("zdr", true) }
         put("state", request.state)
         putJsonObject("questions") {
             request.questions.forEach { (key, q) ->

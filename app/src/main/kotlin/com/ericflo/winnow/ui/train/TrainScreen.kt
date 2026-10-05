@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,6 +62,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -107,13 +110,61 @@ sealed interface TrainState {
     data class Done(val labeled: Int) : TrainState
 }
 
+/** What the screen can say about letting the classifier service label the backlog (see Bootstrap). */
+data class BootstrapOffer(
+    val provider: String,
+    /** Why it can't run now, in words; null when it can. */
+    val unavailable: String?,
+    val plan: com.ericflo.winnow.classify.Bootstrap.Plan,
+    /** Labels it has given so far. */
+    val taught: Int,
+    /** What sending the plan would cost at a price we know (Jev via OpenRouter's), else null. */
+    val estimateUsd: Double?,
+)
+
 class TrainViewModel(private val container: AppContainer) : ViewModel() {
     private val training get() = container.training
     private val _state = MutableStateFlow<TrainState>(TrainState.Loading)
     val state: StateFlow<TrainState> = _state.asStateFlow()
 
+    val bootstrap: StateFlow<com.ericflo.winnow.classify.BootstrapStatus> = container.bootstrap.status
+    private val _offer = MutableStateFlow<BootstrapOffer?>(null)
+    val offer: StateFlow<BootstrapOffer?> = _offer.asStateFlow()
+
     init {
         nextRound()
+        loadOffer()
+    }
+
+    private fun loadOffer() {
+        viewModelScope.launch {
+            val current = container.settings.current()
+            val plan = runCatching { container.bootstrap.plan() }.getOrNull() ?: return@launch
+            val taught = container.bootstrap.taught.first()
+            _offer.value = BootstrapOffer(
+                provider = current.provider.label,
+                unavailable = container.bootstrap.unavailable(current),
+                plan = plan,
+                taught = taught,
+                estimateUsd = if (current.provider == com.ericflo.winnow.data.ProviderKind.OPENROUTER_JEV) plan.texts * JEV_OPENROUTER_USD_PER_TEXT else null,
+            )
+        }
+    }
+
+    fun startBootstrap() = container.bootstrap.start()
+
+    fun stopBootstrap() = container.bootstrap.stop()
+
+    /** After a run: the next round is guessed by the model it taught. */
+    fun dismissBootstrap() {
+        container.bootstrap.dismiss()
+        loadOffer()
+        nextRound()
+    }
+
+    private companion object {
+        /** Jev via OpenRouter, measured 2026-10-05: 773 input tokens at $0.000000042 each, output free. */
+        const val JEV_OPENROUTER_USD_PER_TEXT = 0.0000325
     }
 
     fun nextRound() {
@@ -271,6 +322,7 @@ fun TrainScreen(viewModel: TrainViewModel, onBack: () -> Unit) {
             is TrainState.Reviewing -> Reviewing(s, viewModel, Modifier.padding(padding))
             is TrainState.Finished -> Finished(s, onNext = viewModel::nextRound, onDone = onBack, modifier = Modifier.padding(padding))
             is TrainState.Done -> Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                BootstrapSection(viewModel)
                 Text("Nothing left to label", style = MaterialTheme.typography.titleLarge)
                 Text(
                     if (s.labeled > 0) "You've sorted all ${s.labeled} conversations with people who aren't in your contacts. New ones show up here as they arrive."
@@ -286,8 +338,10 @@ fun TrainScreen(viewModel: TrainViewModel, onBack: () -> Unit) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Reviewing(s: TrainState.Reviewing, viewModel: TrainViewModel, modifier: Modifier) {
+    val offer by viewModel.offer.collectAsStateWithLifecycle()
     val groups = s.round.candidates.groupBy { it.guess }.toSortedMap(compareBy { it.ordinal })
     LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item("bootstrap") { Box(Modifier.padding(horizontal = 16.dp)) { BootstrapSection(viewModel) } }
         item("intro") {
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Round ${s.number}", style = MaterialTheme.typography.titleLarge)
@@ -322,6 +376,7 @@ private fun Reviewing(s: TrainState.Reviewing, viewModel: TrainViewModel, modifi
                 Box(Modifier.animateItem()) {
                 CandidateRow(
                     c,
+                    providerName = offer?.provider?.let { if ("Jev" in it) "Jev" else it } ?: "Jev",
                     decision = s.decisions[c.threadId],
                     open = s.open == c.threadId,
                     onToggleRight = { viewModel.toggleRight(c.threadId) },
@@ -340,6 +395,8 @@ private fun Reviewing(s: TrainState.Reviewing, viewModel: TrainViewModel, modifi
 @Composable
 private fun CandidateRow(
     c: Training.Candidate,
+    /** The classifier service, as the user knows it ("Jev (TypeSafe)"). */
+    providerName: String,
     decision: Decision?,
     open: Boolean,
     onToggleRight: () -> Unit,
@@ -429,6 +486,15 @@ private fun CandidateRow(
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = if (decision != null && decision != Decision.Skip) FontWeight.SemiBold else FontWeight.Normal,
                             color = if (decision == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    // The classifier service's own answer, so its part in the guess is plain to see.
+                    c.providerSays?.let { says ->
+                        Text(
+                            if (says == c.guess) "$providerName agrees" else "$providerName said ${says.label}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (says == c.guess) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.padding(start = 32.dp, top = 2.dp),
                         )
                     }
                 }
@@ -548,3 +614,89 @@ internal fun sureness(confidence: Double): String = when {
 
 /** How many lines of a message a review row shows until it's tapped open. */
 private const val COLLAPSED_LINES = 3
+
+/**
+ * Letting the classifier service label the backlog first (see Bootstrap): what it would send,
+ * a confirmation saying exactly that, then progress, then how it went.
+ */
+@Composable
+private fun BootstrapSection(viewModel: TrainViewModel) {
+    val offer by viewModel.offer.collectAsStateWithLifecycle()
+    val status by viewModel.bootstrap.collectAsStateWithLifecycle()
+    val o = offer ?: return
+    var confirming by rememberSaveable { mutableStateOf(false) }
+    val money = { usd: Double -> if (usd < 0.01) "under a cent" else String.format(java.util.Locale.US, "$%.2f", usd) }
+    when (val st = status) {
+        is com.ericflo.winnow.classify.BootstrapStatus.Running -> BootstrapCard("${o.provider} is labeling your backlog") {
+            LinearProgressIndicator(progress = { if (st.total == 0) 0f else st.done.toFloat() / st.total }, modifier = Modifier.fillMaxWidth())
+            Text(
+                "${st.done} of ${st.total} texts · ${st.tally.labeled} labeled · ${money(st.tally.costUsd)} so far" +
+                    (if (st.tally.kept > 0) " · ${st.tally.kept} kept on your phone" else "") +
+                    (if (st.tally.failed > 0) " · ${st.tally.failed} to try again" else ""),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            TextButton(onClick = viewModel::stopBootstrap, contentPadding = PaddingValues(0.dp)) { Text("Stop") }
+        }
+        is com.ericflo.winnow.classify.BootstrapStatus.Finished -> BootstrapCard(if (st.stopped) "Stopped" else "${o.provider} labeled your backlog") {
+            Text(
+                "${st.tally.labeled} texts labeled, for ${money(st.tally.costUsd)}. Winnow's model has learned from them; your own labels count for more and always win." +
+                    (if (st.tally.kept > 0) " ${st.tally.kept} stayed on your phone, as your privacy settings say." else "") +
+                    (if (st.tally.failed > 0) " ${st.tally.failed} got no answer and will be tried next time." else "") +
+                    (st.error?.let { " $it" } ?: ""),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Button(onClick = viewModel::dismissBootstrap) { Text("Continue to a round") }
+        }
+        com.ericflo.winnow.classify.BootstrapStatus.Idle -> when {
+            o.plan.texts == 0 && o.taught == 0 -> Unit
+            o.plan.texts == 0 -> Text(
+                "${o.provider} has labeled your backlog (${o.taught} texts). New conversations are labeled as they arrive.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            else -> BootstrapCard(if (o.taught > 0) "Finish labeling your backlog with ${o.provider}" else "Let ${o.provider} label your backlog first") {
+                Text(
+                    "It would label ${o.plan.texts} texts from ${o.plan.conversations} conversations with people who aren't in your contacts, " +
+                        "so Winnow learns your texts before you've labeled many, and these rounds bring only what it still can't settle.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (o.unavailable != null) {
+                    Text(o.unavailable, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                } else {
+                    Button(onClick = { confirming = true }) { Text("Review and start") }
+                }
+            }
+        }
+    }
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text("Send ${o.plan.texts} texts to ${o.provider}?") },
+            text = {
+                Text(
+                    "The newest ${com.ericflo.winnow.classify.Bootstrap.PER_CONVERSATION} texts of each of ${o.plan.conversations} conversations with people who aren't in your contacts go to " +
+                        "${o.provider}, one at a time, with zero data retention: " +
+                        (if (o.provider.contains("OpenRouter")) "OpenRouter is told to use only endpoints that keep nothing. "
+                        else "you've confirmed ${o.provider} keeps nothing (Winnow can't check that itself). ") +
+                        "They're redacted as always: long numbers, emails and the paths of links are masked, and the sender's number isn't sent. " +
+                        "Texts from contacts, people you've written to, and codes stay on your phone.\n\n" +
+                        "Its answers teach Winnow's model (counting for less than your labels, which always win) and file texts Winnow never sorted. " +
+                        (o.estimateUsd?.let { "At OpenRouter's price for Jev that's about ${money(it)} in all. " } ?: "${o.provider} bills each one as usual; the cost so far shows as it goes. ") +
+                        "You can stop at any time and pick up later.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirming = false; viewModel.startBootstrap() }) { Text("Start") } },
+            dismissButton = { TextButton(onClick = { confirming = false }) { Text("Not now") } },
+        )
+    }
+}
+
+@Composable
+private fun BootstrapCard(title: String, content: @Composable () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            content()
+        }
+    }
+}

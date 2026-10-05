@@ -25,6 +25,7 @@ class Training(
     private val context: Context,
     private val repo: MessageRepository,
     private val verdicts: VerdictDao,
+    private val corrections: com.ericflo.winnow.data.db.CorrectionDao,
     private val learner: Learner,
     private val contacts: ContactLookup,
 ) {
@@ -44,6 +45,8 @@ class Training(
         val repliedTo: Boolean = false,
         /** The guess the round started with; [guess] moves as the user answers others (see Learner.preview). */
         val firstGuess: Category = guess,
+        /** What the classifier service (Jev) said of this conversation, if it was asked (see Bootstrap). */
+        val providerSays: Category? = null,
     ) {
         /** What the model reads to guess: the newest text, as they sent it. */
         fun message() = InboundMessage(sender = recipients.first(), body = text, senderInContacts = false, userHasMessagedSender = repliedTo)
@@ -72,10 +75,15 @@ class Training(
         val all = repo.conversations().first()
         val backlog = all.filter { c -> eligible(c) && c.threadId !in judged && !knownEmpty(c) }
         val classifier = learner.classifier()
-        // A first, cheap guess from each conversation's latest text, to choose the batch.
+        // What the classifier service said of each conversation, from its newest label there.
+        val provider = corrections.all().filter { it.fromProvider && it.threadId != null }
+            .groupBy { it.threadId!! }.mapValues { (_, rows) -> Category.fromKey(rows.maxBy { it.createdAt }.label) }
+        // A first, cheap guess from each conversation's latest text, to choose the batch. Where the
+        // service and the model disagree comes first: that's where the user's answer counts most.
         val guessed = backlog.map { c ->
             val p = classifier.classify(InboundMessage(sender = c.address, body = c.snippet.removePrefix("You: ")))
-            c.threadId to p.confidence
+            val disagree = provider[c.threadId]?.let { it != p.category } == true
+            c.threadId to if (disagree) p.confidence - 1.0 else p.confidence
         }
         val byId = backlog.associateBy { it.threadId }
         val candidates = mutableListOf<Candidate>()
@@ -103,6 +111,7 @@ class Training(
                 c.threadId, c.recipients, c.displayName, c.photoUri, Labeler.textOf(newest), p.category, p.confidence,
                 earlier = covered.dropLast(1).asReversed().map(Labeler::textOf),
                 repliedTo = messages.any { it.outgoing },
+                providerSays = provider[c.threadId],
             )
         }
         Round(

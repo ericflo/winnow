@@ -5,18 +5,20 @@ import com.ericflo.winnow.classifier.DecisionRequest
 import com.ericflo.winnow.classifier.ProviderException
 import com.ericflo.winnow.classifier.http.HttpResult
 import com.ericflo.winnow.classifier.http.HttpTransport
-import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 class SystemOneProviderTest {
     private val question = Choice("Which?", linkedMapOf("a" to "first", "b" to null))
@@ -96,5 +98,15 @@ class SystemOneProviderTest {
     @Test
     fun `config toString never prints the key`() {
         assertFalse("secret" in SystemOneConfig.typeSafe("secret").toString())
+    }
+
+    @Test
+    fun `zero retention asks the router for ZDR endpoints, and only then`() {
+        val request = DecisionRequest(buildJsonObject { put("message", "hi") }, mapOf("category" to Choice("Which?", mapOf("a" to "A"))))
+        val plain = Json.parseToJsonElement(SystemOneWire.encodeRequest("typesafe/jev-1.13", request)).jsonObject
+        assertEquals(null, plain["provider"])
+        val zdr = Json.parseToJsonElement(SystemOneWire.encodeRequest("typesafe/jev-1.13", request, zeroRetention = true)).jsonObject
+        assertEquals("""{"zdr":true}""", zdr["provider"].toString())
+        assertEquals(setOf("model", "provider", "state", "questions"), zdr.keys)
     }
 }

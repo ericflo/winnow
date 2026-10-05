@@ -3,12 +3,13 @@ package com.ericflo.winnow.classifier.local
 import kotlin.math.sqrt
 
 /**
- * One thing the user taught Winnow: a message's feature buckets (never its text) and the
- * category it should have been.
+ * One thing Winnow was taught: a message's feature buckets (never its text) and the category it
+ * should have been. [weight] is how much it counts: 1 for the user's own, less for a label a
+ * classifier service gave (see Learner), so the user's always outweigh it.
  */
-data class Correction(val buckets: IntArray, val label: Int) {
-    override fun equals(other: Any?) = other is Correction && label == other.label && buckets.contentEquals(other.buckets)
-    override fun hashCode() = buckets.contentHashCode() * 31 + label
+data class Correction(val buckets: IntArray, val label: Int, val weight: Double = 1.0) {
+    override fun equals(other: Any?) = other is Correction && label == other.label && weight == other.weight && buckets.contentEquals(other.buckets)
+    override fun hashCode() = (buckets.contentHashCode() * 31 + label) * 31 + weight.hashCode()
 }
 
 /**
@@ -56,6 +57,7 @@ object Personalizer {
         val rows = corrections.map { c -> IntArray(c.buckets.size) { j -> rowOf.getOrPut(c.buckets[j]) { rowOf.size } } }
         val values = DoubleArray(corrections.size) { LocalModel.featureValue(corrections[it].buckets.size) }
         val labels = IntArray(corrections.size) { corrections[it].label }
+        val weightOf = DoubleArray(corrections.size) { corrections[it].weight }
         val weights = DoubleArray(rowOf.size * k)
         val squares = DoubleArray(rowOf.size * k) { 1e-8 }
         val scores = DoubleArray(k)
@@ -69,7 +71,7 @@ object Personalizer {
                 for (r in own) { val at = r * k; for (c in 0 until k) scores[c] += weights[at + c] * value }
                 val p = LocalModel.softmax(scores, temperature)
                 for (c in 0 until k) {
-                    val g = p[c] - if (c == labels[n]) 1.0 else 0.0
+                    val g = (p[c] - if (c == labels[n]) 1.0 else 0.0) * weightOf[n]
                     for (r in own) {
                         val at = r * k + c
                         val gi = g * value + l2 * weights[at]

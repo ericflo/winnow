@@ -34,6 +34,17 @@ class MessageClassifier(
     private val filteredPhrases: FilteredPhrases = FilteredPhrases(emptyList()),
 ) {
 
+    /**
+     * Whether [message] is decided on the phone and never reaches a provider: a sender rule, a
+     * contact, someone the user has written to, a code (as [privacy] says), or a filtered phrase.
+     * The same checks [classify] starts with, so a caller planning what to send agrees with it.
+     */
+    fun staysOnPhone(message: InboundMessage): Boolean {
+        if (LocalRules.decide(message, privacy) != null) return true
+        val stranger = !message.senderInContacts && !message.userHasMessagedSender && !LocalRules.looksLikeVerificationCode(message.body)
+        return stranger && filteredPhrases.find(message.body) != null
+    }
+
     suspend fun classify(message: InboundMessage): Verdict {
         LocalRules.decide(message, privacy)?.let { return it }
         // Strangers only, whatever the privacy switches say: never a contact, someone the user has

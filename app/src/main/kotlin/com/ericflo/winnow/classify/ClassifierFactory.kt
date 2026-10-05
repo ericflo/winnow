@@ -12,6 +12,10 @@ import com.ericflo.winnow.classifier.providers.SystemOneConfig
 import com.ericflo.winnow.classifier.providers.SystemOneProvider
 import com.ericflo.winnow.data.ProviderKind
 import com.ericflo.winnow.data.WinnowSettings
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 
 /** The only place that maps user settings to concrete providers. Add a provider here and in [ProviderKind]. */
 class ClassifierFactory(
@@ -46,13 +50,20 @@ class ClassifierFactory(
                 SystemOneProvider(SystemOneConfig.typeSafe(it, model).copy(dataHandling = handling), http)
             }
             ProviderKind.OPENROUTER_JEV -> key?.let {
-                SystemOneProvider(SystemOneConfig.openRouter(it, model).copy(dataHandling = handling), http)
+                // OpenRouter is told, not just trusted: zero retention routes to ZDR endpoints only.
+                SystemOneProvider(SystemOneConfig.openRouter(it, model).copy(dataHandling = handling, zeroRetentionRouting = p.zeroRetention), http)
             }
             ProviderKind.SYSTEM_ONE -> baseUrl?.let {
                 SystemOneProvider(SystemOneConfig.custom(it, model, key, handling), http)
             }
             ProviderKind.CHAT_COMPLETIONS -> baseUrl?.takeIf { model.isNotBlank() }?.let {
-                ChatCompletionsProvider(ChatCompletionsConfig(baseUrl = it, model = model, apiKey = key, dataHandling = handling), http)
+                // The same routing request where the endpoint is OpenRouter's; other servers might reject it.
+                val extra = if (p.zeroRetention && it.contains("openrouter.ai")) {
+                    buildJsonObject { putJsonObject("provider") { put("zdr", true) } }
+                } else {
+                    JsonObject(emptyMap())
+                }
+                ChatCompletionsProvider(ChatCompletionsConfig(baseUrl = it, model = model, apiKey = key, dataHandling = handling, extraBody = extra), http)
             }
         }
     }

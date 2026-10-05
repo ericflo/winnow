@@ -177,6 +177,8 @@ data class CorrectionBackup(
     val createdAt: Long,
     /** A label's message, by its key on the phone it was backed up from ([MessageBackup.labelKey]). */
     val messageKey: String? = null,
+    /** "user", or "provider" for a label a classifier service gave. */
+    val source: String = "user",
 )
 
 @Serializable

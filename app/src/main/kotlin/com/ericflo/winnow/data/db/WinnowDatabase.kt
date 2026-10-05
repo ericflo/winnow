@@ -28,7 +28,7 @@ import kotlinx.coroutines.flow.Flow
         VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class, ScheduledMessageEntity::class,
         CorrectionEntity::class, StarredEntity::class, ReminderEntity::class,
     ],
-    version = 15,
+    version = 16,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
@@ -38,6 +38,8 @@ import kotlinx.coroutines.flow.Flow
         AutoMigration(from = 12, to = 13, spec = WinnowDatabase.RemindersFromMe::class),
         AutoMigration(from = 13, to = 14),
         AutoMigration(from = 14, to = 15, spec = WinnowDatabase.ArrivalsMarked::class),
+        // 15 to 16 adds CorrectionEntity.source: every existing row is the user's.
+        AutoMigration(from = 15, to = 16),
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
@@ -172,7 +174,20 @@ data class CorrectionEntity(
      * restored from a backup.
      */
     val messageKey: String? = null,
-)
+    /**
+     * Who taught it: [SOURCE_USER], or [SOURCE_PROVIDER] for a label a classifier service gave
+     * the backlog (see Bootstrap). The user's count for more, replace a provider's on the same
+     * message, and are the only ones the accuracy screen scores.
+     */
+    @ColumnInfo(defaultValue = SOURCE_USER) val source: String = SOURCE_USER,
+) {
+    val fromProvider: Boolean get() = source == SOURCE_PROVIDER
+
+    companion object {
+        const val SOURCE_USER = "user"
+        const val SOURCE_PROVIDER = "provider"
+    }
+}
 
 @Dao
 interface CorrectionDao {
@@ -184,6 +199,20 @@ interface CorrectionDao {
 
     @Query("SELECT * FROM corrections")
     fun observeAll(): Flow<List<CorrectionEntity>>
+
+    /** Messages that already taught the model something, by anyone: a backlog run skips them. */
+    @Query("SELECT messageKey FROM corrections WHERE messageKey IS NOT NULL")
+    suspend fun taughtKeys(): List<String>
+
+    @Query("SELECT COUNT(*) FROM corrections WHERE source = 'provider'")
+    fun observeProviderCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM corrections WHERE source != 'provider'")
+    fun observeUserCount(): Flow<Int>
+
+    /** Forgets every label a classifier service gave, leaving the user's. */
+    @Query("DELETE FROM corrections WHERE source = 'provider'")
+    suspend fun deleteProviderLabels()
 
     @Insert
     suspend fun insert(correction: CorrectionEntity)

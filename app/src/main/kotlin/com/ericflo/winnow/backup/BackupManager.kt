@@ -331,7 +331,7 @@ class BackupManager(
             conversations = if (canReadMessages()) readConversations(media) else emptyList(),
             scheduled = scheduledDao.all().map { ScheduledBackup(splitAddresses(it.recipients), it.body, it.sendAt) },
             corrections = corrections.all().map { c ->
-                CorrectionBackup(c.buckets.split(',').mapNotNull(String::toIntOrNull), c.label, c.featurizerVersion, c.createdAt, c.messageKey)
+                CorrectionBackup(c.buckets.split(',').mapNotNull(String::toIntOrNull), c.label, c.featurizerVersion, c.createdAt, c.messageKey, c.source)
             },
         )
         var saved = 0
@@ -529,6 +529,7 @@ class BackupManager(
                     CorrectionEntity(
                         threadId = null, buckets = it.buckets.joinToString(","), label = it.label, featurizerVersion = it.featurizerVersion,
                         createdAt = it.createdAt, messageKey = it.messageKey?.let { key -> RESTORED_LABEL + key },
+                        source = if (it.source == CorrectionEntity.SOURCE_PROVIDER) CorrectionEntity.SOURCE_PROVIDER else CorrectionEntity.SOURCE_USER,
                     ),
                 )
             }

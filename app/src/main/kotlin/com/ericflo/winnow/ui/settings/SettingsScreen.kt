@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -109,6 +110,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
     val backup by viewModel.backup.collectAsStateWithLifecycle()
     val canBackUpMessages by viewModel.canBackUpMessages.collectAsStateWithLifecycle()
     val learned by viewModel.learned.collectAsStateWithLifecycle()
+    val providerLearned by viewModel.providerLearned.collectAsStateWithLifecycle()
     var confirmForget by rememberSaveable { mutableStateOf(false) }
     if (confirmForget) {
         AlertDialog(
@@ -116,7 +118,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
             title = { Text("Forget what Winnow learned?") },
             text = {
                 Text(
-                    "The on-phone model goes back to how it shipped, without your $learned labels and corrections. " +
+                    "The on-phone model goes back to how it shipped, without your $learned labels and corrections (or any a classifier service gave). " +
                         "Conversations stay where you put them. This can't be undone.",
                 )
             },
@@ -175,16 +177,25 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                 }
             }
 
-            if (learned > 0) {
+            if (learned > 0 || providerLearned > 0) {
                 item("learned") {
                     ListItem(
                         headlineContent = { Text("Learned from your labels and corrections") },
                         supportingContent = {
-                            Text(
-                                "${if (learned == 1) "1 text you labeled or corrected teaches" else "$learned texts you labeled or corrected teach"} the on-phone model " +
-                                    "about texts like them. It keeps word fingerprints, never the messages. Forget clears what it learned; " +
-                                    "conversations stay where you put them.",
-                            )
+                            Column {
+                                Text(
+                                    "${if (learned == 1) "1 text you labeled or corrected teaches" else "$learned texts you labeled or corrected teach"} the on-phone model " +
+                                        "about texts like them. It keeps word fingerprints, never the messages. Forget clears what it learned; " +
+                                        "conversations stay where you put them.",
+                                )
+                                if (providerLearned > 0) {
+                                    Text(
+                                        "Also $providerLearned texts from your backlog labeled by a classifier service (Train Winnow). They count for less than yours.",
+                                        modifier = Modifier.padding(top = 4.dp),
+                                    )
+                                    TextButton(onClick = viewModel::forgetProviderLabels, contentPadding = PaddingValues(0.dp)) { Text("Forget just those") }
+                                }
+                            }
                         },
                         trailingContent = { TextButton(onClick = { confirmForget = true }) { Text("Forget") } },
                     )

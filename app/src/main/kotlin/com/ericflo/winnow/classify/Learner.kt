@@ -27,7 +27,11 @@ class Learner(private val dao: CorrectionDao, private val settings: SettingsRepo
     private val lock = Mutex()
     @Volatile private var trained: OnDeviceClassifier? = null
 
-    val count: Flow<Int> = dao.observeCount()
+    /** What the user taught it: their labels and corrections, not a classifier service's. */
+    val count: Flow<Int> = dao.observeUserCount()
+
+    /** Labels a classifier service gave the backlog (see Bootstrap). */
+    val providerCount: Flow<Int> = dao.observeProviderCount()
 
     /**
      * Teaches [category] for each message in [examples] (by message key): their feature
@@ -142,8 +146,38 @@ class Learner(private val dao: CorrectionDao, private val settings: SettingsRepo
         val classes = LocalModel.bundled.classes
         return rows.mapNotNull { e ->
             val label = classes.indexOf(e.label).takeIf { it >= 0 && e.featurizerVersion == Featurizer.VERSION } ?: return@mapNotNull null
-            Correction(e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray(), label)
+            Correction(e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray(), label, if (e.fromProvider) PROVIDER_WEIGHT else 1.0)
         }
+    }
+
+    /**
+     * Labels a classifier service gave the backlog (see Bootstrap): [rows], already featurized,
+     * each replacing an earlier provider label on its message but never the user's. Retrains
+     * only when asked: a run adds them in batches and retrains as it goes.
+     */
+    suspend fun teach(rows: List<CorrectionEntity>, retrain: Boolean) {
+        if (rows.isEmpty()) return
+        lock.withLock {
+            val mine = dao.forMessages(rows.mapNotNull { it.messageKey }).filterNot { it.fromProvider }.mapNotNullTo(HashSet()) { it.messageKey }
+            val fresh = rows.filter { it.messageKey !in mine }
+            dao.deleteForMessages(fresh.mapNotNull { it.messageKey })
+            dao.insertAll(fresh)
+        }
+        if (retrain) retrain()
+    }
+
+    /** Forgets what a classifier service taught, keeping the user's own labels and corrections. */
+    suspend fun forgetProviderLabels() {
+        lock.withLock { dao.deleteProviderLabels() }
+        retrain()
+    }
+
+    companion object {
+        /**
+         * How much a classifier service's label counts against the user's (1): enough to teach
+         * the model the backlog, little enough that one of the user's outweighs several of its.
+         */
+        const val PROVIDER_WEIGHT = 0.35
     }
 
     private suspend fun retrain(): OnDeviceClassifier = lock.withLock {

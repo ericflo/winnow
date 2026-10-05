@@ -258,6 +258,14 @@ class AppContainer(private val context: Context) {
     val contactsSource by lazy { ContactsSource(context) }
     val blockedNumbers by lazy { BlockedNumbers(context) }
     val historyReviewer by lazy { HistoryReviewer(context, appScope, verdictDao, contacts, settings, classifiers) }
+
+    /** Teaching the on-device model the backlog with the chosen classifier service (Train Winnow). */
+    val bootstrap by lazy {
+        com.ericflo.winnow.classify.Bootstrap(
+            context, appScope, messages, verdictDao, correctionDao, learner, contacts, settings, classifiers,
+            onFinished = { historyReviewer.refresh() },
+        )
+    }
     // Scheduled texts only ever go out through the real store, once Winnow is the SMS app.
     val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages.takeIf { isDefaultSmsApp() } } }
 
@@ -278,7 +286,7 @@ class AppContainer(private val context: Context) {
     /** Crashes and freezes on this phone, for a report the user can share. */
     val problems by lazy { com.ericflo.winnow.diagnostics.ProblemLog(context) }
 
-    val training by lazy { com.ericflo.winnow.classify.Training(context, messages, verdictDao, learner, contacts) }
+    val training by lazy { com.ericflo.winnow.classify.Training(context, messages, verdictDao, correctionDao, learner, contacts) }
 
     /** The user's labels: filing messages by category and teaching the on-device model. */
     val labeler by lazy { com.ericflo.winnow.classify.Labeler(messages, verdictDao, learner, contacts, settings) }
