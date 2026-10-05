@@ -101,6 +101,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.DisposableEffect
+import com.ericflo.winnow.ui.components.LabelSheet
 import com.ericflo.winnow.ui.components.VideoViewer
 import com.ericflo.winnow.ui.components.VideoAttachment
 import com.ericflo.winnow.ui.components.AudioPlayer
@@ -307,6 +308,16 @@ fun ThreadScreen(
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(viewModel) { viewModel.notices.collect { snackbar.showSnackbar(it) } }
+    LaunchedEffect(viewModel) {
+        viewModel.labeled.collect { event ->
+            snackbar.currentSnackbarData?.dismiss()
+            launch {
+                if (snackbar.showSnackbar(event.text, actionLabel = "Undo", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
+                    viewModel.undoLabel(event.undo)
+                }
+            }
+        }
+    }
     // Deleted messages sit in Recently deleted; Undo puts them straight back.
     LaunchedEffect(viewModel) {
         viewModel.deleted.collect { items ->
@@ -457,6 +468,9 @@ fun ThreadScreen(
     var confirmDeleteSelected by remember { mutableStateOf(false) }
     var confirmDeleteOne by remember { mutableStateOf<ChatMessage?>(null) }
     var reactingWithOther by remember { mutableStateOf<ChatMessage?>(null) }
+    // Labeling the conversation (true) or one message, from the menu or a message's sheet.
+    var labelingConversation by remember { mutableStateOf(false) }
+    var labelingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     // A place, date or flight tapped in a message: its text, and where in it.
     var smartTapped by remember { mutableStateOf<Triple<String, SmartLink, Long>?>(null) }
     // A phone number tapped in a message: what to do with it, rather than straight to the dialer.
@@ -582,6 +596,13 @@ fun ThreadScreen(
                                 leadingIcon = { Icon(painterResource(if (state.archived) R.drawable.ic_unarchive else R.drawable.ic_archive), contentDescription = null) },
                                 onClick = { menuOpen = false; viewModel.setArchived(!state.archived) },
                             )
+                            if (state.messages.any(com.ericflo.winnow.classify.Labeler::labelable)) {
+                                DropdownMenuItem(
+                                    text = { Text("Label conversation…") },
+                                    leadingIcon = { Icon(painterResource(R.drawable.ic_label), contentDescription = null) },
+                                    onClick = { menuOpen = false; labelingConversation = true },
+                                )
+                            }
                             if (single != null) {
                                 DropdownMenuItem(
                                     text = { Text("Always allow this sender") },
@@ -694,7 +715,7 @@ fun ThreadScreen(
         Column(Modifier.padding(padding).fillMaxSize()) {
             val verdictShown = state.verdict?.let { it.effectiveAction != Action.ALLOW || it.userAction != null } == true
             state.verdict?.takeIf { verdictShown }?.let { verdict ->
-                VerdictBanner(verdict, onAllow = viewModel::allow, onFilter = viewModel::filter, onReport = { confirmReport = true })
+                VerdictBanner(verdict, onAllow = viewModel::allow, onFilter = viewModel::filter, onReport = { confirmReport = true }, onRelabel = { labelingConversation = true })
             }
             val ownNumberDismissed by viewModel.ownNumberCardDismissed.collectAsStateWithLifecycle()
             if (state.isGroup && !phoneNumbersAllowed && !ownNumberDismissed) {
@@ -804,6 +825,7 @@ fun ThreadScreen(
             },
             onSelectText = { selectingText = words },
             onReactOther = { reactingWithOther = message },
+            onLabel = if (com.ericflo.winnow.classify.Labeler.labelable(message)) ({ labelingMessage = message }) else null,
             links = if (state.linksOff(message)) emptyList() else allWebLinks(message.body),
             onCopyLink = { copy(it, "Link copied") },
             onShareText = {
@@ -813,6 +835,25 @@ fun ThreadScreen(
         )
     }
     selectingText?.let { text -> SelectTextDialog(text, onDismiss = { selectingText = null }) }
+    if (labelingConversation) {
+        val newest = state.messages.lastOrNull(com.ericflo.winnow.classify.Labeler::labelable)
+        LabelSheet(
+            title = "Label this conversation",
+            current = newest?.verdict?.takeIf { it.labeledByUser }?.category,
+            actionFor = viewModel::actionFor,
+            onPick = { category -> labelingConversation = false; viewModel.labelConversation(category) },
+            onDismiss = { labelingConversation = false },
+        )
+    }
+    labelingMessage?.let { message ->
+        LabelSheet(
+            title = "Label this message",
+            current = message.verdict?.takeIf { it.labeledByUser }?.category,
+            actionFor = viewModel::actionFor,
+            onPick = { category -> labelingMessage = null; viewModel.labelMessage(message, category) },
+            onDismiss = { labelingMessage = null },
+        )
+    }
     if (pickingDate) {
         GoToDateDialog(
             messages = state.messages,
@@ -1151,11 +1192,18 @@ private fun UnknownSenderBanner(onAddContact: () -> Unit, onFilter: () -> Unit, 
 
 /** Why Winnow handled this conversation the way it did, and the one-tap correction. */
 @Composable
-private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter: () -> Unit, onReport: () -> Unit) {
+private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter: () -> Unit, onReport: () -> Unit, onRelabel: () -> Unit) {
     val (container, content) = categoryColors(if (verdict.userAction == Action.ALLOW) null else verdict.category)
     val label = verdict.category?.label ?: "This sender"
     val percent = if (verdict.confidence < 1.0) " · ${(verdict.confidence * 100).toInt()}%" else ""
     val (title, detail) = when {
+        // A label files these messages and teaches the model; unlike "Filter sender", it sets no
+        // rule for the sender's next texts, so it mustn't claim one.
+        verdict.labeledByUser -> "You labeled this $label" to when (verdict.effectiveAction) {
+            Action.FILTER -> "Kept out of your inbox, no notification. Winnow learned from your label."
+            Action.SILENCE -> "Delivered without a notification. Winnow learned from your label."
+            Action.ALLOW -> "In your inbox. Winnow learned from your label."
+        }
         verdict.userAction == Action.ALLOW -> "You allowed this sender" to "Their messages will always reach your inbox."
         verdict.userAction != null -> "You filtered this sender" to "Their messages will skip your inbox without a notification."
         // A rule, not a category: its reason says it all ("Has “toll”, which you filter").
@@ -1188,6 +1236,10 @@ private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter:
             // In the banner's own ink: the app's accent reads poorly on a red or amber banner.
             val buttons = ButtonDefaults.textButtonColors(contentColor = content)
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                if (verdict.labeledByUser) {
+                    TextButton(onClick = onRelabel, colors = buttons) { Text("Change label", fontWeight = FontWeight.SemiBold) }
+                    return@Row
+                }
                 if (verdict.userAction == null && verdict.category in REPORTABLE) TextButton(onClick = onReport, colors = buttons) { Text("Report") }
                 if (verdict.effectiveAction != Action.ALLOW) TextButton(onClick = onAllow, colors = buttons) { Text("Not spam", fontWeight = FontWeight.SemiBold) }
                 if (verdict.effectiveAction != Action.FILTER) TextButton(onClick = onFilter, colors = buttons) { Text("Filter sender") }
@@ -1851,6 +1903,8 @@ private fun MessageActionsSheet(
     replyPrivately: Pair<String, () -> Unit>? = null,
     /** React with an emoji that isn't one of the six. */
     onReactOther: () -> Unit = {},
+    /** Label this received message (see Labeler); null for one the user sent. */
+    onLabel: (() -> Unit)? = null,
     /** The message's links, to copy on their own; none for fraud, whose links can't be tapped either. */
     links: List<String> = emptyList(),
     onCopyLink: (String) -> Unit = {},
@@ -1884,6 +1938,15 @@ private fun MessageActionsSheet(
                         contentAlignment = Alignment.Center,
                     ) { Icon(Icons.Filled.Add, contentDescription = "Another emoji") }
                 }
+            }
+            if (onLabel != null) {
+                ListItem(
+                    headlineContent = { Text("Label message…") },
+                    supportingContent = { Text(message.verdict?.takeIf { it.labeledByUser }?.category?.let { "Labeled ${it.label}" } ?: "Spam, personal, political…: Winnow learns from it") },
+                    leadingContent = { Icon(painterResource(R.drawable.ic_label), contentDescription = null) },
+                    colors = colors,
+                    modifier = Modifier.clickable(onClick = act(onLabel)),
+                )
             }
             if (message.body.isNotBlank() || message.subject != null) {
                 ListItem(

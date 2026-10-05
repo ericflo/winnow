@@ -92,6 +92,8 @@ data class InboxUiState(
     val unreadConversations: Int = 0,
     /** Reply reminders, by conversation: these sort to the top, after pinned ones. */
     val nudges: Map<Long, Nudge.Kind> = emptyMap(),
+    /** Messages the user has labeled (see Labeler). */
+    val labeled: Int = 0,
 )
 
 /** Backs the inbox and the Filtered and Archived lists. */
@@ -132,9 +134,9 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         combine(all, hits, ::Pair),
         combine(container.isLive, isDefault, ::Pair),
         combine(query, filter, ::Pair),
-        combine(classifier, review, ::Pair),
+        combine(classifier, review, container.learner.labelCount, ::Triple),
         nudgeInputs,
-    ) { (all, hits), (live, isDefault), (query, filter), (classifier, review), (nudgesOn, dismissed) ->
+    ) { (all, hits), (live, isDefault), (query, filter), (classifier, review, labeled), (nudgesOn, dismissed) ->
         val shown = all.filter { c ->
             when (mode) {
                 ListMode.INBOX -> !c.isFiltered && !c.archived
@@ -186,6 +188,7 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
             kinds = kinds,
             unreadConversations = unread.size,
             nudges = nudges,
+            labeled = labeled,
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxUiState())
 
@@ -279,6 +282,34 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
             deleted.problem?.let(container::toast)
             if (deleted.items.isNotEmpty()) withContext(Dispatchers.Main) { onDone(deleted.items) }
         }
+    }
+
+    private val actionPolicy = container.settings.settings.map { it.actionPolicy }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.ericflo.winnow.classifier.message.ActionPolicy())
+
+    /** Where each category files a message, by the user's settings (for the label sheet). */
+    fun actionFor(category: Category): com.ericflo.winnow.classifier.message.Action = actionPolicy.value.forCategory(category)
+
+    /**
+     * Labels the [threadIds] conversations as [category] (see Labeler), in the app scope so
+     * leaving midway doesn't stop it. [onDone] gets what to say and the undo, on the main thread.
+     */
+    fun label(threadIds: Set<Long>, category: Category, onDone: (String, com.ericflo.winnow.classify.Labeler.Undo) -> Unit) {
+        val conversations = state.value.conversations.filter { it.threadId in threadIds }.map { it.threadId to it.recipients }
+        container.appScope.launch {
+            val result = container.labeler.labelConversations(conversations, category)
+            val undo = result.undo
+            if (undo == null) {
+                container.toast("Nothing received there to label yet")
+                return@launch
+            }
+            val text = if (result.conversations == 1) "Labeled ${category.label}. Winnow learned from it." else "${result.conversations} labeled ${category.label}. Winnow learned from them."
+            withContext(Dispatchers.Main) { onDone(text, undo) }
+        }
+    }
+
+    fun undoLabel(undo: com.ericflo.winnow.classify.Labeler.Undo) {
+        container.appScope.launch { container.labeler.undo(undo) }
     }
 
     /** Undo for [delete]: back out of Recently deleted. */

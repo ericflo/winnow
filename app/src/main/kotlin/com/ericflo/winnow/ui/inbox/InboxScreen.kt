@@ -80,6 +80,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.ListItem
+import com.ericflo.winnow.ui.components.LabelSheet
 import com.ericflo.winnow.ui.components.RestrictedSettingHelp
 import com.ericflo.winnow.ui.components.AttachmentThumbnail
 import androidx.compose.ui.draw.clip
@@ -136,6 +137,7 @@ fun InboxScreen(
     onOpenSettings: () -> Unit,
     onMakeDefault: () -> Unit,
     onOpenStarred: () -> Unit = {},
+    onOpenTrain: () -> Unit = {},
     onOpenScheduled: () -> Unit = {},
     onOpenTrash: () -> Unit = {},
     /** In the two-pane layout, the conversation open beside the list. */
@@ -168,6 +170,7 @@ fun InboxScreen(
     val swipes by viewModel.swipes.collectAsStateWithLifecycle()
     var makeDefaultDismissed by rememberSaveable { mutableStateOf(false) }
     var alertsOffDismissed by rememberSaveable { mutableStateOf(false) }
+    var labelingSelected by remember { mutableStateOf(false) }
     val alertsOff by viewModel.alertsOff.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val atTop by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
@@ -409,6 +412,7 @@ fun InboxScreen(
                         viewModel.block(conversation)
                         selected = emptySet()
                     },
+                    onLabel = { labelingSelected = true },
                 )
             }
             AnimatedVisibility(
@@ -433,6 +437,25 @@ fun InboxScreen(
             if (snackbar.showSnackbar(message, actionLabel = "Undo", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) viewModel.restore(items)
         }
         Unit
+    }
+    if (labelingSelected) {
+        val single = selected.size == 1
+        LabelSheet(
+            title = if (single) "Label this conversation" else "Label ${selected.size} conversations",
+            current = if (single) selection.singleOrNull()?.verdict?.takeIf { it.labeledByUser }?.category else null,
+            actionFor = viewModel::actionFor,
+            onPick = { category ->
+                labelingSelected = false
+                viewModel.label(selected, category) { text, undo ->
+                    scope.launch {
+                        snackbar.currentSnackbarData?.dismiss()
+                        if (snackbar.showSnackbar(text, actionLabel = "Undo", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) viewModel.undoLabel(undo)
+                    }
+                }
+                selected = emptySet()
+            },
+            onDismiss = { labelingSelected = false },
+        )
     }
     swipedToDelete?.let { id ->
         DeleteDialog(
@@ -472,6 +495,10 @@ fun InboxScreen(
             onOpenStarred = {
                 menuOpen = false
                 onOpenStarred()
+            },
+            onOpenTrain = {
+                menuOpen = false
+                onOpenTrain()
             },
             scheduledCount = scheduledCount,
             onOpenScheduled = {
@@ -580,6 +607,7 @@ private fun SelectionBar(
     onRead: (Boolean) -> Unit,
     onDelete: () -> Unit,
     onBlock: (ConversationSummary) -> Unit,
+    onLabel: () -> Unit,
 ) {
     var overflow by remember { mutableStateOf(false) }
     val allPinned = selection.isNotEmpty() && selection.all { it.pinned }
@@ -595,6 +623,7 @@ private fun SelectionBar(
             IconButton(onClick = { onPin(!allPinned) }) {
                 Icon(painterResource(R.drawable.ic_pin), contentDescription = if (allPinned) "Unpin" else "Pin")
             }
+            IconButton(onClick = onLabel) { Icon(painterResource(R.drawable.ic_label), contentDescription = "Label as") }
             IconButton(onClick = onArchive) { Icon(painterResource(R.drawable.ic_archive), contentDescription = "Archive") }
             IconButton(onClick = { onRead(anyUnread) }) {
                 Icon(if (anyUnread) Icons.Outlined.CheckCircle else Icons.Outlined.MailOutline, contentDescription = if (anyUnread) "Mark as read" else "Mark as unread")

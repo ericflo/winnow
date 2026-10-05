@@ -433,10 +433,12 @@ class TelephonyMessageRepository(
     }
 
     override fun verdictRecords(): Flow<List<VerdictRecord>> = dao.observeAll().map { rows ->
-        rows.map { row ->
+        // Only what Winnow decided as texts arrived: a review of old texts, a label or a correction
+        // never changed whether the phone buzzed, and is dated when it was done, not when the text came.
+        rows.filter { it.atArrival }.map { row ->
             VerdictRecord(
                 category = row.category?.let(Category::fromKey),
-                action = (row.userAction ?: row.action).let(Action::valueOf),
+                action = Action.valueOf(row.action),
                 byProvider = row.sourceKind == "provider",
                 decidedAt = row.decidedAt,
                 costUsd = row.costUsd,

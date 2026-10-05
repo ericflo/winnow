@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ericflo.winnow.R
+import com.ericflo.winnow.ui.components.LabelSheet
 import com.ericflo.winnow.ui.components.FilteredAvatar
 import androidx.compose.material3.SnackbarDuration
 
@@ -66,9 +67,23 @@ fun ConversationListScreen(
     LaunchedEffect(state.conversations) { selected = selected.filterTo(HashSet()) { id -> state.conversations.any { it.threadId == id } } }
     BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
     var confirmDelete by remember { mutableStateOf(false) }
+    var labeling by remember { mutableStateOf(false) }
     val picked = state.conversations.filter { it.threadId in selected }
     fun toggle(id: Long) {
         selected = if (id in selected) selected - id else selected + id
+    }
+    if (labeling) {
+        LabelSheet(
+            title = if (picked.size == 1) "Label this conversation" else "Label ${picked.size} conversations",
+            current = picked.singleOrNull()?.verdict?.takeIf { it.labeledByUser }?.category,
+            actionFor = viewModel::actionFor,
+            onPick = { category ->
+                labeling = false
+                viewModel.label(selected, category) { text, undo -> scope.launch { if (snackbar.showUndo(text)) viewModel.undoLabel(undo) } }
+                selected = emptySet()
+            },
+            onDismiss = { labeling = false },
+        )
     }
     if (confirmDelete) {
         AlertDialog(
@@ -119,6 +134,7 @@ fun ConversationListScreen(
                                 selected = emptySet()
                             }) { Icon(painterResource(R.drawable.ic_unarchive), contentDescription = "Unarchive") }
                         }
+                        IconButton(onClick = { labeling = true }) { Icon(painterResource(R.drawable.ic_label), contentDescription = "Label as") }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, contentDescription = "Delete") }
                     },
                 )
@@ -129,7 +145,7 @@ fun ConversationListScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
-                // Accuracy is the "How accurate is this?" row below, which says what it opens.
+                // Accuracy is the "How accurate is Winnow?" row below, which says what it opens.
             )
         },
     ) { padding ->
@@ -147,8 +163,8 @@ fun ConversationListScreen(
                 item("accuracy") {
                     ListItem(
                         leadingContent = { Icon(painterResource(R.drawable.ic_insights), contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                        headlineContent = { Text("How accurate is this?") },
-                        supportingContent = { Text("ROC curve, precision and recall, calibration and more") },
+                        headlineContent = { Text("How accurate is Winnow?") },
+                        supportingContent = { Text("How often it agrees with your labels, and how its model was tested") },
                         modifier = Modifier.clickable(onClick = onOpenMetrics),
                     )
                 }

@@ -113,7 +113,7 @@ reads the unredacted message: nothing leaves the phone, so there's nothing to re
   vs. wanted" ROC and precision–recall curves with AUC and average precision, a threshold
   table, and Winnow's actual operating point. They're written to
   `winnow-local-metrics.json` beside the model, which the app's **Classifier accuracy**
-  screen (Filtered → How accurate is this?) reads. The stale check covers that file too.
+  screen (Filtered → How accurate is Winnow?) reads. The stale check covers that file too.
   `MetricsCalculatorTest` checks the math against hand-computed values.
 - **Dev tasks:** `./gradlew :classifier:tuneLocalModel` grid-searches the trainer settings
   by cross-validated macro F1, and `:classifier:evalMistakes` lists the evaluation set's

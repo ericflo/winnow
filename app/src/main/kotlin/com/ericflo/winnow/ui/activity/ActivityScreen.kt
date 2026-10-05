@@ -246,7 +246,7 @@ fun ActivityScreen(viewModel: ActivityViewModel, onBack: () -> Unit, onOpenMetri
                         Icon(painterResource(R.drawable.ic_insights), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Column(Modifier.weight(1f).padding(start = 16.dp)) {
                             Text("How accurate is Winnow?", style = MaterialTheme.typography.titleMedium)
-                            Text("ROC curve, precision and recall, calibration, κ and MCC", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("How often it agrees with your labels, and how its model was tested", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

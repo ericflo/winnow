@@ -109,6 +109,21 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
     val backup by viewModel.backup.collectAsStateWithLifecycle()
     val canBackUpMessages by viewModel.canBackUpMessages.collectAsStateWithLifecycle()
     val learned by viewModel.learned.collectAsStateWithLifecycle()
+    var confirmForget by rememberSaveable { mutableStateOf(false) }
+    if (confirmForget) {
+        AlertDialog(
+            onDismissRequest = { confirmForget = false },
+            title = { Text("Forget what Winnow learned?") },
+            text = {
+                Text(
+                    "The on-phone model goes back to how it shipped, without your $learned labels and corrections. " +
+                        "Conversations stay where you put them. This can't be undone.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirmForget = false; viewModel.forgetLearning() }) { Text("Forget") } },
+            dismissButton = { TextButton(onClick = { confirmForget = false }) { Text("Keep") } },
+        )
+    }
     val context = LocalContext.current
     LifecycleResumeEffect(Unit) {
         viewModel.refresh()
@@ -163,14 +178,15 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
             if (learned > 0) {
                 item("learned") {
                     ListItem(
-                        headlineContent = { Text("Learned from your corrections") },
+                        headlineContent = { Text("Learned from your labels and corrections") },
                         supportingContent = {
                             Text(
-                                "${if (learned == 1) "1 correction teaches" else "$learned corrections teach"} the on-phone model about texts like " +
-                                    "the ones you marked. It keeps word fingerprints, never the messages.",
+                                "${if (learned == 1) "1 text you labeled or corrected teaches" else "$learned texts you labeled or corrected teach"} the on-phone model " +
+                                    "about texts like them. It keeps word fingerprints, never the messages. Forget clears what it learned; " +
+                                    "conversations stay where you put them.",
                             )
                         },
-                        trailingContent = { TextButton(onClick = viewModel::forgetLearning) { Text("Forget") } },
+                        trailingContent = { TextButton(onClick = { confirmForget = true }) { Text("Forget") } },
                     )
                 }
             }
@@ -805,7 +821,7 @@ private fun QuickRepliesRow(replies: List<String>, onSave: (List<String>) -> Uni
         supportingContent = {
             Text(
                 if (replies.isEmpty()) "None. Add some to answer from a notification in one tap."
-                else "${replies.size} saved: in the composer's + menu and on notifications. ${replies.joinToString(" · ")}",
+                else "${replies.size} ready: in the composer's + menu and on notifications. ${replies.joinToString(" · ")}",
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )

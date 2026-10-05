@@ -101,6 +101,8 @@ data class StoredVerdict(
     val source: String,
     /** The user's correction, which wins over [action]. */
     val userAction: Action? = null,
+    /** [category] is a label the user gave it (see Labeler), not a guess. */
+    val labeledByUser: Boolean = false,
 ) {
     val effectiveAction: Action get() = userAction ?: action
 
@@ -119,7 +121,7 @@ data class StoredVerdict(
 /** One decision Winnow made, for the Activity screen. */
 data class VerdictRecord(
     val category: com.ericflo.winnow.classifier.message.Category?,
-    /** What actually happened, after any correction by the user. */
+    /** What Winnow did as the text arrived: whether the phone buzzed. A later correction doesn't change that. */
     val action: Action,
     /** True when a classifier service decided; false for on-phone rules, the on-device model and keywords. */
     val byProvider: Boolean,

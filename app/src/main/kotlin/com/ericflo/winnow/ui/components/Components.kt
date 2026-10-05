@@ -154,6 +154,7 @@ fun VerdictBadge(verdict: StoredVerdict, modifier: Modifier = Modifier) {
     val (container, content) = categoryColors(verdict.category)
     val label = verdict.label
     val detail = when {
+        verdict.labeledByUser -> "your label"
         verdict.userAction != null -> "your call"
         verdict.effectiveAction == Action.SILENCE -> "silenced"
         verdict.confidence < 1.0 -> "${(verdict.confidence * 100).toInt()}%"

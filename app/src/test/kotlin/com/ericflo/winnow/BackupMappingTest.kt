@@ -85,7 +85,7 @@ class BackupMappingTest {
         val entity = VerdictEntity(
             messageKey = "sms:41", threadId = 7, address = "+13185550182", category = "phishing", confidence = 0.98,
             action = "FILTER", sourceKind = "provider", sourceDetail = "systemone:openrouter", model = "jev-1.13",
-            costUsd = 0.0001, decidedAt = 1_790_000_000_000, userAction = "ALLOW",
+            costUsd = 0.0001, decidedAt = 1_790_000_000_000, userAction = "ALLOW", userCategory = "personal", atArrival = true,
         )
         assertEquals(entity.copy(messageKey = "sms:9001", threadId = 3), entity.toBackup().toEntity("sms:9001", 3, "+13185550182"))
     }

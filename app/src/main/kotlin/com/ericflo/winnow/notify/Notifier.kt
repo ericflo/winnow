@@ -67,11 +67,11 @@ class Notifier(
         // ContextCompat, not Context: before Android 13 the permission doesn't exist, and the platform calls it denied.
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         fun texts(n: Int) = if (n == 1) "1 text" else "$n texts"
-        val title = if (filtered > 0) "Kept ${texts(filtered)} out of your inbox today" else "${texts(silenced)} arrived quietly today"
+        val title = if (filtered > 0) "Kept ${texts(filtered)} out of your inbox" else "${texts(silenced)} arrived quietly"
         val detail = when {
             filtered > 0 && silenced > 0 -> "And ${texts(silenced)} arrived without a notification. Tap to look them over."
             filtered > 0 -> "Tap to look them over, in case one belongs in your inbox."
-            else -> "Delivered without a notification, as you set it up."
+            else -> "Delivered without a notification: Settings → Filtering decides which kinds do."
         }
         val open = Intent(context, MainActivity::class.java)
             .setAction(MainActivity.ACTION_OPEN_FILTERED)

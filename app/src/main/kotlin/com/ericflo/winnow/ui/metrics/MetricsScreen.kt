@@ -29,6 +29,8 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -71,9 +73,28 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
-/** How Winnow's decisions on this phone line up with the user's own corrections. */
-data class Agreement(val decisions: Int, val corrected: Int, val notSpam: Int, val filteredByYou: Int) {
-    val agreement: Double get() = if (decisions == 0) 1.0 else 1.0 - corrected.toDouble() / decisions
+/**
+ * What's known about Winnow on the user's own texts: only things they actually judged. A
+ * conversation they never looked at says nothing either way, so it isn't counted as agreement.
+ */
+data class Agreement(
+    /** Conversations a model or provider classified on this phone. */
+    val decisions: Int,
+    val corrected: Int,
+    val notSpam: Int,
+    val filteredByYou: Int,
+    /** Messages the user labeled that a model had already judged, and how many of those it had right. */
+    val labeledJudged: Int = 0,
+    val labeledAgreed: Int = 0,
+    /** Every message the user has labeled. */
+    val labeled: Int = 0,
+    /** Train Winnow guesses the user answered, and how many were right, before it learned from them. */
+    val trainReviewed: Int = 0,
+    val trainAgreed: Int = 0,
+) {
+    /** Every call of Winnow's the user has checked, either way. */
+    val checked: Int get() = labeledJudged + trainReviewed
+    val agreed: Int get() = labeledAgreed + trainAgreed
 }
 
 data class MetricsUiState(val metrics: ClassifierMetrics? = null, val agreement: Agreement = Agreement(0, 0, 0, 0))
@@ -82,11 +103,15 @@ class MetricsViewModel(container: AppContainer) : ViewModel() {
     val state: StateFlow<MetricsUiState> = combine(
         flow { emit(ClassifierMetrics.bundled) }.flowOn(Dispatchers.Default),
         container.verdictDao.observeAll(),
-    ) { metrics, verdicts ->
+        flow { emit(container.training.history()) },
+    ) { metrics, verdicts, rounds ->
         // Rules (contacts, codes, sender rules) aren't classifications, so they don't count either way.
         // Counted per conversation: a correction applies to every verdict in its thread at once.
         val decided = verdicts.filter { it.sourceKind != "rule" }.groupBy { it.threadId }
         val corrected = decided.mapNotNull { (_, rows) -> rows.firstOrNull { it.userAction != null && it.userAction != it.action } }
+        // A label on a message a model had judged is a real check of that judgment.
+        val labeled = verdicts.filter { it.userCategory != null }
+        val judged = labeled.filter { it.sourceKind != "rule" && it.category != null }
         MetricsUiState(
             metrics = metrics,
             agreement = Agreement(
@@ -94,15 +119,21 @@ class MetricsViewModel(container: AppContainer) : ViewModel() {
                 corrected = corrected.size,
                 notSpam = corrected.count { it.userAction == Action.ALLOW.name },
                 filteredByYou = corrected.count { it.userAction == Action.FILTER.name },
+                labeledJudged = judged.size,
+                labeledAgreed = judged.count { it.category == it.userCategory },
+                labeled = labeled.size,
+                trainReviewed = rounds.sumOf { it.reviewed },
+                trainAgreed = rounds.sumOf { it.agreed },
             ),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MetricsUiState())
 }
 
 /**
- * How good Winnow's on-phone classifier is, measured on texts it never trained on: the
- * headline scores, ROC and precision–recall curves, calibration, a threshold explorer, per
- * category scores, the confusion matrix, and how its calls line up with your corrections.
+ * How accurate Winnow is. First, and only from the user's own texts, how its calls compare with
+ * the labels and corrections they gave. Then, kept apart and folded away, how the built-in
+ * model scored on Winnow's own test texts, labeled as exactly that: none of those numbers are
+ * about the user's messages, and nothing on this screen may suggest they are.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,7 +142,7 @@ fun MetricsScreen(viewModel: MetricsViewModel, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Classifier accuracy") },
+                title = { Text("How accurate is Winnow?") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
             )
         },
@@ -119,11 +150,29 @@ fun MetricsScreen(viewModel: MetricsViewModel, onBack: () -> Unit) {
         val m = state.metrics ?: return@Scaffold
         // One threshold, shared by both curves and the explorer, so they move together.
         var threshold by rememberSaveable { mutableStateOf(0.5) }
+        var showTest by rememberSaveable { mutableStateOf(false) }
         LazyColumn(
             contentPadding = padding,
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         ) {
+            item("you") { AgreementCard(state.agreement) }
+            item("test-header") {
+                Section("How the built-in model was tested") {
+                    Text(
+                        "Before Winnow ever saw your texts, its built-in model was tested on ${count(m.examples)} example texts written for that. " +
+                            "None of them are yours, and none of the numbers below are about your messages.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    TextButton(onClick = { showTest = !showTest }, contentPadding = PaddingValues(0.dp)) {
+                        Text(if (showTest) "Hide the test results" else "Show the test results")
+                    }
+                }
+            }
+            if (!showTest) {
+                item("footer-short") { Spacer(Modifier.height(32.dp)) }
+                return@LazyColumn
+            }
             item("hero") { Hero(m) }
             item("roc") { RocCard(m.unwanted, threshold) { threshold = it } }
             item("explorer") { ThresholdExplorer(m.unwanted, threshold) { threshold = it } }
@@ -143,7 +192,8 @@ fun MetricsScreen(viewModel: MetricsViewModel, onBack: () -> Unit) {
                 item("blind") {
                     Section("Blind test") {
                         Text(
-                            "${count(e.examples)} more texts, written separately and never used for training, scored by the model that ships.",
+                            "${count(e.examples)} more test texts, written separately and never used for training, scored by the model that ships. " +
+                                "They were written for testing too, so expect less on real messages.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -152,11 +202,10 @@ fun MetricsScreen(viewModel: MetricsViewModel, onBack: () -> Unit) {
                     }
                 }
             }
-            item("you") { AgreementCard(state.agreement) }
             item("footer") {
                 Text(
                     "${m.method} Every test text was written to show its category clearly, so real traffic will score lower. " +
-                        "These numbers are for Winnow's own model (${m.model}); a classifier service is measured by how often you correct it, above.",
+                        "These numbers are for Winnow's own model (${m.model}) on those test texts; how it does on yours is at the top.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp, bottom = 32.dp),
@@ -176,13 +225,13 @@ private fun Hero(m: ClassifierMetrics) {
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Unwanted vs. wanted", style = MaterialTheme.typography.titleMedium, color = c.onSurface)
+            Text("On the test texts: unwanted vs. wanted", style = MaterialTheme.typography.titleMedium, color = c.onSurface)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 ScoreGauge(m.unwanted.auc, "ROC AUC", size = 140.dp)
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
-                    BigNumber(pct(m.accuracy), "of ${count(m.examples)} texts sorted into the right one of 7 categories")
-                    BigNumber(pct(m.unwanted.operatingPoint.falsePositiveRate), "of wanted texts filtered")
-                    BigNumber(pct(m.unwanted.unwantedQuieted), "of unwanted texts never buzz your phone")
+                    BigNumber(pct(m.accuracy), "of the ${count(m.examples)} test texts put in the right one of 7 categories")
+                    BigNumber(pct(m.unwanted.operatingPoint.falsePositiveRate), "of the wanted test texts would be filtered")
+                    BigNumber(pct(m.unwanted.unwantedQuieted), "of the unwanted test texts would arrive without a sound")
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -302,8 +351,8 @@ private fun ThresholdExplorer(b: BinaryMetrics, threshold: Double, onThreshold: 
             "Winnow's own rule is stricter than any single threshold: it filters only when the top category is an unwanted one and it's at least 85% sure, " +
                 "and never filters a scam or phishing text with no hook (no link off the company's real site, money, number to call, or payment or code talk): " +
                 "a bare “hi, is this David?” reads exactly like a real person on a new number, and “your password was changed” has nothing to phish with. " +
-                "That filters ${pct(rule.recall)} of unwanted texts with ${pct(rule.precision)} precision and ${pct(rule.falsePositiveRate)} of wanted ones (F1 ${f2(rule.f1)}, MCC ${f2(rule.mcc)}, κ ${f2(rule.kappa)}). " +
-                "The rest are silenced rather than filtered: ${pct(b.unwantedQuieted)} of unwanted texts never buzz your phone.",
+                "On the test texts, that filters ${pct(rule.recall)} of the unwanted ones with ${pct(rule.precision)} precision and ${pct(rule.falsePositiveRate)} of the wanted ones (F1 ${f2(rule.f1)}, MCC ${f2(rule.mcc)}, κ ${f2(rule.kappa)}). " +
+                "The rest are silenced rather than filtered: ${pct(b.unwantedQuieted)} of the unwanted test texts would arrive without a sound.",
         )
     }
 }
@@ -400,11 +449,11 @@ private fun ConfusionMatrix(m: ClassifierMetrics) {
 private fun CoverageCard(points: List<CoveragePoint>) {
     val c = MaterialTheme.colorScheme
     Section("When it's sure") {
-        Text("How many texts reach each level of confidence, and how often those are right.", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+        Text("How many of the test texts reach each level of confidence, and how often those are right.", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
         points.forEach { p ->
             val role = when (p.threshold) {
-                0.85 -> "Filters on its own"
-                0.95 -> "Decides without a provider"
+                0.85 -> "Where Winnow filters on its own"
+                0.95 -> "Where it decides without a provider"
                 else -> null
             }
             Column {
@@ -422,22 +471,46 @@ private fun CoverageCard(points: List<CoveragePoint>) {
 
 @Composable
 private fun AgreementCard(a: Agreement) {
-    Section("On your phone") {
-        if (a.decisions == 0) {
-            Note("Once Winnow has classified some of your texts, this shows how often you've disagreed with it. Your corrections are the only ground truth there is for your own messages.")
-        } else {
+    Section("On your texts") {
+        if (a.checked >= MIN_CHECKED_FOR_PERCENT) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                ScoreGauge(a.agreement, "agreement", size = 120.dp, format = { "${(it * 100).roundToInt()}%" })
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("${count(a.decisions)} conversations classified", style = MaterialTheme.typography.titleSmall)
-                    Text("${count(a.notSpam)} you marked “Not spam”", style = MaterialTheme.typography.bodyMedium)
-                    Text("${count(a.filteredByYou)} you filtered yourself", style = MaterialTheme.typography.bodyMedium)
+                ScoreGauge(a.agreed.toDouble() / a.checked, "agreed", size = 120.dp, format = { "${(it * 100).roundToInt()}%" })
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+                    Text("Right on ${count(a.agreed)} of ${count(a.checked)}", style = MaterialTheme.typography.titleSmall)
+                    Text("of its calls that you checked", style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            Note("Counts every conversation a model or provider decided, against the ones you corrected. Ones you never looked at count as agreement, so treat this as a ceiling.")
+        } else if (a.checked == 0) {
+            Text(
+                "Nothing measured on your texts yet. Label some (long-press a conversation, or Train Winnow from the menu) and this shows how often Winnow agrees with you.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        } else {
+            Text(
+                "Right on ${count(a.agreed)} of ${count(a.checked)} of its calls that you checked. Too few to make a percentage of yet: check $MIN_CHECKED_FOR_PERCENT and one shows here.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
+        if (a.checked > 0) {
+            val parts = buildList {
+                if (a.trainReviewed > 0) add("Train Winnow: right on ${count(a.trainAgreed)} of ${count(a.trainReviewed)} guesses, each made before it saw your answer")
+                if (a.labeledJudged > 0) add("When texts arrived: right on ${count(a.labeledAgreed)} of ${count(a.labeledJudged)} that you labeled later")
+            }
+            parts.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            Note("Only what you checked yourself counts. The more you label, the more this tells you.")
+        }
+        val counts = buildList {
+            if (a.labeled > 0) add("${count(a.labeled)} texts labeled by you")
+            if (a.decisions > 0) add("${count(a.decisions)} conversations classified on this phone")
+            if (a.notSpam > 0) add("${count(a.notSpam)} you marked “Not spam”")
+            if (a.filteredByYou > 0) add("${count(a.filteredByYou)} you filtered yourself")
+        }
+        counts.forEach { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
+
+/** Fewer checks than this, and a percentage would claim more than they can show. */
+private const val MIN_CHECKED_FOR_PERCENT = 10
 
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {

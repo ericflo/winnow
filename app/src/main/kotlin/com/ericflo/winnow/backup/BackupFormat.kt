@@ -157,6 +157,10 @@ data class VerdictBackup(
     val userAction: String? = null,
     val costUsd: Double = 0.0,
     val decidedAt: Long = 0,
+    /** The category the user labeled it, if they did. */
+    val userCategory: String? = null,
+    /** Decided as it arrived (it counts in Activity), not on a look back at old texts. */
+    val atArrival: Boolean = false,
 )
 
 /** A correction the on-device model learned from: feature buckets and a category, no text. */

@@ -135,6 +135,9 @@ data object StarredRoute
 data object ScheduledRoute
 
 @Serializable
+data object TrainRoute
+
+@Serializable
 data object RecentlyDeletedRoute
 
 /**
@@ -250,6 +253,7 @@ fun WinnowNavHost(
                         onOpenSettings = { nav.navigate(SettingsRoute) },
                         onMakeDefault = onMakeDefault,
                         onOpenStarred = { nav.navigate(StarredRoute) },
+                        onOpenTrain = { nav.navigate(TrainRoute) },
                         onOpenScheduled = { nav.navigate(ScheduledRoute) },
                         onOpenTrash = { nav.navigate(RecentlyDeletedRoute) },
                         openThreadId = opened?.threadId.takeIf { twoPane },
@@ -301,6 +305,12 @@ fun WinnowNavHost(
         }
         composable<ScheduledRoute> {
             ScheduledScreen(viewModel = viewModel { ScheduledViewModel(container) }, onBack = dropUnlessResumed { nav.popBackStack() }, onOpenThread = openThread)
+        }
+        composable<TrainRoute> {
+            com.ericflo.winnow.ui.train.TrainScreen(
+                viewModel = viewModel { com.ericflo.winnow.ui.train.TrainViewModel(container) },
+                onBack = dropUnlessResumed { nav.popBackStack() },
+            )
         }
         composable<StarredRoute> {
             StarredScreen(viewModel = viewModel { StarredViewModel(container) }, onBack = dropUnlessResumed { nav.popBackStack() }, onOpenMessage = openMessage)

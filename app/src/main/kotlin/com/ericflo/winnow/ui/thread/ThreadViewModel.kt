@@ -1022,6 +1022,38 @@ class ThreadViewModel(
         repo.send(recipients, text, subscriptionId = _selectedSim.value)
     }
 
+    /** A labeling that just happened, said with an Undo. */
+    data class Labeled(val text: String, val undo: com.ericflo.winnow.classify.Labeler.Undo)
+
+    private val _labeled = MutableSharedFlow<Labeled>(extraBufferCapacity = 4)
+    val labeled: SharedFlow<Labeled> = _labeled
+
+    private val actionPolicy = container.settings.settings.map { it.actionPolicy }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.ericflo.winnow.classifier.message.ActionPolicy())
+
+    /** Where each category files a message, by the user's settings (for the label sheet). */
+    fun actionFor(category: com.ericflo.winnow.classifier.message.Category): com.ericflo.winnow.classifier.message.Action =
+        actionPolicy.value.forCategory(category)
+
+    /** Labels this conversation (its newest received messages) as [category]. */
+    fun labelConversation(category: com.ericflo.winnow.classifier.message.Category) = launch {
+        val result = container.appScope.async { container.labeler.labelConversations(listOf(threadId.value to recipients), category) }.await()
+        val undo = result.undo ?: return@launch _notices.emit("Nothing received here to label yet")
+        _labeled.emit(Labeled("Labeled ${category.label}. Winnow learned from it.", undo))
+    }
+
+    /** Labels one received [message] as [category]. */
+    fun labelMessage(message: ChatMessage, category: com.ericflo.winnow.classifier.message.Category) = launch {
+        val all = state.value.messages
+        val result = container.appScope.async { container.labeler.labelMessages(threadId.value, recipients, listOf(message), category, all) }.await()
+        val undo = result.undo ?: return@launch
+        _labeled.emit(Labeled("Labeled ${category.label}. Winnow learned from it.", undo))
+    }
+
+    fun undoLabel(undo: com.ericflo.winnow.classify.Labeler.Undo) = launch {
+        container.appScope.async { container.labeler.undo(undo) }.await()
+    }
+
     private val _deleted = MutableSharedFlow<List<Trash.Item>>(extraBufferCapacity = 4)
     /** Messages just moved to Recently deleted, for an Undo. */
     val deleted: SharedFlow<List<Trash.Item>> = _deleted

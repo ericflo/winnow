@@ -29,6 +29,51 @@ class Learner(private val dao: CorrectionDao, private val settings: SettingsRepo
 
     val count: Flow<Int> = dao.observeCount()
 
+    /** How many messages the user has labeled (see Labeler). */
+    val labelCount: Flow<Int> = dao.observeLabelCount()
+
+    /**
+     * Teaches [category] for each message in [examples] (by message key): their feature
+     * buckets, never their text, replacing any label they had. Retrains once, unless told not
+     * to (a round of many labels retrains at the end). Returns the label rows it replaced.
+     */
+    suspend fun label(threadId: Long, examples: Map<String, InboundMessage>, category: Category, retrain: Boolean = true): List<CorrectionEntity> {
+        val now = System.currentTimeMillis()
+        val rows = withContext(Dispatchers.Default) {
+            examples.mapNotNull { (key, message) ->
+                val correction = base.correction(message, setOf(category)) ?: return@mapNotNull null
+                CorrectionEntity(
+                    threadId = threadId,
+                    buckets = correction.buckets.joinToString(","),
+                    label = category.key,
+                    featurizerVersion = Featurizer.VERSION,
+                    createdAt = now,
+                    messageKey = key,
+                )
+            }
+        }
+        val replaced = lock.withLock {
+            val before = dao.forMessages(examples.keys)
+            dao.deleteForMessages(examples.keys)
+            dao.insertAll(rows)
+            before
+        }
+        if (retrain) retrain()
+        return replaced
+    }
+
+    /** Takes labels back: [keys]' labels go, and [restore]'s (what they replaced) come back. */
+    suspend fun unlabel(keys: Collection<String>, restore: List<CorrectionEntity> = emptyList()) {
+        lock.withLock {
+            dao.deleteForMessages(keys)
+            if (restore.isNotEmpty()) dao.insertAll(restore.map { it.copy(id = 0) })
+        }
+        retrain()
+    }
+
+    /** Conversations the user has labeled. */
+    suspend fun labeledThreads(): Set<Long> = dao.labeledThreads().toSet()
+
     /** The on-device classifier with everything the user has taught it. */
     suspend fun classifier(): OnDeviceClassifier = trained ?: retrain()
 
@@ -62,7 +107,7 @@ class Learner(private val dao: CorrectionDao, private val settings: SettingsRepo
         retrain()
     }
 
-    /** Called after a restore adds corrections. */
+    /** Called after a restore adds corrections, and after a round of labels. */
     suspend fun reload() {
         retrain()
     }

@@ -28,7 +28,7 @@ import kotlinx.coroutines.flow.Flow
         VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class, ScheduledMessageEntity::class,
         CorrectionEntity::class, StarredEntity::class, ReminderEntity::class,
     ],
-    version = 13,
+    version = 15,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
@@ -36,6 +36,8 @@ import kotlinx.coroutines.flow.Flow
         AutoMigration(from = 10, to = 11),
         AutoMigration(from = 11, to = 12),
         AutoMigration(from = 12, to = 13, spec = WinnowDatabase.RemindersFromMe::class),
+        AutoMigration(from = 13, to = 14),
+        AutoMigration(from = 14, to = 15, spec = WinnowDatabase.ArrivalsMarked::class),
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
@@ -50,6 +52,19 @@ abstract class WinnowDatabase : RoomDatabase() {
     }
 
     /** 12 to 13 adds ReminderEntity.fromMe: a reminder with no sender was on the user's own message. */
+    /**
+     * Which verdicts Winnow made as the text arrived. Before this was recorded, a review of
+     * older conversations, a correction's own row and a restored verdict were all written as
+     * already summarized, and a live decision wasn't (until a daily summary, which is off unless
+     * turned on), so that's the best there is: a live one that was summarized is left out, which
+     * undercounts, never the other way.
+     */
+    class ArrivalsMarked : AutoMigrationSpec {
+        override fun onPostMigrate(db: SupportSQLiteDatabase) {
+            db.execSQL("UPDATE verdicts SET atArrival = 1 WHERE summarized = 0")
+        }
+    }
+
     class RemindersFromMe : AutoMigrationSpec {
         override fun onPostMigrate(db: SupportSQLiteDatabase) {
             db.execSQL("UPDATE reminders SET fromMe = 1 WHERE sender IS NULL")
@@ -151,6 +166,12 @@ data class CorrectionEntity(
     /** Buckets only mean something to the featurizer version that produced them. */
     val featurizerVersion: Int,
     val createdAt: Long,
+    /**
+     * A label the user gave this one message (see Labeler): set for labels, null for the
+     * one-per-conversation corrections "Not spam" and "Filter sender" make, and for rows
+     * restored from a backup.
+     */
+    val messageKey: String? = null,
 )
 
 @Dao
@@ -161,11 +182,28 @@ interface CorrectionDao {
     @Query("SELECT COUNT(*) FROM corrections")
     fun observeCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM corrections WHERE messageKey IS NOT NULL")
+    fun observeLabelCount(): Flow<Int>
+
     @Insert
     suspend fun insert(correction: CorrectionEntity)
 
-    @Query("DELETE FROM corrections WHERE threadId = :threadId")
+    @Insert
+    suspend fun insertAll(corrections: List<CorrectionEntity>)
+
+    /** A conversation's correction, replaced when it's corrected again. Its labels stay. */
+    @Query("DELETE FROM corrections WHERE threadId = :threadId AND messageKey IS NULL")
     suspend fun deleteForThread(threadId: Long)
+
+    @Query("SELECT * FROM corrections WHERE messageKey IN (:keys)")
+    suspend fun forMessages(keys: Collection<String>): List<CorrectionEntity>
+
+    @Query("DELETE FROM corrections WHERE messageKey IN (:keys)")
+    suspend fun deleteForMessages(keys: Collection<String>)
+
+    /** Conversations with at least one label. */
+    @Query("SELECT DISTINCT threadId FROM corrections WHERE messageKey IS NOT NULL AND threadId IS NOT NULL")
+    suspend fun labeledThreads(): List<Long>
 
     @Query("DELETE FROM corrections")
     suspend fun deleteAll()
@@ -253,18 +291,28 @@ data class VerdictEntity(
      * conversations, a correction's own row. A fresh classification starts false.
      */
     @ColumnInfo(defaultValue = "0") val summarized: Boolean = false,
+    /** A [Category] key the user labeled this message with (see Labeler); it outranks [category]. */
+    val userCategory: String? = null,
+    /**
+     * Winnow decided this as the text arrived, so [action] is what really happened on the
+     * phone then. False for a review of older texts, a label, a correction's own row and a
+     * restore, none of which ever buzzed (or didn't) because of Winnow.
+     */
+    @ColumnInfo(defaultValue = "0") val atArrival: Boolean = false,
 ) {
     fun toStored(providerNames: (String) -> String) = StoredVerdict(
-        category = category?.let(Category::fromKey),
+        // The user's label wins: every badge, chip and list then follows it.
+        category = (userCategory ?: category)?.let(Category::fromKey),
         confidence = confidence,
         action = Action.valueOf(action),
-        source = when (sourceKind) {
+        source = if (userCategory != null) "Labeled by you" else when (sourceKind) {
             "provider" -> "Classified by ${providerNames(sourceDetail)}"
             "heuristic" -> "Guessed on this phone ($sourceDetail)"
             "local" -> if (sourceDetail.isBlank()) "Decided on this phone" else "Decided on this phone: $sourceDetail"
             else -> sourceDetail
         },
         userAction = userAction?.let(Action::valueOf),
+        labeledByUser = userCategory != null,
     )
 
     companion object {
@@ -317,6 +365,12 @@ interface VerdictDao {
 
     @Query("UPDATE verdicts SET userAction = :userAction WHERE threadId = :threadId")
     suspend fun setUserAction(threadId: Long, userAction: String?)
+
+    @Query("SELECT * FROM verdicts WHERE messageKey IN (:keys)")
+    suspend fun forKeys(keys: Collection<String>): List<VerdictEntity>
+
+    @Query("DELETE FROM verdicts WHERE messageKey IN (:keys)")
+    suspend fun deleteForMessages(keys: Collection<String>)
 
     @Query("SELECT * FROM verdicts WHERE threadId = :threadId ORDER BY decidedAt DESC LIMIT 1")
     suspend fun latestForThread(threadId: Long): VerdictEntity?

@@ -49,6 +49,20 @@ never one you've written in, pinned or starred. An optional **daily
 summary** says each evening how many texts were kept out of the inbox (or arrived quietly),
 and opens Filtered; nothing on a quiet day.
 
+### Teach it your texts
+
+**Label** anything: a conversation (its ⋮ menu), one message (long-press it), or many at once
+(long-press conversations in the inbox, Filtered or Archived, then the tag). The sheet lists
+the seven categories with what each means and where it files a text by your settings, so one
+tap labels, moves the conversation there, and refits the on-phone model on the spot; Undo
+takes it all back. **Train Winnow** (menu) works through your backlog in rounds of 20
+conversations with people outside your contacts. Winnow shows its guess for each, mostly the
+ones it's least sure of. You tap ✓ when it's right, "All right" for a whole group, or its guess
+to fix it. Finishing the round labels what you answered and retrains, so the next round's
+guesses use your answers, and the round-by-round score shows how often it was right before
+it saw them. Labels stay on the phone (only hashed word fingerprints, never the text) and go
+into backups.
+
 <table>
   <tr>
     <td><img src="docs/screenshots/activity.png" width="200" alt="Activity"></td>
@@ -281,8 +295,17 @@ without one.
 
 ## How accurate it is
 
-**Filtered → How accurate is this?** opens the full report card, measured with 5-fold
-cross-validation: every text is scored by a model that never saw it.
+**Filtered → How accurate is Winnow?** answers in two parts, kept apart on purpose.
+
+**On your texts** comes only from what you checked yourself: Train Winnow guesses you
+answered, and texts Winnow judged on arrival that you labeled later. It shows how many of
+those it got right, and a percentage once there are at least ten. Until you've labeled
+something, it says nothing has been measured, rather than showing a number.
+
+**How the built-in model was tested** is folded away below, and says plainly that none of
+it is about your messages. Everything from here to the end of this section is that test: the
+on-phone model scored on the hand-written texts in `classifier/training/`, using 5-fold
+cross-validation, so every text is scored by a model that never saw it.
 
 | Accuracy | Macro F1 | Cohen's κ | MCC | ROC AUC (unwanted vs. wanted) | Avg. precision | Calibration error |
 |---|---|---|---|---|---|---|
@@ -295,9 +318,9 @@ a bare "hi, is this David?" reads exactly like a real person on a new number, an
 password was changed" has nothing to phish with; when the model isn't sure (under 85%) such a
 text isn't even silenced, since it can't defraud anyone and might be a friend. Measured that
 way, the rule filters **0.1% of wanted texts** (99.8% precision) and 70.8% of unwanted ones.
-Counting filtered and silenced, **92.3% of unwanted texts never buzz your phone**, while only
-**2.4% of personal and transactional texts lose their notification** (6.4% before unsure,
-hookless ones were let through). Per category,
+Counting filtered and silenced, **92.3% of the unwanted test texts would never buzz a phone**,
+while only **2.4% of the personal and transactional ones would lose their notification** (6.4%
+before unsure, hookless ones were let through). Per category,
 F1 runs from 0.97 (political) to 0.79 for "likely scam", whose openers read like real new
 numbers. On 120 more texts written separately and never trained on, it got all 120 right.
 
@@ -321,17 +344,16 @@ numbers. On 120 more texts written separately and never trained on, it got all 1
 The ROC and precision–recall curves follow your finger, and both move with the threshold
 slider, which redraws caught, missed, wrongly flagged and let through, plus precision,
 recall, F1, MCC and κ. The report also covers calibration (does "90% sure" mean right 90% of
-the time?), each category's precision, recall, F1 and one-vs-rest AUC, the confusion matrix,
-and how often you've corrected Winnow on your own texts. The same numbers are in
-[classifier/training/REPORT.md](classifier/training/REPORT.md).
+the time?), each category's precision, recall, F1 and one-vs-rest AUC, and the confusion
+matrix. The same numbers are in [classifier/training/REPORT.md](classifier/training/REPORT.md).
 
 The test texts are hand-written to show their category clearly, so real traffic will score
-lower. These figures are for the on-phone model. A classifier service like Jev shows up in
-the "On your phone" agreement score, which comes from your corrections.
+lower. These figures are for the on-phone model. A classifier service like Jev shows up only
+in "On your texts", which comes from your labels.
 
-It also **learns from your corrections**. "Not spam" or "Filter sender" teaches it about
-that message's content, so similar texts from other senders follow; a sender rule only
-covers the one sender. Only hashed word fingerprints are kept, never the message, and
+It also **learns from your labels and corrections**. A label, "Not spam" or "Filter sender"
+teaches it about that message's content, so similar texts from other senders follow; a sender
+rule only covers the one sender. Only hashed word fingerprints are kept, never the message, and
 Settings → **Forget** undoes all of it.
 
 ## Install on a phone

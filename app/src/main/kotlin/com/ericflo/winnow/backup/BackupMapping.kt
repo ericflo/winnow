@@ -103,6 +103,8 @@ fun VerdictEntity.toBackup() = VerdictBackup(
     userAction = userAction,
     costUsd = costUsd,
     decidedAt = decidedAt,
+    userCategory = userCategory,
+    atArrival = atArrival,
 )
 
 /** Null when the backup names an action this version doesn't know, rather than storing garbage. */
@@ -122,5 +124,7 @@ fun VerdictBackup.toEntity(messageKey: String, threadId: Long, address: String):
         costUsd = costUsd,
         decidedAt = decidedAt,
         userAction = userAction,
+        userCategory = userCategory?.takeIf { Category.fromKey(it) != null },
+        atArrival = atArrival,
     )
 }
