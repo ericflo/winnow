@@ -29,13 +29,12 @@ class Learner(private val dao: CorrectionDao, private val settings: SettingsRepo
 
     val count: Flow<Int> = dao.observeCount()
 
-    /** How many messages the user has labeled (see Labeler). */
-    val labelCount: Flow<Int> = dao.observeLabelCount()
-
     /**
      * Teaches [category] for each message in [examples] (by message key): their feature
-     * buckets, never their text, replacing any label they had. Retrains once, unless told not
-     * to (a round of many labels retrains at the end). Returns the label rows it replaced.
+     * buckets, never their text. It replaces whatever already taught the model about them: an
+     * earlier label, the same label restored from a backup, and the conversation's own
+     * correction when it contradicts this label. Retrains once, unless told not to (a round of
+     * many labels retrains at the end). Returns every row it replaced, for an undo.
      */
     suspend fun label(threadId: Long, examples: Map<String, InboundMessage>, category: Category, retrain: Boolean = true): List<CorrectionEntity> {
         val now = System.currentTimeMillis()
@@ -52,11 +51,17 @@ class Learner(private val dao: CorrectionDao, private val settings: SettingsRepo
                 )
             }
         }
+        val policy = settings.current().actionPolicy
         val replaced = lock.withLock {
             val before = dao.forMessages(examples.keys)
+            val restored = dao.restoredFor(rows.map { it.buckets }.toSet())
+            val contradicted = dao.forThread(threadId).filter { c ->
+                Category.fromKey(c.label)?.let(policy::forCategory) != policy.forCategory(category)
+            }
             dao.deleteForMessages(examples.keys)
+            dao.deleteIds((restored + contradicted).map { it.id })
             dao.insertAll(rows)
-            before
+            before + restored + contradicted
         }
         if (retrain) retrain()
         return replaced
@@ -65,14 +70,22 @@ class Learner(private val dao: CorrectionDao, private val settings: SettingsRepo
     /** Takes labels back: [keys]' labels go, and [restore]'s (what they replaced) come back. */
     suspend fun unlabel(keys: Collection<String>, restore: List<CorrectionEntity> = emptyList()) {
         lock.withLock {
-            dao.deleteForMessages(keys)
+            if (keys.isNotEmpty()) dao.deleteForMessages(keys)
             if (restore.isNotEmpty()) dao.insertAll(restore.map { it.copy(id = 0) })
         }
         retrain()
     }
 
-    /** Conversations the user has labeled. */
-    suspend fun labeledThreads(): Set<Long> = dao.labeledThreads().toSet()
+    /**
+     * Drops the labels on [keys] from what the model learned (a correction that contradicts
+     * them replaces them), returning them so an undo can put them back.
+     */
+    suspend fun dropLabels(keys: Collection<String>): List<CorrectionEntity> {
+        if (keys.isEmpty()) return emptyList()
+        val dropped = lock.withLock { dao.forMessages(keys).also { dao.deleteForMessages(keys) } }
+        if (dropped.isNotEmpty()) retrain()
+        return dropped
+    }
 
     /** The on-device classifier with everything the user has taught it. */
     suspend fun classifier(): OnDeviceClassifier = trained ?: retrain()

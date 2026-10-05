@@ -14,6 +14,7 @@ import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classifier.message.InboundMessage
 import com.ericflo.winnow.classifier.message.SenderRule
 import com.ericflo.winnow.data.ChatMessage.Kind
+import com.ericflo.winnow.data.db.CorrectionEntity
 import com.ericflo.winnow.data.db.SenderRuleEntity
 import com.ericflo.winnow.data.db.StarredDao
 import com.ericflo.winnow.data.db.VerdictDao
@@ -48,6 +49,10 @@ class TelephonyMessageRepository(
     private val retryDownload: (mmsId: Long) -> Unit,
     /** The user overrode Winnow's call on the thread's newest incoming message, for the on-device model to learn from. */
     private val onCorrected: suspend (threadId: Long, message: InboundMessage, action: Action) -> Unit = { _, _, _ -> },
+    /** Drops labels a correction contradicts from what was learned, returning them for an undo. */
+    private val onLabelsDropped: suspend (keys: List<String>) -> List<CorrectionEntity> = { emptyList() },
+    /** Puts dropped labels back. */
+    private val onLabelsRestored: suspend (labels: List<CorrectionEntity>) -> Unit = {},
     private val onUncorrected: suspend (threadId: Long) -> Unit = {},
 ) : MessageRepository {
     private val resolver = context.contentResolver
@@ -81,6 +86,8 @@ class TelephonyMessageRepository(
             }
         }
     }
+
+    override suspend fun messagesNow(threadId: Long): List<ChatMessage> = withContext(Dispatchers.IO) { queryThread(threadId) }
 
     override fun messages(threadId: Long): Flow<List<ChatMessage>> {
         val rows = changes().map { queryThread(threadId) }.flowOn(Dispatchers.IO)
@@ -373,14 +380,23 @@ class TelephonyMessageRepository(
         // before it was the SMS app, or a classifier that timed out) has none to correct, so the
         // correction gets one of its own: "Filter sender" then really moves the conversation.
         val unclassified = newestIncomingKey(threadId)?.takeIf { dao.existingKeys(listOf(it)).isEmpty() }
+        val before = dao.forThread(threadId)
+        // Labels that disagree with this correction ("Not spam" on texts labeled spam) give way to
+        // it, here and in what was learned; ones that agree stay.
+        val contradicted = before.filter { it.userCategory != null && it.userAction != action.name }.map { it.messageKey }
         val previous = PreviousVerdict(
             threadId,
             address,
-            userAction = dao.userAction(threadId)?.let { runCatching { Action.valueOf(it) }.getOrNull() },
+            // The conversation's own earlier correction: a labeled row's action came with its label.
+            userAction = before.firstOrNull { it.userAction != null && it.userCategory == null }?.userAction
+                ?.let { runCatching { Action.valueOf(it) }.getOrNull() },
             senderRule = dao.senderRule(normalizeAddress(address)),
             insertedKey = unclassified,
+            rows = before.map { PreviousVerdict.UserState(it.messageKey, it.userAction, it.userCategory) },
+            labels = runCatching { onLabelsDropped(contradicted) }.getOrDefault(emptyList()),
         )
         dao.setUserAction(threadId, action.name)
+        if (contradicted.isNotEmpty()) dao.clearLabels(contradicted)
         unclassified?.let { key ->
             dao.upsert(
                 VerdictEntity(
@@ -403,7 +419,9 @@ class TelephonyMessageRepository(
         val threadId = previous.threadId
         // Only if it's still the one the correction added: classification may have caught up since.
         previous.insertedKey?.let { key -> if (dao.forKey(key)?.sourceDetail == NOT_CLASSIFIED) dao.deleteForMessage(key) }
+        // Texts that arrived since get the conversation's earlier state; the rest, each exactly as it was.
         dao.setUserAction(threadId, previous.userAction?.name)
+        previous.rows.forEach { dao.setUserState(it.messageKey, it.userAction, it.userCategory) }
         val address = normalizeAddress(previous.address)
         if (previous.senderRule == null) dao.deleteSenderRule(address)
         else dao.upsertSenderRule(SenderRuleEntity(address, previous.senderRule, System.currentTimeMillis()))
@@ -411,6 +429,7 @@ class TelephonyMessageRepository(
             val action = previous.userAction
             if (action == null) onUncorrected(threadId) else newestIncoming(threadId)?.let { onCorrected(threadId, it, action) }
         }
+        if (previous.labels.isNotEmpty()) runCatching { onLabelsRestored(previous.labels) }
     }
 
     private suspend fun newestIncomingKey(threadId: Long): String? = withContext(Dispatchers.IO) {

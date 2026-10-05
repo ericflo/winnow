@@ -1,6 +1,7 @@
 package com.ericflo.winnow.data
 
 import com.ericflo.winnow.classifier.message.Action
+import com.ericflo.winnow.data.db.CorrectionEntity
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -19,7 +20,13 @@ data class PreviousVerdict(
     val senderRule: String?,
     /** A verdict the correction had to add (its newest text was never classified); Undo takes it away. */
     val insertedKey: String? = null,
-)
+    /** Each of the conversation's verdicts as the user had left it: labels set them one message at a time. */
+    val rows: List<UserState> = emptyList(),
+    /** Labels the correction contradicted, and so replaced, in what the model learned. */
+    val labels: List<CorrectionEntity> = emptyList(),
+) {
+    data class UserState(val messageKey: String, val userAction: String?, val userCategory: String?)
+}
 
 /**
  * The message store. Winnow-only state (pinned, archived, muted, drafts) lives in
@@ -29,6 +36,9 @@ interface MessageRepository {
     fun conversations(): Flow<List<ConversationSummary>>
 
     fun messages(threadId: Long): Flow<List<ChatMessage>>
+
+    /** A conversation's messages as they are now, without verdicts: a one-off read, cheaper than [messages]. */
+    suspend fun messagesNow(threadId: Long): List<ChatMessage>
 
     /** A contact name, or a formatted number. */
     fun displayName(address: String): String
@@ -135,6 +145,7 @@ class SwitchingMessageRepository(
 
     override fun conversations() = isLive.flatMapLatest { if (it) live.conversations() else demo.conversations() }
     override fun messages(threadId: Long) = isLive.flatMapLatest { if (it) live.messages(threadId) else demo.messages(threadId) }
+    override suspend fun messagesNow(threadId: Long) = current.messagesNow(threadId)
     override fun displayName(address: String) = current.displayName(address)
     override fun photoUri(address: String) = current.photoUri(address)
     override fun contactName(address: String) = current.contactName(address)

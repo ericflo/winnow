@@ -243,6 +243,8 @@ class AppContainer(private val context: Context) {
                 retryDownload = { mmsReceiver.retryDownload(it) },
                 onCorrected = { threadId, message, action -> learner.learn(threadId, message, action) },
                 onUncorrected = { threadId -> learner.unlearn(threadId) },
+                onLabelsDropped = { keys -> learner.dropLabels(keys) },
+                onLabelsRestored = { labels -> learner.unlabel(emptyList(), labels) },
             ),
             demo = NoAccessMessageRepository(),
             isLive = access,
@@ -269,7 +271,7 @@ class AppContainer(private val context: Context) {
     val keyShortcuts = kotlinx.coroutines.flow.MutableSharedFlow<KeyShortcut>(extraBufferCapacity = 1)
 
     /** Train Winnow: rounds of guesses for the user to confirm or fix (see Training). */
-    val training by lazy { com.ericflo.winnow.classify.Training(context, messages, learner, contacts) }
+    val training by lazy { com.ericflo.winnow.classify.Training(context, messages, verdictDao, learner, contacts) }
 
     /** The user's labels: filing messages by category and teaching the on-device model. */
     val labeler by lazy { com.ericflo.winnow.classify.Labeler(messages, verdictDao, learner, contacts, settings) }

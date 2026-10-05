@@ -62,7 +62,16 @@ class LabelingTest {
     @Test
     fun aSmallBacklogIsOneRound() {
         val guesses = listOf(5L to 0.9, 6L to 0.2)
-        assertEquals(listOf(5L, 6L), Training.pick(guesses, size = 20, random = Random(1)))
+        assertEquals(setOf(5L, 6L), Training.pick(guesses, size = 20, random = Random(1)).toSet())
+    }
+
+    @Test
+    fun theWholeBacklogIsRankedTheWayARoundPicks() {
+        val guesses = (1L..30L).map { it to it / 30.0 }
+        val ranked = Training.rank(guesses, size = 6, random = Random(3))
+        assertEquals(guesses.map { it.first }.toSet(), ranked.toSet())
+        assertEquals(listOf(1L, 2L, 3L, 4L), ranked.take(4))
+        assertEquals(Training.pick(guesses, size = 6, random = Random(3)), ranked.take(6))
     }
 
     @Test

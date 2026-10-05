@@ -134,7 +134,7 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         combine(all, hits, ::Pair),
         combine(container.isLive, isDefault, ::Pair),
         combine(query, filter, ::Pair),
-        combine(classifier, review, container.learner.labelCount, ::Triple),
+        combine(classifier, review, container.verdictDao.observeLabelCount(), ::Triple),
         nudgeInputs,
     ) { (all, hits), (live, isDefault), (query, filter), (classifier, review, labeled), (nudgesOn, dismissed) ->
         val shown = all.filter { c ->
@@ -296,6 +296,8 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
      */
     fun label(threadIds: Set<Long>, category: Category, onDone: (String, com.ericflo.winnow.classify.Labeler.Undo) -> Unit) {
         val conversations = state.value.conversations.filter { it.threadId in threadIds }.map { it.threadId to it.recipients }
+        // Many take a moment, and the selection is already gone: say it's under way.
+        if (conversations.size > BULK_NOTICE) container.toast("Labeling ${conversations.size} conversations…")
         container.appScope.launch {
             val result = container.labeler.labelConversations(conversations, category)
             val undo = result.undo
@@ -374,5 +376,8 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
 
     private companion object {
         val NUMBER_PUNCTUATION = setOf(' ', '+', '-', '(', ')', '.')
+
+        /** More conversations than this labeled at once, and a note says it's under way. */
+        const val BULK_NOTICE = 5
     }
 }

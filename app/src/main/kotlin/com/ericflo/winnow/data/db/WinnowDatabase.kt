@@ -182,9 +182,6 @@ interface CorrectionDao {
     @Query("SELECT COUNT(*) FROM corrections")
     fun observeCount(): Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM corrections WHERE messageKey IS NOT NULL")
-    fun observeLabelCount(): Flow<Int>
-
     @Insert
     suspend fun insert(correction: CorrectionEntity)
 
@@ -201,9 +198,19 @@ interface CorrectionDao {
     @Query("DELETE FROM corrections WHERE messageKey IN (:keys)")
     suspend fun deleteForMessages(keys: Collection<String>)
 
-    /** Conversations with at least one label. */
-    @Query("SELECT DISTINCT threadId FROM corrections WHERE messageKey IS NOT NULL AND threadId IS NOT NULL")
-    suspend fun labeledThreads(): List<Long>
+    /**
+     * Corrections a restore brought back for these exact features: a backup keeps no message
+     * keys, so a label restored from one can only be recognized by what it taught.
+     */
+    @Query("SELECT * FROM corrections WHERE messageKey IS NULL AND threadId IS NULL AND buckets IN (:buckets)")
+    suspend fun restoredFor(buckets: Collection<String>): List<CorrectionEntity>
+
+    @Query("DELETE FROM corrections WHERE id IN (:ids)")
+    suspend fun deleteIds(ids: Collection<Long>)
+
+    /** A conversation's own correction ("Not spam", "Filter sender"), if it has one. */
+    @Query("SELECT * FROM corrections WHERE threadId = :threadId AND messageKey IS NULL")
+    suspend fun forThread(threadId: Long): List<CorrectionEntity>
 
     @Query("DELETE FROM corrections")
     suspend fun deleteAll()
@@ -368,6 +375,23 @@ interface VerdictDao {
 
     @Query("SELECT * FROM verdicts WHERE messageKey IN (:keys)")
     suspend fun forKeys(keys: Collection<String>): List<VerdictEntity>
+
+    @Query("SELECT * FROM verdicts WHERE threadId = :threadId")
+    suspend fun forThread(threadId: Long): List<VerdictEntity>
+
+    @Query("UPDATE verdicts SET userAction = :userAction, userCategory = :userCategory WHERE messageKey = :messageKey")
+    suspend fun setUserState(messageKey: String, userAction: String?, userCategory: String?)
+
+    @Query("UPDATE verdicts SET userCategory = NULL WHERE messageKey IN (:keys)")
+    suspend fun clearLabels(keys: Collection<String>)
+
+    /** How many messages the user has labeled. */
+    @Query("SELECT COUNT(*) FROM verdicts WHERE userCategory IS NOT NULL")
+    fun observeLabelCount(): Flow<Int>
+
+    /** Conversations the user has already judged: labeled, or corrected ("Not spam", "Filter sender"). */
+    @Query("SELECT DISTINCT threadId FROM verdicts WHERE userCategory IS NOT NULL OR userAction IS NOT NULL")
+    suspend fun judgedThreads(): List<Long>
 
     @Query("DELETE FROM verdicts WHERE messageKey IN (:keys)")
     suspend fun deleteForMessages(keys: Collection<String>)

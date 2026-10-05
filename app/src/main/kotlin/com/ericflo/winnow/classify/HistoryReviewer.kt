@@ -70,6 +70,8 @@ class HistoryReviewer(
             var silenced = 0
             pending.forEachIndexed { i, c ->
                 _status.value = ReviewStatus.Running(i, pending.size)
+                // Labeled, or arrived and classified, since the review began: that verdict stands.
+                if (dao.forKey(c.key) != null) return@forEachIndexed
                 val verdict = classifier.classify(
                     InboundMessage(
                         sender = c.sender,

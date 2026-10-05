@@ -180,7 +180,7 @@ class IncomingMessageHandler(
             // The correction's own row is never news for a daily summary; keeping it keeps that too.
             dao.upsert(
                 VerdictEntity.from(key, threadId, sender, verdict, System.currentTimeMillis()).copy(atArrival = true)
-                    .copy(userAction = corrected?.name, summarized = existing?.summarized ?: false),
+                    .copy(userAction = corrected?.name, userCategory = existing?.userCategory, summarized = existing?.summarized ?: false),
             )
         }
         val action = corrected ?: verdict?.action ?: Action.ALLOW

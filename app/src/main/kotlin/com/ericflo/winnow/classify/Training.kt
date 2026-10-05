@@ -6,6 +6,7 @@ import com.ericflo.winnow.classifier.message.InboundMessage
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.ConversationSummary
 import com.ericflo.winnow.data.MessageRepository
+import com.ericflo.winnow.data.db.VerdictDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -23,6 +24,7 @@ import kotlin.random.Random
 class Training(
     private val context: Context,
     private val repo: MessageRepository,
+    private val verdicts: VerdictDao,
     private val learner: Learner,
     private val contacts: ContactLookup,
 ) {
@@ -50,35 +52,55 @@ class Training(
      * it's confidently wrong about come up too.
      */
     suspend fun nextRound(size: Int = ROUND_SIZE, seed: Long = System.currentTimeMillis()): Round = withContext(Dispatchers.IO) {
-        val labeled = learner.labeledThreads()
+        val judged = verdicts.judgedThreads().toSet()
         val all = repo.conversations().first()
-        val backlog = all.filter { c -> eligible(c) && c.threadId !in labeled }
+        val backlog = all.filter { c -> eligible(c) && c.threadId !in judged && !knownEmpty(c) }
         val classifier = learner.classifier()
         // A first, cheap guess from each conversation's latest text, to choose the batch.
         val guessed = backlog.map { c ->
             val p = classifier.classify(InboundMessage(sender = c.address, body = c.snippet.removePrefix("You: ")))
-            c to p.confidence
+            c.threadId to p.confidence
         }
-        val chosen = pick(guessed.map { it.first.threadId to it.second }, size, Random(seed)).toSet()
-        val candidates = backlog.filter { it.threadId in chosen }.mapNotNull { c ->
+        val byId = backlog.associateBy { it.threadId }
+        val candidates = mutableListOf<Candidate>()
+        // In the order they'd be picked, skipping any with nothing received to label, until the round is full.
+        for (threadId in rank(guessed, size, Random(seed))) {
+            if (candidates.size >= size) break
+            val c = byId.getValue(threadId)
+            val messages = repo.messagesNow(threadId)
+            val newest = Labeler.examplesFrom(messages, c.recipients).lastOrNull()
+            if (newest == null) {
+                empty[threadId] = c.timestamp
+                continue
+            }
             // The real guess, from the newest message they actually sent.
-            val messages = repo.messages(c.threadId).first()
-            val newest = Labeler.examplesFrom(messages, c.recipients).lastOrNull() ?: return@mapNotNull null
-            val hasOutgoing = messages.any { it.outgoing }
             val p = classifier.classify(
                 InboundMessage(
                     sender = c.address,
                     body = Labeler.textOf(newest),
                     senderInContacts = false,
-                    userHasMessagedSender = hasOutgoing,
+                    userHasMessagedSender = messages.any { it.outgoing },
                 ),
             )
-            Candidate(c.threadId, c.recipients, c.displayName, c.photoUri, Labeler.textOf(newest), p.category, p.confidence)
+            candidates += Candidate(c.threadId, c.recipients, c.displayName, c.photoUri, Labeler.textOf(newest), p.category, p.confidence)
         }
-        Round(candidates, backlog = backlog.size, labeled = all.count { it.threadId in labeled && eligible(it) })
+        Round(
+            // Ranked by doubt, like the batch was chosen; the screen groups them by guess.
+            candidates,
+            backlog = backlog.count { !knownEmpty(it) },
+            labeled = all.count { it.threadId in judged && eligible(it) },
+        )
     }
 
     private fun eligible(c: ConversationSummary): Boolean = !c.isGroup && !contacts.isContact(c.address)
+
+    /**
+     * Conversations found to have nothing received to label (only the user's own texts, or
+     * pictures not downloaded), by when they last changed: they're left out until they do.
+     */
+    private val empty = java.util.concurrent.ConcurrentHashMap<Long, Long>()
+
+    private fun knownEmpty(c: ConversationSummary): Boolean = empty[c.threadId] == c.timestamp
 
     // --- Round history, for progress ---------------------------------------------------------
 
@@ -104,12 +126,13 @@ class Training(
          * two thirds the least confident, the rest at random from what's left. Pure, so it's
          * unit-tested.
          */
-        fun pick(guesses: List<Pair<Long, Double>>, size: Int, random: Random): List<Long> {
-            if (guesses.size <= size) return guesses.map { it.first }
+        fun pick(guesses: List<Pair<Long, Double>>, size: Int, random: Random): List<Long> = rank(guesses, size, random).take(size)
+
+        /** Every conversation, in the order a round of [size] takes them, so it can skip past ones it can't use. */
+        fun rank(guesses: List<Pair<Long, Double>>, size: Int, random: Random): List<Long> {
             val byDoubt = guesses.sortedBy { it.second }
             val unsure = byDoubt.take(size * 2 / 3).map { it.first }
-            val rest = byDoubt.drop(unsure.size).map { it.first }.shuffled(random).take(size - unsure.size)
-            return unsure + rest
+            return unsure + byDoubt.drop(unsure.size).map { it.first }.shuffled(random)
         }
     }
 }

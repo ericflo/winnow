@@ -9,7 +9,6 @@ import com.ericflo.winnow.data.SettingsRepository
 import com.ericflo.winnow.data.db.CorrectionEntity
 import com.ericflo.winnow.data.db.VerdictDao
 import com.ericflo.winnow.data.db.VerdictEntity
-import kotlinx.coroutines.flow.first
 
 /**
  * The user's labels: "this is spam", "this is personal". A label does two things at once. It
@@ -45,7 +44,7 @@ class Labeler(
         val labelsBefore = mutableListOf<CorrectionEntity>()
         var labeledConversations = 0
         for ((threadId, recipients) in conversations) {
-            val messages = repo.messages(threadId).first()
+            val messages = repo.messagesNow(threadId)
             val examples = examplesFrom(messages, recipients)
             if (examples.isEmpty()) continue
             val undo = label(threadId, recipients, examples, hasOutgoing = messages.any { it.outgoing }, category, retrain = false)
@@ -96,7 +95,6 @@ class Labeler(
         val before = verdicts.forKeys(keys)
         val byKey = before.associateBy { it.messageKey }
         val action = settings.current().actionPolicy.forCategory(category).name
-        val now = System.currentTimeMillis()
         for ((m, inbound) in examples) {
             val row = byKey[m.key]?.copy(userCategory = category.key, userAction = action) ?: VerdictEntity(
                 messageKey = m.key,
@@ -109,7 +107,9 @@ class Labeler(
                 sourceDetail = "Labeled by you",
                 model = null,
                 costUsd = 0.0,
-                decidedAt = now,
+                // Dated by the message, not the labeling: after a reply, the conversation is
+                // filed by its latest verdict, and labeling an old text mustn't make it that.
+                decidedAt = m.timestamp,
                 userAction = action,
                 // Never news for a daily summary: the user just did it.
                 summarized = true,

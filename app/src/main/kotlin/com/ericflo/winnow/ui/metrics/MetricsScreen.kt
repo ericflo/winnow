@@ -109,9 +109,11 @@ class MetricsViewModel(container: AppContainer) : ViewModel() {
         // Counted per conversation: a correction applies to every verdict in its thread at once.
         val decided = verdicts.filter { it.sourceKind != "rule" }.groupBy { it.threadId }
         val corrected = decided.mapNotNull { (_, rows) -> rows.firstOrNull { it.userAction != null && it.userAction != it.action } }
-        // A label on a message a model had judged is a real check of that judgment.
+        // A label on a text a model judged as it arrived is a real check of that judgment; one per
+        // conversation (its newest), since a conversation label covers several of its texts.
         val labeled = verdicts.filter { it.userCategory != null }
-        val judged = labeled.filter { it.sourceKind != "rule" && it.category != null }
+        val judged = labeled.filter { it.atArrival && it.sourceKind != "rule" && it.category != null }
+            .groupBy { it.threadId }.values.map { rows -> rows.maxBy { it.decidedAt } }
         MetricsUiState(
             metrics = metrics,
             agreement = Agreement(
@@ -126,7 +128,7 @@ class MetricsViewModel(container: AppContainer) : ViewModel() {
                 trainAgreed = rounds.sumOf { it.agreed },
             ),
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MetricsUiState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MetricsUiState())
 }
 
 /**

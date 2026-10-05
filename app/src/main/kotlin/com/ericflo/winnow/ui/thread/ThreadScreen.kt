@@ -1200,9 +1200,9 @@ private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter:
         // A label files these messages and teaches the model; unlike "Filter sender", it sets no
         // rule for the sender's next texts, so it mustn't claim one.
         verdict.labeledByUser -> "You labeled this $label" to when (verdict.effectiveAction) {
-            Action.FILTER -> "Kept out of your inbox, no notification. Winnow learned from your label."
-            Action.SILENCE -> "Delivered without a notification. Winnow learned from your label."
-            Action.ALLOW -> "In your inbox. Winnow learned from your label."
+            Action.FILTER -> "Kept out of your inbox, no notification."
+            Action.SILENCE -> "Delivered without a notification."
+            Action.ALLOW -> "In your inbox."
         }
         verdict.userAction == Action.ALLOW -> "You allowed this sender" to "Their messages will always reach your inbox."
         verdict.userAction != null -> "You filtered this sender" to "Their messages will skip your inbox without a notification."

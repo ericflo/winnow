@@ -201,7 +201,7 @@ fun TrainScreen(viewModel: TrainViewModel, onBack: () -> Unit) {
             is TrainState.Done -> Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Nothing left to label", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    if (s.labeled > 0) "You've labeled all ${s.labeled} conversations with people who aren't in your contacts. New ones show up here as they arrive."
+                    if (s.labeled > 0) "You've sorted all ${s.labeled} conversations with people who aren't in your contacts. New ones show up here as they arrive."
                     else "There are no conversations with people outside your contacts to label. Winnow always lets your contacts through.",
                     style = MaterialTheme.typography.bodyLarge,
                 )
@@ -229,7 +229,7 @@ private fun Reviewing(s: TrainState.Reviewing, viewModel: TrainViewModel, modifi
                 if (total > 0) {
                     LinearProgressIndicator(progress = { s.round.labeled.toFloat() / total }, modifier = Modifier.fillMaxWidth())
                     Text(
-                        "${s.round.labeled} of $total conversations with people outside your contacts labeled",
+                        "${s.round.labeled} of $total conversations with people outside your contacts sorted by you",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -353,7 +353,7 @@ private fun Finished(s: TrainState.Finished, onNext: () -> Unit, onDone: () -> U
                 val total = s.labeled + s.backlog
                 if (total > 0) {
                     LinearProgressIndicator(progress = { s.labeled.toFloat() / total }, modifier = Modifier.fillMaxWidth())
-                    Text("${s.labeled} of $total conversations labeled", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${s.labeled} of $total conversations sorted by you", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -363,7 +363,8 @@ private fun Finished(s: TrainState.Finished, onNext: () -> Unit, onDone: () -> U
                 Row {
                     Text("Round ${i + 1}", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                     Text(
-                        "right on ${round.agreed} of ${round.reviewed}" + if (round.reviewed > 0) " (${round.agreed * 100 / round.reviewed}%)" else "",
+                        // A percentage of a handful claims more than it shows.
+                        "right on ${round.agreed} of ${round.reviewed}" + if (round.reviewed >= 10) " (${round.agreed * 100 / round.reviewed}%)" else "",
                         style = MaterialTheme.typography.bodyLarge,
                     )
                 }
