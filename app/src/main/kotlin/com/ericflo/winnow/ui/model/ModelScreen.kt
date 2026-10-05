@@ -88,6 +88,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -167,6 +168,29 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
 
     /** Scoring models on the user's labels (see the Evaluate tab). */
     val evals = Evaluations(container, viewModelScope)
+
+    /** Asking the service about the user's labeled texts twice (see ExamplesExperiment). */
+    val experiment = container.examplesExperiment
+
+    private val _experimentPlan = MutableStateFlow<com.ericflo.winnow.classify.ExamplesExperiment.Plan?>(null)
+    val experimentPlan: StateFlow<com.ericflo.winnow.classify.ExamplesExperiment.Plan?> = _experimentPlan.asStateFlow()
+
+    fun planExperiment() {
+        viewModelScope.launch { _experimentPlan.value = runCatching { experiment.plan() }.getOrNull() }
+    }
+
+    /** The texts a kept experiment asked about whose answer changed between the two ways of asking. */
+    suspend fun experimentTrials(at: Long): List<com.ericflo.winnow.classify.Trial> = withContext(Dispatchers.IO) {
+        val both = container.evalDao.observeAll().first().filter { it.at == at }
+        val plain = both.firstOrNull { it.model == com.ericflo.winnow.classify.ExamplesExperiment.MODEL_PLAIN } ?: return@withContext emptyList()
+        val with = both.firstOrNull { it.model == com.ericflo.winnow.classify.ExamplesExperiment.MODEL_EXAMPLES } ?: return@withContext emptyList()
+        com.ericflo.winnow.classify.ExamplesExperiment.trialsOf(container.evalDao.items(plain.id), container.evalDao.items(with.id))
+    }
+
+    /** The words of [keys], for showing what was asked. */
+    suspend fun textsOf(keys: List<String>): Map<String, String> = withContext(Dispatchers.IO) {
+        MessageTexts(container.appContext).of(keys).mapValues { it.value.body }
+    }
 
     /** Keeps the fit in use now, to score it later against what comes after (see ModelKeeper). */
     fun keepCurrent() {

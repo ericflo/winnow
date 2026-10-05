@@ -165,6 +165,10 @@ class AppContainer(private val context: Context) {
     val modelKeeper by lazy {
         com.ericflo.winnow.classify.ModelKeeper(learner, fitDao, com.ericflo.winnow.classify.ModelSnapshots(java.io.File(context.filesDir, "model-fits")))
     }
+    /** Asking the service about the user's labeled texts with and without their examples (see ExamplesExperiment). */
+    val examplesExperiment by lazy {
+        com.ericflo.winnow.classify.ExamplesExperiment(context, appScope, verdictDao, correctionDao, contacts, settings, classifiers, bootstrap, evalDao)
+    }
     /** Why a text went where it did (see Provenance). */
     val provenance by lazy {
         com.ericflo.winnow.classify.ProvenanceSource(verdictDao, correctionDao, runDao, fitDao, settings, com.ericflo.winnow.data.MessageTexts(context))

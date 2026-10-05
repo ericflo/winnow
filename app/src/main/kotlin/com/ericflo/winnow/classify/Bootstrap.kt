@@ -397,7 +397,7 @@ class Bootstrap(
         filed.filterNot { it.messageKey in kept }.forEach { verdicts.upsert(it) }
     }
 
-    private suspend fun senderRules() =
+    internal suspend fun senderRules() =
         verdicts.allSenderRules().associate { it.address to runCatching { com.ericflo.winnow.classifier.message.SenderRule.valueOf(it.rule) }.getOrNull() }
 
     /**
@@ -448,9 +448,16 @@ class Bootstrap(
      * only ones the pipeline would send itself (never a contact's, someone's they wrote to, a
      * code or a sender with a rule, unless their privacy settings send those), no repeats.
      */
-    private suspend fun examples(current: WinnowSettings): Map<com.ericflo.winnow.classifier.message.Category, List<String>> = withContext(Dispatchers.IO) {
+    private suspend fun examples(current: WinnowSettings): Map<com.ericflo.winnow.classifier.message.Category, List<String>> =
+        exampleTexts(current).groupBy({ it.category }, { it.body })
+
+    /** One of the user's labeled texts fit to send as an example, with its conversation. */
+    data class Example(val category: com.ericflo.winnow.classifier.message.Category, val body: String, val threadId: Long)
+
+    /** [examples], each with the conversation it's from, so a test of a text can leave its own conversation's out. */
+    internal suspend fun exampleTexts(current: WinnowSettings): List<Example> = withContext(Dispatchers.IO) {
         val mine = exampleLabels(corrections.all(), verdicts.recheckThreads().toSet())
-        if (mine.isEmpty()) return@withContext emptyMap()
+        if (mine.isEmpty()) return@withContext emptyList()
         class Sms(val address: String, val body: String, val threadId: Long)
         val sms = HashMap<Long, Sms>()
         mine.map { it.first }.distinct().chunked(500).forEach { ids ->
@@ -463,24 +470,24 @@ class Bootstrap(
         val replied = threadsWithOutgoing()
         val rules = senderRules()
         val gate = classifiers.create(current)
-        val out = LinkedHashMap<com.ericflo.winnow.classifier.message.Category, MutableList<String>>()
+        val out = LinkedHashMap<com.ericflo.winnow.classifier.message.Category, MutableList<Example>>()
         for ((id, label) in mine) {
             val category = com.ericflo.winnow.classifier.message.Category.fromKey(label) ?: continue
             val list = out.getOrPut(category) { mutableListOf() }
             val m = sms[id] ?: continue
-            if (list.size >= EXAMPLES_PER_CATEGORY || m.body.isBlank() || m.body in list) continue
+            if (list.size >= EXAMPLES_PER_CATEGORY || m.body.isBlank() || list.any { it.body == m.body }) continue
             val message = InboundMessage(
                 sender = m.address, body = m.body, senderInContacts = contacts.isContact(m.address),
                 userHasMessagedSender = m.threadId in replied, senderRule = rules[com.ericflo.winnow.data.normalizeAddress(m.address)],
             )
-            if (!gate.staysOnPhone(message)) list += m.body
+            if (!gate.staysOnPhone(message)) list += Example(category, m.body, m.threadId)
         }
-        out.filterValues { it.isNotEmpty() }
+        out.values.flatten()
     }
 
     private fun Text.withRule(rule: com.ericflo.winnow.classifier.message.SenderRule?) = Text(key, threadId, sender, body, date, repliedTo, rule)
 
-    private fun threadsWithOutgoing(): Set<Long> {
+    internal fun threadsWithOutgoing(): Set<Long> {
         val threads = HashSet<Long>()
         context.contentResolver.query(
             Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.THREAD_ID),

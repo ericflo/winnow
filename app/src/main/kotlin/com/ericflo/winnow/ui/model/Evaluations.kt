@@ -189,6 +189,7 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
             EvalEntity.METHOD_TRAINED_ON -> "on what it learned from"
             EvalEntity.METHOD_RECORDED -> "its recorded answers"
             Evaluator.METHOD_UNTAUGHT -> "never saw them"
+            com.ericflo.winnow.classify.ExamplesExperiment.METHOD_ASKED -> "asked now"
             else -> method
         }
 

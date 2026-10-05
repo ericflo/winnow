@@ -62,6 +62,7 @@ import kotlinx.coroutines.launch
 internal fun LazyListScope.evaluate(viewModel: ModelViewModel, onOpenThread: (Long, List<String>) -> Unit) {
     item("pick") { PickCard(viewModel) }
     item("latest") { LatestCard(viewModel, onOpenThread) }
+    item("experiment") { ExperimentCard(viewModel, onOpenThread) }
     item("curve") { CurveCard(viewModel) }
     item("over-time") { OverTimeCard(viewModel) }
 }
@@ -286,6 +287,128 @@ private fun OverTimeCard(viewModel: ModelViewModel) {
 }
 
 private const val MISSES_SHOWN = 30
+
+/** What one text costs to ask Jev about (see TrainViewModel.JEV_USD_PER_TEXT), twice here. */
+private const val JEV_USD_PER_TEXT = 0.00013
+
+/**
+ * The test of whether the user's labels change the service's answers: ask it about their labeled
+ * texts plainly and with their labels as examples, and compare, against their labels.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ExperimentCard(viewModel: ModelViewModel, onOpenThread: (Long, List<String>) -> Unit) {
+    val status by viewModel.experiment.status.collectAsStateWithLifecycle()
+    val plan by viewModel.experimentPlan.collectAsStateWithLifecycle()
+    val overview by viewModel.overview.collectAsStateWithLifecycle()
+    val service = overview?.provider ?: "the service"
+    LaunchedEffect(status is com.ericflo.winnow.classify.ExperimentStatus.Idle) { viewModel.planExperiment() }
+    var size by rememberSaveable { mutableStateOf(20) }
+    var confirming by rememberSaveable { mutableStateOf(false) }
+    InsightCard("Do your labels change $service's answers?", subtitle = "Measured, not assumed: ask it about your own labeled texts twice, and compare") {
+        Text(
+            "Each text is asked once with the plain question $service gets as texts arrive, and once with your labels as examples, the way a backlog run asks, " +
+                "never with an example from its own conversation. Both are scored against your label.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        when (val st = status) {
+            is com.ericflo.winnow.classify.ExperimentStatus.Running -> {
+                androidx.compose.material3.LinearProgressIndicator(progress = { if (st.total == 0) 0f else st.done / st.total.toFloat() }, modifier = Modifier.fillMaxWidth())
+                Text("${count(st.done)} of ${count(st.total)} texts asked · ${com.ericflo.winnow.ui.insight.money(st.costUsd)} so far", style = MaterialTheme.typography.bodyMedium)
+                st.waiting?.let { Note(it) }
+                TextButton(onClick = viewModel.experiment::stop, contentPadding = PaddingValues(0.dp)) { Text("Stop") }
+            }
+            is com.ericflo.winnow.classify.ExperimentStatus.Finished -> ExperimentResult(viewModel, st, service, onOpenThread)
+            com.ericflo.winnow.classify.ExperimentStatus.Idle -> {
+                val p = plan
+                when {
+                    p == null -> CircularProgressIndicator()
+                    p.unavailable != null -> Text(p.unavailable, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                    p.available == 0 -> Note("None of your labeled texts could be sent ($service only ever sees texts the privacy settings let it), so there's nothing to ask about yet.")
+                    p.examples == 0 -> Note("You have no labeled texts that could go as examples yet, so there's nothing to compare.")
+                    else -> {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(20, 50, 100).filter { it <= p.available || it == 20 }.forEach { n ->
+                                FilterChip(selected = size == n, onClick = { size = n }, label = { Text("${count(minOf(n, p.available))} texts") })
+                            }
+                        }
+                        val n = minOf(size, p.available)
+                        Note(
+                            "${count(n)} of your ${count(p.available)} labeled texts that could be sent, a category at a time; ${count(p.examples)} labeled texts as the examples. " +
+                                (if (service == "Jev") "At Jev's price, about ${com.ericflo.winnow.ui.insight.money(2 * n * JEV_USD_PER_TEXT)} in all." else "$service bills each answer as usual."),
+                        )
+                        Button(onClick = { confirming = true }) { Text("Ask $service twice about ${count(n)} texts") }
+                        if (confirming) {
+                            androidx.compose.material3.AlertDialog(
+                                onDismissRequest = { confirming = false },
+                                title = { Text("Send ${count(n)} of your labeled texts to $service, twice?") },
+                                text = {
+                                    Text(
+                                        "Only texts your privacy settings already let $service see, masked as they say, with zero data retention as for a backlog run. " +
+                                            "The second time, up to ${com.ericflo.winnow.classify.Bootstrap.EXAMPLES_PER_CATEGORY} of your labeled texts per category go with each, as examples. " +
+                                            "Nothing is labeled or taught by this: it only measures. You can stop it at any time; keep Winnow open while it runs.",
+                                    )
+                                },
+                                confirmButton = { TextButton(onClick = { confirming = false; viewModel.experiment.start(n) }) { Text("Ask") } },
+                                dismissButton = { TextButton(onClick = { confirming = false }) { Text("Not now") } },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExperimentResult(viewModel: ModelViewModel, st: com.ericflo.winnow.classify.ExperimentStatus.Finished, service: String, onOpenThread: (Long, List<String>) -> Unit) {
+    val s = st.summary
+    if (st.stopped) Note("Stopped partway; these are the texts asked both ways before then.")
+    st.error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
+    if (s.trials == 0) {
+        Note("No text got an answer both ways.")
+    } else {
+        RateBar("Asked plainly", s.plainRight, s.trials, color = MaterialTheme.colorScheme.outline, detail = "agreed with your label")
+        RateBar("With your labels as examples", s.withRight, s.trials, detail = "agreed with your label")
+        Text(
+            when {
+                s.changed == 0 -> "Your examples changed none of its answers."
+                else -> "Your examples changed ${count(s.changed)} of its ${count(s.trials)} answers: ${count(s.toward)} to your label, ${count(s.away)} away from it" +
+                    (if (s.changed > s.toward + s.away) ", ${count(s.changed - s.toward - s.away)} from one wrong answer to another." else ".")
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Note(
+            "So: with your labels as examples, $service " + when {
+                s.withRight > s.plainRight -> "sorted these more the way you do."
+                s.withRight < s.plainRight -> "sorted these less the way you do."
+                else -> "sorted these just as it did without them."
+            } + " It doesn't keep or learn from them: each answer is only that question's. Cost ${com.ericflo.winnow.ui.insight.money(st.costUsd)}; both sets of answers are kept under Results.",
+        )
+        var trials by remember(st.at) { mutableStateOf<List<com.ericflo.winnow.classify.Trial>?>(null) }
+        var texts by remember(st.at) { mutableStateOf<Map<String, String>>(emptyMap()) }
+        LaunchedEffect(st.at) {
+            val t = viewModel.experimentTrials(st.at).filter { it.plain != it.withExamples }
+            texts = viewModel.textsOf(t.map { it.key })
+            trials = t
+        }
+        trials?.takeIf { it.isNotEmpty() }?.let { changed ->
+            Text("The answers that changed", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+            changed.take(MISSES_SHOWN).forEach { t ->
+                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Text(texts[t.key] ?: "No longer on your phone", style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        "You: ${t.label.label} · plainly ${t.plain?.label} → with examples ${t.withExamples?.label}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (t.withExamples == t.label) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
+    TextButton(onClick = viewModel.experiment::dismiss, contentPadding = PaddingValues(0.dp)) { Text("Done") }
+}
 
 /** The weight for the service's labels a scored rebuild used, if it was one: "your labels only" is 0. */
 internal fun weightOf(model: String): Double? = when {
