@@ -127,3 +127,12 @@ class ProvenanceTest {
         assertFalse(teaches(answer.copy(category = null), learnFromProvider = true))
     }
 }
+
+class DescribeModelTest {
+    @org.junit.Test
+    fun aModelSaysWhichItIs() {
+        org.junit.Assert.assertEquals("as it ships, before anything you taught it", Provenance.describeModel("winnow-local-1"))
+        org.junit.Assert.assertEquals("fit 3fa2c1", Provenance.describeModel("winnow-local-1·3fa2c1"))
+        org.junit.Assert.assertEquals("the model you trained in the Lab (d5c2a3)", Provenance.describeModel("winnow-lab·d5c2a3"))
+    }
+}

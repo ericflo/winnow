@@ -18,6 +18,15 @@ kotlin {
     }
 }
 
+// The hand-written training texts go into the library too, so a model can be trained from scratch on the phone.
+val corpusResources = layout.buildDirectory.dir("generated/corpus")
+val bundleCorpus = tasks.register<Sync>("bundleCorpus") {
+    from("training/corpus")
+    into(corpusResources.map { it.dir("com/ericflo/winnow/classifier/local/corpus") })
+}
+sourceSets["main"].resources.srcDir(corpusResources)
+tasks.named("processResources") { dependsOn(bundleCorpus) }
+
 dependencies {
     api(libs.kotlinx.coroutines.core)
     api(libs.kotlinx.serialization.json)

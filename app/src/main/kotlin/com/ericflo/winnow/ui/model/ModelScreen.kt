@@ -110,6 +110,12 @@ data class Overview(
     val learnLive: Boolean,
     /** How much one of the service's labels counts against one of the user's, as the model is fitted. */
     val weight: Double,
+    /** How the personal layer is fitted, and the Lab model in use, if one is. */
+    val personalEpochs: Int = com.ericflo.winnow.classifier.local.Personalizer.EPOCHS,
+    val personalStep: Double = com.ericflo.winnow.classifier.local.Personalizer.LEARNING_RATE,
+    val personalL2: Double = com.ericflo.winnow.classifier.local.Personalizer.L2,
+    val labModel: String? = null,
+    val labAutoRetrain: Boolean = true,
     /** Backlog runs, how many carried the user's labels as examples, and their answers on texts asked about again. */
     val runs: Int,
     val runsWithExamples: Int,
@@ -144,6 +150,11 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
                 serviceOn = settings.provider != ProviderKind.ON_DEVICE && container.classifiers.provider(settings) != null,
                 learnLive = settings.learnFromProvider,
                 weight = settings.providerWeight,
+                personalEpochs = settings.personalEpochs,
+                personalStep = settings.personalStep,
+                personalL2 = settings.personalL2,
+                labModel = settings.labModel,
+                labAutoRetrain = settings.labAutoRetrain,
                 runs = runs.size,
                 runsWithExamples = runs.count { it.examples > 0 },
                 maxExamples = runs.maxOfOrNull { it.examples } ?: 0,
@@ -168,6 +179,47 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
 
     /** Scoring models on the user's labels (see the Evaluate tab). */
     val evals = Evaluations(container, viewModelScope)
+
+    /** Models the user designs and trains here (see ModelLab and the Lab tab). */
+    val lab = container.modelLab
+
+    private val _draft = MutableStateFlow(com.ericflo.winnow.classifier.local.Recipe.PRESETS[2].second)
+    /** The model being designed. */
+    val draft: StateFlow<com.ericflo.winnow.classifier.local.Recipe> = _draft.asStateFlow()
+    private val _draftName = MutableStateFlow(com.ericflo.winnow.classifier.local.Recipe.PRESETS[2].first)
+    val draftName: StateFlow<String> = _draftName.asStateFlow()
+
+    fun setDraft(recipe: com.ericflo.winnow.classifier.local.Recipe, name: String) {
+        _draft.value = recipe
+        _draftName.value = name
+    }
+
+    fun editDraft(change: (com.ericflo.winnow.classifier.local.Recipe) -> com.ericflo.winnow.classifier.local.Recipe) {
+        _draft.value = change(_draft.value)
+    }
+
+    fun setDraftName(name: String) {
+        _draftName.value = name
+    }
+
+    /** Keeps the design as a model, then trains and scores it. */
+    fun trainDraft() {
+        val entry = lab.create(_draftName.value, _draft.value)
+        lab.trainAndScore(entry.id)
+    }
+
+    fun trainEntry(id: String) = lab.trainAndScore(id)
+
+    fun useLab(id: String?) {
+        viewModelScope.launch { lab.use(id) }
+    }
+
+    /** Trains the model in use again, on the phone, with everything taught so far. */
+    fun retrainNow() = lab.retrainInUse()
+
+    fun setLabAutoRetrain(on: Boolean) {
+        viewModelScope.launch { container.settings.update { it.copy(labAutoRetrain = on) } }
+    }
 
     /** Asking the service about the user's labeled texts twice (see ExamplesExperiment). */
     val experiment = container.examplesExperiment
@@ -244,7 +296,7 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
     }
 }
 
-private enum class ModelTab(val label: String) { OVERVIEW("Overview"), EVALUATE("Evaluate"), INSIDE("Inside"), HISTORY("History") }
+private enum class ModelTab(val label: String) { OVERVIEW("Overview"), EVALUATE("Evaluate"), LAB("Lab"), INSIDE("Inside"), HISTORY("History") }
 
 /**
  * Winnow's on-device model, opened up: what it learned from, how it does on the user's own labels,
@@ -269,7 +321,7 @@ fun ModelScreen(
                     title = { Text("Winnow's model") },
                     navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 )
-                PrimaryTabRow(selectedTabIndex = tab) {
+                androidx.compose.material3.PrimaryScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
                     ModelTab.entries.forEachIndexed { i, t -> Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t.label) }) }
                 }
             }
@@ -283,6 +335,7 @@ fun ModelScreen(
             when (ModelTab.entries[tab]) {
                 ModelTab.OVERVIEW -> overview(viewModel, onOpenMetrics, onOpenRuns, onOpenTrain)
                 ModelTab.EVALUATE -> evaluate(viewModel, onOpenThread)
+                ModelTab.LAB -> lab(viewModel)
                 ModelTab.INSIDE -> inside(viewModel)
                 ModelTab.HISTORY -> history(viewModel)
             }
@@ -352,6 +405,13 @@ private fun FitCard(o: Overview) {
                     "Each of your labels counts fully; each of ${o.provider}'s counts for ${pct(f.providerWeight)} of one of yours, and yours replaces it on the same text. " +
                         "${count(f.buckets)} of its ${count(LocalModel.bundled.buckets)} feature buckets carry something you or ${o.provider} taught it.",
                     style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (o.labModel != null) {
+                Text(
+                    "A model you trained in the Lab is sorting your texts in this one's place. This personal layer is still fitted beside it, so you can go back to it at any time.",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
             Text(

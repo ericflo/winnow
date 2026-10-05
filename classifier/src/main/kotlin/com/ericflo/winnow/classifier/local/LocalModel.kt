@@ -84,6 +84,9 @@ class LocalModel(
 
     fun bucket(feature: String): Int = fnv1a(feature) and (buckets - 1)
 
+    /** This model with its odds calibrated by [t] instead (see RecipeTrainer.calibrate). */
+    fun withTemperature(t: Float) = LocalModel(classes, buckets, weights, bias, t, featurizerVersion)
+
     /** The model's own weight for [bucket] toward [classIndex], as it ships. */
     fun weight(bucket: Int, classIndex: Int): Float = weights[bucket * k + classIndex]
 

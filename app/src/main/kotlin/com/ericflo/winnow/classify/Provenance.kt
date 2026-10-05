@@ -262,7 +262,11 @@ object Provenance {
     /** "winnow-local-1·3fa2c1" as words: the model as it ships, or a fit of what it was taught. */
     fun describeModel(name: String): String {
         val fit = name.substringAfter('·', "")
-        return if (fit.isEmpty()) "as it ships, before anything you taught it" else "fit $fit"
+        return when {
+            name.startsWith(Learner.LAB_NAME) -> "the model you trained in the Lab ($fit)"
+            fit.isEmpty() -> "as it ships, before anything you taught it"
+            else -> "fit $fit"
+        }
     }
 
     fun fitTally(fit: ModelFitEntity): String = listOfNotNull(

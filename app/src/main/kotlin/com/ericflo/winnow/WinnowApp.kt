@@ -150,10 +150,12 @@ class AppContainer(private val context: Context) {
     }
     val settings by lazy { SettingsRepository(context, SecretBox()) }
     val correctionDao by lazy { database.corrections() }
-    val learner by lazy {
+    val learner: Learner by lazy {
         // Kept for this install: an update (a new model, a new way of fitting) fits afresh.
         val install = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
-        Learner(correctionDao, settings, com.ericflo.winnow.classify.PersonalModelStore(java.io.File(context.filesDir, "personal-model.bin"), install), database.fits(), appScope)
+        Learner(correctionDao, settings, com.ericflo.winnow.classify.PersonalModelStore(java.io.File(context.filesDir, "personal-model.bin"), install), database.fits(), appScope) {
+            modelLab.inUse()
+        }
     }
     /** Backlog runs and every answer they got (see RunEntity). */
     val runDao by lazy { database.runs() }
@@ -169,6 +171,23 @@ class AppContainer(private val context: Context) {
     val examplesExperiment by lazy {
         com.ericflo.winnow.classify.ExamplesExperiment(context, appScope, verdictDao, correctionDao, contacts, settings, classifiers, bootstrap, evalDao)
     }
+    /** Models the user designs, trains on the phone, scores and puts in use (see ModelLab). */
+    val modelLab: com.ericflo.winnow.classify.ModelLab by lazy {
+        com.ericflo.winnow.classify.ModelLab(
+            appScope, correctionDao, verdictDao, contacts, settings, com.ericflo.winnow.data.MessageTexts(context), evalDao,
+            repliedThreads = { bootstrap.threadsWithOutgoing() },
+            dir = java.io.File(context.filesDir, "lab"),
+        ) { learner.reload() }
+    }
+
+    /** After a Train round or a backlog run: a Lab model in use learns what it taught, if the user wants it to. */
+    fun retrainLabModelIfWanted() {
+        appScope.launch {
+            val s = settings.current()
+            if (s.labModel != null && s.labAutoRetrain) modelLab.retrainInUse()
+        }
+    }
+
     /** Why a text went where it did (see Provenance). */
     val provenance by lazy {
         com.ericflo.winnow.classify.ProvenanceSource(verdictDao, correctionDao, runDao, fitDao, settings, com.ericflo.winnow.data.MessageTexts(context))
@@ -300,6 +319,7 @@ class AppContainer(private val context: Context) {
                 historyReviewer.refresh()
                 // The model a backlog run leaves is kept, to compare with what comes after.
                 appScope.launch { runCatching { modelKeeper.keepCurrent() } }
+                retrainLabModelIfWanted()
             },
         )
     }

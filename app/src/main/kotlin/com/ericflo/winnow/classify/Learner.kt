@@ -4,6 +4,7 @@ import com.ericflo.winnow.classifier.local.Correction
 import com.ericflo.winnow.classifier.local.Featurizer
 import com.ericflo.winnow.classifier.local.LocalModel
 import com.ericflo.winnow.classifier.local.OnDeviceClassifier
+import com.ericflo.winnow.classifier.local.Personalizer
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classifier.message.InboundMessage
@@ -34,6 +35,8 @@ class Learner(
     private val fits: com.ericflo.winnow.data.db.ModelFitDao? = null,
     /** Where a refit after labels that come one at a time runs (see [learnFromAnswer]). */
     private val scope: kotlinx.coroutines.CoroutineScope? = null,
+    /** A model the user trained in the Lab and put in use, with its name, if there is one (see ModelLab). */
+    private val labModel: suspend () -> Pair<String, com.ericflo.winnow.classifier.local.Predictor>? = { null },
 ) {
     private val base by lazy { OnDeviceClassifier() }
     private val lock = Mutex()
@@ -265,37 +268,58 @@ class Learner(
 
     private suspend fun retrain(): OnDeviceClassifier = lock.withLock {
         val rows = dao.all()
-        val weight = runCatching { settings.current().providerWeight }.getOrDefault(PROVIDER_WEIGHT)
+        val current = runCatching { settings.current() }.getOrNull()
+        val weight = current?.providerWeight ?: PROVIDER_WEIGHT
+        val fitting = Fitting(current?.personalEpochs ?: Personalizer.EPOCHS, current?.personalStep ?: Personalizer.LEARNING_RATE, current?.personalL2 ?: Personalizer.L2)
+        val lab = runCatching { labModel() }.getOrNull()
         withContext(Dispatchers.Default) {
-            // The weight is part of what a fit is: a different one is a different fit.
-            val stamp = store?.stamp(rows, weight) ?: PersonalModelStore.stampOf(rows, 0, weight)
+            // The weight and the fitting are part of what a fit is: different ones are a different fit.
+            val stamp = (store?.stamp(rows, weight) ?: PersonalModelStore.stampOf(rows, 0, weight)).let { if (fitting.isDefault) it else it xor fitting.stamp() }
             // Nothing taught: the model as it ships, which has no fit to name.
             val fit = if (rows.isEmpty()) null else fitName(stamp)
             // The last fit, if nothing that went into it has changed: no fitting on every start.
             val kept = store?.let { withContext(Dispatchers.IO) { it.load(stamp) } }
             // Loading the model happens here too, off the main thread.
             if (kept != null) {
-                if (fit != null) record(fit, rows, kept.size, millis = 0, onlyIfNew = true, weight = weight)
-                return@withContext base.withAdjustments(kept, fit)
+                if (fit != null) record(fit, rows, kept.size, millis = 0, onlyIfNew = true, weight = weight, fitting = fitting)
+                return@withContext withLab(base.withAdjustments(kept, fit), lab)
             }
             val started = System.nanoTime()
             // A bad correction must never stop classification: fall back to the bundled model.
-            val fitted = runCatching { base.learn(corrections(rows, weight)) }.getOrNull()?.let { it.withAdjustments(it.adjustments, fit) }
+            val fitted = runCatching {
+                base.withAdjustments(Personalizer.train(base.model, corrections(rows, weight), fitting.epochs, fitting.step, fitting.l2), fit)
+            }.getOrNull()
             if (fitted != null) {
                 withContext(Dispatchers.IO) { store?.save(stamp, fitted.adjustments) }
-                if (fit != null) record(fit, rows, fitted.adjustments.size, millis = (System.nanoTime() - started) / 1_000_000, onlyIfNew = false, weight = weight)
+                if (fit != null) record(fit, rows, fitted.adjustments.size, millis = (System.nanoTime() - started) / 1_000_000, onlyIfNew = false, weight = weight, fitting = fitting)
             }
-            fitted ?: base
+            withLab(fitted ?: base, lab)
         }.also { trained = it }
     }
 
+    /** The personal fit, with a Lab model in use answering in its place (its name what verdicts record). */
+    private fun withLab(personal: OnDeviceClassifier, lab: Pair<String, com.ericflo.winnow.classifier.local.Predictor>?): OnDeviceClassifier =
+        if (lab == null) personal else OnDeviceClassifier(personal.model, personal.adjustments, LAB_NAME, lab.first, lab.second)
+
+    /** How the personal layer is fitted (see WinnowSettings.personalEpochs). */
+    data class Fitting(val epochs: Int, val step: Double, val l2: Double) {
+        val isDefault get() = epochs == Personalizer.EPOCHS && step == Personalizer.LEARNING_RATE && l2 == Personalizer.L2
+        fun stamp(): Long = (epochs.toLong() * 0x9E3779B97F4A7C15uL.toLong()) xor step.toRawBits() xor (l2.toRawBits() shl 1)
+    }
+
+    /** Fits the personal layer with [fitting] from now on. */
+    suspend fun useFitting(fitting: Fitting, weight: Double) {
+        settings.update { it.copy(personalEpochs = fitting.epochs, personalStep = fitting.step, personalL2 = fitting.l2, providerWeight = weight.coerceIn(0.0, 1.0)) }
+        retrain()
+    }
+
     /** Records a fit for the model's history; a failure to is never a failure to classify. */
-    private suspend fun record(fit: String, rows: List<CorrectionEntity>, buckets: Int, millis: Long, onlyIfNew: Boolean, weight: Double) {
+    private suspend fun record(fit: String, rows: List<CorrectionEntity>, buckets: Int, millis: Long, onlyIfNew: Boolean, weight: Double, fitting: Fitting) {
         val dao = fits ?: return
         runCatching {
             withContext(Dispatchers.IO) {
                 if (onlyIfNew && dao.get(fit) != null) return@withContext
-                dao.upsert(fitRecord(fit, rows, buckets, millis, System.currentTimeMillis(), weight))
+                dao.upsert(fitRecord(fit, rows, buckets, millis, System.currentTimeMillis(), weight).copy(epochs = fitting.epochs, l2 = fitting.l2))
                 dao.prune(FITS_KEPT)
             }
         }
@@ -307,6 +331,9 @@ class Learner(
          * the model the backlog, little enough that one of the user's outweighs several of its.
          */
         const val PROVIDER_WEIGHT = 0.35
+
+        /** What verdicts a Lab model decides record as its model: "winnow-lab·<its id>". */
+        const val LAB_NAME = "winnow-lab"
 
         /** How long a label learned as a text arrived waits for others before the model is refit. */
         const val REFIT_AFTER_MILLIS = 20_000L

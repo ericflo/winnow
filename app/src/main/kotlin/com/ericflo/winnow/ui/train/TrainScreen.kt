@@ -356,6 +356,7 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
                 container.learner.reload()
                 // The model each round leaves is kept, so its progress can be scored round by round.
                 runCatching { container.modelKeeper.keepCurrent() }
+                container.retrainLabModelIfWanted()
             }
         }
     }

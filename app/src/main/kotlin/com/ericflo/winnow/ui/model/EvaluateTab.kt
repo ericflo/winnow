@@ -82,7 +82,7 @@ private fun PickCard(viewModel: ModelViewModel) {
     InsightCard("Score them on your labels", subtitle = "Pick what to compare. Each is scored only in a way that's fair to it, and every result is kept.") {
         fun toggle(id: String) { chosen = if (id in chosen) chosen - id else chosen + id }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = Pick.Now.id in chosen, onClick = { toggle(Pick.Now.id) }, label = { Text("The model now") })
+            FilterChip(selected = Pick.Now.id in chosen, onClick = { toggle(Pick.Now.id) }, label = { Text("Winnow's own now") })
             FilterChip(selected = Pick.Shipped.id in chosen, onClick = { toggle(Pick.Shipped.id) }, label = { Text("As it ships") })
             FilterChip(selected = Pick.YoursOnly.id in chosen, onClick = { toggle(Pick.YoursOnly.id) }, label = { Text("Your labels only") })
             FilterChip(selected = Pick.Service.id in chosen, onClick = { toggle(Pick.Service.id) }, label = { Text("$service's answers") })
@@ -101,7 +101,7 @@ private fun PickCard(viewModel: ModelViewModel) {
             Slider(value = weight, onValueChange = { weight = (it * 20).toInt() / 20f }, valueRange = 0f..1f, steps = 19)
         }
         Note(
-            "The model now, your labels only and a rebuilt weight learn from your labels, so they're cross-validated: each conversation's labels scored by a fit without them. " +
+            "Winnow's own, your labels only and a rebuilt weight learn from your labels, so they're cross-validated: each conversation's labels scored by a fit without them. " +
                 "As it ships never saw them. A kept fit is scored on the labels you made after it. $service's are its recorded answers on texts you've labeled, at no cost.",
         )
         if (current != Learner.PROVIDER_WEIGHT) {
@@ -265,7 +265,7 @@ private fun OverTimeCard(viewModel: ModelViewModel) {
     val scope = rememberCoroutineScope()
     InsightCard("Over time", subtitle = "Every time you've scored them") {
         if (nows.size > 1) {
-            Text("The model now, each time it was scored", style = MaterialTheme.typography.labelLarge)
+            Text("Winnow's own, each time it was scored", style = MaterialTheme.typography.labelLarge)
             nows.takeLast(12).forEach { e ->
                 RateBar(format.format(Date(e.at)), (e.accuracy * e.examples).toInt(), e.examples, detail = "macro F1 ${f2(e.macroF1)}")
             }

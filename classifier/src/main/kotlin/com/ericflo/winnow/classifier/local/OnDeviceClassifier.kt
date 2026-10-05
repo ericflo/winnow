@@ -30,26 +30,32 @@ class OnDeviceClassifier(
      * says which model made it.
      */
     val fit: String? = null,
+    /**
+     * A model the user trained on the phone in place of [model] and [adjustments] (see
+     * RecipeTrainer), or null for the shipped model with what it was taught.
+     */
+    val custom: Predictor? = null,
 ) {
     /** The model and its fit, as verdicts record it: "winnow-local-1" as it ships, "winnow-local-1·3fa2c1" once taught. */
     val version: String get() = if (fit == null) name else "$name·$fit"
 
     fun classify(message: InboundMessage): LocalPrediction {
         val features = features(message)
-        val p = model.predict(features, adjustments)
+        val classes = custom?.classes ?: model.classes
+        val p = custom?.probabilities(features) ?: model.predict(features, adjustments)
         val best = p.indices.maxBy { p[it] }
         return LocalPrediction(
-            category = Category.fromKey(model.classes[best]) ?: Category.SPAM,
+            category = Category.fromKey(classes[best]) ?: Category.SPAM,
             confidence = p[best],
-            distribution = model.classes.withIndex().mapNotNull { (i, key) -> Category.fromKey(key)?.let { it to p[i] } }.toMap(),
-            reasons = model.explain(features, best, adjustments = adjustments),
+            distribution = classes.withIndex().mapNotNull { (i, key) -> Category.fromKey(key)?.let { it to p[i] } }.toMap(),
+            reasons = custom?.reasons(features, best) ?: model.explain(features, best, adjustments = adjustments),
             model = version,
             hasHook = Featurizer.hasHook(features),
         )
     }
 
     /** This classifier with different learned adjustments, the fit named [fit]. */
-    fun withAdjustments(adjustments: Adjustments, fit: String? = this.fit) = OnDeviceClassifier(model, adjustments, name, fit)
+    fun withAdjustments(adjustments: Adjustments, fit: String? = this.fit) = OnDeviceClassifier(model, adjustments, name, fit, custom)
 
     /**
      * What to remember when the user corrects [message]: its feature buckets, labeled with the
@@ -79,7 +85,8 @@ class OnDeviceClassifier(
      * so it's for a quick look (Train's guesses following the answers), not for keeping.
      */
     fun learnMore(corrections: List<Correction>, stopped: () -> Boolean = { false }): OnDeviceClassifier =
-        withAdjustments(adjustments + Personalizer.train(model, corrections, stopped = stopped, prior = adjustments))
+        // A model trained on the phone learns at its next training, not answer by answer.
+        if (custom != null) this else withAdjustments(adjustments + Personalizer.train(model, corrections, stopped = stopped, prior = adjustments))
 
     companion object {
         const val MODEL_NAME = "winnow-local-1"

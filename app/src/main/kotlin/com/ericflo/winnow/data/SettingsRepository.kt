@@ -119,6 +119,14 @@ data class WinnowSettings(
      * others and pick one in Winnow's model (see Evaluator).
      */
     val providerWeight: Double = com.ericflo.winnow.classify.Learner.PROVIDER_WEIGHT,
+    /** How the personal layer is fitted: passes, step and pull toward zero (see Personalizer); the user can change them in the Lab. */
+    val personalEpochs: Int = com.ericflo.winnow.classifier.local.Personalizer.EPOCHS,
+    val personalStep: Double = com.ericflo.winnow.classifier.local.Personalizer.LEARNING_RATE,
+    val personalL2: Double = com.ericflo.winnow.classifier.local.Personalizer.L2,
+    /** A model the user trained in the Lab, in use in place of the shipped one (see ModelLab); this phone's only. */
+    val labModel: String? = null,
+    /** Train that model again after each Train round and backlog run, so it learns what they taught. */
+    val labAutoRetrain: Boolean = true,
     /** Ask for a fingerprint, face or the screen lock to open Winnow. */
     val appLock: Boolean = false,
     /** Delete one-time codes from services a day after they arrive. Off unless the user turns it on. */
@@ -228,6 +236,11 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             decideOnPhoneWhenSure = this[DECIDE_ON_PHONE] ?: false,
             learnFromProvider = this[LEARN_FROM_PROVIDER] ?: true,
             providerWeight = (this[PROVIDER_WEIGHT] ?: com.ericflo.winnow.classify.Learner.PROVIDER_WEIGHT).coerceIn(0.0, 1.0),
+            personalEpochs = (this[PERSONAL_EPOCHS] ?: com.ericflo.winnow.classifier.local.Personalizer.EPOCHS).coerceIn(1, 500),
+            personalStep = (this[PERSONAL_STEP] ?: com.ericflo.winnow.classifier.local.Personalizer.LEARNING_RATE).coerceIn(1e-4, 10.0),
+            personalL2 = (this[PERSONAL_L2] ?: com.ericflo.winnow.classifier.local.Personalizer.L2).coerceIn(0.0, 1.0),
+            labModel = this[LAB_MODEL],
+            labAutoRetrain = this[LAB_AUTO_RETRAIN] ?: true,
             appLock = this[APP_LOCK] ?: false,
             hideOnLockScreen = this[HIDE_ON_LOCK_SCREEN] ?: false,
             undoSendSeconds = this[UNDO_SEND_SECONDS] ?: 0,
@@ -285,6 +298,11 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[DECIDE_ON_PHONE] = s.decideOnPhoneWhenSure
         this[LEARN_FROM_PROVIDER] = s.learnFromProvider
         this[PROVIDER_WEIGHT] = s.providerWeight
+        this[PERSONAL_EPOCHS] = s.personalEpochs
+        this[PERSONAL_STEP] = s.personalStep
+        this[PERSONAL_L2] = s.personalL2
+        s.labModel?.let { this[LAB_MODEL] = it } ?: remove(LAB_MODEL)
+        this[LAB_AUTO_RETRAIN] = s.labAutoRetrain
         this[APP_LOCK] = s.appLock
         this[HIDE_ON_LOCK_SCREEN] = s.hideOnLockScreen
         this[UNDO_SEND_SECONDS] = s.undoSendSeconds
@@ -329,6 +347,11 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val DECIDE_ON_PHONE = booleanPreferencesKey("privacy.decide_on_phone_when_sure")
         val LEARN_FROM_PROVIDER = booleanPreferencesKey("model.learn_from_provider")
         val PROVIDER_WEIGHT = doublePreferencesKey("model.provider_weight")
+        val PERSONAL_EPOCHS = intPreferencesKey("model.personal_epochs")
+        val PERSONAL_STEP = doublePreferencesKey("model.personal_step")
+        val PERSONAL_L2 = doublePreferencesKey("model.personal_l2")
+        val LAB_MODEL = stringPreferencesKey("model.lab_model")
+        val LAB_AUTO_RETRAIN = booleanPreferencesKey("model.lab_auto_retrain")
         val APP_LOCK = booleanPreferencesKey("security.app_lock")
         val HIDE_ON_LOCK_SCREEN = booleanPreferencesKey("security.hide_on_lock_screen")
         val UNDO_SEND_SECONDS = intPreferencesKey("compose.undo_send_seconds")

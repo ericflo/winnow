@@ -26,7 +26,7 @@ sealed interface EvalSubject {
     /** The model as it is now: the user's labels, their corrections and the service's labels, as Learner fits them. */
     data object Now : EvalSubject {
         override val key = "now"
-        override val label = "The model now"
+        override val label = "Winnow's own now"
     }
 
     /** The model as it ships, before anything was taught. */

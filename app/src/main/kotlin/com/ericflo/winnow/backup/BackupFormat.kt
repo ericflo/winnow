@@ -59,6 +59,10 @@ data class SettingsBackup(
     val learnFromProvider: Boolean? = null,
     /** Null in backups made before it could be chosen: the phone keeps its own. */
     val providerWeight: Double? = null,
+    /** Null in backups made before the personal layer's fitting could be changed. */
+    val personalEpochs: Int? = null,
+    val personalStep: Double? = null,
+    val personalL2: Double? = null,
     val hideOnLockScreen: Boolean = false,
     val undoSendSeconds: Int = 0,
     val deleteOldCodes: Boolean = false,
