@@ -24,7 +24,12 @@ import kotlinx.coroutines.withContext
  * category with the action the user chose. The model is then refit, so texts like it from
  * other senders follow. Sender rules already cover the sender themself.
  */
-class Learner(private val dao: CorrectionDao, private val settings: SettingsRepository) {
+class Learner(
+    private val dao: CorrectionDao,
+    private val settings: SettingsRepository,
+    /** Where the last fit is kept between runs of the app (see PersonalModelStore). */
+    private val store: PersonalModelStore? = null,
+) {
     private val base by lazy { OnDeviceClassifier() }
     private val lock = Mutex()
     @Volatile private var trained: OnDeviceClassifier? = null
@@ -212,9 +217,15 @@ class Learner(private val dao: CorrectionDao, private val settings: SettingsRepo
     private suspend fun retrain(): OnDeviceClassifier = lock.withLock {
         val rows = dao.all()
         withContext(Dispatchers.Default) {
+            val stamp = store?.stamp(rows)
+            // The last fit, if nothing that went into it has changed: no fitting on every start.
+            val kept = stamp?.let { s -> withContext(Dispatchers.IO) { store?.load(s) } }
             // Loading the model happens here too, off the main thread.
+            if (kept != null) return@withContext base.withAdjustments(kept)
             // A bad correction must never stop classification: fall back to the bundled model.
-            runCatching { base.learn(corrections(rows)) }.getOrElse { base }
+            val fitted = runCatching { base.learn(corrections(rows)) }.getOrNull()
+            if (fitted != null && stamp != null) withContext(Dispatchers.IO) { store?.save(stamp, fitted.adjustments) }
+            fitted ?: base
         }.also { trained = it }
     }
 }

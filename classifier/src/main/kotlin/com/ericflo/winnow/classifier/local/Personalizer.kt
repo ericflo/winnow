@@ -28,8 +28,28 @@ class Adjustments(internal val weights: Map<Int, FloatArray>) {
         }
     }
 
+    /** Writes these compactly, to keep them between runs of the app (see [readFrom]). */
+    fun writeTo(out: java.io.DataOutputStream) {
+        out.writeInt(weights.size)
+        out.writeInt(weights.values.firstOrNull()?.size ?: 0)
+        for ((bucket, row) in weights) {
+            out.writeInt(bucket)
+            for (v in row) out.writeFloat(v)
+        }
+    }
+
     companion object {
         val NONE = Adjustments(emptyMap())
+
+        /** What [writeTo] wrote. */
+        fun readFrom(input: java.io.DataInputStream): Adjustments {
+            val count = input.readInt()
+            val width = input.readInt()
+            require(count >= 0 && width in 0..64) { "not adjustments" }
+            val weights = HashMap<Int, FloatArray>(count * 2)
+            repeat(count) { weights[input.readInt()] = FloatArray(width) { input.readFloat() } }
+            return Adjustments(weights)
+        }
     }
 }
 

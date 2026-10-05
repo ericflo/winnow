@@ -22,7 +22,7 @@ data class LocalPrediction(
 class OnDeviceClassifier(
     private val model: LocalModel = LocalModel.bundled,
     /** What the user's corrections taught it, on top of [model]. */
-    private val adjustments: Adjustments = Adjustments.NONE,
+    val adjustments: Adjustments = Adjustments.NONE,
     val name: String = MODEL_NAME,
 ) {
 

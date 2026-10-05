@@ -113,8 +113,13 @@ reads the unredacted message: nothing leaves the phone, so there's nothing to re
   stores the newest incoming message's feature buckets, never its text, in Room
   (`corrections`). The label is the likeliest category whose action matches the user's
   choice. Per-bucket adjustments, with no bias term and an L2 pull toward zero, are refit
-  from all corrections in milliseconds and added to the bundled scores. On the corpus, a
-  correction changes under 2% of other predictions. Corrections are included in backups.
+  from all corrections and added to the bundled scores. On the corpus, a correction changes
+  under 2% of other predictions. Corrections are included in backups. A fit takes
+  milliseconds on a laptop but hundreds on a phone for a few hundred corrections, and most
+  texts arrive with Winnow not running, so the last fit is kept on disk (`PersonalModelStore`)
+  under a stamp of every correction and the app's install time, and loaded when nothing that
+  went into it has changed (on the emulator, a cold start's text decided in about 260 ms
+  instead of 700).
 
 - **Metrics** (`ClassifierMetrics`, `MetricsCalculator`): the trainer runs 5-fold
   stratified cross-validation and fits the temperature on the out-of-fold scores. From

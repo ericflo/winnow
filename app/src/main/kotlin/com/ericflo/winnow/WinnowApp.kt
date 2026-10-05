@@ -150,7 +150,11 @@ class AppContainer(private val context: Context) {
     }
     val settings by lazy { SettingsRepository(context, SecretBox()) }
     val correctionDao by lazy { database.corrections() }
-    val learner by lazy { Learner(correctionDao, settings) }
+    val learner by lazy {
+        // Kept for this install: an update (a new model, a new way of fitting) fits afresh.
+        val install = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
+        Learner(correctionDao, settings, com.ericflo.winnow.classify.PersonalModelStore(java.io.File(context.filesDir, "personal-model.bin"), install))
+    }
     val classifiers by lazy {
         // Without contacts, a contact's text looks like a stranger's: none may go to a classifier service.
         ClassifierFactory(OkHttpTransport(), { learner.classifier() }) { if (contacts.canRead()) null else ClassifierFactory.CONTACTS_HIDDEN }
