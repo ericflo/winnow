@@ -78,7 +78,10 @@ on-phone model at about a third of the weight of your own labels (yours always w
 Jev's on the same text) and file texts Winnow never sorted. Each round then puts first the
 conversations where Jev and the on-phone model disagree, and shows what Jev said beside every
 guess. Jev's labels never count as right answers on the accuracy screen, and Settings can forget
-just those. On OpenRouter, Jev costs about $0.00003 a text, so a whole backlog is a few cents.
+just those. On OpenRouter, Jev costs about $0.00003 a text, so a whole backlog is a few cents. A run goes on with
+the screen off or Winnow closed (a foreground service, with progress and Stop in a quiet
+notification), stops itself if the service stops answering (saying why: a refused key, no credit,
+rate limiting, an outage), and picks up where it left off next time.
 
 Labels stay on the phone (only hashed word fingerprints, never the text) and go
 into backups.
