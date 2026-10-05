@@ -162,7 +162,7 @@ class MetricsViewModel(container: AppContainer) : ViewModel() {
  * corrections, and labels whose message a restore hasn't found yet, go into every refit
  * unscored. Ones made by an older featurizer mean nothing to this model and are left out.
  */
-private fun computeMine(rows: List<com.ericflo.winnow.data.db.CorrectionEntity>, stopped: () -> Boolean): Mine {
+internal fun computeMine(rows: List<com.ericflo.winnow.data.db.CorrectionEntity>, stopped: () -> Boolean): Mine {
     val model = com.ericflo.winnow.classifier.local.LocalModel.bundled
     val current = rows.filter { it.featurizerVersion == com.ericflo.winnow.classifier.local.Featurizer.VERSION }
     fun buckets(e: com.ericflo.winnow.data.db.CorrectionEntity) = e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray()

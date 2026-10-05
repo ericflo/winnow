@@ -148,6 +148,10 @@ data class RunRoute(val runId: Long)
 @Serializable
 data object RunsRoute
 
+/** Winnow's model, opened up (see ModelScreen). */
+@Serializable
+data object ModelRoute
+
 /**
  * [draft] carries a forwarded message into the conversation the user picks; [with] (comma-joined
  * addresses) starts a new group with those people picked, from "Add people".
@@ -262,6 +266,7 @@ fun WinnowNavHost(
                         onMakeDefault = onMakeDefault,
                         onOpenStarred = { nav.navigate(StarredRoute) },
                         onOpenTrain = { nav.navigate(TrainRoute) },
+                        onOpenModel = { nav.navigate(ModelRoute) },
                         onOpenScheduled = { nav.navigate(ScheduledRoute) },
                         onOpenTrash = { nav.navigate(RecentlyDeletedRoute) },
                         openThreadId = opened?.threadId.takeIf { twoPane },
@@ -323,6 +328,7 @@ fun WinnowNavHost(
                 onOpenThread = openThread,
                 onOpenRun = { nav.navigate(RunRoute(it)) },
                 onOpenRuns = { nav.navigate(RunsRoute) },
+                onOpenModel = { nav.navigate(ModelRoute) },
             )
         }
         composable<RunRoute> { entry ->
@@ -331,6 +337,15 @@ fun WinnowNavHost(
                 viewModel = viewModel { com.ericflo.winnow.ui.runs.RunViewModel(container, route.runId) },
                 onBack = dropUnlessResumed { nav.popBackStack() },
                 onOpenThread = openThread,
+            )
+        }
+        composable<ModelRoute> {
+            com.ericflo.winnow.ui.model.ModelScreen(
+                viewModel = viewModel { com.ericflo.winnow.ui.model.ModelViewModel(container) },
+                onBack = dropUnlessResumed { nav.popBackStack() },
+                onOpenMetrics = { nav.navigate(MetricsRoute) },
+                onOpenRuns = { nav.navigate(RunsRoute) },
+                onOpenTrain = { nav.navigate(TrainRoute) },
             )
         }
         composable<RunsRoute> {
@@ -429,6 +444,7 @@ fun WinnowNavHost(
                 viewModel = viewModel { ActivityViewModel(container) },
                 onBack = dropUnlessResumed { nav.popBackStack() },
                 onOpenMetrics = { nav.navigate(MetricsRoute) },
+                onOpenModel = { nav.navigate(ModelRoute) },
             )
         }
         composable<MetricsRoute> {

@@ -100,6 +100,22 @@ fun BarRow(label: String, count: Int, max: Int, total: Int, leading: (@Composabl
     }
 }
 
+/** A bar under its own label, for labels too long to sit beside it: [count] of [max], its share of [total] after the count. */
+@Composable
+fun StackedBar(label: String, count: Int, max: Int, total: Int, color: Color = MaterialTheme.colorScheme.primary) {
+    Column(Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = "$label: ${count(count)}${if (total > 0) ", ${share(count, total)}" else ""}" }) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(count(count), style = MaterialTheme.typography.labelLarge)
+            Text(if (total == 0) "" else "  ${share(count, total)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.height(4.dp))
+        Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest)) {
+            if (count > 0 && max > 0) Box(Modifier.fillMaxWidth(count / max.toFloat()).height(8.dp).clip(RoundedCornerShape(4.dp)).background(color))
+        }
+    }
+}
+
 /** A share of a whole as a 0–1 bar with its percentage, for rates (agreement, accuracy). */
 @Composable
 fun RateBar(label: String, part: Int, whole: Int, color: Color = MaterialTheme.colorScheme.primary, detail: String? = null) {
@@ -170,6 +186,9 @@ fun share(part: Int, whole: Int): String = if (whole == 0) "—" else pct(part.t
 
 fun pct(x: Double): String = when {
     x.isNaN() -> "—"
+    // Never "100%" for what isn't certain, nor "0%" for what isn't impossible.
+    x < 1.0 && x >= 0.999 -> ">99.9%"
+    x > 0.0 && x < 0.001 -> "<0.1%"
     x >= 0.995 && x < 1.0 || x in 0.0..0.1 && x > 0 -> String.format(Locale.US, "%.1f%%", x * 100)
     else -> String.format(Locale.US, "%.0f%%", x * 100)
 }

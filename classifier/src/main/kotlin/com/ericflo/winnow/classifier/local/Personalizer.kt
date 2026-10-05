@@ -21,6 +21,12 @@ data class Correction(val buckets: IntArray, val label: Int, val weight: Double 
 class Adjustments(internal val weights: Map<Int, FloatArray>) {
     val size: Int get() = weights.size
 
+    /** Buckets with something learned. */
+    val buckets: Set<Int> get() = weights.keys
+
+    /** What was learned for [bucket], per class (in the model's class order); null when nothing was. */
+    fun row(bucket: Int): FloatArray? = weights[bucket]?.copyOf()
+
     internal fun addTo(scores: DoubleArray, indices: IntArray, value: Double) {
         for (i in indices) {
             val row = weights[i] ?: continue

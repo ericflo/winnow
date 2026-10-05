@@ -414,6 +414,8 @@ fun TrainScreen(
     /** A run's results (see RunScreen), and every run. */
     onOpenRun: (Long) -> Unit = {},
     onOpenRuns: () -> Unit = {},
+    /** Winnow's model, opened up (see ModelScreen). */
+    onOpenModel: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     Scaffold(
@@ -421,6 +423,7 @@ fun TrainScreen(
             TopAppBar(
                 title = { Text("Train Winnow") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+                actions = { TextButton(onClick = onOpenModel) { Text("The model") } },
             )
         },
         bottomBar = {

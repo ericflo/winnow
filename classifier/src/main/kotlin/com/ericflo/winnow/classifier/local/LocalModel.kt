@@ -81,6 +81,31 @@ class LocalModel(
 
     fun bucket(feature: String): Int = fnv1a(feature) and (buckets - 1)
 
+    /** The model's own weight for [bucket] toward [classIndex], as it ships. */
+    fun weight(bucket: Int, classIndex: Int): Float = weights[bucket * k + classIndex]
+
+    /** The bias toward each class: what it leans to before reading a single feature. */
+    fun biases(): FloatArray = bias.copyOf()
+
+    /**
+     * Each of [features]' pull toward every class, as the model scores it: from its own weights
+     * and from [adjustments], each scaled as [predict] scales it. Duplicates count once, as there.
+     */
+    fun contributions(features: List<String>, adjustments: Adjustments = Adjustments.NONE): List<Contribution> {
+        val byBucket = LinkedHashMap<Int, MutableList<String>>()
+        features.forEach { byBucket.getOrPut(bucket(it)) { mutableListOf() } += it }
+        val value = featureValue(byBucket.size)
+        return byBucket.map { (b, names) ->
+            val learned = adjustments.weights[b]
+            Contribution(
+                features = names,
+                bucket = b,
+                base = DoubleArray(k) { weights[b * k + it] * value },
+                learned = DoubleArray(k) { (learned?.get(it) ?: 0f) * value },
+            )
+        }
+    }
+
     /** Writes the model with int8 weights (one scale per class), about 7 bytes per bucket. */
     fun write(output: OutputStream) {
         val out = DataOutputStream(output)
@@ -149,4 +174,13 @@ class LocalModel(
             return h
         }
     }
+}
+
+/**
+ * One feature bucket's part in a prediction: the [features] that fell in it (usually one), and
+ * its pull toward each class from the model as it ships ([base]) and from what the user taught it
+ * ([learned]), already scaled as the model scores them.
+ */
+class Contribution(val features: List<String>, val bucket: Int, val base: DoubleArray, val learned: DoubleArray) {
+    fun total(classIndex: Int): Double = base[classIndex] + learned[classIndex]
 }

@@ -20,7 +20,7 @@ data class LocalPrediction(
  * nothing leaves the device.
  */
 class OnDeviceClassifier(
-    private val model: LocalModel = LocalModel.bundled,
+    val model: LocalModel = LocalModel.bundled,
     /** What the user's corrections taught it, on top of [model]. */
     val adjustments: Adjustments = Adjustments.NONE,
     val name: String = MODEL_NAME,
@@ -63,7 +63,8 @@ class OnDeviceClassifier(
         return Correction(model.indices(features), label)
     }
 
-    private fun features(message: InboundMessage) = Featurizer.features(
+    /** What the model reads of [message]: its features, before they're hashed into buckets. */
+    fun features(message: InboundMessage) = Featurizer.features(
         Featurizer.Input(message.sender, message.body, message.senderInContacts, message.userHasMessagedSender),
     )
 

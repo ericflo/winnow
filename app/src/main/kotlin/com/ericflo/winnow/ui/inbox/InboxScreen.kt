@@ -141,6 +141,7 @@ fun InboxScreen(
     onMakeDefault: () -> Unit,
     onOpenStarred: () -> Unit = {},
     onOpenTrain: () -> Unit = {},
+    onOpenModel: () -> Unit = {},
     onOpenScheduled: () -> Unit = {},
     onOpenTrash: () -> Unit = {},
     /** In the two-pane layout, the conversation open beside the list. */
@@ -584,6 +585,10 @@ fun InboxScreen(
             onOpenTrain = {
                 menuOpen = false
                 onOpenTrain()
+            },
+            onOpenModel = {
+                menuOpen = false
+                onOpenModel()
             },
             scheduledCount = scheduledCount,
             onOpenScheduled = {

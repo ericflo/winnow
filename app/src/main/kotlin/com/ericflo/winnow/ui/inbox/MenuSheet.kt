@@ -59,6 +59,8 @@ fun MenuSheet(
     onOpenActivity: () -> Unit,
     onOpenStarred: () -> Unit,
     onOpenTrain: () -> Unit = {},
+    /** Winnow's model, opened up (see ModelScreen). */
+    onOpenModel: () -> Unit = {},
     onMarkAllRead: () -> Unit,
     scheduledCount: Int = 0,
     onOpenScheduled: () -> Unit = {},
@@ -105,6 +107,8 @@ fun MenuSheet(
                     // Only once Winnow reads the real texts: there's nothing to train on before.
                     if (state.live) {
                         MenuItem(painterResource(R.drawable.ic_label), "Train Winnow", trailing = state.labeled.takeIf { it > 0 }?.let { "$it labeled" }, onClick = onOpenTrain)
+                        MenuDivider()
+                        MenuItem(painterResource(R.drawable.ic_insights), "Winnow's model", onClick = onOpenModel)
                         MenuDivider()
                     }
                     // Only while there's something scheduled, so it doesn't crowd the menu otherwise.

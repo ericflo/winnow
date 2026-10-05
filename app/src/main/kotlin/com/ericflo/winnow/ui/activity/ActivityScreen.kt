@@ -177,7 +177,7 @@ class ActivityViewModel(private val container: AppContainer) : ViewModel() {
 /** What Winnow has been doing: how many texts it checked, and what it did with them. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ActivityScreen(viewModel: ActivityViewModel, onBack: () -> Unit, onOpenMetrics: () -> Unit = {}) {
+fun ActivityScreen(viewModel: ActivityViewModel, onBack: () -> Unit, onOpenMetrics: () -> Unit = {}, onOpenModel: () -> Unit = {}) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
@@ -233,6 +233,21 @@ fun ActivityScreen(viewModel: ActivityViewModel, onBack: () -> Unit, onOpenMetri
                 item("senders") {
                     Card("Most filtered senders") {
                         state.topFiltered.forEach { (name, n) -> Line(name, "$n", null) }
+                    }
+                }
+            }
+            item("model") {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenModel),
+                ) {
+                    Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(painterResource(R.drawable.ic_insights), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                            Text("Winnow's model", style = MaterialTheme.typography.titleMedium)
+                            Text("What it learned from, who agrees with whom, how it's built, and how it reads any text", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
