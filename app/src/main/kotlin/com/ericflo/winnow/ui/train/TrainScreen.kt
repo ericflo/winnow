@@ -81,7 +81,14 @@ sealed interface TrainState {
 
     data object Saving : TrainState
 
-    data class Finished(val result: Training.RoundResult, val history: List<Training.RoundResult>, val backlog: Int, val labeled: Int) : TrainState
+    data class Finished(
+        val result: Training.RoundResult,
+        val history: List<Training.RoundResult>,
+        val backlog: Int,
+        val labeled: Int,
+        /** Sender rules the round's labels disagreed with, and so removed. */
+        val rulesRemoved: Int = 0,
+    ) : TrainState
 
     /** Nothing left to label. */
     data class Done(val labeled: Int) : TrainState
@@ -142,8 +149,8 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
                     else -> null
                 }
             }
-            labels.groupBy({ it.second }, { it.first }).forEach { (category, conversations) ->
-                container.labeler.labelConversations(conversations.map { it.threadId to it.recipients }, category)
+            val rulesRemoved = labels.groupBy({ it.second }, { it.first }).entries.sumOf { (category, conversations) ->
+                container.labeler.labelConversations(conversations.map { it.threadId to it.recipients }, category).rulesRemoved.size
             }
             val result = Training.RoundResult(System.currentTimeMillis(), reviewed = labels.size, agreed = r.decisions.values.count { it == Decision.Right })
             if (labels.isNotEmpty()) training.record(result)
@@ -152,6 +159,7 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
                 training.history(),
                 backlog = (r.round.backlog - labels.size).coerceAtLeast(0),
                 labeled = r.round.labeled + labels.size,
+                rulesRemoved = rulesRemoved,
             )
         }
     }
@@ -349,6 +357,14 @@ private fun Finished(s: TrainState.Finished, onNext: () -> Unit, onDone: () -> U
                         },
                         style = MaterialTheme.typography.bodyLarge,
                     )
+                    if (s.rulesRemoved > 0) {
+                        Text(
+                            if (s.rulesRemoved == 1) "Your answers disagreed with a sender rule, so it's gone: that sender's texts are judged afresh."
+                            else "Your answers disagreed with ${s.rulesRemoved} sender rules, so they're gone: those senders' texts are judged afresh.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 val total = s.labeled + s.backlog
                 if (total > 0) {

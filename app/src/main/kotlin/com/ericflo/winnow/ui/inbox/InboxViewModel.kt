@@ -305,8 +305,7 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
                 container.toast("Nothing received there to label yet")
                 return@launch
             }
-            val text = if (result.conversations == 1) "Labeled ${category.label}. Winnow learned from it." else "${result.conversations} labeled ${category.label}. Winnow learned from them."
-            withContext(Dispatchers.Main) { onDone(text, undo) }
+            withContext(Dispatchers.Main) { onDone(com.ericflo.winnow.classify.Labeler.summary(category, result), undo) }
         }
     }
 

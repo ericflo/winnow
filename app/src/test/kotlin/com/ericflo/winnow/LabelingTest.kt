@@ -2,6 +2,7 @@ package com.ericflo.winnow
 
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
+import com.ericflo.winnow.classifier.message.SenderRule
 import com.ericflo.winnow.classify.Labeler
 import com.ericflo.winnow.classify.Training
 import com.ericflo.winnow.data.Attachment
@@ -72,6 +73,44 @@ class LabelingTest {
         assertEquals(guesses.map { it.first }.toSet(), ranked.toSet())
         assertEquals(listOf(1L, 2L, 3L, 4L), ranked.take(4))
         assertEquals(Training.pick(guesses, size = 6, random = Random(3)), ranked.take(6))
+    }
+
+    @Test
+    fun aSenderRuleDisagreesWhenItFilesTextsElsewhere() {
+        assertTrue("allowed, labeled spam", Labeler.disagrees(SenderRule.ALWAYS_ALLOW, Action.FILTER))
+        assertTrue("allowed, labeled marketing (arrives quietly)", Labeler.disagrees(SenderRule.ALWAYS_ALLOW, Action.SILENCE))
+        assertFalse("allowed, labeled personal", Labeler.disagrees(SenderRule.ALWAYS_ALLOW, Action.ALLOW))
+        assertTrue("filtered, labeled personal", Labeler.disagrees(SenderRule.ALWAYS_FILTER, Action.ALLOW))
+        assertTrue("filtered, labeled marketing", Labeler.disagrees(SenderRule.ALWAYS_FILTER, Action.SILENCE))
+        assertFalse("filtered, labeled spam", Labeler.disagrees(SenderRule.ALWAYS_FILTER, Action.FILTER))
+    }
+
+    @Test
+    fun theConfirmationSaysWhatBecameOfSenderRules() {
+        val one = Labeler.Result(conversations = 1, labeled = 3, undo = null)
+        assertEquals("Labeled Spam. Winnow learned from it.", Labeler.summary(Category.SPAM, one))
+        assertEquals(
+            "Labeled Spam. Winnow learned from it. This sender is no longer always allowed.",
+            Labeler.summary(Category.SPAM, one.copy(rulesRemoved = listOf(SenderRule.ALWAYS_ALLOW))),
+        )
+        assertEquals(
+            "Labeled Personal. Winnow learned from it. This sender is no longer always filtered.",
+            Labeler.summary(Category.PERSONAL, one.copy(rulesRemoved = listOf(SenderRule.ALWAYS_FILTER))),
+        )
+        assertEquals(
+            "Labeled Spam. Winnow learned from it. You still always allow this sender.",
+            Labeler.summary(Category.SPAM, one.copy(ruleKept = SenderRule.ALWAYS_ALLOW)),
+        )
+        val many = Labeler.Result(conversations = 4, labeled = 12, undo = null)
+        assertEquals("4 labeled Spam. Winnow learned from them.", Labeler.summary(Category.SPAM, many))
+        assertEquals(
+            "4 labeled Spam. Winnow learned from them. Removed a sender rule that disagreed.",
+            Labeler.summary(Category.SPAM, many.copy(rulesRemoved = listOf(SenderRule.ALWAYS_ALLOW))),
+        )
+        assertEquals(
+            "4 labeled Spam. Winnow learned from them. Removed 2 sender rules that disagreed.",
+            Labeler.summary(Category.SPAM, many.copy(rulesRemoved = listOf(SenderRule.ALWAYS_ALLOW, SenderRule.ALWAYS_ALLOW))),
+        )
     }
 
     @Test

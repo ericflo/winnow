@@ -1039,7 +1039,7 @@ class ThreadViewModel(
     fun labelConversation(category: com.ericflo.winnow.classifier.message.Category) = launch {
         val result = container.appScope.async { container.labeler.labelConversations(listOf(threadId.value to recipients), category) }.await()
         val undo = result.undo ?: return@launch _notices.emit("Nothing received here to label yet")
-        _labeled.emit(Labeled("Labeled ${category.label}. Winnow learned from it.", undo))
+        _labeled.emit(Labeled(com.ericflo.winnow.classify.Labeler.summary(category, result), undo))
     }
 
     /** Labels one received [message] as [category]. */
@@ -1047,7 +1047,7 @@ class ThreadViewModel(
         val all = state.value.messages
         val result = container.appScope.async { container.labeler.labelMessages(threadId.value, recipients, listOf(message), category, all) }.await()
         val undo = result.undo ?: return@launch
-        _labeled.emit(Labeled("Labeled ${category.label}. Winnow learned from it.", undo))
+        _labeled.emit(Labeled(com.ericflo.winnow.classify.Labeler.summary(category, result), undo))
     }
 
     fun undoLabel(undo: com.ericflo.winnow.classify.Labeler.Undo) = launch {

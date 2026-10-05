@@ -432,6 +432,9 @@ interface VerdictDao {
     @Query("SELECT rule FROM sender_rules WHERE address = :address")
     suspend fun senderRule(address: String): String?
 
+    @Query("SELECT * FROM sender_rules WHERE address = :address")
+    suspend fun senderRuleEntity(address: String): SenderRuleEntity?
+
     @Query("SELECT * FROM sender_rules ORDER BY createdAt DESC")
     fun observeSenderRules(): Flow<List<SenderRuleEntity>>
 

@@ -55,7 +55,9 @@ and opens Filtered; nothing on a quiet day.
 (long-press conversations in the inbox, Filtered or Archived, then the tag). The sheet lists
 the seven categories with what each means and where it files a text by your settings, so one
 tap labels, moves the conversation there, and refits the on-phone model on the spot; Undo
-takes it all back. **Train Winnow** (menu) works through your backlog in rounds of 20
+takes it all back. Labeling a whole conversation also removes a sender rule that disagrees
+with it (an "always allow" on texts you now call spam), so that sender's next texts are judged
+afresh; labeling one message leaves the rule alone and says it's still there. **Train Winnow** (menu) works through your backlog in rounds of 20
 conversations with people outside your contacts. Winnow shows its guess for each, mostly the
 ones it's least sure of. You tap ✓ when it's right, "All right" for a whole group, or its guess
 to fix it. Finishing the round labels what you answered and retrains, so the next round's
