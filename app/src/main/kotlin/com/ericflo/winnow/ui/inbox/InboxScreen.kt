@@ -423,6 +423,9 @@ fun InboxScreen(
             if (selected.isNotEmpty()) {
                 SelectionBar(
                     selection = selection,
+                    total = state.conversations.size,
+                    // Everything this list shows: the inbox, Filtered or Archived, under the chosen chip.
+                    onSelectAll = { selected = state.conversations.mapTo(HashSet()) { it.threadId } },
                     onClose = { selected = emptySet() },
                     onPin = { pin ->
                         viewModel.setPinned(selected, pin)
@@ -646,6 +649,9 @@ fun SwipeAction(start: Swipe?, end: Swipe?, content: @Composable () -> Unit) {
 @Composable
 private fun SelectionBar(
     selection: List<ConversationSummary>,
+    /** Conversations the list shows, all of which Select all selects. */
+    total: Int,
+    onSelectAll: () -> Unit,
     onClose: () -> Unit,
     onPin: (Boolean) -> Unit,
     onArchive: () -> Unit,
@@ -659,12 +665,13 @@ private fun SelectionBar(
     val anyUnread = selection.any { it.unread }
     val blockable = selection.singleOrNull()?.takeIf { !it.isGroup }
     Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 2.dp) {
+      Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().statusBarsPadding().height(64.dp).padding(horizontal = 4.dp),
         ) {
             IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Clear selection") }
-            Text("${selection.size}", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Text(java.text.NumberFormat.getIntegerInstance().format(selection.size), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             IconButton(onClick = { onPin(!allPinned) }) {
                 Icon(painterResource(R.drawable.ic_pin), contentDescription = if (allPinned) "Unpin" else "Pin")
             }
@@ -690,6 +697,8 @@ private fun SelectionBar(
                 }
             }
         }
+        if (selection.size < total) com.ericflo.winnow.ui.components.SelectAllRow(total, onSelectAll)
+      }
     }
 }
 

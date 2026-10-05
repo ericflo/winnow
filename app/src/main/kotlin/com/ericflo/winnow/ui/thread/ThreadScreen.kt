@@ -519,6 +519,7 @@ fun ThreadScreen(
                         selected = emptySet()
                     },
                     onDelete = { confirmDeleteSelected = true },
+                    total = state.messages.size,
                 )
             } else if (searching) {
                 ThreadSearchBar(
@@ -836,6 +837,10 @@ fun ThreadScreen(
             onSave = { save(message.attachments) },
             onShare = { share(message.attachments) },
             onSelect = { selected = setOf(message.key) },
+            onSelectAll = {
+                val all = state.messages
+                scope.launch { selected = withContext(Dispatchers.Default) { all.mapTo(HashSet()) { it.key } } }
+            },
             replyPrivately = message.sender?.takeIf { state.isGroup && !message.outgoing }?.let { sender ->
                 (state.senderNames[sender] ?: sender) to { onMessageNumber(sender) }
             },
@@ -1933,6 +1938,7 @@ private fun MessageActionsSheet(
     onSave: () -> Unit,
     onShare: () -> Unit,
     onSelect: () -> Unit,
+    onSelectAll: () -> Unit,
     onSelectText: () -> Unit,
     onShareText: () -> Unit,
     /** In a group, someone else's message: a one-to-one conversation with them, named. */
@@ -2063,6 +2069,13 @@ private fun MessageActionsSheet(
                 leadingContent = { Icon(Icons.Filled.CheckCircle, contentDescription = null) },
                 colors = colors,
                 modifier = Modifier.clickable(onClick = act(onSelect)),
+            )
+            ListItem(
+                headlineContent = { Text("Select all") },
+                supportingContent = { Text("Every message in this conversation") },
+                leadingContent = { Icon(painterResource(R.drawable.ic_select_all), contentDescription = null) },
+                colors = colors,
+                modifier = Modifier.clickable(onClick = act(onSelectAll)),
             )
             replyPrivately?.let { (name, open) ->
                 ListItem(
@@ -2769,12 +2782,14 @@ private fun SelectionBar(
     onCopy: () -> Unit,
     onStar: () -> Unit,
     onDelete: () -> Unit,
+    /** Messages in the conversation, all of which Select all selects. */
+    total: Int,
 ) {
+  Column {
     TopAppBar(
         navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Clear selection") } },
         title = { Text("${java.text.NumberFormat.getIntegerInstance().format(count)} selected") },
         actions = {
-            if (!allSelected) IconButton(onClick = onSelectAll) { Icon(painterResource(R.drawable.ic_select_all), contentDescription = "Select all") }
             if (canCopy) IconButton(onClick = onCopy) { Icon(painterResource(R.drawable.ic_copy), contentDescription = "Copy text") }
             IconButton(onClick = onStar) {
                 Icon(if (allStarred) Icons.Outlined.Star else Icons.Filled.Star, contentDescription = if (allStarred) "Unstar" else "Star")
@@ -2783,6 +2798,8 @@ private fun SelectionBar(
         },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
     )
+    if (!allSelected) com.ericflo.winnow.ui.components.SelectAllRow(total, onSelectAll)
+  }
 }
 
 /** While a conversation is deleted, if it takes long enough to notice (a long one can take minutes). */

@@ -1,5 +1,6 @@
 package com.ericflo.winnow.ui.inbox
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -123,8 +124,9 @@ fun ConversationListScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             if (selected.isNotEmpty()) {
+              Column {
                 TopAppBar(
-                    title = { Text("${selected.size} selected") },
+                    title = { Text("${java.text.NumberFormat.getIntegerInstance().format(selected.size)} selected") },
                     navigationIcon = {
                         IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Filled.Close, contentDescription = "Clear selection") }
                     },
@@ -152,6 +154,11 @@ fun ConversationListScreen(
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, contentDescription = "Delete") }
                     },
                 )
+                // Everything Filtered (or Archived) holds.
+                if (selected.size < state.conversations.size) {
+                    com.ericflo.winnow.ui.components.SelectAllRow(state.conversations.size) { selected = state.conversations.mapTo(HashSet()) { it.threadId } }
+                }
+              }
                 return@Scaffold
             }
             TopAppBar(

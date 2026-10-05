@@ -633,7 +633,9 @@ class BackupManager(
             }
             val threadId = Telephony.Threads.getOrCreateThreadId(context, conversation.recipients.toSet())
             val existing = existingMessages(threadId)
-            val (here, missing) = matchExisting(conversation.messages, threadId, existing, identity = ::stillHere) { m -> textKey(m)?.let { textsEverywhere[it] } }
+            // Recently deleted's own rows, looked up a few hundred at a time, not one query each.
+            val alive = rowsStillHere(conversation.messages.mapNotNull { it.was })
+            val (here, missing) = matchExisting(conversation.messages, threadId, existing, identity = { m -> stillHere(m, alive) }) { m -> textKey(m)?.let { textsEverywhere[it] } }
 
             here.forEach { (m, at) ->
                 val (key, inThread) = at
@@ -885,18 +887,40 @@ class BackupManager(
     }
 
     /** [m]'s own row ([MessageBackup.was]) if it's still on the phone, as that message (same time); else null. */
-    private fun stillHere(m: MessageBackup): String? {
-        val key = m.was ?: return null
-        // Same time, direction and (a text) words: an id the store reused for another message isn't it.
-        ChatMessage.idIn(ChatMessage.Kind.SMS, key)?.let { id ->
-            return resolver.query(ContentUris.withAppendedId(Sms.CONTENT_URI, id), arrayOf(Sms.DATE, Sms.TYPE, Sms.BODY), null, null, null)?.use { c ->
-                key.takeIf { c.moveToFirst() && c.getLong(0) == m.date && (c.getInt(1) != Sms.MESSAGE_TYPE_INBOX) == m.outgoing && c.getString(2).orEmpty() == m.body }
+    /** A message row as [rowsStillHere] found it: when, which way, and (a text's) words. */
+    private class Row(val date: Long, val outgoing: Boolean, val body: String?)
+
+    /**
+     * The rows of [keys] (message keys) still in the store, by key: a few hundred per query, as
+     * a long conversation kept in Recently deleted has tens of thousands, and a query each took
+     * minutes before its restore put a single message back.
+     */
+    private fun rowsStillHere(keys: List<String>): Map<String, Row> {
+        val rows = HashMap<String, Row>()
+        val sms = keys.mapNotNull { ChatMessage.idIn(ChatMessage.Kind.SMS, it) }
+        val mms = keys.mapNotNull { ChatMessage.idIn(ChatMessage.Kind.MMS, it) }
+        sms.chunked(LOOKUP_CHUNK).forEach { ids ->
+            resolver.query(Sms.CONTENT_URI, arrayOf(Sms._ID, Sms.DATE, Sms.TYPE, Sms.BODY), "${Sms._ID} IN (${ids.joinToString(",")})", null, null)?.use { c ->
+                while (c.moveToNext()) {
+                    rows[ChatMessage.messageKey(ChatMessage.Kind.SMS, c.getLong(0))] = Row(c.getLong(1), c.getInt(2) != Sms.MESSAGE_TYPE_INBOX, c.getString(3).orEmpty())
+                }
             }
         }
-        val id = ChatMessage.idIn(ChatMessage.Kind.MMS, key) ?: return null
-        return resolver.query(ContentUris.withAppendedId(Mms.CONTENT_URI, id), arrayOf(Mms.DATE, Mms.MESSAGE_BOX), null, null, null)?.use { c ->
-            key.takeIf { c.moveToFirst() && c.getLong(0) * 1000 == m.date && (c.getInt(1) != Mms.MESSAGE_BOX_INBOX) == m.outgoing }
+        mms.chunked(LOOKUP_CHUNK).forEach { ids ->
+            resolver.query(Mms.CONTENT_URI, arrayOf(Mms._ID, Mms.DATE, Mms.MESSAGE_BOX), "${Mms._ID} IN (${ids.joinToString(",")})", null, null)?.use { c ->
+                while (c.moveToNext()) {
+                    rows[ChatMessage.messageKey(ChatMessage.Kind.MMS, c.getLong(0))] = Row(c.getLong(1) * 1000, c.getInt(2) != Mms.MESSAGE_BOX_INBOX, null)
+                }
+            }
         }
+        return rows
+    }
+
+    private fun stillHere(m: MessageBackup, alive: Map<String, Row>): String? {
+        val key = m.was ?: return null
+        val row = alive[key] ?: return null
+        // Same time, direction and (a text) words: an id the store reused for another message isn't it.
+        return key.takeIf { row.date == m.date && row.outgoing == m.outgoing && (row.body == null || row.body == m.body) }
     }
 
     private fun readable(partId: Long): Boolean =
@@ -924,6 +948,9 @@ class BackupManager(
     private fun List<PartRow>.media() = filter { it.contentType != ContentTypes.TEXT_PLAIN && it.contentType != ContentTypes.SMIL }
 
     private companion object {
+        /** Message ids per lookup query (see rowsStillHere). */
+        const val LOOKUP_CHUNK = 500
+
         const val TAG = "WinnowBackup"
         const val SMS_BATCH = 250
 

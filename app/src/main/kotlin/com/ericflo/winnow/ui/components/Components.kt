@@ -1,5 +1,7 @@
 package com.ericflo.winnow.ui.components
 
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.defaultMinSize
@@ -208,3 +210,27 @@ fun TextStyle.scaled(scale: Float): TextStyle =
 
 fun timeOfDay(epochMillis: Long): String =
     Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).format(timeFormat)
+
+/**
+ * Under a selection bar: "Select all 1,551", spelled out rather than an icon among the bar's
+ * others, where it was too easy to miss. Hidden once everything is selected.
+ */
+@androidx.compose.runtime.Composable
+fun SelectAllRow(total: Int, onSelectAll: () -> Unit) {
+    androidx.compose.material3.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh) {
+        androidx.compose.material3.TextButton(
+            onClick = onSelectAll,
+            modifier = androidx.compose.ui.Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        ) {
+            androidx.compose.material3.Icon(
+                androidx.compose.ui.res.painterResource(com.ericflo.winnow.R.drawable.ic_select_all),
+                contentDescription = null,
+                modifier = androidx.compose.ui.Modifier.size(18.dp),
+            )
+            androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(8.dp))
+            androidx.compose.material3.Text("Select all ${java.text.NumberFormat.getIntegerInstance().format(total)}")
+            androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.weight(1f))
+        }
+    }
+}
+
