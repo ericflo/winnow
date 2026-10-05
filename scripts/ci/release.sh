@@ -24,7 +24,7 @@ version_code=$(( major * 10000 + minor * 100 + patch ))
 
 # The build runs third-party plugin and annotation-processor code; it never sees the secrets.
 env -u GH_TOKEN -u WINNOW_KEYSTORE_BASE64 -u WINNOW_KEYSTORE_PASSWORD -u WINNOW_KEY_ALIAS -u WINNOW_KEY_PASSWORD \
-  ./gradlew --no-daemon --stacktrace \
+  ./gradlew --no-daemon --stacktrace -Pkotlin.compiler.execution.strategy=in-process \
   -Pwinnow.versionName="$version" -Pwinnow.versionCode="$version_code" \
   :app:assembleRelease
 

@@ -1,9 +1,12 @@
 # Winnow CI on Woodpecker.
 #
 # Every push to the default branch runs the full gate: unit tests for all three
-# modules, Android lint and a debug build. A vMAJOR.MINOR.PATCH tag runs the
-# gate, then builds the release APK, signs it and attaches it to the GitHub
-# Release for that tag (scripts/ci/release.sh). Secrets: "Releases" in README.md.
+# modules, Android lint and a debug build. A vMAJOR.MINOR.PATCH tag only builds
+# the release APK, signs it and attaches it to the GitHub Release for that tag
+# (scripts/ci/release.sh): the gate already ran on that commit when it was
+# pushed, so only tag a commit whose gate passed. Running it again for the tag
+# took as long as the release itself, and competed with the push's own gate.
+# Secrets: "Releases" in README.md.
 # Live provider tests stay opt-in (WINNOW_LIVE_TESTS) and never run here.
 
 variables:
@@ -12,18 +15,26 @@ variables:
   # go somewhere writable: the pod's own disk (ephemeral storage, below), not
   # the workspace volume, which is 2 GiB on this server and holds only the
   # checkout and its build outputs. Each step fetches them for itself.
+  # One JVM with room to work: Kotlin compiles inside Gradle (the commands pass
+  # -Pkotlin.compiler.execution.strategy=in-process) rather than in a
+  # daemon of its own (two 4 GiB heaps didn't fit the pod), and R8, the longest
+  # task in a release, gets most of the memory. ParallelGC suits a batch build.
   - &workspace_env >-
     export HOME="/tmp/ci/home"
     GRADLE_USER_HOME="/tmp/ci/gradle"
     ANDROID_HOME="/tmp/ci/android-sdk"
+    GRADLE_OPTS="-Dorg.gradle.jvmargs='-Xmx7g -XX:+UseParallelGC -Dfile.encoding=UTF-8'"
     && mkdir -p "$${HOME}"
   - &backend
     kubernetes:
       resources:
-        # Gradle gets -Xmx4g (gradle.properties); lint and the Kotlin compiler need room beside it.
-        # Ephemeral storage holds the SDK (~0.5 GiB) and Gradle's caches (~3 GiB).
-        requests: {cpu: "1", memory: 4Gi, ephemeral-storage: 5Gi}
-        limits: {cpu: "4", memory: 8Gi, ephemeral-storage: 10Gi}
+        # Gradle's one JVM gets -Xmx7g (above); the limit leaves room for its
+        # off-heap memory and the test JVMs it forks. Each workflow has a node to
+        # itself (the agent's anti-affinity), so the CPU is there: R8 and lint
+        # use every core they get. 6 CPUs and 12 GiB are ci-build's per-container
+        # maximum. Ephemeral storage holds the SDK (~0.5 GiB) and Gradle's caches (~3 GiB).
+        requests: {cpu: "2", memory: 8Gi, ephemeral-storage: 5Gi}
+        limits: {cpu: "6", memory: 12Gi, ephemeral-storage: 10Gi}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -37,15 +48,16 @@ variables:
 steps:
   - name: gate
     image: *jdk_image
+    when:
+      - event: push
     commands:
       - *workspace_env
       - sh scripts/ci/android-sdk.sh
-      - ./gradlew --no-daemon --stacktrace :classifier:test :mms:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+      - ./gradlew --no-daemon --stacktrace -Pkotlin.compiler.execution.strategy=in-process :classifier:test :mms:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
     backend_options: *backend
 
   - name: release
     image: *jdk_image
-    depends_on: [gate]
     when:
       - event: tag
         ref: refs/tags/v*

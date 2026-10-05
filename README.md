@@ -446,14 +446,16 @@ docker run --rm -v "$PWD":/repo -w /repo woodpeckerci/woodpecker-cli:v3.18.1 lin
 
 ### Cutting a release
 
-Push a tag named `vMAJOR.MINOR.PATCH`. A suffix, as in `v0.2.0-rc1`, makes it a pre-release.
+Push the commit to `main` first and let its pipeline (the gate) pass, then push a tag named
+`vMAJOR.MINOR.PATCH` on that commit. A suffix, as in `v0.2.0-rc1`, makes it a pre-release.
 
 ```sh
 git tag -a v0.2.0 -m "Winnow 0.2.0"
 git push origin v0.2.0
 ```
 
-The tag's pipeline runs the gate, then `scripts/ci/release.sh`, which:
+The tag's pipeline doesn't run the gate again (the push already did); it runs only
+`scripts/ci/release.sh`, which:
 
 - Builds `:app:assembleRelease` with versionName `0.2.0` from the tag. The versionCode is
   MAJOR×10000 + MINOR×100 + PATCH, so minor and patch stay under 100 and every release
