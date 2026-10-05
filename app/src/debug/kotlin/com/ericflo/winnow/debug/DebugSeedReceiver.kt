@@ -31,6 +31,11 @@ import kotlin.random.Random
  *
  * Or `--el remind_in 5000` makes every pending message reminder due that many milliseconds from now.
  *
+ * Or `--ei mms 3000` writes that many text-only MMS into one group conversation (`--es group
+ * +12065550121,+12065550122,+12065550123` by default, fictional numbers), as a long-running
+ * group chat leaves them: two in three from a member, the rest the user's. Written straight to
+ * the store, as a restore does, so nothing is classified or announced.
+ *
  * Or `--ez onboarding true` shows onboarding again on the next launch (force-stop the app first),
  * to look it over; finishing or skipping it changes nothing but choosing a classifier there.
  *
@@ -56,6 +61,24 @@ class DebugSeedReceiver : BroadcastReceiver() {
                 }
                 if (intent.hasExtra("remind_in")) {
                     container.reminders.bringForward(System.currentTimeMillis() + intent.getLongExtra("remind_in", 5_000))
+                    return@launch
+                }
+                if (intent.hasExtra("mms")) {
+                    val count = intent.getIntExtra("mms", 3000)
+                    val members = (intent.getStringExtra("group") ?: "+12065550121,+12065550122,+12065550123").split(',').map { it.trim() }
+                    val threadId = Telephony.Threads.getOrCreateThreadId(context, members.toSet())
+                    val store = com.ericflo.winnow.sms.MmsStore(context)
+                    val random = Random(7)
+                    val now = System.currentTimeMillis() / 1000
+                    val started = System.nanoTime()
+                    var written = 0
+                    repeat(count) { i ->
+                        val from = members[random.nextInt(members.size)].takeIf { random.nextInt(3) != 0 }
+                        val box = if (from != null) Telephony.Mms.MESSAGE_BOX_INBOX else Telephony.Mms.MESSAGE_BOX_SENT
+                        val parts = listOf(com.ericflo.winnow.mms.MmsPart.plainText(LINES[random.nextInt(LINES.size)]))
+                        if (store.insertRestored(threadId, box, now - (count - i) * 600L, read = true, subject = null, from = from, to = members - from.orEmpty(), parts = parts) != null) written++
+                    }
+                    Log.i(TAG, "Seeded $written MMS in group thread $threadId in ${(System.nanoTime() - started) / 1_000_000} ms")
                     return@launch
                 }
                 if (intent.getBooleanExtra("onboarding", false)) {

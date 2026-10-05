@@ -33,6 +33,9 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.transformLatest
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.withContext
 
@@ -91,10 +94,20 @@ class TelephonyMessageRepository(
 
     override suspend fun messagesNow(threadId: Long): List<ChatMessage> = withContext(Dispatchers.IO) { queryThread(threadId) }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     override fun messages(threadId: Long): Flow<List<ChatMessage>> {
-        val rows = changes().map {
+        val rows = changes().transformLatest {
             val started = System.nanoTime()
-            queryThread(threadId).also { Log.d(TAG, "Loaded ${it.size} messages of thread $threadId in ${(System.nanoTime() - started) / 1_000_000} ms") }
+            val job = currentCoroutineContext()
+            // A long group chat first with only its newest senders looked up (a second or so), then
+            // with all of them; until then an older message's sender is left out (see queryThread).
+            val first = queryThread(threadId, newestSenders = FIRST_SENDERS)
+            Log.d(TAG, "Loaded ${first.size} messages of thread $threadId in ${(System.nanoTime() - started) / 1_000_000} ms")
+            emit(first)
+            if (first.any { it.kind == Kind.MMS && !it.outgoing && it.sender == null }) {
+                emit(queryThread(threadId, stillWanted = { job.isActive }))
+                Log.d(TAG, "Found every sender of thread $threadId in ${(System.nanoTime() - started) / 1_000_000} ms")
+            }
         }.flowOn(Dispatchers.IO)
         return combine(rows, verdictsByKey()) { list, verdicts -> list.map { it.copy(verdict = verdicts[it.key]) } }
     }
@@ -621,7 +634,13 @@ class TelephonyMessageRepository(
 
     // --- One conversation ----------------------------------------------------------------
 
-    private fun queryThread(threadId: Long): List<ChatMessage> {
+    /**
+     * Every message of [threadId], oldest first. Who sent each received MMS: the other person in a
+     * conversation with one; in a group, the store answers for one message at a time (a few ms
+     * each, seconds for a long group chat), so only the newest [newestSenders] are asked for, and
+     * older ones not known yet are left without a sender. Asking stops if no longer [stillWanted].
+     */
+    private fun queryThread(threadId: Long, newestSenders: Int = Int.MAX_VALUE, stillWanted: () -> Boolean = { true }): List<ChatMessage> {
         val messages = mutableListOf<ChatMessage>()
         resolver.query(
             Telephony.Sms.CONTENT_URI,
@@ -681,6 +700,13 @@ class TelephonyMessageRepository(
 
         val mmsIds = messages.filter { it.kind == Kind.MMS }.map { it.id }
         val parts = if (mmsIds.isEmpty()) emptyMap() else mmsParts(mmsIds)
+        val received = messages.filter { it.kind == Kind.MMS && !it.outgoing }
+        val senders = mmsSenders(
+            received, known = { cachedSender(it.id, it.timestamp) },
+            // Only when something isn't known yet: the participants come from reading every thread.
+            onlyOther = { resolver.threadRecipients()[threadId]?.singleOrNull() },
+            newest = newestSenders, stillWanted = stillWanted, ask = { mmsSender(it.id, it.timestamp) },
+        )
         return messages.map { m ->
             if (m.kind != Kind.MMS) return@map m
             val own = parts[m.id].orEmpty()
@@ -689,7 +715,7 @@ class TelephonyMessageRepository(
                 attachments = own.filter { it.contentType != "text/plain" && it.contentType != "application/smil" }.map {
                     Attachment(ContentUris.withAppendedId(Telephony.Mms.Part.CONTENT_URI, it.partId).toString(), it.contentType, it.name)
                 },
-                sender = if (m.outgoing) null else mmsSender(m.id, m.timestamp),
+                sender = if (m.outgoing) null else senders[m.id],
             )
         }.sortedBy { it.timestamp }
     }
@@ -747,6 +773,8 @@ class TelephonyMessageRepository(
      */
     private val mmsSenders = java.util.concurrent.ConcurrentHashMap<String, String>()
 
+    private fun cachedSender(mmsId: Long, date: Long): String? = mmsSenders["$mmsId:$date"]
+
     private fun mmsSender(mmsId: Long, date: Long): String? {
         val key = "$mmsId:$date"
         mmsSenders[key]?.let { return it }
@@ -791,9 +819,33 @@ class TelephonyMessageRepository(
         /** Plenty for every picture message in a long history; a bound, so it can't grow without one. */
         private const val MAX_CACHED_SENDERS = 50_000
 
+        /** Senders asked for before a group chat first shows (see [messages]): its newest, a screen's worth many times over. */
+        private const val FIRST_SENDERS = 60
+
         /** Drafts other SMS apps left in the store aren't messages. */
         /** Endings a bare domain in a text can have; matches MessageText's link finder. */
         private val LINK_TLDS = listOf("com", "net", "org", "io", "co", "me", "us", "app", "dev", "info", "biz", "top", "vip", "xyz", "ly", "gl", "gov", "edu", "shop", "click", "link")
         private const val NOT_SMS_DRAFT = "${Telephony.Sms.TYPE} != ${Telephony.Sms.MESSAGE_TYPE_DRAFT}"
+    }
+}
+
+/**
+ * Who sent each of [received] (MMS), by id: what's [known] already; else, in a conversation with
+ * one other person, them ([onlyOther], asked once and only if needed); else the store is [ask]ed,
+ * for the newest [newest] only and while [stillWanted], the rest left null. Pure, so it's
+ * unit-tested (see TelephonyMessageRepository.queryThread).
+ */
+internal fun mmsSenders(
+    received: List<ChatMessage>,
+    known: (ChatMessage) -> String?,
+    onlyOther: () -> String?,
+    newest: Int,
+    stillWanted: () -> Boolean,
+    ask: (ChatMessage) -> String?,
+): Map<Long, String?> {
+    val cached = received.associate { it.id to known(it) }
+    val only by lazy(onlyOther)
+    return received.sortedByDescending { it.timestamp }.withIndex().associate { (i, m) ->
+        m.id to (cached[m.id] ?: only ?: if (i < newest && stillWanted()) ask(m) else null)
     }
 }
