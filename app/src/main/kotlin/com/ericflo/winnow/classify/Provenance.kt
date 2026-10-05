@@ -107,6 +107,8 @@ object Provenance {
         hasHook: Boolean? = null,
         /** The run whose answer taught the model about this text, when that's not the run that decided it. */
         teachingRun: RunEntity? = null,
+        /** How much one of the service's labels counts now (see WinnowSettings.providerWeight). */
+        providerWeight: Double = Learner.PROVIDER_WEIGHT,
         format: (Long) -> String = { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(it)) },
     ): Explanation {
         val decider = decider(v)
@@ -201,7 +203,10 @@ object Provenance {
                         teachingRun?.id -> "in ${if (teachingRun!!.kind == RunEntity.KIND_REDO) "a redo" else "a backlog run"} on ${format(teachingRun.startedAt)}"
                         else -> "in a backlog run"
                     }
-                    add("${service ?: "The classifier service"}'s answer ($label) taught the on-device model $from, counting for ${pct(Learner.PROVIDER_WEIGHT)} of one of your labels.")
+                    add(
+                        if (providerWeight <= 0) "${service ?: "The classifier service"}'s answer ($label) was kept $from, but teaches the model nothing: you set the weight of its labels to 0."
+                        else "${service ?: "The classifier service"}'s answer ($label) taught the on-device model $from, counting for ${pct(providerWeight)} of one of your labels.",
+                    )
                 }
                 decider == Decider.PROVIDER && v.confidence < Learner.MIN_TEACH_CONFIDENCE ->
                     add("Under ${pct(Learner.MIN_TEACH_CONFIDENCE)} sure, so it didn't teach the on-device model: it would teach a guess.")

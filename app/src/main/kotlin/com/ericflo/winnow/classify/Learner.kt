@@ -184,12 +184,20 @@ class Learner(
         }
     }
 
-    private fun corrections(rows: List<CorrectionEntity>): List<Correction> {
+    private fun corrections(rows: List<CorrectionEntity>, providerWeight: Double): List<Correction> {
         val classes = LocalModel.bundled.classes
         return rows.mapNotNull { e ->
             val label = classes.indexOf(e.label).takeIf { it >= 0 && e.featurizerVersion == Featurizer.VERSION } ?: return@mapNotNull null
-            Correction(e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray(), label, if (e.fromProvider) PROVIDER_WEIGHT else 1.0)
+            // At 0 a service's labels teach nothing: left out rather than fitted at no weight.
+            if (e.fromProvider && providerWeight <= 0) return@mapNotNull null
+            Correction(e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray(), label, if (e.fromProvider) providerWeight else 1.0)
         }
+    }
+
+    /** Fits the model again with the service's labels counting [weight] (see WinnowSettings.providerWeight). */
+    suspend fun useProviderWeight(weight: Double) {
+        settings.update { it.copy(providerWeight = weight.coerceIn(0.0, 1.0)) }
+        retrain()
     }
 
     /**
@@ -257,35 +265,37 @@ class Learner(
 
     private suspend fun retrain(): OnDeviceClassifier = lock.withLock {
         val rows = dao.all()
+        val weight = runCatching { settings.current().providerWeight }.getOrDefault(PROVIDER_WEIGHT)
         withContext(Dispatchers.Default) {
-            val stamp = store?.stamp(rows) ?: PersonalModelStore.stampOf(rows, 0)
+            // The weight is part of what a fit is: a different one is a different fit.
+            val stamp = store?.stamp(rows, weight) ?: PersonalModelStore.stampOf(rows, 0, weight)
             // Nothing taught: the model as it ships, which has no fit to name.
             val fit = if (rows.isEmpty()) null else fitName(stamp)
             // The last fit, if nothing that went into it has changed: no fitting on every start.
             val kept = store?.let { withContext(Dispatchers.IO) { it.load(stamp) } }
             // Loading the model happens here too, off the main thread.
             if (kept != null) {
-                if (fit != null) record(fit, rows, kept.size, millis = 0, onlyIfNew = true)
+                if (fit != null) record(fit, rows, kept.size, millis = 0, onlyIfNew = true, weight = weight)
                 return@withContext base.withAdjustments(kept, fit)
             }
             val started = System.nanoTime()
             // A bad correction must never stop classification: fall back to the bundled model.
-            val fitted = runCatching { base.learn(corrections(rows)) }.getOrNull()?.let { it.withAdjustments(it.adjustments, fit) }
+            val fitted = runCatching { base.learn(corrections(rows, weight)) }.getOrNull()?.let { it.withAdjustments(it.adjustments, fit) }
             if (fitted != null) {
                 withContext(Dispatchers.IO) { store?.save(stamp, fitted.adjustments) }
-                if (fit != null) record(fit, rows, fitted.adjustments.size, millis = (System.nanoTime() - started) / 1_000_000, onlyIfNew = false)
+                if (fit != null) record(fit, rows, fitted.adjustments.size, millis = (System.nanoTime() - started) / 1_000_000, onlyIfNew = false, weight = weight)
             }
             fitted ?: base
         }.also { trained = it }
     }
 
     /** Records a fit for the model's history; a failure to is never a failure to classify. */
-    private suspend fun record(fit: String, rows: List<CorrectionEntity>, buckets: Int, millis: Long, onlyIfNew: Boolean) {
+    private suspend fun record(fit: String, rows: List<CorrectionEntity>, buckets: Int, millis: Long, onlyIfNew: Boolean, weight: Double) {
         val dao = fits ?: return
         runCatching {
             withContext(Dispatchers.IO) {
                 if (onlyIfNew && dao.get(fit) != null) return@withContext
-                dao.upsert(fitRecord(fit, rows, buckets, millis, System.currentTimeMillis()))
+                dao.upsert(fitRecord(fit, rows, buckets, millis, System.currentTimeMillis(), weight))
                 dao.prune(FITS_KEPT)
             }
         }
@@ -311,7 +321,7 @@ class Learner(
         fun fitName(stamp: Long): String = java.lang.Long.toHexString(stamp).padStart(16, '0').takeLast(6)
 
         /** What a fit of [rows] learned from, as its history records it. Pure, so it's unit-tested. */
-        fun fitRecord(fit: String, rows: List<CorrectionEntity>, buckets: Int, millis: Long, at: Long) = com.ericflo.winnow.data.db.ModelFitEntity(
+        fun fitRecord(fit: String, rows: List<CorrectionEntity>, buckets: Int, millis: Long, at: Long, weight: Double = PROVIDER_WEIGHT) = com.ericflo.winnow.data.db.ModelFitEntity(
             fit = fit,
             fittedAt = at,
             // A restored label has lost its message and conversation, but it's still a label.
@@ -321,7 +331,7 @@ class Learner(
             providerLive = rows.count { it.fromProvider && it.runId == null },
             buckets = buckets,
             millis = millis,
-            providerWeight = PROVIDER_WEIGHT,
+            providerWeight = weight,
             epochs = com.ericflo.winnow.classifier.local.Personalizer.EPOCHS,
             l2 = com.ericflo.winnow.classifier.local.Personalizer.L2,
         )

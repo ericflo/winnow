@@ -150,6 +150,10 @@ class RunViewModel(private val container: AppContainer, private val runId: Long)
         }
     }
 
+    /** How much one of the service's labels counts as the model is fitted. */
+    val weight: StateFlow<Double> = container.settings.settings.map { it.providerWeight }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.ericflo.winnow.classify.Learner.PROVIDER_WEIGHT)
+
     private val policy = container.settings.settings.map { it.actionPolicy }
         .stateIn(viewModelScope, SharingStarted.Eagerly, com.ericflo.winnow.classifier.message.ActionPolicy())
 
@@ -275,7 +279,7 @@ fun RunScreen(viewModel: RunViewModel, onBack: () -> Unit, onOpenThread: (Long, 
             }
             item("about") {
                 Note(
-                    "Answers at least 70% sure teach the on-device model, each counting for ${pct(com.ericflo.winnow.classify.Learner.PROVIDER_WEIGHT)} of one of your labels; " +
+                    "Answers at least 70% sure teach the on-device model, each counting for ${pct(viewModel.weight.collectAsStateWithLifecycle().value)} of one of your labels (Winnow's model can change that); " +
                         "a label of yours on the same text replaces it. " +
                         (if (r.examples > 0) "Each question carried ${count(r.examples)} texts you'd labeled, as examples of how you sort. $provider doesn't learn from them: they shape its answers in this run only. " else "") +
                         "Settings can forget everything $provider taught.",

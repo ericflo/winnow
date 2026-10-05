@@ -111,7 +111,7 @@ data class MetricsUiState(
     val agreement: Agreement = Agreement(0, 0, 0, 0),
 )
 
-class MetricsViewModel(container: AppContainer) : ViewModel() {
+class MetricsViewModel(private val container: AppContainer) : ViewModel() {
     /**
      * Recomputed whenever a label is added, changed or taken back, so the charts move as the user
      * labels; a computation still running when the next change comes is dropped for the newer one.
@@ -122,7 +122,7 @@ class MetricsViewModel(container: AppContainer) : ViewModel() {
         .debounce(MINE_SETTLE_MILLIS)
         .mapLatest { rows ->
             val job = kotlinx.coroutines.currentCoroutineContext()
-            computeMine(rows) { !job.isActive }
+            computeMine(rows, container.settings.current().providerWeight) { !job.isActive }
         }
         .flowOn(Dispatchers.Default)
 
@@ -162,7 +162,7 @@ class MetricsViewModel(container: AppContainer) : ViewModel() {
  * corrections, and labels whose message a restore hasn't found yet, go into every refit
  * unscored. Ones made by an older featurizer mean nothing to this model and are left out.
  */
-internal fun computeMine(rows: List<com.ericflo.winnow.data.db.CorrectionEntity>, stopped: () -> Boolean): Mine {
+internal fun computeMine(rows: List<com.ericflo.winnow.data.db.CorrectionEntity>, providerWeight: Double, stopped: () -> Boolean): Mine {
     val model = com.ericflo.winnow.classifier.local.LocalModel.bundled
     val current = rows.filter { it.featurizerVersion == com.ericflo.winnow.classifier.local.Featurizer.VERSION }
     fun buckets(e: com.ericflo.winnow.data.db.CorrectionEntity) = e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray()
@@ -174,7 +174,9 @@ internal fun computeMine(rows: List<com.ericflo.winnow.data.db.CorrectionEntity>
     }
     val others = rest.mapNotNull { e ->
         val label = model.classes.indexOf(e.label).takeIf { it >= 0 } ?: return@mapNotNull null
-        com.ericflo.winnow.classifier.local.Correction(buckets(e), label, if (e.fromProvider) com.ericflo.winnow.classify.Learner.PROVIDER_WEIGHT else 1.0)
+        // As the model is fitted: at 0 the service's labels are left out.
+        if (e.fromProvider && providerWeight <= 0) return@mapNotNull null
+        com.ericflo.winnow.classifier.local.Correction(buckets(e), label, if (e.fromProvider) providerWeight else 1.0)
     }
     val metrics = try {
         com.ericflo.winnow.classifier.local.PersonalEvaluation.metrics(model, labels, others, ActionPolicy().onDeviceMinConfidence, stopped)

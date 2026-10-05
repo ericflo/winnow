@@ -19,7 +19,24 @@ object PersonalEvaluation {
     fun enough(labels: List<Label>): Boolean = labels.size >= MIN_LABELS && labels.map { it.label }.distinct().size >= 2
 
     /** Each label, scored by a model refit without its conversation. Pure and deterministic. */
-    fun crossValidate(base: LocalModel, labels: List<Label>, others: List<Correction> = emptyList(), folds: Int = 5, stopped: () -> Boolean = { false }): List<Scored> {
+    fun crossValidate(base: LocalModel, labels: List<Label>, others: List<Correction> = emptyList(), folds: Int = 5, stopped: () -> Boolean = { false }): List<Scored> =
+        crossValidateIndexed(base, labels, others, folds, stopped = stopped).map { it.second }
+
+    /**
+     * [crossValidate], each score with its label's index in [labels], so it can be traced back to
+     * its text. [weight] is how much a label counts when it trains the others' folds (1 for the
+     * user's own); [epochs] and [l2] are the fit's, so a variant can be scored the same way.
+     */
+    fun crossValidateIndexed(
+        base: LocalModel,
+        labels: List<Label>,
+        others: List<Correction> = emptyList(),
+        folds: Int = 5,
+        epochs: Int = Personalizer.EPOCHS,
+        l2: Double = Personalizer.L2,
+        onFold: (Int, Int) -> Unit = { _, _ -> },
+        stopped: () -> Boolean = { false },
+    ): List<Pair<Int, Scored>> {
         val groups = labels.map { it.group }.distinct().sorted()
         if (groups.size < 2) return emptyList()
         val k = folds.coerceAtMost(groups.size)
@@ -27,12 +44,19 @@ object PersonalEvaluation {
         val foldOf = groups.withIndex().associate { (i, g) -> g to Math.floorMod(LocalModel.fnv1a(g.toString()) + i, k) }
         val temperature = base.temperature.toDouble()
         return (0 until k).flatMap { fold ->
-            val held = labels.filter { foldOf.getValue(it.group) == fold }
+            onFold(fold, k)
+            val held = labels.withIndex().filter { foldOf.getValue(it.value.group) == fold }
             if (held.isEmpty()) return@flatMap emptyList()
             val train = labels.filter { foldOf.getValue(it.group) != fold }.map { Correction(it.buckets, it.label) } + others
-            val adjustments = Personalizer.train(base, train, stopped = stopped)
-            held.map { l -> Scored(l.label, LocalModel.softmax(base.scores(l.buckets, adjustments), temperature)) }
+            val adjustments = Personalizer.train(base, train, epochs = epochs, l2 = l2, stopped = stopped)
+            held.map { (i, l) -> i to Scored(l.label, LocalModel.softmax(base.scores(l.buckets, adjustments), temperature)) }
         }
+    }
+
+    /** Each label scored by a model that already has [adjustments] (the shipped model, with none): no refitting. */
+    fun scoreWith(base: LocalModel, labels: List<Label>, adjustments: Adjustments): List<Scored> {
+        val temperature = base.temperature.toDouble()
+        return labels.map { l -> Scored(l.label, LocalModel.softmax(base.scores(l.buckets, adjustments), temperature)) }
     }
 
     /** The metrics screen's numbers, from [labels]; null when there aren't [enough]. */

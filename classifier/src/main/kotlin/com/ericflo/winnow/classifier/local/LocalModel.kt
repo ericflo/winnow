@@ -38,6 +38,9 @@ class LocalModel(
     fun predict(features: List<String>, adjustments: Adjustments = Adjustments.NONE): DoubleArray =
         softmax(scores(indices(features), adjustments), temperature.toDouble())
 
+    /** Each class's score for these feature buckets, before the softmax (see [predict]). */
+    fun scoresOf(indices: IntArray, adjustments: Adjustments = Adjustments.NONE): DoubleArray = scores(indices, adjustments)
+
     internal fun scores(indices: IntArray, adjustments: Adjustments = Adjustments.NONE): DoubleArray {
         val value = featureValue(indices.size)
         val s = DoubleArray(k) { bias[it].toDouble() }
@@ -156,7 +159,7 @@ class LocalModel(
         /** Binary features, scaled so long messages don't get louder just by being long. */
         internal fun featureValue(count: Int): Double = if (count == 0) 0.0 else 1.0 / sqrt(count.toDouble())
 
-        internal fun softmax(scores: DoubleArray, temperature: Double = 1.0): DoubleArray {
+        fun softmax(scores: DoubleArray, temperature: Double = 1.0): DoubleArray {
             val max = scores.max()
             // StrictMath, so training reproduces bit-for-bit on any JVM.
             val e = DoubleArray(scores.size) { StrictMath.exp((scores[it] - max) / temperature) }

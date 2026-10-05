@@ -107,6 +107,8 @@ data class Overview(
     val provider: String,
     val serviceOn: Boolean,
     val learnLive: Boolean,
+    /** How much one of the service's labels counts against one of the user's, as the model is fitted. */
+    val weight: Double,
     /** Backlog runs, how many carried the user's labels as examples, and their answers on texts asked about again. */
     val runs: Int,
     val runsWithExamples: Int,
@@ -140,6 +142,7 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
                 provider = settings.provider.label.substringBefore(" ("),
                 serviceOn = settings.provider != ProviderKind.ON_DEVICE && container.classifiers.provider(settings) != null,
                 learnLive = settings.learnFromProvider,
+                weight = settings.providerWeight,
                 runs = runs.size,
                 runsWithExamples = runs.count { it.examples > 0 },
                 maxExamples = runs.maxOfOrNull { it.examples } ?: 0,
@@ -155,12 +158,29 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
         .debounce(SETTLE_MILLIS)
         .mapLatest { rows ->
             val job = kotlinx.coroutines.currentCoroutineContext()
-            computeMine(rows) { !job.isActive }
+            computeMine(rows, container.settings.current().providerWeight) { !job.isActive }
         }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val fits: StateFlow<List<ModelFitEntity>?> = container.fitDao.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Scoring models on the user's labels (see the Evaluate tab). */
+    val evals = Evaluations(container, viewModelScope)
+
+    /** Keeps the fit in use now, to score it later against what comes after (see ModelKeeper). */
+    fun keepCurrent() {
+        viewModelScope.launch { container.modelKeeper.keepCurrent() }
+    }
+
+    /** Fits the model with the service's labels at [weight] from now on (see Learner.useProviderWeight). */
+    fun useWeight(weight: Double) {
+        viewModelScope.launch { container.learner.useProviderWeight(weight) }
+    }
+
+    fun forgetKept(fit: String) {
+        viewModelScope.launch { container.modelKeeper.forget(fit) }
+    }
 
     private val _inside = MutableStateFlow<Inside?>(null)
     val inside: StateFlow<Inside?> = _inside.asStateFlow()
@@ -200,7 +220,7 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
     }
 }
 
-private enum class ModelTab(val label: String) { OVERVIEW("Overview"), INSIDE("Inside"), HISTORY("History") }
+private enum class ModelTab(val label: String) { OVERVIEW("Overview"), EVALUATE("Evaluate"), INSIDE("Inside"), HISTORY("History") }
 
 /**
  * Winnow's on-device model, opened up: what it learned from, how it does on the user's own labels,
@@ -209,7 +229,14 @@ private enum class ModelTab(val label: String) { OVERVIEW("Overview"), INSIDE("I
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ModelScreen(viewModel: ModelViewModel, onBack: () -> Unit, onOpenMetrics: () -> Unit, onOpenRuns: () -> Unit, onOpenTrain: () -> Unit) {
+fun ModelScreen(
+    viewModel: ModelViewModel,
+    onBack: () -> Unit,
+    onOpenMetrics: () -> Unit,
+    onOpenRuns: () -> Unit,
+    onOpenTrain: () -> Unit,
+    onOpenThread: (Long, List<String>) -> Unit = { _, _ -> },
+) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     Scaffold(
         topBar = {
@@ -231,6 +258,7 @@ fun ModelScreen(viewModel: ModelViewModel, onBack: () -> Unit, onOpenMetrics: ()
         ) {
             when (ModelTab.entries[tab]) {
                 ModelTab.OVERVIEW -> overview(viewModel, onOpenMetrics, onOpenRuns, onOpenTrain)
+                ModelTab.EVALUATE -> evaluate(viewModel, onOpenThread)
                 ModelTab.INSIDE -> inside(viewModel)
                 ModelTab.HISTORY -> history(viewModel)
             }
@@ -437,7 +465,10 @@ private fun LabelsAndServiceCard(o: Overview, onOpenRuns: () -> Unit) {
 }
 
 private fun LazyListScope.inside(viewModel: ModelViewModel) {
-    item("built") { BuiltCard() }
+    item("built") {
+        val o by viewModel.overview.collectAsStateWithLifecycle()
+        BuiltCard(o?.weight ?: Learner.PROVIDER_WEIGHT)
+    }
     item("learned") {
         androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.loadInside() }
         val inside by viewModel.inside.collectAsStateWithLifecycle()
@@ -447,7 +478,7 @@ private fun LazyListScope.inside(viewModel: ModelViewModel) {
 }
 
 @Composable
-private fun BuiltCard() {
+private fun BuiltCard(weight: Double) {
     val model = LocalModel.bundled
     val shipped = runCatching { ClassifierMetrics.bundled }.getOrNull()
     val policy = ActionPolicy()
@@ -470,7 +501,8 @@ private fun BuiltCard() {
             "a layer on top",
             "Your labels and the service's answers don't change those weights: they fit a sparse layer of adjustments, only for buckets that taught texts had, added to the shipped weights. " +
                 "Fitted from scratch on every label: ${Personalizer.EPOCHS} passes, step ${Personalizer.LEARNING_RATE} with AdaGrad, a pull of ${Personalizer.L2} toward changing nothing, so texts unlike what you taught barely move. " +
-                "Your labels are pulled all the way to their category; a service's answer only to ${pct(Personalizer.LIGHT_FLOOR + (1 - Personalizer.LIGHT_FLOOR) * Learner.PROVIDER_WEIGHT)}, so yours win.",
+                if (weight <= 0) "Your labels are pulled all the way to their category; a service's labels are left out (you set their weight to 0)."
+                else "Your labels are pulled all the way to their category; a service's answer, counting ${pct(weight)}, only to ${pct(Personalizer.LIGHT_FLOOR + (1 - Personalizer.LIGHT_FLOOR) * weight.coerceAtMost(1.0))}, so yours win.",
         )
         Fact("When it acts alone", ">= ${pct(policy.onDeviceMinConfidence)}", "It filters a text only when it's at least this sure (a service, ${pct(policy.minConfidence)}), and never a spam text with nothing to hook you with. With “decide on this phone when sure” on, it skips the service at 95%.")
         Fact("Fit kept", "between runs", "The last fit is saved, named by what it learned from, and used again until something it learned from changes.")
@@ -554,7 +586,14 @@ private fun signed(x: Double) = (if (x >= 0) "+" else "") + String.format(java.u
 
 private fun LazyListScope.history(viewModel: ModelViewModel) {
     item("about") {
-        Note("Every fit of the on-device model, newest first: what it learned from, and how long fitting took. Each verdict it made names its fit, so any decision can be traced to what taught the model then.")
+        Note(
+            "Every fit of the on-device model, newest first: what it learned from, and how long fitting took. Each verdict it made names its fit, so any decision can be traced to what taught the model then. " +
+                "A kept fit's learned layer is saved, so it can be scored on the labels you make after it (Evaluate). One is kept after every Train round and every backlog run.",
+        )
+    }
+    item("keep") {
+        val o by viewModel.overview.collectAsStateWithLifecycle()
+        if (o?.fit?.kept == false) OutlinedButtonRow("Keep the model as it is now", viewModel::keepCurrent)
     }
     item("fits") {
         val fits by viewModel.fits.collectAsStateWithLifecycle()
@@ -570,7 +609,7 @@ private fun LazyListScope.history(viewModel: ModelViewModel) {
                     Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(14.dp)) {
                             Row {
-                                Text("fit ${f.fit}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                                Text((f.name ?: "fit ${f.fit}") + if (f.kept) " · kept" else "", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                                 Text(format.format(Date(f.fittedAt)), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Text(
@@ -584,10 +623,16 @@ private fun LazyListScope.history(viewModel: ModelViewModel) {
                                 ).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall,
                             )
+                            if (f.kept) TextButton(onClick = { viewModel.forgetKept(f.fit) }, contentPadding = PaddingValues(0.dp)) { Text("Let it go") }
                         }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun OutlinedButtonRow(label: String, onClick: () -> Unit) {
+    androidx.compose.material3.OutlinedButton(onClick = onClick) { Text(label) }
 }

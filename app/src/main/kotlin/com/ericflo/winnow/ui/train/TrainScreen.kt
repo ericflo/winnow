@@ -352,7 +352,11 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
             )
             // Behind the summary: a refit of every label takes a moment on a phone. The next round
             // waits for it (see nextRound), so it's guessed by what this one taught.
-            if (labels.isNotEmpty()) refit = container.appScope.launch { container.learner.reload() }
+            if (labels.isNotEmpty()) refit = container.appScope.launch {
+                container.learner.reload()
+                // The model each round leaves is kept, so its progress can be scored round by round.
+                runCatching { container.modelKeeper.keepCurrent() }
+            }
         }
     }
 

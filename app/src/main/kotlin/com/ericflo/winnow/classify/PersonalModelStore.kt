@@ -37,8 +37,8 @@ class PersonalModelStore(private val file: File, private val install: Long) {
         }.onFailure { partial.delete() }
     }
 
-    /** The stamp for a fit of [rows] by this install (see [stampOf]). */
-    fun stamp(rows: List<CorrectionEntity>): Long = stampOf(rows, install)
+    /** The stamp for a fit of [rows] by this install, the service's labels at [providerWeight] (see [stampOf]). */
+    fun stamp(rows: List<CorrectionEntity>, providerWeight: Double = Learner.PROVIDER_WEIGHT): Long = stampOf(rows, install, providerWeight)
 
     companion object {
         private const val MAGIC = 0x574e504d // "WNPM"
@@ -48,7 +48,7 @@ class PersonalModelStore(private val file: File, private val install: Long) {
          * nothing that goes into a fit has changed, in whatever order the rows come. FNV-1a.
          * Pure, so it's unit-tested.
          */
-        fun stampOf(rows: List<CorrectionEntity>, install: Long): Long {
+        fun stampOf(rows: List<CorrectionEntity>, install: Long, providerWeight: Double = Learner.PROVIDER_WEIGHT): Long {
             var h = -0x340d631b7bdddcdbL
             fun mix(s: String) {
                 for (ch in s) {
@@ -64,6 +64,8 @@ class PersonalModelStore(private val file: File, private val install: Long) {
                 mix(r.buckets)
             }
             mix(install.toString())
+            // The usual weight leaves the stamp as it was before the weight could change.
+            if (providerWeight != Learner.PROVIDER_WEIGHT) mix("w$providerWeight")
             return h
         }
     }

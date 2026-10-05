@@ -7,6 +7,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -112,6 +113,12 @@ data class WinnowSettings(
      * as a backlog run does: so it goes on learning while the service decides. On by default.
      */
     val learnFromProvider: Boolean = true,
+    /**
+     * How much one of the classifier service's labels counts against one of the user's (1), as
+     * the on-device model is fitted: 0 leaves them out, 1 counts them the same. The user can try
+     * others and pick one in Winnow's model (see Evaluator).
+     */
+    val providerWeight: Double = com.ericflo.winnow.classify.Learner.PROVIDER_WEIGHT,
     /** Ask for a fingerprint, face or the screen lock to open Winnow. */
     val appLock: Boolean = false,
     /** Delete one-time codes from services a day after they arrive. Off unless the user turns it on. */
@@ -220,6 +227,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             zdrOnly = this[ZDR_ONLY] ?: false,
             decideOnPhoneWhenSure = this[DECIDE_ON_PHONE] ?: false,
             learnFromProvider = this[LEARN_FROM_PROVIDER] ?: true,
+            providerWeight = (this[PROVIDER_WEIGHT] ?: com.ericflo.winnow.classify.Learner.PROVIDER_WEIGHT).coerceIn(0.0, 1.0),
             appLock = this[APP_LOCK] ?: false,
             hideOnLockScreen = this[HIDE_ON_LOCK_SCREEN] ?: false,
             undoSendSeconds = this[UNDO_SEND_SECONDS] ?: 0,
@@ -276,6 +284,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[ZDR_ONLY] = s.zdrOnly
         this[DECIDE_ON_PHONE] = s.decideOnPhoneWhenSure
         this[LEARN_FROM_PROVIDER] = s.learnFromProvider
+        this[PROVIDER_WEIGHT] = s.providerWeight
         this[APP_LOCK] = s.appLock
         this[HIDE_ON_LOCK_SCREEN] = s.hideOnLockScreen
         this[UNDO_SEND_SECONDS] = s.undoSendSeconds
@@ -319,6 +328,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val ZDR_ONLY = booleanPreferencesKey("privacy.zdr_only")
         val DECIDE_ON_PHONE = booleanPreferencesKey("privacy.decide_on_phone_when_sure")
         val LEARN_FROM_PROVIDER = booleanPreferencesKey("model.learn_from_provider")
+        val PROVIDER_WEIGHT = doublePreferencesKey("model.provider_weight")
         val APP_LOCK = booleanPreferencesKey("security.app_lock")
         val HIDE_ON_LOCK_SCREEN = booleanPreferencesKey("security.hide_on_lock_screen")
         val UNDO_SEND_SECONDS = intPreferencesKey("compose.undo_send_seconds")

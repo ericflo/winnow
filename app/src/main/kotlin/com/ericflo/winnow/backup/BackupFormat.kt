@@ -57,6 +57,8 @@ data class SettingsBackup(
     val decideOnPhoneWhenSure: Boolean = false,
     /** Null in backups made before the model learned from a service's answers as texts arrived: the phone keeps its own. */
     val learnFromProvider: Boolean? = null,
+    /** Null in backups made before it could be chosen: the phone keeps its own. */
+    val providerWeight: Double? = null,
     val hideOnLockScreen: Boolean = false,
     val undoSendSeconds: Int = 0,
     val deleteOldCodes: Boolean = false,

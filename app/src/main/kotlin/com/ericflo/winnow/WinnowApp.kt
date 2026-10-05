@@ -161,6 +161,10 @@ class AppContainer(private val context: Context) {
     val fitDao by lazy { database.fits() }
     /** Evaluations the user ran (see EvalEntity). */
     val evalDao by lazy { database.evals() }
+    /** Fits of the on-device model kept to score and compare later (see ModelKeeper). */
+    val modelKeeper by lazy {
+        com.ericflo.winnow.classify.ModelKeeper(learner, fitDao, com.ericflo.winnow.classify.ModelSnapshots(java.io.File(context.filesDir, "model-fits")))
+    }
     /** Why a text went where it did (see Provenance). */
     val provenance by lazy {
         com.ericflo.winnow.classify.ProvenanceSource(verdictDao, correctionDao, runDao, fitDao, settings, com.ericflo.winnow.data.MessageTexts(context))
@@ -288,7 +292,11 @@ class AppContainer(private val context: Context) {
     val bootstrap by lazy {
         com.ericflo.winnow.classify.Bootstrap(
             context, appScope, messages, verdictDao, correctionDao, learner, contacts, settings, classifiers, runDao,
-            onFinished = { historyReviewer.refresh() },
+            onFinished = {
+                historyReviewer.refresh()
+                // The model a backlog run leaves is kept, to compare with what comes after.
+                appScope.launch { runCatching { modelKeeper.keepCurrent() } }
+            },
         )
     }
     // Scheduled texts only ever go out through the real store, once Winnow is the SMS app.

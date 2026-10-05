@@ -346,6 +346,7 @@ fun WinnowNavHost(
                 onOpenMetrics = { nav.navigate(MetricsRoute) },
                 onOpenRuns = { nav.navigate(RunsRoute) },
                 onOpenTrain = { nav.navigate(TrainRoute) },
+                onOpenThread = openThread,
             )
         }
         composable<RunsRoute> {

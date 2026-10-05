@@ -37,7 +37,7 @@ class ProvenanceSource(
         Explained(
             key,
             text?.body,
-            Provenance.explain(v, taught, run, fit, current.actionPolicy, ProviderKind::labelFor, current.learnFromProvider, hook, teachingRun),
+            Provenance.explain(v, taught, run, fit, current.actionPolicy, ProviderKind::labelFor, current.learnFromProvider, hook, teachingRun, current.providerWeight),
         )
     }
 }
