@@ -71,11 +71,24 @@ class Training(
     )
 
     /**
+     * A round being answered, kept until it's finished so that Winnow being closed, or killed in
+     * the background while the user looks something up, doesn't lose their answers. Each answer
+     * is kept with the guess it was given against, since guesses move as the model learns.
+     */
+    @Serializable
+    data class Progress(val threadIds: List<Long>, val answers: List<Answer>) {
+        /** [answer] is a category key, or null for "Not sure". */
+        @Serializable
+        data class Answer(val threadId: Long, val guess: String, val answer: String?)
+    }
+
+    /**
      * The next round: up to [size] unlabeled conversations, guessed by the model as it is now.
      * Mostly the ones it's least sure of (they teach it most), with a few at random so the ones
-     * it's confidently wrong about come up too.
+     * it's confidently wrong about come up too. With [only], those conversations in that order
+     * (a round being picked up again), less any that no longer wait to be labeled.
      */
-    suspend fun nextRound(size: Int = ROUND_SIZE, seed: Long = System.currentTimeMillis()): Round = withContext(Dispatchers.IO) {
+    suspend fun nextRound(size: Int = ROUND_SIZE, seed: Long = System.currentTimeMillis(), only: List<Long>? = null): Round = withContext(Dispatchers.IO) {
         val judged = verdicts.judgedThreads().toSet()
         val all = repo.conversations().first()
         // The user's labels from before the six categories, by conversation: the newest one's category.
@@ -91,7 +104,7 @@ class Training(
             .groupBy { it.threadId!! }.mapValues { (_, rows) -> Category.fromKey(rows.maxBy { r -> r.messageKey?.substringAfter(':')?.toLongOrNull() ?: 0 }.label) }
         // A first, cheap guess from each conversation's latest text, to choose the batch. Where the
         // service and the model disagree comes first: that's where the user's answer counts most.
-        val guessed = backlog.map { c ->
+        val guessed = if (only != null) emptyList() else backlog.map { c ->
             val p = classifier.classify(InboundMessage(sender = c.address, body = c.snippet.removePrefix("You: ")))
             val disagree = provider[c.threadId]?.let { it != p.category } == true
             val reminderLikely = provider[c.threadId] == Category.REMINDER || (p.distribution[Category.REMINDER] ?: 0.0) >= REMINDER_LIKELY
@@ -100,7 +113,7 @@ class Training(
         val byId = backlog.associateBy { it.threadId }
         val candidates = mutableListOf<Candidate>()
         // In the order they'd be picked, skipping any with nothing received to label, until the round is full.
-        for (threadId in rank(guessed, size, Random(seed))) {
+        for (threadId in only?.filter { it in byId } ?: rank(guessed, size, Random(seed))) {
             if (candidates.size >= size) break
             val c = byId.getValue(threadId)
             val messages = repo.messagesNow(threadId)
@@ -157,6 +170,19 @@ class Training(
         prefs.getString(KEY_ROUNDS, null)?.let { runCatching { json.decodeFromString(ListSerializer(RoundResult.serializer()), it) }.getOrNull() }.orEmpty()
     }
 
+    /** The round being answered, if there is one with answers (see [Progress]). */
+    suspend fun progress(): Progress? = withContext(Dispatchers.IO) {
+        prefs.getString(KEY_PROGRESS, null)?.let { runCatching { json.decodeFromString(Progress.serializer(), it) }.getOrNull() }
+    }
+
+    /** Keeps the round being answered; null once it's finished or has no answers left. */
+    fun saveProgress(progress: Progress?) {
+        prefs.edit().apply {
+            if (progress == null || progress.answers.isEmpty()) remove(KEY_PROGRESS)
+            else putString(KEY_PROGRESS, json.encodeToString(Progress.serializer(), progress))
+        }.apply()
+    }
+
     suspend fun record(result: RoundResult) = withContext(Dispatchers.IO) {
         val rounds = (history() + result).takeLast(MAX_ROUNDS_KEPT)
         prefs.edit().putString(KEY_ROUNDS, json.encodeToString(ListSerializer(RoundResult.serializer()), rounds)).apply()
@@ -181,6 +207,7 @@ class Training(
             else -> confidence
         }
         private const val KEY_ROUNDS = "rounds"
+        private const val KEY_PROGRESS = "round_in_progress"
         private const val MAX_ROUNDS_KEPT = 200
 
         /**

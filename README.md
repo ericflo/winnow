@@ -66,7 +66,8 @@ ones it's least sure of. You tap ✓ when it's right, "All right" for a whole gr
 to fix it (tap the text to read all of it, and the earlier texts the label covers). Its other
 guesses update as you answer, so fixing one text moves its lookalikes in the round with it.
 Finishing the round labels what you answered and retrains; the summary lists where it was
-wrong. Swipe a conversation left (in the inbox, Filtered or Archived) to label it from
+wrong. A round left half-answered is kept as it is, even if Winnow is closed or Android ends it
+in the background, and comes back next time with your answers. Swipe a conversation left (in the inbox, Filtered or Archived) to label it from
 anywhere. Labels you gave before the move to six categories wait in Train to be confirmed or
 changed, first in every round and with what you said before ("You said Marketing before");
 political labels stand as they were, and phishing and scam labels became spam on their own.

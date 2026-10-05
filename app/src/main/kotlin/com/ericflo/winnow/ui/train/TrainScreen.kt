@@ -185,19 +185,29 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
         val JEV = setOf(com.ericflo.winnow.data.ProviderKind.TYPESAFE_JEV, com.ericflo.winnow.data.ProviderKind.OPENROUTER_JEV)
     }
 
+    /** The round to answer: the one already being answered, if Winnow was closed mid-round, else a new one. */
     fun nextRound() {
         _state.value = TrainState.Loading
         viewModelScope.launch {
-            val round = training.nextRound()
             val number = training.history().size + 1
-            _state.value = if (round.candidates.isEmpty()) TrainState.Done(round.labeled) else TrainState.Reviewing(round, number)
+            val resumed = training.progress()?.let { saved ->
+                resume(training.nextRound(only = saved.threadIds), saved).takeIf { (_, decisions) -> decisions.isNotEmpty() }
+            }
+            val round = resumed?.first ?: training.nextRound()
+            _state.value = if (round.candidates.isEmpty()) TrainState.Done(round.labeled) else TrainState.Reviewing(round, number, resumed?.second.orEmpty())
+            // The guesses not answered yet follow the answers, as they did before.
+            if (resumed != null) reguess()
         }
     }
 
     private fun reviewing(change: (TrainState.Reviewing) -> TrainState.Reviewing) {
         val before = (_state.value as? TrainState.Reviewing)?.decisions
         _state.update { (it as? TrainState.Reviewing)?.let(change) ?: it }
-        if ((_state.value as? TrainState.Reviewing)?.decisions != before) reguess()
+        val now = _state.value as? TrainState.Reviewing ?: return
+        if (now.decisions != before) {
+            training.saveProgress(progressOf(now))
+            reguess()
+        }
     }
 
     private var reguessing: Job? = null
@@ -288,6 +298,8 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
                 TrainState.Outcome(c.name, c.text, c.guess, answer)
             }
             if (labels.isNotEmpty()) training.record(result)
+            // Only now: had the save been cut short, the round would come back with what's left.
+            training.saveProgress(null)
             _state.value = TrainState.Finished(
                 result,
                 outcomes,
@@ -298,6 +310,46 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
             )
         }
     }
+}
+
+/** What to keep of a round being answered (see [Training.Progress]). */
+internal fun progressOf(r: TrainState.Reviewing): Training.Progress {
+    val byId = r.round.candidates.associateBy { it.threadId }
+    return Training.Progress(
+        r.round.candidates.map { it.threadId },
+        r.decisions.mapNotNull { (threadId, d) ->
+            val c = byId[threadId] ?: return@mapNotNull null
+            val answer = when (d) {
+                Decision.Right -> c.guess.key
+                is Decision.Is -> d.category.key
+                Decision.Skip -> null
+            }
+            Training.Progress.Answer(threadId, c.guess.key, answer)
+        },
+    )
+}
+
+/**
+ * A kept round's answers put back on [round], rebuilt from the same conversations: each answered
+ * one shows the guess it was answered against again, so a ✓ stays a ✓ of the same category.
+ * Conversations no longer in the round (labeled elsewhere since) lose their answers. Pure, so
+ * it's unit-tested.
+ */
+internal fun resume(round: Training.Round, saved: Training.Progress): Pair<Training.Round, Map<Long, Decision>> {
+    val answers = saved.answers.associateBy { it.threadId }
+    val decisions = HashMap<Long, Decision>()
+    val candidates = round.candidates.map { c ->
+        val a = answers[c.threadId] ?: return@map c
+        val guess = Category.fromCurrentKey(a.guess) ?: return@map c
+        val answer = a.answer?.let { Category.fromCurrentKey(it) ?: return@map c }
+        decisions[c.threadId] = when (answer) {
+            null -> Decision.Skip
+            guess -> Decision.Right
+            else -> Decision.Is(answer)
+        }
+        c.copy(guess = guess)
+    }
+    return round.copy(candidates = candidates) to decisions
 }
 
 /**
