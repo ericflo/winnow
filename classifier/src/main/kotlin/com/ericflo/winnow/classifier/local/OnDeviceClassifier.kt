@@ -24,7 +24,15 @@ class OnDeviceClassifier(
     /** What the user's corrections taught it, on top of [model]. */
     val adjustments: Adjustments = Adjustments.NONE,
     val name: String = MODEL_NAME,
+    /**
+     * Which fit of [adjustments] this is (see Learner, which names each by what it was taught),
+     * or null for the model as it ships. Recorded with every opinion it gives, so a verdict
+     * says which model made it.
+     */
+    val fit: String? = null,
 ) {
+    /** The model and its fit, as verdicts record it: "winnow-local-1" as it ships, "winnow-local-1·3fa2c1" once taught. */
+    val version: String get() = if (fit == null) name else "$name·$fit"
 
     fun classify(message: InboundMessage): LocalPrediction {
         val features = features(message)
@@ -35,13 +43,13 @@ class OnDeviceClassifier(
             confidence = p[best],
             distribution = model.classes.withIndex().mapNotNull { (i, key) -> Category.fromKey(key)?.let { it to p[i] } }.toMap(),
             reasons = model.explain(features, best, adjustments = adjustments),
-            model = name,
+            model = version,
             hasHook = Featurizer.hasHook(features),
         )
     }
 
-    /** This classifier with different learned adjustments. */
-    fun withAdjustments(adjustments: Adjustments) = OnDeviceClassifier(model, adjustments, name)
+    /** This classifier with different learned adjustments, the fit named [fit]. */
+    fun withAdjustments(adjustments: Adjustments, fit: String? = this.fit) = OnDeviceClassifier(model, adjustments, name, fit)
 
     /**
      * What to remember when the user corrects [message]: its feature buckets, labeled with the

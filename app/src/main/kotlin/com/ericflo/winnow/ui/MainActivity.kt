@@ -194,6 +194,7 @@ class MainActivity : ComponentActivity() {
             ACTION_NEW_CHAT -> pendingRoute.value = NewChatRoute()
             ACTION_OPEN_FILTERED -> pendingRoute.value = FilteredRoute
             ACTION_OPEN_TRAIN -> pendingRoute.value = TrainRoute
+            ACTION_OPEN_RUN -> pendingRoute.value = intent.getLongExtra(EXTRA_RUN_ID, 0L).takeIf { it != 0L }?.let(::RunRoute) ?: TrainRoute
             ACTION_FORWARD -> container.forwards.remove(intent.getStringExtra(EXTRA_TOKEN) ?: return)?.let { (text, attachments) ->
                 pendingRoute.value = NewChatRoute(draft = text, attachments = attachments)
             }
@@ -251,6 +252,9 @@ class MainActivity : ComponentActivity() {
         const val ACTION_OPEN_FILTERED = "com.ericflo.winnow.OPEN_FILTERED"
         /** The backlog-labeling notification (see BootstrapService). */
         const val ACTION_OPEN_TRAIN = "com.ericflo.winnow.OPEN_TRAIN"
+        /** A backlog run's notification: its results (see RunScreen), under [EXTRA_RUN_ID]. */
+        const val ACTION_OPEN_RUN = "com.ericflo.winnow.OPEN_RUN"
+        const val EXTRA_RUN_ID = "run_id"
         /** A forward from a chat bubble; its text and files wait in [AppContainer.forwards] under [EXTRA_TOKEN]. */
         const val ACTION_FORWARD = "com.ericflo.winnow.FORWARD"
         const val EXTRA_TOKEN = "token"

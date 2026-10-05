@@ -28,8 +28,9 @@ import kotlinx.coroutines.flow.Flow
     entities = [
         VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class, ScheduledMessageEntity::class,
         CorrectionEntity::class, StarredEntity::class, ReminderEntity::class,
+        RunEntity::class, RunAnswerEntity::class, ModelFitEntity::class, EvalEntity::class, EvalItemEntity::class,
     ],
-    version = 17,
+    version = 18,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
@@ -44,6 +45,9 @@ import kotlinx.coroutines.flow.Flow
         // 16 to 17: six categories. Phishing and scam fold into spam; labels the user gave before
         // (but political ones, which stand) are marked to recheck; a provider's fine-grained answer.
         AutoMigration(from = 16, to = 17, spec = WinnowDatabase.SixCategories::class),
+        // 17 to 18: what decided each text and what the on-device model thought of it; backlog runs
+        // and each answer in them; every fit of the on-device model; evaluations and their items.
+        AutoMigration(from = 17, to = 18, spec = WinnowDatabase.RunsKept::class),
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
@@ -95,7 +99,21 @@ abstract class WinnowDatabase : RoomDatabase() {
         }
     }
 
+    /**
+     * 17 to 18: runs are kept from now on. A classifier service's labels from before came from a
+     * backlog run that wasn't, so they're marked as such (0), and never taken for ones learned as
+     * texts arrived (null), which didn't happen before.
+     */
+    class RunsKept : AutoMigrationSpec {
+        override fun onPostMigrate(connection: SQLiteConnection) {
+            connection.execSQL("UPDATE corrections SET runId = 0 WHERE source = 'provider'")
+        }
+    }
+
     abstract fun verdicts(): VerdictDao
+    abstract fun runs(): RunDao
+    abstract fun fits(): ModelFitDao
+    abstract fun evals(): EvalDao
     abstract fun conversationStates(): ConversationStateDao
     abstract fun scheduled(): ScheduledMessageDao
     abstract fun corrections(): CorrectionDao
@@ -205,6 +223,11 @@ data class CorrectionEntity(
      * message, and are the only ones the accuracy screen scores.
      */
     @ColumnInfo(defaultValue = SOURCE_USER) val source: String = SOURCE_USER,
+    /**
+     * For a classifier service's label: the backlog run that gave it ([RunEntity.id]; 0 for one
+     * from before runs were kept), or null when it was learned from a text as it arrived.
+     */
+    val runId: Long? = null,
 ) {
     val fromProvider: Boolean get() = source == SOURCE_PROVIDER
 
@@ -378,6 +401,26 @@ data class VerdictEntity(
     @ColumnInfo(defaultValue = "0") val recheck: Boolean = false,
     /** A provider's fine-grained answer ([com.ericflo.winnow.classifier.message.Subcategories]), when it gave one. */
     val subcategory: String? = null,
+    /**
+     * What the on-device model thought of the text when it was decided, whoever decided: a
+     * [Category] key and how sure. Null where a rule decided before any model was asked.
+     */
+    val localCategory: String? = null,
+    val localConfidence: Double? = null,
+    /** Which on-device model that was, and which fit of it (see OnDeviceClassifier.version). */
+    val localModel: String? = null,
+    /**
+     * Why the classifier service didn't decide, when the on-device model did instead of it: it
+     * timed out, failed, wasn't allowed by the privacy settings, or the model was sure enough
+     * ([com.ericflo.winnow.classifier.message.VerdictSource.OnDevice.SURE]). Null otherwise.
+     */
+    val fallbackReason: String? = null,
+    /** How long the classifier service took to answer, when it decided. */
+    val latencyMillis: Long? = null,
+    /** The run that decided it ([RunEntity.id]): a backlog run's or a review's. Null as texts arrive. */
+    val runId: Long? = null,
+    /** The user's labeled texts sent with the question as examples (a backlog run's); 0 when none were. */
+    @ColumnInfo(defaultValue = "0") val promptExamples: Int = 0,
 ) {
     fun toStored(providerNames: (String) -> String) = StoredVerdict(
         // The user's label wins: every badge, chip and list then follows it.
@@ -402,6 +445,11 @@ data class VerdictEntity(
                 is VerdictSource.Heuristic -> Triple("heuristic", s.reason, null)
                 is VerdictSource.OnDevice -> Triple("local", s.reasons.joinToString(", "), s.model)
             }
+            val fallback = when (val s = verdict.source) {
+                is VerdictSource.OnDevice -> s.fallbackReason
+                is VerdictSource.Heuristic -> s.reason
+                else -> null
+            }
             return VerdictEntity(
                 messageKey = messageKey,
                 threadId = threadId,
@@ -415,8 +463,19 @@ data class VerdictEntity(
                 costUsd = verdict.costUsd,
                 decidedAt = now,
                 subcategory = verdict.subcategory,
+                localCategory = verdict.onDevice?.category?.key,
+                localConfidence = verdict.onDevice?.confidence,
+                localModel = verdict.onDevice?.model,
+                fallbackReason = fallback,
+                latencyMillis = verdict.latencyMillis,
+                promptExamples = verdict.promptExamples,
             )
         }
+
+        const val KIND_RULE = "rule"
+        const val KIND_PROVIDER = "provider"
+        const val KIND_LOCAL = "local"
+        const val KIND_HEURISTIC = "heuristic"
     }
 }
 

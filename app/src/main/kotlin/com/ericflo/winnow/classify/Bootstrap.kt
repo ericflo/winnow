@@ -37,16 +37,20 @@ import kotlinx.coroutines.withContext
 sealed interface BootstrapStatus {
     data object Idle : BootstrapStatus
 
-    /** [pausedFor] is set while the run waits out [trouble] (rate limiting, no connection) before retrying. */
+    /**
+     * [pausedFor] is set while the run waits out [trouble] (rate limiting, no connection) before
+     * retrying. [runId] is its record (see RunEntity), which outlives Winnow being closed.
+     */
     data class Running(
         val done: Int,
         val total: Int,
         val tally: Bootstrap.Tally,
         val pausedFor: Long? = null,
         val trouble: Pacer.Trouble? = null,
+        val runId: Long = 0,
     ) : BootstrapStatus
 
-    data class Finished(val total: Int, val tally: Bootstrap.Tally, val stopped: Boolean, val error: String? = null) : BootstrapStatus
+    data class Finished(val total: Int, val tally: Bootstrap.Tally, val stopped: Boolean, val error: String? = null, val runId: Long = 0) : BootstrapStatus
 }
 
 /**
@@ -72,6 +76,8 @@ class Bootstrap(
     private val contacts: ContactLookup,
     private val settings: SettingsRepository,
     private val classifiers: ClassifierFactory,
+    /** Where each run and its answers are kept (see RunEntity). */
+    private val runs: com.ericflo.winnow.data.db.RunDao,
     /** Told when a run ends, so counts elsewhere (older conversations to review) catch up. */
     private val onFinished: () -> Unit = {},
 ) {
@@ -118,6 +124,9 @@ class Bootstrap(
     /** The texts of the last plan shown, which a run started from it sends (checked again as it goes). */
     @Volatile private var planned: List<Text>? = null
 
+    /** The last plan shown was a redo (see [plan]). */
+    @Volatile private var plannedRedo = false
+
     /** Texts the service has answered, sure or not: never sent again. */
     private val prefs by lazy { context.getSharedPreferences("bootstrap", Context.MODE_PRIVATE) }
 
@@ -147,6 +156,7 @@ class Bootstrap(
         val current = settings.current()
         val texts = candidates(current, redo)
         planned = texts
+        plannedRedo = redo
         val examples = examples(current)
         return Plan(
             texts.map { it.threadId }.distinct().size, texts.size, current.effectivePrivacy,
@@ -160,15 +170,34 @@ class Bootstrap(
             val first = settings.current()
             if (unavailable(first) != null) return@launch
             val texts = planned ?: candidates(first)
+            val redo = plannedRedo && planned != null
             planned = null
+            plannedRedo = false
             var tally = Tally()
             var done = 0
-            _status.value = BootstrapStatus.Running(0, texts.size, tally)
+            // The user's own labeled texts go with every request, so the service sorts the way they do.
+            val examples = examples(first)
+            val startedAt = System.currentTimeMillis()
+            // Kept from the start: a run Winnow is closed during still shows how far it got.
+            var run = com.ericflo.winnow.data.db.RunEntity(
+                kind = if (redo) com.ericflo.winnow.data.db.RunEntity.KIND_REDO else com.ericflo.winnow.data.db.RunEntity.KIND_BACKLOG,
+                provider = first.provider.label,
+                startedAt = startedAt,
+                updatedAt = startedAt,
+                planned = texts.size,
+                conversations = texts.map { it.threadId }.distinct().size,
+                examples = examples.values.sumOf { it.size },
+            )
+            run = run.copy(id = runCatching { runs.insert(run) }.getOrDefault(0L))
+            val runId = run.id
+            fun running(pausedFor: Long? = null, trouble: Pacer.Trouble? = null) =
+                BootstrapStatus.Running(done, texts.size, tally, pausedFor, trouble, runId)
+            fun finished(stopped: Boolean, error: String? = null, failed: Int = 0) =
+                BootstrapStatus.Finished(texts.size, tally.copy(failed = tally.failed + failed), stopped, error, runId)
+            _status.value = running()
             // What's left to send; texts that failed for a reason waiting can fix go back to its front.
             val queue = ArrayDeque(texts)
             val pacer = Pacer(maxConcurrency = CONCURRENCY)
-            // The user's own labeled texts go with every request, so the service sorts the way they do.
-            val examples = examples(first)
             var batches = 0
             var lastDetail = ""
             try {
@@ -178,7 +207,7 @@ class Bootstrap(
                     // setting, set a sender rule or labeled a conversation since the plan was made.
                     val current = settings.current()
                     unavailable(current)?.let { reason ->
-                        _status.value = BootstrapStatus.Finished(texts.size, tally.copy(failed = tally.failed + batch.size + queue.size), stopped = true, error = reason)
+                        _status.value = finished(stopped = true, error = reason, failed = batch.size + queue.size)
                         return@launch
                     }
                     // The provider decides every text: no deciding on the phone when sure, a generous wait.
@@ -195,6 +224,7 @@ class Bootstrap(
                     val labels = mutableListOf<CorrectionEntity>()
                     val filed = mutableListOf<VerdictEntity>()
                     val answered = mutableListOf<String>()
+                    val answers = mutableListOf<Pair<Text, Verdict>>()
                     val retry = mutableListOf<Text>()
                     val troubles = mutableListOf<Pacer.Trouble>()
                     for ((t, verdict) in results) {
@@ -202,13 +232,15 @@ class Bootstrap(
                         when {
                             answer != null -> {
                                 answered += t.key
+                                answers += t to answer
                                 done++
                                 tally = tally.copy(costUsd = tally.costUsd + answer.costUsd)
-                                val row = label(t, answer)
+                                val row = label(t, answer)?.copy(runId = runId)
                                 tally = if (row != null) tally.copy(labeled = tally.labeled + 1) else tally.copy(unsure = tally.unsure + 1)
                                 row?.let { labels += it }
                                 // Dated by the message: a verdict on an old text mustn't become the conversation's latest.
-                                filed += VerdictEntity.from(t.key, t.threadId, t.sender, answer, t.date).copy(summarized = true)
+                                filed += VerdictEntity.from(t.key, t.threadId, t.sender, answer, t.date).copy(summarized = true, runId = runId)
+                                (answer.source as VerdictSource.Provider).model?.let { if (run.model == null) run = run.copy(model = it) }
                             }
                             verdict?.source is VerdictSource.Rule -> {
                                 tally = tally.copy(kept = tally.kept + 1)
@@ -229,44 +261,100 @@ class Bootstrap(
                             }
                         }
                     }
+                    // Each answer kept beside what the model made of the text before it learned from it.
+                    if (runId != 0L) record(runId, answers, labels.mapNotNullTo(HashSet()) { it.messageKey })
                     save(labels, filed, retrain = ++batches % RETRAIN_EVERY_BATCHES == 0)
                     remember(answered)
                     queue.addAll(0, retry)
-                    _status.value = BootstrapStatus.Running(done, texts.size, tally)
+                    run = progress(run, done, tally)
+                    _status.value = running()
                     when (val next = pacer.after(answered.size, troubles, System.currentTimeMillis())) {
                         Pacer.Next.Go -> Unit
                         is Pacer.Next.Wait -> {
-                            _status.value = BootstrapStatus.Running(done, texts.size, tally, pausedFor = next.millis, trouble = next.trouble)
+                            _status.value = running(pausedFor = next.millis, trouble = next.trouble)
                             kotlinx.coroutines.delay(next.millis)
-                            _status.value = BootstrapStatus.Running(done, texts.size, tally)
+                            _status.value = running()
                         }
                         is Pacer.Next.GiveUp -> {
                             // What wasn't answered is offered again next run.
-                            _status.value = BootstrapStatus.Finished(
-                                texts.size,
-                                tally.copy(failed = tally.failed + queue.size),
-                                stopped = true,
-                                error = failure(current.provider.label, lastDetail),
-                            )
+                            _status.value = finished(stopped = true, error = failure(current.provider.label, lastDetail), failed = queue.size)
                             return@launch
                         }
                     }
                 }
-                _status.value = BootstrapStatus.Finished(texts.size, tally, stopped = false)
+                _status.value = finished(stopped = false)
             } catch (e: CancellationException) {
-                _status.value = BootstrapStatus.Finished(texts.size, tally, stopped = true)
+                _status.value = finished(stopped = true)
                 throw e
             } catch (e: Exception) {
                 android.util.Log.e(TAG, "Bootstrap run failed", e)
-                _status.value = BootstrapStatus.Finished(texts.size, tally, stopped = true, error = "Something went wrong (${e.message ?: e::class.simpleName}). What was learned is kept.")
+                _status.value = finished(stopped = true, error = "Something went wrong (${e.message ?: e::class.simpleName}). What was learned is kept.")
             } finally {
                 // Whatever was learned is in the model, however the run ended.
                 withContext(kotlinx.coroutines.NonCancellable) {
+                    (_status.value as? BootstrapStatus.Finished)?.let { end ->
+                        if (runId != 0L) runCatching {
+                            runs.update(
+                                run.copy(
+                                    done = done, labeled = end.tally.labeled, unsure = end.tally.unsure, kept = end.tally.kept, failed = end.tally.failed,
+                                    costUsd = end.tally.costUsd, updatedAt = System.currentTimeMillis(), finishedAt = System.currentTimeMillis(),
+                                    stopped = end.stopped, error = end.error,
+                                ),
+                            )
+                        }
+                    }
                     runCatching { learner.reload() }
                     onFinished()
                 }
             }
         }
+    }
+
+    /** A run's record brought up to [done] and [tally], saved. */
+    private suspend fun progress(run: com.ericflo.winnow.data.db.RunEntity, done: Int, tally: Tally): com.ericflo.winnow.data.db.RunEntity {
+        val now = run.copy(
+            done = done, labeled = tally.labeled, unsure = tally.unsure, kept = tally.kept, failed = tally.failed,
+            costUsd = tally.costUsd, updatedAt = System.currentTimeMillis(),
+        )
+        if (now.id != 0L) runCatching { runs.update(now) }
+        return now
+    }
+
+    /**
+     * Keeps a batch's [answers] for its run: each beside what the on-device model made of the
+     * text just before (it hasn't learned from this batch yet), and the service's earlier answer
+     * on a redo. A failure to keep them is never a failure of the run.
+     */
+    private suspend fun record(runId: Long, answers: List<Pair<Text, Verdict>>, taught: Set<String>) {
+        if (answers.isEmpty()) return
+        runCatching {
+            val model = learner.classifier()
+            val before = verdicts.forKeys(answers.map { it.first.key })
+                .filter { it.sourceKind == VerdictEntity.KIND_PROVIDER }.associate { it.messageKey to it.category }
+            val now = System.currentTimeMillis()
+            val rows = withContext(Dispatchers.Default) {
+                answers.map { (t, v) ->
+                    val opinion = runCatching { model.classify(t.message()) }.getOrNull()
+                    com.ericflo.winnow.data.db.RunAnswerEntity(
+                        runId = runId,
+                        messageKey = t.key,
+                        threadId = t.threadId,
+                        address = t.sender,
+                        category = v.category!!.key,
+                        subcategory = v.subcategory,
+                        confidence = v.confidence,
+                        taught = t.key in taught,
+                        modelCategory = opinion?.category?.key,
+                        modelConfidence = opinion?.confidence,
+                        previous = before[t.key],
+                        answeredAt = now,
+                        latencyMillis = v.latencyMillis,
+                        repliedTo = t.repliedTo,
+                    )
+                }
+            }
+            runs.insertAnswers(rows)
+        }.onFailure { android.util.Log.w(TAG, "Couldn't keep a run's answers", it) }
     }
 
     fun stop() {

@@ -66,7 +66,10 @@ class MessageClassifier(
 
         // The model is a fallback as much as a first opinion, so a failure here must not stop classification.
         val local = onDevice?.let { runCatching { it.classify(message) }.getOrNull() }
-        if (local != null && decideOnDeviceAbove != null && local.confidence >= decideOnDeviceAbove) return onDeviceVerdict(local, null)
+        if (local != null && decideOnDeviceAbove != null && local.confidence >= decideOnDeviceAbove) {
+            // Only where a provider could have been asked is being sure a reason not to ask it.
+            return onDeviceVerdict(local, VerdictSource.OnDevice.SURE.takeIf { providers.isNotEmpty() && keepOnPhone == null })
+        }
 
         if (keepOnPhone != null && providers.isNotEmpty()) return fallback(message, local, keepOnPhone, contacted = false)
         val eligible = providers.filter { it.descriptor.dataHandling in privacy.allowedDataHandling }
@@ -79,6 +82,7 @@ class MessageClassifier(
         val failures = mutableListOf<String>()
         for (provider in eligible) {
             val id = provider.descriptor.id
+            val asked = System.nanoTime()
             val response = try {
                 withTimeoutOrNull(timeoutMillis) { provider.decide(request) }
             } catch (e: CancellationException) {
@@ -106,6 +110,9 @@ class MessageClassifier(
                 distribution = distribution,
                 costUsd = response.usage.costUsd,
                 providerContacted = true,
+                onDevice = local?.opinion(),
+                latencyMillis = (System.nanoTime() - asked) / 1_000_000,
+                promptExamples = examples.values.sumOf { it.size },
             )
         }
         return fallback(message, local, "Provider unavailable (${failures.joinToString("; ")})", contacted = true)
@@ -120,7 +127,10 @@ class MessageClassifier(
         action = actions.resolve(p.category, p.confidence, Origin.ON_DEVICE, p.hasHook),
         source = VerdictSource.OnDevice(p.model, p.reasons, fallbackReason),
         distribution = p.distribution,
+        onDevice = p.opinion(),
     )
+
+    private fun LocalPrediction.opinion() = ModelOpinion(category, confidence, model)
 
     private fun heuristic(message: InboundMessage, reason: String): Verdict {
         val distribution = HeuristicScorer.score(message)

@@ -53,10 +53,14 @@ class BootstrapService : Service() {
             val provider = runCatching { (application as WinnowApp).container.settings.current().provider.label }.getOrDefault("The service")
             bootstrap.status.collectLatest { status ->
                 when (status) {
-                    is BootstrapStatus.Running -> notify(
+                    is BootstrapStatus.Running -> {
+                        // A new run: the last one's "how it went" is old news.
+                        if (status.done == 0) clearFinished(this@BootstrapService)
+                        notify(
                         NOTIFICATION_RUNNING,
-                        progress(status.done, status.total, status.tally, status.pausedFor?.let { Bootstrap.pauseText(provider, status.trouble, it) }),
-                    )
+                            progress(status.done, status.total, status.tally, status.pausedFor?.let { Bootstrap.pauseText(provider, status.trouble, it) }, status.runId),
+                        )
+                    }
                     is BootstrapStatus.Finished -> {
                         notify(NOTIFICATION_DONE, finished(status))
                         stopSelf()
@@ -88,13 +92,17 @@ class BootstrapService : Service() {
         }
     }
 
-    private fun openTrain(): PendingIntent = PendingIntent.getActivity(
+    /** The run's results (see RunScreen), or Train Winnow if it has no record. */
+    private fun openRun(runId: Long): PendingIntent = PendingIntent.getActivity(
         this, 0,
-        Intent(this, MainActivity::class.java).setAction(MainActivity.ACTION_OPEN_TRAIN).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        Intent(this, MainActivity::class.java)
+            .setAction(if (runId != 0L) MainActivity.ACTION_OPEN_RUN else MainActivity.ACTION_OPEN_TRAIN)
+            .putExtra(MainActivity.EXTRA_RUN_ID, runId)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
-    private fun progress(done: Int, total: Int, tally: Bootstrap.Tally?, paused: String?): Notification {
+    private fun progress(done: Int, total: Int, tally: Bootstrap.Tally?, paused: String?, runId: Long = 0): Notification {
         val stop = PendingIntent.getService(this, 1, Intent(this, BootstrapService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
@@ -104,7 +112,7 @@ class BootstrapService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_PROGRESS)
-            .setContentIntent(openTrain())
+            .setContentIntent(openRun(runId))
             .addAction(Notification.Action.Builder(null, "Stop", stop).build())
             .build()
     }
@@ -117,9 +125,10 @@ class BootstrapService : Service() {
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(if (status.stopped) "Backlog labeling stopped" else "Backlog labeled")
             .setContentText(text)
-            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setStyle(Notification.BigTextStyle().bigText(text + "\nTap to see what it said."))
             .setAutoCancel(true)
-            .setContentIntent(openTrain())
+            // Straight to what it said of each text, which stays in Train Winnow after this is gone.
+            .setContentIntent(openRun(status.runId))
             .build()
     }
 
@@ -135,6 +144,14 @@ class BootstrapService : Service() {
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, BootstrapService::class.java))
+        }
+
+        /**
+         * Takes down the notification saying how a run went, once the user has seen that in
+         * Winnow itself (its results, or its card in Train Winnow), or a new run has started.
+         */
+        fun clearFinished(context: Context) {
+            runCatching { context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_DONE) }
         }
 
         private fun createChannel(context: Context) {

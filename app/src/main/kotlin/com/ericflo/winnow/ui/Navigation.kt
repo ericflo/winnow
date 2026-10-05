@@ -140,6 +140,14 @@ data object TrainRoute
 @Serializable
 data object RecentlyDeletedRoute
 
+/** A backlog run's results (see RunScreen). */
+@Serializable
+data class RunRoute(val runId: Long)
+
+/** Every run (see RunsScreen). */
+@Serializable
+data object RunsRoute
+
 /**
  * [draft] carries a forwarded message into the conversation the user picks; [with] (comma-joined
  * addresses) starts a new group with those people picked, from "Add people".
@@ -312,6 +320,23 @@ fun WinnowNavHost(
                 onBack = dropUnlessResumed { nav.popBackStack() },
                 // The whole conversation, for context; Back returns to the round as it was.
                 onOpenThread = openThread,
+                onOpenRun = { nav.navigate(RunRoute(it)) },
+                onOpenRuns = { nav.navigate(RunsRoute) },
+            )
+        }
+        composable<RunRoute> { entry ->
+            val route = entry.toRoute<RunRoute>()
+            com.ericflo.winnow.ui.runs.RunScreen(
+                viewModel = viewModel { com.ericflo.winnow.ui.runs.RunViewModel(container, route.runId) },
+                onBack = dropUnlessResumed { nav.popBackStack() },
+                onOpenThread = openThread,
+            )
+        }
+        composable<RunsRoute> {
+            com.ericflo.winnow.ui.runs.RunsScreen(
+                viewModel = viewModel { com.ericflo.winnow.ui.runs.RunsViewModel(container) },
+                onBack = dropUnlessResumed { nav.popBackStack() },
+                onOpenRun = { nav.navigate(RunRoute(it)) },
             )
         }
         composable<StarredRoute> {

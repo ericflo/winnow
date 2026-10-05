@@ -212,6 +212,39 @@ class MessageClassifierTest {
     }
 
     @Test
+    fun `every verdict says what the on-device model thought, and why it decided when it did`() = runTest {
+        val provider = FakeProvider { mapOf("friend_chat" to 1.0) }
+        // The provider decided: the model's own opinion is kept beside its answer, with how long the answer took.
+        val asked = MessageClassifier(listOf(provider), onDevice = model).classify(stranger)
+        assertEquals(Category.PERSONAL, asked.category)
+        val opinion = asked.onDevice!!
+        assertEquals(Category.SPAM, opinion.category)
+        assertEquals(model.version, opinion.model)
+        assertTrue(asked.latencyMillis!! >= 0)
+        assertEquals(0, asked.promptExamples)
+        // Sure enough not to ask: said so, where there was a provider to ask.
+        val sure = MessageClassifier(listOf(provider), onDevice = model, decideOnDeviceAbove = 0.0).classify(stranger)
+        assertEquals(VerdictSource.OnDevice.SURE, assertIs<VerdictSource.OnDevice>(sure.source).fallbackReason)
+        assertEquals(sure.category, sure.onDevice!!.category)
+        // With nothing to ask, being sure is no reason: the model is simply the one that decides.
+        val alone = MessageClassifier(emptyList(), onDevice = model, decideOnDeviceAbove = 0.0).classify(stranger)
+        assertNull(assertIs<VerdictSource.OnDevice>(alone.source).fallbackReason)
+        // A rule decides before any model is asked.
+        assertNull(MessageClassifier(listOf(provider), onDevice = model).classify(stranger.copy(senderInContacts = true)).onDevice)
+        // The examples sent with a question are counted.
+        val examples = mapOf(Category.SPAM to listOf("Win a prize now", "Unpaid toll"), Category.PERSONAL to listOf("Dinner at 7?"))
+        assertEquals(3, MessageClassifier(listOf(provider), onDevice = model, examples = examples).classify(stranger).promptExamples)
+    }
+
+    @Test
+    fun `a taught model names its fit in what it decides`() {
+        assertEquals(OnDeviceClassifier.MODEL_NAME, model.version)
+        val taught = model.withAdjustments(model.adjustments, fit = "3fa2c1")
+        assertEquals("${OnDeviceClassifier.MODEL_NAME}·3fa2c1", taught.version)
+        assertEquals(taught.version, taught.classify(stranger).model)
+    }
+
+    @Test
     fun `the on-device model silences spam that has nothing to hook you with`() = runTest {
         val policy = ActionPolicy()
         // Sure, but no link, money or number: silenced, never hidden.

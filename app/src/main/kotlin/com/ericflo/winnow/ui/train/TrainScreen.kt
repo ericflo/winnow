@@ -60,9 +60,12 @@ import com.ericflo.winnow.ui.components.CategoryDot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -136,9 +139,41 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
     private val _offer = MutableStateFlow<BootstrapOffer?>(null)
     val offer: StateFlow<BootstrapOffer?> = _offer.asStateFlow()
 
+    /**
+     * The last run, if it ended without the user seeing how (Winnow closed, or its notification
+     * swiped away): its card shows on this visit, and it counts as seen from then on.
+     */
+    private val _unseen = MutableStateFlow<com.ericflo.winnow.data.db.RunEntity?>(null)
+    val unseen: StateFlow<com.ericflo.winnow.data.db.RunEntity?> = _unseen.asStateFlow()
+
+    /** Whether there are runs to look back at. */
+    val hasRuns: StateFlow<Boolean> = container.runDao.observeLatest().map { it != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     init {
         nextRound()
         loadOffer()
+        viewModelScope.launch {
+            val latest = container.runDao.observeLatest().first() ?: return@launch
+            val running = (container.bootstrap.status.value as? com.ericflo.winnow.classify.BootstrapStatus.Running)?.runId == latest.id
+            if (latest.seenAt == null && !running && container.bootstrap.status.value !is com.ericflo.winnow.classify.BootstrapStatus.Finished) {
+                _unseen.value = latest
+                seen(latest.id)
+            }
+        }
+    }
+
+    /** The user has seen how run [runId] went: its notification has done its job. */
+    fun seen(runId: Long) {
+        if (runId == 0L) return
+        viewModelScope.launch {
+            container.runDao.markSeen(runId, System.currentTimeMillis())
+            com.ericflo.winnow.classify.BootstrapService.clearFinished(container.appContext)
+        }
+    }
+
+    fun dismissUnseen() {
+        _unseen.value = null
     }
 
     private fun loadOffer(redo: Boolean = false) {
@@ -170,7 +205,9 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
 
     /** After a run: the next round is guessed by the model it taught. */
     fun dismissBootstrap() {
+        (container.bootstrap.status.value as? com.ericflo.winnow.classify.BootstrapStatus.Finished)?.let { seen(it.runId) }
         container.bootstrap.dismiss()
+        _unseen.value = null
         loadOffer()
         nextRound()
     }
@@ -370,7 +407,14 @@ internal fun resume(round: Training.Round, saved: Training.Progress): Pair<Train
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TrainScreen(viewModel: TrainViewModel, onBack: () -> Unit, onOpenThread: (Long, List<String>) -> Unit = { _, _ -> }) {
+fun TrainScreen(
+    viewModel: TrainViewModel,
+    onBack: () -> Unit,
+    onOpenThread: (Long, List<String>) -> Unit = { _, _ -> },
+    /** A run's results (see RunScreen), and every run. */
+    onOpenRun: (Long) -> Unit = {},
+    onOpenRuns: () -> Unit = {},
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
@@ -402,10 +446,10 @@ fun TrainScreen(viewModel: TrainViewModel, onBack: () -> Unit, onOpenThread: (Lo
                 Spacer(Modifier.height(12.dp))
                 Text(if (s == TrainState.Saving) "Learning from your labels…" else "Picking conversations…", style = MaterialTheme.typography.bodyMedium)
             }
-            is TrainState.Reviewing -> Reviewing(s, viewModel, onOpenThread, Modifier.padding(padding))
+            is TrainState.Reviewing -> Reviewing(s, viewModel, onOpenThread, onOpenRun, onOpenRuns, Modifier.padding(padding))
             is TrainState.Finished -> Finished(s, onNext = viewModel::nextRound, onDone = onBack, modifier = Modifier.padding(padding))
             is TrainState.Done -> Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                BootstrapSection(viewModel)
+                BootstrapSection(viewModel, onOpenRun, onOpenRuns)
                 val live by viewModel.live.collectAsStateWithLifecycle()
                 // Not the SMS app (any more): there's nothing to read, not nothing to label.
                 Text(if (live) "Nothing left to label" else "Winnow can't read your texts", style = MaterialTheme.typography.titleLarge)
@@ -423,11 +467,18 @@ fun TrainScreen(viewModel: TrainViewModel, onBack: () -> Unit, onOpenThread: (Lo
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Reviewing(s: TrainState.Reviewing, viewModel: TrainViewModel, onOpenThread: (Long, List<String>) -> Unit, modifier: Modifier) {
+private fun Reviewing(
+    s: TrainState.Reviewing,
+    viewModel: TrainViewModel,
+    onOpenThread: (Long, List<String>) -> Unit,
+    onOpenRun: (Long) -> Unit,
+    onOpenRuns: () -> Unit,
+    modifier: Modifier,
+) {
     val offer by viewModel.offer.collectAsStateWithLifecycle()
     val groups = s.round.candidates.groupBy { it.guess }.toSortedMap(compareBy { it.ordinal })
     LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item("bootstrap") { Box(Modifier.padding(horizontal = 16.dp)) { BootstrapSection(viewModel) } }
+        item("bootstrap") { Box(Modifier.padding(horizontal = 16.dp)) { BootstrapSection(viewModel, onOpenRun, onOpenRuns) } }
         item("intro") {
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Round ${s.number}", style = MaterialTheme.typography.titleLarge)
@@ -736,10 +787,13 @@ private const val COLLAPSED_LINES = 3
  * Letting the classifier service label the backlog first (see Bootstrap): what it would send,
  * a confirmation saying exactly that, then progress, then how it went.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BootstrapSection(viewModel: TrainViewModel) {
+private fun BootstrapSection(viewModel: TrainViewModel, onOpenRun: (Long) -> Unit, onOpenRuns: () -> Unit) {
     val offer by viewModel.offer.collectAsStateWithLifecycle()
     val status by viewModel.bootstrap.collectAsStateWithLifecycle()
+    val unseen by viewModel.unseen.collectAsStateWithLifecycle()
+    val hasRuns by viewModel.hasRuns.collectAsStateWithLifecycle()
     val o = offer ?: return
     var confirming by rememberSaveable { mutableStateOf(false) }
     // A service that reports no cost (a self-hosted one) shows none, rather than "under a cent".
@@ -761,7 +815,10 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(onClick = viewModel::stopBootstrap, contentPadding = PaddingValues(0.dp)) { Text("Stop") }
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                TextButton(onClick = viewModel::stopBootstrap, contentPadding = PaddingValues(0.dp)) { Text("Stop") }
+                if (st.runId != 0L) TextButton(onClick = { onOpenRun(st.runId) }, contentPadding = PaddingValues(0.dp)) { Text("See its answers so far") }
+            }
         }
         is com.ericflo.winnow.classify.BootstrapStatus.Finished -> BootstrapCard(if (st.stopped) "Stopped" else "${o.provider} labeled your backlog") {
             Text(
@@ -773,9 +830,33 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
                     (st.error?.let { " $it" } ?: ""),
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Button(onClick = viewModel::dismissBootstrap) { Text("Continue to a round") }
+            // On screen in Winnow: the notification saying the same has done its job.
+            androidx.compose.runtime.LaunchedEffect(st.runId) { viewModel.seen(st.runId) }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (st.runId != 0L) Button(onClick = { onOpenRun(st.runId) }) { Text("See what it said") }
+                OutlinedButton(onClick = viewModel::dismissBootstrap) { Text("Continue to a round") }
+            }
         }
         com.ericflo.winnow.classify.BootstrapStatus.Idle -> when {
+            unseen != null -> unseen?.let { run ->
+                val state = com.ericflo.winnow.ui.runs.stateOf(run, running = false)
+                BootstrapCard(com.ericflo.winnow.ui.runs.headline(run, state)) {
+                    Text(
+                        "${com.ericflo.winnow.ui.insight.ago(run.finishedAt ?: run.updatedAt).replaceFirstChar { it.uppercase() }}: " +
+                            "${plural(run.labeled, "text")} taught Winnow's model" +
+                            (money(run.costUsd)?.let { ", for $it" } ?: "") + "." +
+                            (if (run.unsure > 0) " ${run.unsure} more got an answer too unsure to teach." else "") +
+                            (if (run.failed > 0) " ${run.failed} got no answer and will be tried next time." else "") +
+                            (if (state == com.ericflo.winnow.ui.runs.RunState.INTERRUPTED) " Winnow was closed before it finished; the rest is offered again." else "") +
+                            (run.error?.let { " $it" } ?: ""),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { onOpenRun(run.id) }) { Text("See what it said") }
+                        OutlinedButton(onClick = viewModel::dismissUnseen) { Text("Dismiss") }
+                    }
+                }
+            }
             o.plan.texts == 0 && o.taught == 0 -> Unit
             o.redo -> BootstrapCard("Ask ${o.provider} again with your latest labels") {
                 Text(
@@ -799,7 +880,10 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                TextButton(onClick = viewModel::planRedo, contentPadding = PaddingValues(0.dp)) { Text("Ask ${o.provider} again with your latest labels") }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    TextButton(onClick = viewModel::planRedo, contentPadding = PaddingValues(0.dp)) { Text("Ask ${o.provider} again with your latest labels") }
+                    if (hasRuns) TextButton(onClick = onOpenRuns, contentPadding = PaddingValues(0.dp)) { Text("Past runs") }
+                }
             }
             else -> BootstrapCard(if (o.taught > 0) "Finish labeling your backlog with ${o.provider}" else "Let ${o.provider} label your backlog first") {
                 Text(
@@ -812,6 +896,7 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
                 } else {
                     Button(onClick = { confirming = true }) { Text("Review and start") }
                 }
+                if (hasRuns) TextButton(onClick = onOpenRuns, contentPadding = PaddingValues(0.dp)) { Text("Past runs") }
             }
         }
     }

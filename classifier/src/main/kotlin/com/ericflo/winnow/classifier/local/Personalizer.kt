@@ -76,7 +76,12 @@ class Adjustments(internal val weights: Map<Int, FloatArray>) {
  */
 object Personalizer {
     /** A label of weight w is pulled toward probability LIGHT_FLOOR + (1 - LIGHT_FLOOR) * w: 0.74 at 0.35, certainty at 1. */
-    private const val LIGHT_FLOOR = 0.6
+    const val LIGHT_FLOOR = 0.6
+
+    /** Passes over the labels a fit makes, its step size, and its pull toward changing nothing. */
+    const val EPOCHS = 40
+    const val LEARNING_RATE = 0.5
+    const val L2 = 1e-3
 
     /**
      * [stopped] is asked between epochs: a fit nobody wants any more (the user answered again,
@@ -86,9 +91,9 @@ object Personalizer {
     fun train(
         base: LocalModel,
         corrections: List<Correction>,
-        epochs: Int = 40,
-        learningRate: Double = 0.5,
-        l2: Double = 1e-3,
+        epochs: Int = EPOCHS,
+        learningRate: Double = LEARNING_RATE,
+        l2: Double = L2,
         stopped: () -> Boolean = { false },
         /**
          * Already learned, and taken as part of the model: what's returned is only what

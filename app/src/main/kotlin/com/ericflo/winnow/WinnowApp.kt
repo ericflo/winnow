@@ -153,8 +153,14 @@ class AppContainer(private val context: Context) {
     val learner by lazy {
         // Kept for this install: an update (a new model, a new way of fitting) fits afresh.
         val install = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
-        Learner(correctionDao, settings, com.ericflo.winnow.classify.PersonalModelStore(java.io.File(context.filesDir, "personal-model.bin"), install))
+        Learner(correctionDao, settings, com.ericflo.winnow.classify.PersonalModelStore(java.io.File(context.filesDir, "personal-model.bin"), install), database.fits())
     }
+    /** Backlog runs and every answer they got (see RunEntity). */
+    val runDao by lazy { database.runs() }
+    /** Every fit of the on-device model (see ModelFitEntity). */
+    val fitDao by lazy { database.fits() }
+    /** Evaluations the user ran (see EvalEntity). */
+    val evalDao by lazy { database.evals() }
     val classifiers by lazy {
         // Without contacts, a contact's text looks like a stranger's: none may go to a classifier service.
         ClassifierFactory(OkHttpTransport(), { learner.classifier() }) { if (contacts.canRead()) null else ClassifierFactory.CONTACTS_HIDDEN }
@@ -277,7 +283,7 @@ class AppContainer(private val context: Context) {
     /** Teaching the on-device model the backlog with the chosen classifier service (Train Winnow). */
     val bootstrap by lazy {
         com.ericflo.winnow.classify.Bootstrap(
-            context, appScope, messages, verdictDao, correctionDao, learner, contacts, settings, classifiers,
+            context, appScope, messages, verdictDao, correctionDao, learner, contacts, settings, classifiers, runDao,
             onFinished = { historyReviewer.refresh() },
         )
     }

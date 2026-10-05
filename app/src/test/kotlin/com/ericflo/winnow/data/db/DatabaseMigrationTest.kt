@@ -120,4 +120,22 @@ class DatabaseMigrationTest {
         assertEquals(listOf("spam", "spam", "political", "marketing"), rows(c, "SELECT label FROM corrections ORDER BY createdAt").map { it[0] })
         assertTrue(delegate.onValidateSchema(c).isValid)
     }
+
+    @Test
+    fun keepingRunsMarksEarlierServiceLabelsAsFromABacklogRunAndLeavesTheUsersAlone() {
+        val c = createdAt(17)
+        c.execSQL("INSERT INTO corrections (threadId, buckets, label, featurizerVersion, createdAt, messageKey, source) VALUES (1, '1', 'spam', 4, 1, 'sms:1', 'provider')")
+        c.execSQL("INSERT INTO corrections (threadId, buckets, label, featurizerVersion, createdAt, messageKey, source) VALUES (1, '2', 'personal', 4, 2, 'sms:2', 'user')")
+        c.execSQL(
+            "INSERT INTO verdicts (messageKey, threadId, address, category, confidence, action, sourceKind, sourceDetail, costUsd, decidedAt) " +
+                "VALUES ('sms:1', 1, '+15555550101', 'spam', 0.9, 'FILTER', 'provider', 'jev', 0, 0)",
+        )
+
+        upgrade(c, 17)
+
+        assertEquals(listOf(listOf("provider", "0"), listOf("user", null)), rows(c, "SELECT source, runId FROM corrections ORDER BY createdAt"))
+        // A verdict from before says nothing of the model's opinion or a run: those weren't kept.
+        assertEquals(listOf(listOf(null, null, null, "0")), rows(c, "SELECT localCategory, fallbackReason, runId, promptExamples FROM verdicts"))
+        assertTrue(delegate.onValidateSchema(c).isValid)
+    }
 }
