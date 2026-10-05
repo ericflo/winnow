@@ -467,6 +467,8 @@ fun ThreadScreen(
     }
 
     // Several messages at once: "Select" in a message's sheet starts it, taps add and remove.
+    val deleting by viewModel.deleting.collectAsStateWithLifecycle()
+    if (deleting) DeletingDialog()
     var selected by remember { mutableStateOf(emptySet<String>()) }
     // Nothing selected is the usual case: no pass over a long conversation for it.
     val selectedMessages = remember(selected, state.messages) { if (selected.isEmpty()) emptyList() else state.messages.filter { it.key in selected } }
@@ -2782,3 +2784,27 @@ private fun SelectionBar(
         colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
     )
 }
+
+/** While a conversation is deleted, if it takes long enough to notice (a long one can take minutes). */
+@Composable
+private fun DeletingDialog() {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(500)
+        shown = true
+    }
+    if (!shown) return
+    AlertDialog(
+        onDismissRequest = {},
+        confirmButton = {},
+        title = { Text("Deleting the conversation…") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text("A long one takes a while: it's kept in Recently deleted first, so it can be restored for 30 days.")
+            }
+        },
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    )
+}
+

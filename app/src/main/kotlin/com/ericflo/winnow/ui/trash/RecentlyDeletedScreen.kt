@@ -140,7 +140,7 @@ fun RecentlyDeletedScreen(viewModel: RecentlyDeletedViewModel, onBack: () -> Uni
                         Column {
                             if (item.snippet.isNotEmpty()) Text(item.snippet, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                "${if (item.messages == 1) "1 message" else "${item.messages} messages"}${if (item.someMessages) " from this conversation" else ""} · " +
+                                "${if (item.messages == 1) "1 message" else "${java.text.NumberFormat.getIntegerInstance().format(item.messages)} messages"}${if (item.someMessages) " from this conversation" else ""} · " +
                                     if (daysLeft <= 1) "gone tomorrow" else "gone in $daysLeft days",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,

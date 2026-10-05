@@ -167,6 +167,9 @@ interface StarredDao {
     @Query("DELETE FROM starred WHERE messageKey = :messageKey")
     suspend fun unstar(messageKey: String)
 
+    @Query("DELETE FROM starred WHERE messageKey IN (:keys)")
+    suspend fun unstarAll(keys: Collection<String>)
+
     @Query("DELETE FROM starred WHERE threadId IN (:threadIds)")
     suspend fun deleteForThreads(threadIds: Collection<Long>)
 

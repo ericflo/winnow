@@ -1092,9 +1092,14 @@ class ThreadViewModel(
      * Deletes the conversation when [messages] are all of it (see [isEverything]), unless a text
      * came in since: then just [messages] go, and the conversation stays open.
      */
+    private val _deleting = MutableStateFlow(false)
+    /** The conversation is being deleted: a long one takes a while (kept in Recently deleted first). */
+    val deleting: StateFlow<Boolean> = _deleting.asStateFlow()
+
     fun deleteEverything(messages: List<ChatMessage>, onDone: () -> Unit) {
         val id = threadId.value
         val newest = messages.maxOfOrNull { it.timestamp } ?: return
+        _deleting.value = true
         container.appScope.launch {
             try {
                 val result = container.trash.delete(setOf(id), unlessNewerThan = newest)
@@ -1107,6 +1112,8 @@ class ThreadViewModel(
                 throw e
             } catch (e: Exception) {
                 _notices.emit("Couldn't delete: ${e.message ?: e::class.simpleName}")
+            } finally {
+                _deleting.value = false
             }
         }
     }
@@ -1170,6 +1177,7 @@ class ThreadViewModel(
 
     fun deleteConversation(onDone: () -> Unit) {
         val id = threadId.value
+        _deleting.value = true
         container.appScope.launch {
             try {
                 // Kept in Recently deleted for 30 days first.
@@ -1182,6 +1190,8 @@ class ThreadViewModel(
                 throw e
             } catch (e: Exception) {
                 _notices.emit("Couldn't delete: ${e.message ?: e::class.simpleName}")
+            } finally {
+                _deleting.value = false
             }
         }
     }

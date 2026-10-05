@@ -240,9 +240,8 @@ class TelephonyMessageRepository(
 
     override suspend fun deleteThreadUpTo(threadId: Long, smsUpTo: Long, mmsUpTo: Long): Boolean {
         val gone = withContext(Dispatchers.IO) {
-            fun upTo(id: Long) = arrayOf(threadId.toString(), id.toString())
-            runCatching { resolver.delete(Telephony.Sms.CONTENT_URI, "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms._ID} <= ?", upTo(smsUpTo)) }
-            runCatching { resolver.delete(Telephony.Mms.CONTENT_URI, "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms._ID} <= ?", upTo(mmsUpTo)) }
+            deleteInChunks(Telephony.Sms.CONTENT_URI, Telephony.Sms._ID, Telephony.Sms.THREAD_ID, threadId, smsUpTo)
+            deleteInChunks(Telephony.Mms.CONTENT_URI, Telephony.Mms._ID, Telephony.Mms.THREAD_ID, threadId, mmsUpTo)
             // Deletes nothing, but afterwards Android drops the thread if it's empty, in one step:
             // a message that has just arrived keeps it.
             runCatching { resolver.delete(ContentUris.withAppendedId(Telephony.Threads.CONTENT_URI, threadId), "0 = 1", null) }
@@ -256,9 +255,26 @@ class TelephonyMessageRepository(
                 else -> false
             }
         }
-        dao.keysForThread(threadId).filter(::gone).forEach { dao.deleteForMessage(it) }
-        starred.keysForThread(threadId).filter(::gone).forEach { starred.unstar(it) }
+        dao.keysForThread(threadId).filter(::gone).chunked(500).forEach { dao.deleteForMessages(it) }
+        starred.keysForThread(threadId).filter(::gone).chunked(500).forEach { starred.unstarAll(it) }
         return gone
+    }
+
+    /**
+     * Deletes [threadId]'s rows of [uri] up to [upTo] a few hundred at a time. One statement for
+     * a long conversation's tens of thousands holds the message store's lock for minutes (each
+     * row sets off the store's own bookkeeping), and a text arriving meanwhile couldn't be
+     * written; between chunks it can.
+     */
+    private fun deleteInChunks(uri: android.net.Uri, idColumn: String, threadColumn: String, threadId: Long, upTo: Long) {
+        val ids = ArrayList<Long>()
+        runCatching {
+            resolver.query(uri, arrayOf(idColumn), "$threadColumn = ? AND $idColumn <= ?", arrayOf(threadId.toString(), upTo.toString()), "$idColumn ASC")
+                ?.use { c -> while (c.moveToNext()) ids += c.getLong(0) }
+        }
+        for (chunk in ids.chunked(DELETE_CHUNK)) {
+            runCatching { resolver.delete(uri, "$threadColumn = ? AND $idColumn BETWEEN ? AND ?", arrayOf(threadId.toString(), chunk.first().toString(), chunk.last().toString())) }
+        }
     }
 
     override suspend fun deleteMessage(message: ChatMessage) {
@@ -819,6 +835,9 @@ class TelephonyMessageRepository(
 
         /** Plenty for every picture message in a long history; a bound, so it can't grow without one. */
         private const val MAX_CACHED_SENDERS = 50_000
+
+        /** Rows deleted per statement (see deleteInChunks): each holds the store's lock while it runs. */
+        private const val DELETE_CHUNK = 200
 
         /** Senders asked for before a group chat first shows (see [messages]): its newest, a screen's worth many times over. */
         private const val FIRST_SENDERS = 60
