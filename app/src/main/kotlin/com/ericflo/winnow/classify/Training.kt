@@ -116,6 +116,8 @@ class Training(
         for (threadId in only?.filter { it in byId } ?: rank(guessed, size, Random(seed))) {
             if (candidates.size >= size) break
             val c = byId.getValue(threadId)
+            // A colleague in a work profile is a contact too (asked of Android only for the ones picked).
+            if (threadId !in before && contacts.isContact(c.address)) continue
             val messages = repo.messagesNow(threadId)
             val covered = Labeler.examplesFrom(messages, c.recipients)
             val newest = covered.lastOrNull()
@@ -151,7 +153,8 @@ class Training(
         )
     }
 
-    private fun eligible(c: ConversationSummary): Boolean = !c.isGroup && !contacts.isContact(c.address)
+    // The contact list alone: a colleague in a work profile is only looked for among the conversations a round picks.
+    private fun eligible(c: ConversationSummary): Boolean = !c.isGroup && !contacts.inContactList(c.address)
 
     /**
      * Conversations found to have nothing received to label (only the user's own texts, or

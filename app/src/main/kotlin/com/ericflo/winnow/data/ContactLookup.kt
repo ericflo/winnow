@@ -44,10 +44,12 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
     /** Bumped by [clear]: a lookup that started before it doesn't store what it found. */
     private val generation = AtomicInteger()
 
-    fun displayName(address: String): String? = info(address)?.name
+    // A colleague in a work profile is named once they're known to be one (see [isContact]): looking
+    // every stranger up there to name them would cost a call to Android each.
+    fun displayName(address: String): String? = info(address)?.name ?: knownColleague(address)?.name
 
     /** The contact's thumbnail photo, if they have one. */
-    fun photoUri(address: String): String? = info(address)?.photoUri
+    fun photoUri(address: String): String? = info(address)?.photoUri ?: knownColleague(address)?.photoUri
 
     /**
      * Whether [address] vouches for itself as a contact: what lets a text skip the classifier,
@@ -55,7 +57,17 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
      * put on a message (carriers' email gateways rarely check it); those get the contact's name
      * and photo, not the trust.
      */
-    fun isContact(address: String): Boolean = !isEmailAddress(address) && info(address) != null
+    fun isContact(address: String): Boolean =
+        !isEmailAddress(address) && (info(address) != null || (canRead() && numberKey(address) != null && workContact(address) != null))
+
+    /**
+     * Whether [address] is in the phone's own contact list: [isContact] without asking about a
+     * work profile, so cheap enough to go through every conversation with, to count or choose.
+     * Never what decides whether a text may leave the phone; [isContact] is.
+     */
+    fun inContactList(address: String): Boolean = !isEmailAddress(address) && info(address) != null
+
+    private fun knownColleague(address: String): Info? = work[address]?.first?.takeIf { it !== NOT_FOUND }
 
     /** Whether Winnow may read contacts at all; without it, everyone looks like a stranger. */
     fun canRead(): Boolean = context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
@@ -137,6 +149,41 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
         }
     }
 
+    /**
+     * A colleague in a work profile, which [index] can't hold: Android lets an app look work
+     * contacts up only one number at a time (and only if the work profile allows it). Answers are
+     * kept a while, not cleared on every resume like the rest, as each costs a call to Android;
+     * and while work apps are paused, when Android hides work contacts, someone found to be a
+     * colleague before still is one, so their texts aren't taken for a stranger's.
+     */
+    private fun workContact(address: String): Info? {
+        val users = context.getSystemService(android.os.UserManager::class.java)
+        val now = android.os.SystemClock.elapsedRealtime()
+        // Whether there's a work profile at all, asked of Android once a minute, not once a number.
+        if (now - workProfileAt >= PROFILE_CHECK_MILLIS) {
+            workProfile = users.userProfiles.firstOrNull { it != android.os.Process.myUserHandle() }
+            workProfileAt = now
+        }
+        val profile = workProfile ?: return null
+        val paused = runCatching { users.isQuietModeEnabled(profile) }.getOrDefault(false)
+        val known = work[address]
+        if (known != null && workAnswerStands(known.second, known.first !== NOT_FOUND, now, paused)) return known.first.takeIf { it !== NOT_FOUND }
+        val found = runCatching {
+            val uri = Uri.withAppendedPath(PhoneLookup.ENTERPRISE_CONTENT_FILTER_URI, Uri.encode(address))
+            context.contentResolver.query(uri, arrayOf(PhoneLookup.DISPLAY_NAME, PhoneLookup.PHOTO_THUMBNAIL_URI, PhoneLookup.PHOTO_URI), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0)?.let { Info(it, remember(c.getString(1), c.getString(2))) } else null
+            }
+        }.getOrNull()
+        work[address] = (found ?: NOT_FOUND) to now
+        return found
+    }
+
+    @Volatile private var workProfile: android.os.UserHandle? = null
+    @Volatile private var workProfileAt = Long.MIN_VALUE / 2
+
+    /** Work-profile answers, by address, with when they were looked up (see [workContact]). */
+    private val work = ConcurrentHashMap<String, Pair<Info, Long>>()
+
     private fun index(started: Int): Map<String, Info> = numbers ?: loadIndex().also { loaded ->
         if (generation.get() == started) {
             numbers = loaded
@@ -178,6 +225,19 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
 
     companion object {
         private val NOT_FOUND = Info("", null)
+
+        private const val PROFILE_CHECK_MILLIS = 60_000L
+
+        /** How long a work-profile lookup's answer is used before asking again. */
+        const val WORK_ANSWER_MILLIS = 10 * 60_000L
+
+        /**
+         * Whether a work-profile answer looked up at [at] still stands at [now]: for a while, and
+         * a colleague found (a [contact]) for as long as work apps are [paused]. Pure, so it's
+         * unit-tested.
+         */
+        fun workAnswerStands(at: Long, contact: Boolean, now: Long, paused: Boolean): Boolean =
+            now - at < WORK_ANSWER_MILLIS || (contact && paused)
         private const val COUNTRY_RETRY_MILLIS = 60_000L
         private const val SETTLE_MILLIS = 500L
 

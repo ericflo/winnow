@@ -321,7 +321,8 @@ class Bootstrap(
      * privacy settings say) isn't planned, and is checked again when sent.
      */
     private suspend fun candidates(current: WinnowSettings, redo: Boolean = false): List<Text> = withContext(Dispatchers.IO) {
-        val conversations = repo.conversations().first().filter { !it.isGroup && !contacts.isContact(it.address) }
+        // The contact list alone, to plan: a colleague in a work profile is found, and kept, as the run sends.
+        val conversations = repo.conversations().first().filter { !it.isGroup && !contacts.inContactList(it.address) }
         val judged = verdicts.judgedThreads().toSet()
         val wanted = conversations.filter { it.threadId !in judged }.associateBy { it.threadId }
         val replied = threadsWithOutgoing()
