@@ -38,6 +38,12 @@ class MessageClassifier(
      * the message. Empty for ordinary classification; a backlog run the user confirmed sets it.
      */
     private val examples: Map<Category, List<String>> = emptyMap(),
+    /**
+     * Why no message may leave the phone right now, or null when they may (as [privacy] says).
+     * Set when the app can't tell a contact from a stranger: a contact's text must never reach
+     * a provider, so none does, and each is decided here with this as the reason.
+     */
+    private val keepOnPhone: String? = null,
 ) {
 
     /**
@@ -46,7 +52,7 @@ class MessageClassifier(
      * The same checks [classify] starts with, so a caller planning what to send agrees with it.
      */
     fun staysOnPhone(message: InboundMessage): Boolean {
-        if (LocalRules.decide(message, privacy) != null) return true
+        if (keepOnPhone != null || LocalRules.decide(message, privacy) != null) return true
         val stranger = !message.senderInContacts && !message.userHasMessagedSender && !LocalRules.looksLikeVerificationCode(message.body)
         return stranger && filteredPhrases.find(message.body) != null
     }
@@ -62,6 +68,7 @@ class MessageClassifier(
         val local = onDevice?.let { runCatching { it.classify(message) }.getOrNull() }
         if (local != null && decideOnDeviceAbove != null && local.confidence >= decideOnDeviceAbove) return onDeviceVerdict(local, null)
 
+        if (keepOnPhone != null && providers.isNotEmpty()) return fallback(message, local, keepOnPhone, contacted = false)
         val eligible = providers.filter { it.descriptor.dataHandling in privacy.allowedDataHandling }
         if (eligible.isEmpty()) {
             if (providers.isEmpty()) return local?.let { onDeviceVerdict(it, null) } ?: heuristic(message, "No provider configured")

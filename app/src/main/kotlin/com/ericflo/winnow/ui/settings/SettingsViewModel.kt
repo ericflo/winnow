@@ -241,7 +241,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             _trial.value = TrialState.Running
             val current = container.settings.current()
             val message = InboundMessage(sender = sender.ifBlank { "+15555550123" }, body = body)
-            val verdict = container.classifiers.create(current).classify(message)
+            val verdict = container.classifiers.create(current, sample = true).classify(message)
             val payload = if (verdict.providerContacted) {
                 prettyJson.encodeToString(JsonElement.serializer(), MessageClassifier.buildRequest(message, current.effectivePrivacy).state)
             } else {

@@ -170,10 +170,12 @@ fun InboxScreen(
     val swipes by viewModel.swipes.collectAsStateWithLifecycle()
     var makeDefaultDismissed by rememberSaveable { mutableStateOf(false) }
     var alertsOffDismissed by rememberSaveable { mutableStateOf(false) }
+    var contactsHiddenDismissed by rememberSaveable { mutableStateOf(false) }
     var labelingSelected by remember { mutableStateOf(false) }
     /** A conversation swiped to label (see SwipeChoice.LABEL). */
     var labelingSwiped by remember { mutableStateOf<ConversationSummary?>(null) }
     val alertsOff by viewModel.alertsOff.collectAsStateWithLifecycle()
+    val contactsHidden by viewModel.contactsHidden.collectAsStateWithLifecycle()
     val newProblems by viewModel.newProblems.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val atTop by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
@@ -281,6 +283,16 @@ fun InboxScreen(
                                 AlertsOffCard(
                                     onTurnOn = { runCatching { context.startActivity(viewModel.alertSettingsIntent()) } },
                                     onDismiss = { alertsOffDismissed = true },
+                                )
+                            }
+                        }
+                        // Contacts unreadable: theirs are sorted like strangers' texts, and nothing goes to a service.
+                        if (state.live && state.isDefault && contactsHidden && !contactsHiddenDismissed) {
+                            item("contacts-hidden") {
+                                ContactsHiddenCard(
+                                    service = state.classifier.takeIf { it.isNotBlank() && it != com.ericflo.winnow.data.ProviderKind.ON_DEVICE.label },
+                                    onAllow = { runCatching { context.startActivity(viewModel.appSettingsIntent()) } },
+                                    onDismiss = { contactsHiddenDismissed = true },
                                 )
                             }
                         }
@@ -915,6 +927,33 @@ private fun ProblemCard(count: Int, onShare: () -> Unit, onDismiss: () -> Unit) 
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = onShare) { Text("Share details") }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = onDismiss) { Text("Not now") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContactsHiddenCard(service: String?, onAllow: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text("Winnow can't see your contacts", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onErrorContainer)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "A text from a contact you haven't texted from this phone is sorted like a stranger's, so it could end up in Filtered." +
+                    (service?.let { " Until Winnow can see them, it sends no texts to $it, so none of theirs leave your phone." } ?: "") +
+                    " Allow Contacts under Permissions.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onAllow) { Text("Open settings") }
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onDismiss) { Text("Not now") }
             }

@@ -147,7 +147,10 @@ class AppContainer(private val context: Context) {
     val settings by lazy { SettingsRepository(context, SecretBox()) }
     val correctionDao by lazy { database.corrections() }
     val learner by lazy { Learner(correctionDao, settings) }
-    val classifiers by lazy { ClassifierFactory(OkHttpTransport()) { learner.classifier() } }
+    val classifiers by lazy {
+        // Without contacts, a contact's text looks like a stranger's: none may go to a classifier service.
+        ClassifierFactory(OkHttpTransport(), { learner.classifier() }) { if (contacts.canRead()) null else ClassifierFactory.CONTACTS_HIDDEN }
+    }
     val contacts by lazy { ContactLookup(context, appScope) }
     val smartLinks by lazy {
         val debug = context.getSharedPreferences("debug", Context.MODE_PRIVATE)

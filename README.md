@@ -285,7 +285,9 @@ What a classifier service sees is deliberately small. Settings → **Try it** sh
 payload for any message.
 
 - Texts from saved contacts, from people you've texted, and verification codes are decided
-  on the phone and never sent anywhere.
+  on the phone and never sent anywhere. If Winnow can't read your contacts (not allowed, or no
+  longer), it can't tell a contact from a stranger, so it sends no text anywhere until it can,
+  and the inbox says so with a way to allow it.
 - Runs of 4+ digits become `####`, email addresses become `[email]`, and links are sent as
   their domain only.
 - The sender's number isn't shared unless you turn that on.

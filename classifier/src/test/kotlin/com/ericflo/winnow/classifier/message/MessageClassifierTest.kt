@@ -173,6 +173,22 @@ class MessageClassifierTest {
     }
 
     @Test
+    fun `when nothing may leave the phone, no text reaches the provider and each says why`() = runTest {
+        val provider = FakeProvider { mapOf("friend_chat" to 1.0) }
+        val held = MessageClassifier(listOf(provider), onDevice = model, keepOnPhone = "Can't see your contacts")
+        assertTrue(held.staysOnPhone(stranger))
+        val verdict = held.classify(stranger)
+        assertEquals(0, provider.seen.size)
+        assertEquals("Can't see your contacts", assertIs<VerdictSource.OnDevice>(verdict.source).fallbackReason)
+        assertFalse(verdict.providerContacted)
+        // The model still sorts it: spam is still caught on the phone.
+        assertEquals(Category.SPAM, verdict.category)
+        // Without one, the same text goes to the provider as before.
+        MessageClassifier(listOf(provider), onDevice = model).classify(stranger)
+        assertEquals(1, provider.seen.size)
+    }
+
+    @Test
     fun `a failing provider falls back to the model, not the keyword heuristic`() = runTest {
         val failing = FakeProvider("failing") { throw ProviderException("down", retryable = true) }
         val verdict = MessageClassifier(listOf(failing), onDevice = model).classify(stranger)

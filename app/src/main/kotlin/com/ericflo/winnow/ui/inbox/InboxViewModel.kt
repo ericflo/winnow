@@ -204,6 +204,17 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     /** New texts can't alert the user: Winnow's notifications, or its message channel, are turned off. */
     val alertsOff: StateFlow<Boolean> = _alertsOff.asStateFlow()
 
+    private val _contactsHidden = MutableStateFlow(false)
+    /**
+     * Winnow can't read contacts (not allowed, or no longer): a contact's text is sorted like a
+     * stranger's, and no text goes to a classifier service (see ClassifierFactory.CONTACTS_HIDDEN).
+     */
+    val contactsHidden: StateFlow<Boolean> = _contactsHidden.asStateFlow()
+
+    /** Winnow's page in Android's settings, where contacts can be allowed again. */
+    fun appSettingsIntent(): android.content.Intent =
+        android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", container.appContext.packageName, null))
+
     /** Crashes or freezes since the user last looked: the inbox offers the report. */
     val newProblems: StateFlow<Int> = container.problems.unseen
 
@@ -219,6 +230,7 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         isDefault.value = container.isDefaultSmsApp()
         if (mode == ListMode.INBOX) container.historyReviewer.refresh()
         _alertsOff.value = container.notifier.alertsOff()
+        _contactsHidden.value = !container.contacts.canRead()
     }
 
     fun startReview() = container.historyReviewer.start()

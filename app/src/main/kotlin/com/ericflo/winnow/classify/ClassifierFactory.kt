@@ -22,6 +22,8 @@ class ClassifierFactory(
     private val http: HttpTransport,
     /** The on-device model, with what the user has taught it. */
     private val onDevice: suspend () -> OnDeviceClassifier,
+    /** Why no text may leave the phone right now, if so (see MessageClassifier's keepOnPhone). */
+    private val keepOnPhone: () -> String? = { null },
 ) {
 
     suspend fun create(
@@ -29,6 +31,8 @@ class ClassifierFactory(
         timeoutMillis: Long = 5_000,
         /** The user's labeled texts to send as examples (a backlog run only; see MessageClassifier). */
         examples: Map<com.ericflo.winnow.classifier.message.Category, List<String>> = emptyMap(),
+        /** A sample the user typed to try the classifier: no one's message, so never held back. */
+        sample: Boolean = false,
     ): MessageClassifier =
         MessageClassifier(
             providers = listOfNotNull(provider(settings)),
@@ -40,6 +44,7 @@ class ClassifierFactory(
             decideOnDeviceAbove = SURE.takeIf { settings.decideOnPhoneWhenSure },
             filteredPhrases = FilteredPhrases(settings.filteredPhrases),
             examples = examples,
+            keepOnPhone = if (sample) null else keepOnPhone(),
         )
 
     /** Null when the choice is on-device only or the chosen provider isn't configured yet. */
@@ -74,8 +79,11 @@ class ClassifierFactory(
         }
     }
 
-    private companion object {
+    companion object {
         /** How sure the on-device model must be to decide without the provider. See classifier/training/REPORT.md. */
-        const val SURE = 0.95
+        private const val SURE = 0.95
+
+        /** Why texts stay on the phone while Winnow can't read contacts: a contact's would look like a stranger's. */
+        const val CONTACTS_HIDDEN = "Winnow can't see your contacts, so no text is sent anywhere"
     }
 }
