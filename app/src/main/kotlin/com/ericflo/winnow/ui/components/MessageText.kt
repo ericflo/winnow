@@ -93,11 +93,7 @@ fun linkify(
     add(USPS) { "https://tools.usps.com/go/TrackConfirmAction?tLabels=$it" }
     // FedEx's are plain 12 or 15 digits, like any order number: only when the text says FedEx.
     if (FEDEX_NAMED.containsMatchIn(text)) add(FEDEX) { "https://www.fedex.com/fedextrack/?trknbr=$it" }
-    fun addSmart(links: List<SmartLink>) = links.filter { it.start >= 0 && it.end <= text.length && it.start < it.end }.forEach { found ->
-        // The classifier's "at 7pm." takes the full stop with it; the link shouldn't.
-        var end = found.end
-        while (end > found.start + 1 && text[end - 1] in TRAILING_PUNCTUATION) end--
-        val link = found.copy(end = end)
+    fun addSmart(links: List<SmartLink>) = tidySmartLinks(text, links).forEach { link ->
         if (spans.none { link.start < it.end && it.start < link.end }) spans += Span(link.start, link.end, "", link)
     }
     // The classifier's dates before the address pattern: "Oct 5 at 3:30" is a time, not a street.
@@ -119,6 +115,31 @@ fun linkify(
         append(text, cursor, text.length)
     }
 }
+
+/**
+ * The text classifier's links, made fit to show. Each covers whole words: a span cut short ("no"
+ * of "now") or running into the next word grows or shrinks to the word's edges, and the full
+ * stop of "at 7pm." stays out. A date that's one relative word alone ("now", "later", "tonight")
+ * is dropped: there's nothing in it to put on a calendar, and Messages doesn't link it either.
+ * Pure, so it's unit-tested.
+ */
+fun tidySmartLinks(text: String, links: List<SmartLink>): List<SmartLink> = links.mapNotNull { found ->
+    if (found.start < 0 || found.end > text.length || found.start >= found.end) return@mapNotNull null
+    fun inWord(i: Int) = i in text.indices && text[i].isLetterOrDigit()
+    var start = found.start
+    var end = found.end
+    while (start > 0 && inWord(start - 1) && inWord(start)) start--
+    while (end < text.length && inWord(end) && inWord(end - 1)) end++
+    while (end > start + 1 && text[end - 1] in TRAILING_PUNCTUATION) end--
+    val words = text.substring(start, end).trim()
+    if (found.isDate && words.lowercase() in VAGUE_TIMES) return@mapNotNull null
+    found.copy(start = start, end = end)
+}
+
+private val VAGUE_TIMES = setOf(
+    "now", "right now", "today", "tonight", "tonite", "later", "soon", "asap", "anytime", "sometime",
+    "morning", "afternoon", "evening", "night", "weekend", "this week", "next week", "then", "early", "late",
+)
 
 /** One to three emoji and nothing else: shown large, without a bubble, as in Messages. */
 fun isEmojiOnly(text: String): Boolean {

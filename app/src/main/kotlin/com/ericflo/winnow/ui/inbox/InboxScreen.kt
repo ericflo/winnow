@@ -171,6 +171,8 @@ fun InboxScreen(
     var makeDefaultDismissed by rememberSaveable { mutableStateOf(false) }
     var alertsOffDismissed by rememberSaveable { mutableStateOf(false) }
     var labelingSelected by remember { mutableStateOf(false) }
+    /** A conversation swiped to label (see SwipeChoice.LABEL). */
+    var labelingSwiped by remember { mutableStateOf<ConversationSummary?>(null) }
     val alertsOff by viewModel.alertsOff.collectAsStateWithLifecycle()
     val newProblems by viewModel.newProblems.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -362,6 +364,7 @@ fun InboxScreen(
                             SwipeChoice.PIN -> Swipe(painterResource(R.drawable.ic_pin), if (conversation.pinned) "Unpin" else "Pin") {
                                 viewModel.setPinned(setOf(conversation.threadId), !conversation.pinned)
                             }
+                            SwipeChoice.LABEL -> Swipe(painterResource(R.drawable.ic_label), "Label") { labelingSwiped = conversation }
                             SwipeChoice.NONE -> null
                         }
                         SwipeAction(start = swipe(swipes.first), end = swipe(swipes.second)) {
@@ -466,6 +469,23 @@ fun InboxScreen(
                 selected = emptySet()
             },
             onDismiss = { labelingSelected = false },
+        )
+    }
+    labelingSwiped?.let { conversation ->
+        LabelSheet(
+            title = "Label ${conversation.displayName}",
+            current = conversation.verdict?.takeIf { it.labeledByUser }?.category,
+            actionFor = viewModel::actionFor,
+            onPick = { category ->
+                labelingSwiped = null
+                viewModel.label(setOf(conversation.threadId), category) { text, undo ->
+                    scope.launch {
+                        snackbar.currentSnackbarData?.dismiss()
+                        if (snackbar.showSnackbar(text, actionLabel = "Undo", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) viewModel.undoLabel(undo)
+                    }
+                }
+            },
+            onDismiss = { labelingSwiped = null },
         )
     }
     swipedToDelete?.let { id ->

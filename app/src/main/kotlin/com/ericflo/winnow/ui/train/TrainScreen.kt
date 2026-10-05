@@ -1,10 +1,11 @@
 package com.ericflo.winnow.ui.train
 
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -42,8 +43,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,11 +55,14 @@ import com.ericflo.winnow.AppContainer
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classify.Training
 import com.ericflo.winnow.ui.components.CategoryDot
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** What the user said about one guess. */
 sealed interface Decision {
@@ -85,8 +89,13 @@ sealed interface TrainState {
 
     data object Saving : TrainState
 
+    /** One conversation of a finished round: Winnow's guess, and the user's answer (null if skipped). */
+    data class Outcome(val name: String, val text: String, val guess: Category, val answer: Category?)
+
     data class Finished(
         val result: Training.RoundResult,
+        /** Every conversation of the round, as shown. */
+        val outcomes: List<Outcome> = emptyList(),
         val history: List<Training.RoundResult>,
         val backlog: Int,
         val labeled: Int,
@@ -116,8 +125,45 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    private fun reviewing(change: (TrainState.Reviewing) -> TrainState.Reviewing) =
+    private fun reviewing(change: (TrainState.Reviewing) -> TrainState.Reviewing) {
+        val before = (_state.value as? TrainState.Reviewing)?.decisions
         _state.update { (it as? TrainState.Reviewing)?.let(change) ?: it }
+        if ((_state.value as? TrainState.Reviewing)?.decisions != before) reguess()
+    }
+
+    private var reguessing: Job? = null
+
+    /**
+     * Re-guesses the conversations not answered yet, from a model taught the answers given so
+     * far (nothing is saved until Finish): label one pharmacy text and its lookalikes in the
+     * round move with it. The latest answer wins; an earlier re-guess still running is dropped.
+     */
+    private fun reguess() {
+        reguessing?.cancel()
+        reguessing = viewModelScope.launch {
+            val r = _state.value as? TrainState.Reviewing ?: return@launch
+            val answers = r.round.candidates.mapNotNull { c ->
+                when (val d = r.decisions[c.threadId]) {
+                    Decision.Right -> c.message() to c.guess
+                    is Decision.Is -> c.message() to d.category
+                    else -> null
+                }
+            }
+            val model = container.learner.preview(answers)
+            val open = r.round.candidates.filter { it.threadId !in r.decisions }
+            val fresh = withContext(Dispatchers.Default) { open.associate { c -> c.threadId to model.classify(c.message()) } }
+            reviewing { now ->
+                now.copy(
+                    round = now.round.copy(
+                        candidates = now.round.candidates.map { c ->
+                            val p = fresh[c.threadId]
+                            if (p == null || c.threadId in now.decisions) c else c.copy(guess = p.category, confidence = p.confidence)
+                        },
+                    ),
+                )
+            }
+        }
+    }
 
     fun open(threadId: Long?) = reviewing { it.copy(open = if (it.open == threadId) null else threadId) }
 
@@ -156,10 +202,24 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
             val rulesRemoved = labels.groupBy({ it.second }, { it.first }).entries.sumOf { (category, conversations) ->
                 container.labeler.labelConversations(conversations.map { it.threadId to it.recipients }, category).rulesRemoved.size
             }
-            val result = Training.RoundResult(System.currentTimeMillis(), reviewed = labels.size, agreed = r.decisions.values.count { it == Decision.Right })
+            val result = Training.RoundResult(
+                System.currentTimeMillis(),
+                reviewed = labels.size,
+                agreed = r.decisions.values.count { it == Decision.Right },
+                skipped = r.round.candidates.size - labels.size,
+            )
+            val outcomes = r.round.candidates.map { c ->
+                val answer = when (val d = r.decisions[c.threadId]) {
+                    Decision.Right -> c.guess
+                    is Decision.Is -> d.category
+                    else -> null
+                }
+                TrainState.Outcome(c.name, c.text, c.guess, answer)
+            }
             if (labels.isNotEmpty()) training.record(result)
             _state.value = TrainState.Finished(
                 result,
+                outcomes,
                 training.history(),
                 backlog = (r.round.backlog - labels.size).coerceAtLeast(0),
                 labeled = r.round.labeled + labels.size,
@@ -233,7 +293,7 @@ private fun Reviewing(s: TrainState.Reviewing, viewModel: TrainViewModel, modifi
                 Text("Round ${s.number}", style = MaterialTheme.typography.titleLarge)
                 Text(
                     "Here's what Winnow thinks of ${s.round.candidates.size} of your conversations. Tap ✓ when it's right, or tap its guess to fix it. " +
-                        "Anything you leave stays unlabeled. When you finish, Winnow learns from your answers before the next round.",
+                        "Its other guesses update as you answer, so texts like one you fixed follow it. Anything you leave stays unlabeled.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -258,6 +318,8 @@ private fun Reviewing(s: TrainState.Reviewing, viewModel: TrainViewModel, modifi
                 }
             }
             items(candidates, key = { it.threadId }) { c ->
+                // A row whose guess changes moves to its new group, visibly.
+                Box(Modifier.animateItem()) {
                 CandidateRow(
                     c,
                     decision = s.decisions[c.threadId],
@@ -267,6 +329,7 @@ private fun Reviewing(s: TrainState.Reviewing, viewModel: TrainViewModel, modifi
                     onPick = { viewModel.decide(c, it) },
                     onSkip = { viewModel.skip(c.threadId) },
                 )
+                }
             }
         }
         item("end") { Spacer(Modifier.height(24.dp)) }
@@ -357,7 +420,8 @@ private fun CandidateRow(
                         Spacer(Modifier.width(8.dp))
                         Text(
                             when (decision) {
-                                null -> "${c.guess.label} · ${sureness(c.confidence)} · tap to change"
+                                null -> if (c.guess != c.firstGuess) "${c.guess.label} · from your answers · tap to change"
+                                    else "${c.guess.label} · ${sureness(c.confidence)} · tap to change"
                                 Decision.Right -> "${c.guess.label} · right"
                                 is Decision.Is -> "${decision.category.label} · changed by you"
                                 Decision.Skip -> "Skipped"
@@ -399,13 +463,23 @@ private fun Finished(s: TrainState.Finished, onNext: () -> Unit, onDone: () -> U
                 if (r.reviewed == 0) {
                     Text("Nothing labeled this round", style = MaterialTheme.typography.titleLarge)
                 } else {
-                    Text("Winnow was right on ${r.agreed} of ${r.reviewed}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                     Text(
-                        when (r.reviewed) {
-                            1 -> "Winnow has learned from your answer. The next round's guesses take it into account."
-                            2 -> "Winnow has learned from both your answers. The next round's guesses take them into account."
-                            else -> "Winnow has learned from all ${r.reviewed} of your answers. The next round's guesses take them into account."
-                        },
+                        if (r.skipped == 0) "Winnow was right on ${r.agreed} of ${r.reviewed}" else "Winnow was right on ${r.agreed} of the ${r.reviewed} you answered",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    if (r.skipped > 0) {
+                        Text(
+                            if (r.skipped == 1) "1 you left as Not sure or unchecked stays unlabeled." else "${r.skipped} you left as Not sure or unchecked stay unlabeled.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        // Rounds are the conversations it's least sure of, so their scores don't climb
+                        // the way its accuracy on everything else does; it mustn't sound like they will.
+                        "Winnow learned from your answers: texts like these now get your label. Each round brings the " +
+                            "conversations it's least sure of, so a round's score isn't a measure of how much it has learned.",
                         style = MaterialTheme.typography.bodyLarge,
                     )
                     if (s.rulesRemoved > 0) {
@@ -424,6 +498,21 @@ private fun Finished(s: TrainState.Finished, onNext: () -> Unit, onDone: () -> U
                 }
             }
         }
+        val wrong = s.outcomes.filter { it.answer != null && it.answer != it.guess }
+        if (wrong.isNotEmpty()) {
+            item("wrong-h") { Text("Where Winnow was wrong", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp)) }
+            items(wrong, key = { "wrong-" + it.name + it.text.hashCode() }) { o ->
+                Column {
+                    Text(o.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(o.text, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        "Winnow said ${o.guess.label} · you said ${o.answer!!.label}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
         if (s.history.size > 1) {
             item("history-h") { Text("Round by round", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp)) }
             items(s.history.withIndex().reversed().take(10).toList(), key = { it.index }) { (i, round) ->
@@ -431,7 +520,8 @@ private fun Finished(s: TrainState.Finished, onNext: () -> Unit, onDone: () -> U
                     Text("Round ${i + 1}", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                     Text(
                         // A percentage of a handful claims more than it shows.
-                        "right on ${round.agreed} of ${round.reviewed}" + if (round.reviewed >= 10) " (${round.agreed * 100 / round.reviewed}%)" else "",
+                        "right on ${round.agreed} of ${round.reviewed}" + (if (round.reviewed >= 10) " (${round.agreed * 100 / round.reviewed}%)" else "") +
+                            if (round.skipped > 0) " · ${round.skipped} skipped" else "",
                         style = MaterialTheme.typography.bodyLarge,
                     )
                 }

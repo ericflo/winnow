@@ -75,6 +75,8 @@ data class ProviderSettings(
 /** What swiping a conversation in the inbox does. */
 enum class SwipeChoice(val label: String) {
     ARCHIVE("Archive"),
+    /** Opens the label sheet for the conversation (see LabelSheet). */
+    LABEL("Label"),
     DELETE("Delete"),
     READ("Mark read or unread"),
     PIN("Pin or unpin"),
@@ -151,7 +153,8 @@ data class WinnowSettings(
     val theme: ThemeMode = ThemeMode.SYSTEM,
     /** Swiping an inbox conversation toward the end (right, in left-to-right languages). */
     val swipeRight: SwipeChoice = SwipeChoice.ARCHIVE,
-    val swipeLeft: SwipeChoice = SwipeChoice.ARCHIVE,
+    // Labeling is how Winnow learns; a swipe makes it as quick as archiving.
+    val swipeLeft: SwipeChoice = SwipeChoice.LABEL,
     /** See [TextScale]. */
     val textScale: Float = 1f,
     /** The user said "Not now" to reviewing older conversations. */
@@ -236,7 +239,11 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             theme = this[THEME]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: defaults.theme,
             textScale = TextScale.clamp(this[TEXT_SCALE] ?: 1f),
             swipeRight = this[SWIPE_RIGHT]?.let { runCatching { SwipeChoice.valueOf(it) }.getOrNull() } ?: defaults.swipeRight,
-            swipeLeft = this[SWIPE_LEFT]?.let { runCatching { SwipeChoice.valueOf(it) }.getOrNull() } ?: defaults.swipeLeft,
+            // Stored under a new key since Label became the default: every settings write stored
+            // the old default, Archive, so a choice of Archive can't be told from never choosing.
+            // Any other choice was the user's own, and is kept.
+            swipeLeft = (this[SWIPE_LEFT_V2] ?: this[SWIPE_LEFT]?.takeIf { it != SwipeChoice.ARCHIVE.name })
+                ?.let { runCatching { SwipeChoice.valueOf(it) }.getOrNull() } ?: defaults.swipeLeft,
             reviewPromptDismissed = this[REVIEW_DISMISSED] ?: false,
             onboarded = this[ONBOARDED] ?: false,
             categoryActions = Category.entries.associateWith { c ->
@@ -287,7 +294,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[THEME] = s.theme.name
         this[TEXT_SCALE] = TextScale.clamp(s.textScale)
         this[SWIPE_RIGHT] = s.swipeRight.name
-        this[SWIPE_LEFT] = s.swipeLeft.name
+        this[SWIPE_LEFT_V2] = s.swipeLeft.name
         this[REVIEW_DISMISSED] = s.reviewPromptDismissed
         this[ONBOARDED] = s.onboarded
         s.categoryActions.forEach { (c, a) -> this[actionKey(c)] = a.name }
@@ -330,6 +337,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val TEXT_SCALE = floatPreferencesKey("display.text_scale")
         val SWIPE_RIGHT = stringPreferencesKey("inbox.swipe_right")
         val SWIPE_LEFT = stringPreferencesKey("inbox.swipe_left")
+        val SWIPE_LEFT_V2 = stringPreferencesKey("inbox.swipe_left.v2")
         val REVIEW_DISMISSED = booleanPreferencesKey("review.prompt_dismissed")
         val ONBOARDED = booleanPreferencesKey("onboarding.done")
 

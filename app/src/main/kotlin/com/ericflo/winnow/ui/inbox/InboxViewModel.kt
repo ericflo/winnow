@@ -242,7 +242,7 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     /** What swiping a conversation right and left does, from Settings. */
     val swipes: StateFlow<Pair<SwipeChoice, SwipeChoice>> = container.settings.settings
         .map { it.swipeRight to it.swipeLeft }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, SwipeChoice.ARCHIVE to SwipeChoice.ARCHIVE)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SwipeChoice.ARCHIVE to SwipeChoice.LABEL)
 
     private val _browsing = MutableStateFlow<Browse?>(null)
     val browsing: StateFlow<Browse?> = _browsing.asStateFlow()

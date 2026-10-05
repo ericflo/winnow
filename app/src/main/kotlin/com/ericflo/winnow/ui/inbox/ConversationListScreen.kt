@@ -68,9 +68,23 @@ fun ConversationListScreen(
     BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
     var confirmDelete by remember { mutableStateOf(false) }
     var labeling by remember { mutableStateOf(false) }
+    /** A conversation swiped left, to label. */
+    var labelingSwiped by remember { mutableStateOf<com.ericflo.winnow.data.ConversationSummary?>(null) }
     val picked = state.conversations.filter { it.threadId in selected }
     fun toggle(id: Long) {
         selected = if (id in selected) selected - id else selected + id
+    }
+    labelingSwiped?.let { conversation ->
+        LabelSheet(
+            title = "Label ${conversation.displayName}",
+            current = conversation.verdict?.takeIf { it.labeledByUser }?.category,
+            actionFor = viewModel::actionFor,
+            onPick = { category ->
+                labelingSwiped = null
+                viewModel.label(setOf(conversation.threadId), category) { text, undo -> scope.launch { if (snackbar.showUndo(text)) viewModel.undoLabel(undo) } }
+            },
+            onDismiss = { labelingSwiped = null },
+        )
     }
     if (labeling) {
         LabelSheet(
@@ -152,7 +166,7 @@ fun ConversationListScreen(
         LazyColumn(contentPadding = padding, modifier = Modifier.fillMaxSize()) {
             item("explainer") {
                 Text(
-                    if (filtered) "Kept out of your inbox without a notification. Open one to see why, or swipe it to mark it as not spam. Long-press to pick several."
+                    if (filtered) "Kept out of your inbox without a notification. Open one to see why. Swipe right for not spam, left to label it. Long-press to pick several."
                     else "Archived conversations come back to your inbox when a new message arrives.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -183,9 +197,10 @@ fun ConversationListScreen(
                     }
                     else -> null
                 }
-                // Either way does the same thing here; both remove the row from this list.
+                // A right swipe takes it out of this list; a left one labels it, as in the inbox.
                 val action = swipe?.let { (icon, label, run) -> Swipe(icon, label, removes = true) { run() } }
-                SwipeAction(start = action.takeIf { selected.isEmpty() }, end = action.takeIf { selected.isEmpty() }) {
+                val label = Swipe(painterResource(R.drawable.ic_label), "Label") { labelingSwiped = conversation }
+                SwipeAction(start = action.takeIf { selected.isEmpty() }, end = label.takeIf { selected.isEmpty() }) {
                     ConversationRow(
                         conversation,
                         showVerdict = filtered,

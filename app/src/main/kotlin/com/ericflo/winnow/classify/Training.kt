@@ -40,13 +40,27 @@ class Training(
         val confidence: Double,
         /** The other received texts a label on this conversation covers, newest first. */
         val earlier: List<String> = emptyList(),
-    )
+        /** Whether the user has written to them: the model reads that too. */
+        val repliedTo: Boolean = false,
+        /** The guess the round started with; [guess] moves as the user answers others (see Learner.preview). */
+        val firstGuess: Category = guess,
+    ) {
+        /** What the model reads to guess: the newest text, as they sent it. */
+        fun message() = InboundMessage(sender = recipients.first(), body = text, senderInContacts = false, userHasMessagedSender = repliedTo)
+    }
 
     data class Round(val candidates: List<Candidate>, val backlog: Int, val labeled: Int)
 
     /** A finished round, kept so progress can be shown round over round. */
     @Serializable
-    data class RoundResult(val at: Long, val reviewed: Int, val agreed: Int)
+    data class RoundResult(
+        val at: Long,
+        /** Conversations the user answered; [agreed] of them were Winnow's guess. */
+        val reviewed: Int,
+        val agreed: Int,
+        /** Ones left as "Not sure" or unchecked. */
+        val skipped: Int = 0,
+    )
 
     /**
      * The next round: up to [size] unlabeled conversations, guessed by the model as it is now.
@@ -88,6 +102,7 @@ class Training(
             candidates += Candidate(
                 c.threadId, c.recipients, c.displayName, c.photoUri, Labeler.textOf(newest), p.category, p.confidence,
                 earlier = covered.dropLast(1).asReversed().map(Labeler::textOf),
+                repliedTo = messages.any { it.outgoing },
             )
         }
         Round(

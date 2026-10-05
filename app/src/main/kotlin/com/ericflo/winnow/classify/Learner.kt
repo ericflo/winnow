@@ -125,17 +125,33 @@ class Learner(private val dao: CorrectionDao, private val settings: SettingsRepo
         retrain()
     }
 
+    /**
+     * The model as it would be with [extra] taught on top of everything saved, without saving
+     * anything: Train Winnow re-guesses a round's open conversations from the answers given so
+     * far, so fixing one text fixes the guesses on texts like it straight away.
+     */
+    suspend fun preview(extra: List<Pair<InboundMessage, Category>>): OnDeviceClassifier {
+        val rows = dao.all()
+        return withContext(Dispatchers.Default) {
+            val more = extra.mapNotNull { (message, category) -> base.correction(message, setOf(category)) }
+            runCatching { base.learn(corrections(rows) + more) }.getOrElse { trained ?: base }
+        }
+    }
+
+    private fun corrections(rows: List<CorrectionEntity>): List<Correction> {
+        val classes = LocalModel.bundled.classes
+        return rows.mapNotNull { e ->
+            val label = classes.indexOf(e.label).takeIf { it >= 0 && e.featurizerVersion == Featurizer.VERSION } ?: return@mapNotNull null
+            Correction(e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray(), label)
+        }
+    }
+
     private suspend fun retrain(): OnDeviceClassifier = lock.withLock {
         val rows = dao.all()
         withContext(Dispatchers.Default) {
             // Loading the model happens here too, off the main thread.
-            val classes = LocalModel.bundled.classes
-            val corrections = rows.mapNotNull { e ->
-                val label = classes.indexOf(e.label).takeIf { it >= 0 && e.featurizerVersion == Featurizer.VERSION } ?: return@mapNotNull null
-                Correction(e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray(), label)
-            }
             // A bad correction must never stop classification: fall back to the bundled model.
-            runCatching { base.learn(corrections) }.getOrElse { base }
+            runCatching { base.learn(corrections(rows)) }.getOrElse { base }
         }.also { trained = it }
     }
 }
