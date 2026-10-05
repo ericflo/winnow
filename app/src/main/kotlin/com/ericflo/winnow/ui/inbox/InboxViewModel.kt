@@ -121,6 +121,16 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         // Not kept once nobody's looking: the browser mustn't start from a stale list.
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000, replayExpirationMillis = 0), replay = 1)
 
+    init {
+        // The app icon's badge counts notifications: one for a conversation read since, some other
+        // way than opening it, would keep the badge with nothing unread to show for it.
+        if (mode == ListMode.INBOX) {
+            viewModelScope.launch {
+                repo.conversations().collect { list -> container.notifier.keepOnlyUnread(list.filter { it.unread }.mapTo(HashSet()) { it.threadId }) }
+            }
+        }
+    }
+
     private val hits = query.debounce(250).distinctUntilChanged().mapLatest { q -> if (q.length < 2) emptyList() else repo.search(q) }
 
     private val review = combine(container.historyReviewer.status, container.settings.settings) { status, s ->
@@ -227,6 +237,10 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     fun alertSettingsIntent(): android.content.Intent = container.notifier.alertSettingsIntent()
 
     fun refresh() {
+        // Coming back to the inbox: notifications for conversations read meanwhile go (see init).
+        if (mode == ListMode.INBOX) launch {
+            container.notifier.keepOnlyUnread(repo.conversations().first().filter { it.unread }.mapTo(HashSet()) { it.threadId })
+        }
         isDefault.value = container.isDefaultSmsApp()
         if (mode == ListMode.INBOX) container.historyReviewer.refresh()
         _alertsOff.value = container.notifier.alertsOff()
@@ -284,7 +298,10 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         _browsing.value = kind
     }
 
-    fun markAllRead() = launch { repo.markAllRead() }
+    fun markAllRead() = launch {
+        repo.markAllRead()
+        container.notifier.keepOnlyUnread(emptySet())
+    }
 
     fun setPinned(threadIds: Set<Long>, pinned: Boolean) = launch { states.setPinned(threadIds, pinned) }
 
@@ -292,6 +309,7 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
 
     fun setRead(threadIds: Set<Long>, read: Boolean) = launch {
         threadIds.forEach { if (read) repo.markRead(it) else repo.markUnread(it) }
+        if (read) threadIds.forEach(container.notifier::cancelMessages)
     }
 
     /**

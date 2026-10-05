@@ -57,9 +57,17 @@ class Notifier(
             .apply { description = context.getString(R.string.channel_messages_description) }
         val notSent = NotificationChannel(CHANNEL_NOT_SENT, context.getString(R.string.channel_not_sent), NotificationManager.IMPORTANCE_HIGH)
             .apply { description = context.getString(R.string.channel_not_sent_description) }
+        // No badge on the app icon for the evening summary: a badge says texts are waiting.
         val summary = NotificationChannel(CHANNEL_SUMMARY, context.getString(R.string.channel_summary), NotificationManager.IMPORTANCE_LOW)
-            .apply { description = context.getString(R.string.channel_summary_description) }
-        context.getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(channel, notSent, summary))
+            .apply {
+                description = context.getString(R.string.channel_summary_description)
+                setShowBadge(false)
+            }
+        context.getSystemService(NotificationManager::class.java).apply {
+            createNotificationChannels(listOf(channel, notSent, summary))
+            // Its first channel badged, and a channel's badge can't be changed once made.
+            deleteNotificationChannel(OLD_CHANNEL_SUMMARY)
+        }
     }
 
     /** The evening summary (see DailySummary): quiet, and opens Filtered. */
@@ -572,6 +580,24 @@ class Notifier(
         manager.cancel(TAG_NOT_SENT, notificationId(threadId))
     }
 
+    /**
+     * Clears the new-message notifications of every conversation not in [unread]: one read some
+     * other way than opening it (Mark all as read, a swipe, the selection bar, another app) would
+     * otherwise stay, and keep a badge on the app icon with nothing unread to show for it.
+     */
+    fun keepOnlyUnread(unread: Set<Long>, now: Long = System.currentTimeMillis()) {
+        val ids = unread.mapTo(HashSet()) { notificationId(it) }
+        runCatching {
+            manager.activeNotifications
+                // Not one just posted: [unread] may have been read from the store a moment before its text arrived.
+                .filter { it.tag == TAG && it.id !in ids && now - it.postTime > JUST_POSTED_MILLIS }
+                .forEach { n ->
+                    recent.keys.removeIf { notificationId(it) == n.id }
+                    manager.cancel(TAG, n.id)
+                }
+        }
+    }
+
     /** Clears just the new-message notification, leaving any "not sent" one standing. */
     fun cancelMessages(threadId: Long) {
         // No lock: this runs on the main thread when a conversation opens, and a post racing it
@@ -646,7 +672,9 @@ class Notifier(
         const val CHANNEL_NOT_SENT = "not_sent"
         const val TAG = "thread"
         const val TAG_NOT_SENT = "not_sent"
-        const val CHANNEL_SUMMARY = "summary"
+        const val CHANNEL_SUMMARY = "summary_quiet"
+        private const val JUST_POSTED_MILLIS = 10_000L
+        private const val OLD_CHANNEL_SUMMARY = "summary"
         const val TAG_SUMMARY = "summary"
         const val SUMMARY_ID = 1
         const val IMAGE_EDGE_PX = 1024

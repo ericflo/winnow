@@ -124,7 +124,9 @@ class BootstrapService : Service() {
     }
 
     companion object {
-        private const val CHANNEL = "background"
+        // A run's progress and how it went are no reason for a badge on the app icon (see createChannel).
+        private const val CHANNEL = "background_quiet"
+        private const val OLD_CHANNEL = "background"
         private const val NOTIFICATION_RUNNING = 7001
         private const val NOTIFICATION_DONE = 7002
         private const val ACTION_STOP = "com.ericflo.winnow.STOP_BOOTSTRAP"
@@ -138,8 +140,13 @@ class BootstrapService : Service() {
         private fun createChannel(context: Context) {
             val channel = NotificationChannel(CHANNEL, context.getString(R.string.channel_background), NotificationManager.IMPORTANCE_LOW).apply {
                 description = context.getString(R.string.channel_background_description)
+                setShowBadge(false)
             }
-            context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            context.getSystemService(NotificationManager::class.java).apply {
+                createNotificationChannel(channel)
+                // The first channel badged, and a channel's badge can't be changed once made.
+                deleteNotificationChannel(OLD_CHANNEL)
+            }
         }
     }
 }
