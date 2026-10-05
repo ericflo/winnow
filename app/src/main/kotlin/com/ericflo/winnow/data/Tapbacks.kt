@@ -17,7 +17,13 @@ data class Tapback(
         val wanted = quoted.trim()
         if (wanted.isEmpty()) return false
         val text = body.trim()
-        return text == wanted || (wanted.endsWith("…") && text.startsWith(wanted.dropLast(1).trimEnd()))
+        // Cut short with "…" or "...", whichever the sender's phone used.
+        val cut = when {
+            wanted.endsWith("…") -> wanted.dropLast(1)
+            wanted.endsWith("...") -> wanted.dropLast(3)
+            else -> null
+        }?.trimEnd()
+        return text == wanted || (cut != null && cut.isNotEmpty() && text.startsWith(cut))
     }
 
     /**
@@ -74,7 +80,13 @@ data class Tapback(
         private val REMOVE = Regex("""^Removed (${REMOVALS.keys.joinToString("|") { Regex.escape(it) }}) from $QUOTED$""", RegexOption.DOT_MATCHES_ALL)
         /** Every reaction's first word. */
         private val STARTS = (VERBS.keys.map { it.substringBefore(' ') } + "Removed" + "Reacted").distinct()
-        private val REACTED = Regex("""^Reacted (\S+) to $QUOTED$""", RegexOption.DOT_MATCHES_ALL)
+        private val REACTED = Regex("""^Reacted (?:with )?(\S+) to $QUOTED$""", RegexOption.DOT_MATCHES_ALL)
+        // "😂 to “see you soon”" and "Removed 😂 from “see you soon”": the forms with the emoji itself.
+        private val EMOJI_TO = Regex("""^(\S{1,8}) to $QUOTED$""", RegexOption.DOT_MATCHES_ALL)
+        private val REMOVED_EMOJI = Regex("""^Removed (?:the )?(\S{1,8}) (?:reaction )?from $QUOTED$""", RegexOption.DOT_MATCHES_ALL)
+
+        /** Whether [s] is emoji only (no letters or digits): what the emoji-first forms start with. */
+        private fun emojiOnly(s: String) = s.isNotEmpty() && s.none { it.isLetterOrDigit() } && s.codePoints().anyMatch { it >= 0x2190 }
 
         /** A short description for previews: "Reacted ❤️ to “see you soon”", or [body] itself. */
         fun summarize(body: String): String = parse(body)?.let {
@@ -85,10 +97,17 @@ data class Tapback(
             val text = body.trim()
             // Nearly every text isn't a reaction, and a conversation can hold tens of thousands:
             // a first word that can't start one skips the patterns.
-            if (STARTS.none { text.startsWith(it) }) return null
+            if (STARTS.none { text.startsWith(it) }) {
+                // Or an emoji then " to “": too rare a start to be worth a pattern otherwise.
+                val first = text.substringBefore(' ')
+                if (!emojiOnly(first)) return null
+                EMOJI_TO.matchEntire(text)?.let { return Tapback(it.groupValues[1], it.groupValues[2]) }
+                return null
+            }
             ADD.matchEntire(text)?.let { return Tapback(VERBS.getValue(it.groupValues[1]), it.groupValues[2].ifEmpty { it.groupValues[3] }) }
             REMOVE.matchEntire(text)?.let { return Tapback(REMOVALS.getValue(it.groupValues[1]), it.groupValues[2], removal = true) }
             REACTED.matchEntire(text)?.let { return Tapback(it.groupValues[1], it.groupValues[2]) }
+            REMOVED_EMOJI.matchEntire(text)?.takeIf { emojiOnly(it.groupValues[1]) }?.let { return Tapback(it.groupValues[1], it.groupValues[2], removal = true) }
             return null
         }
     }

@@ -95,4 +95,22 @@ class TapbackTest {
         assertNull(Tapback.parse("Reacted badly to the news"))
         assertNull(Tapback.parse(""))
     }
+
+    @Test
+    fun `parses the forms Android phones use besides`() {
+        assertEquals(Tapback("😂", "see you soon"), Tapback.parse("😂 to “see you soon”"))
+        assertEquals(Tapback("👍", "ok"), Tapback.parse("Reacted with 👍 to \"ok\""))
+        assertEquals(Tapback("😂", "see you soon", removal = true), Tapback.parse("Removed 😂 from “see you soon”"))
+        assertEquals(Tapback("❤️", "dinner?", removal = true), Tapback.parse("Removed the ❤️ reaction from “dinner?”"))
+        // Words before " to “…”" aren't a reaction.
+        assertEquals(null, Tapback.parse("Welcome to “the party”"))
+        assertEquals(null, Tapback.parse("2 to “go”"))
+    }
+
+    @Test
+    fun `a quote cut with three dots still finds its message`() {
+        val t = Tapback.parse("Reacted 😂 to “we should totally do this again next...”")!!
+        org.junit.Assert.assertTrue(t.matches("we should totally do this again next weekend at the lake"))
+        org.junit.Assert.assertFalse(t.matches("something else"))
+    }
 }

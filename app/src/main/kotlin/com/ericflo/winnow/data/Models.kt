@@ -31,6 +31,8 @@ data class ConversationSummary(
     /** The single address of a 1:1 conversation, or the first participant of a group. */
     val address: String get() = recipients.firstOrNull().orEmpty()
     val isGroup: Boolean get() = recipients.size > 1
+    /** Google Messages had it over RCS: its people are RCS ids in the store (see RcsSheet). */
+    val rcs: Boolean get() = recipients.any(::isRcsAddress)
     val isFiltered: Boolean get() = verdict?.effectiveAction == Action.FILTER
     val unread: Boolean get() = unreadCount > 0
 }

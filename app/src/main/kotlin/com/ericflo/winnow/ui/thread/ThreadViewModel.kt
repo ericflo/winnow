@@ -13,6 +13,7 @@ import com.ericflo.winnow.data.PhotoCrop
 import com.ericflo.winnow.sms.SendReadiness
 import com.ericflo.winnow.data.Tapback
 import com.ericflo.winnow.data.StoredVerdict
+import com.ericflo.winnow.data.isRcsAddress
 import com.ericflo.winnow.data.db.ScheduledMessageEntity
 import com.ericflo.winnow.data.db.StarredEntity
 import com.ericflo.winnow.data.displayNameFor
@@ -89,6 +90,15 @@ data class ThreadUiState(
     val members: List<Member> = emptyList(),
 ) {
     val isGroup: Boolean get() = recipients.size > 1
+
+    /**
+     * A chat Google Messages had over RCS: its people (or the chat itself) are RCS ids in the store.
+     * New messages in it reach the phone only through Google Messages (see RcsSheet).
+     */
+    val rcs: Boolean get() = recipients.any(::isRcsAddress) || messages.any { m -> m.sender?.let(::isRcsAddress) == true }
+
+    /** Several people write here (a group, or an RCS chat whose people the store didn't list): bubbles say who. */
+    val showsSenders: Boolean get() = isGroup || messages.mapNotNullTo(HashSet()) { it.sender }.size > 1
 
     /** Who sent spam (scams and phishing among it) here that the user hasn't cleared, by normalized number. */
     private val fraudSenders: Set<String> by lazy {
@@ -1075,6 +1085,13 @@ class ThreadViewModel(
      * Moves [messages] to Recently deleted (in the app's scope: leaving doesn't stop it halfway).
      * Their reminders are kept with them, and come back if they do.
      */
+    /** Names someone Winnow can't name itself (an RCS member): every list shows the name from then on. */
+    fun nameSender(address: String, name: String?) {
+        container.contacts.setGivenName(address, name)
+    }
+
+    fun givenName(address: String): String? = container.contacts.givenName(address)
+
     /** Why Winnow did what it did with the message [key] (see Provenance). */
     suspend fun explain(key: String) = container.provenance.explain(key)
 

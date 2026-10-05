@@ -45,6 +45,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.MailOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -149,6 +150,10 @@ fun InboxScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val empty by viewModel.emptyInbox.collectAsStateWithLifecycle()
+    val away by viewModel.away.collectAsStateWithLifecycle()
+    val rcs by viewModel.rcs.collectAsStateWithLifecycle()
+    var rcsWhy by rememberSaveable { mutableStateOf(false) }
+    if (rcsWhy) com.ericflo.winnow.ui.components.RcsSheet(onDismiss = { rcsWhy = false })
     val scheduledCount by viewModel.scheduledCount.collectAsStateWithLifecycle()
     val trashCount by viewModel.trashCount.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
@@ -303,6 +308,17 @@ fun InboxScreen(
                                     onAllow = { runCatching { context.startActivity(viewModel.appSettingsIntent()) } },
                                     onDismiss = { contactsHiddenDismissed = true },
                                 )
+                            }
+                        }
+                        // Texts that came while another app was the SMS app, and RCS chats that don't reach Winnow.
+                        away?.let { a ->
+                            item("away") {
+                                AwayCard(a, onReview = { viewModel.startReview(); viewModel.dismissAway() }, onRcs = { rcsWhy = true }, onDismiss = viewModel::dismissAway)
+                            }
+                        }
+                        if (rcs.isNotEmpty()) {
+                            item("rcs") {
+                                RcsCard(rcs, onOpen = { c -> onOpenThread(c.threadId, c.recipients) }, onWhy = { rcsWhy = true }, onDismiss = { viewModel.dismissRcs(rcs.size) })
                             }
                         }
                         // Winnow crashed or froze since the user last looked: the details, to send on.
@@ -1037,6 +1053,73 @@ private fun AlertsOffCard(onTurnOn: () -> Unit, onDismiss: () -> Unit) {
                 Button(onClick = onTurnOn) { Text("Turn on") }
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onDismiss) { Text("Not now") }
+            }
+        }
+    }
+}
+
+/** What arrived while another app was the SMS app: Winnow didn't see it arrive. */
+@Composable
+private fun AwayCard(a: com.ericflo.winnow.data.RoleWatch.Away, onReview: () -> Unit, onRcs: () -> Unit, onDismiss: () -> Unit) {
+    val n = java.text.NumberFormat.getIntegerInstance()
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("While another app was your SMS app", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "${android.text.format.DateUtils.formatDateRange(LocalContext.current, a.from, a.until, android.text.format.DateUtils.FORMAT_SHOW_TIME or android.text.format.DateUtils.FORMAT_SHOW_DATE)}: ${n.format(a.texts)} " +
+                    "${if (a.texts == 1) "text" else "texts"} came in ${n.format(a.conversations)} ${if (a.conversations == 1) "conversation" else "conversations"}. " +
+                    "Winnow didn't see them arrive, so it neither filtered them nor notified you of them.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (a.rcsConversations > 0) {
+                Text(
+                    "${n.format(a.rcsConversations)} of them ${if (a.rcsConversations == 1) "is an RCS chat" else "are RCS chats"} (${a.rcsNames.joinToString(", ")}): " +
+                        "their new messages reach your phone only while Google Messages is your SMS app.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onReview) { Text("Sort them now") }
+                if (a.rcsConversations > 0) TextButton(onClick = onRcs) { Text("About RCS") }
+                TextButton(onClick = onDismiss) { Text("Dismiss") }
+            }
+        }
+    }
+}
+
+/** Conversations that were RCS chats: new messages in them may not reach Winnow at all. */
+@Composable
+private fun RcsCard(chats: List<ConversationSummary>, onOpen: (ConversationSummary) -> Unit, onWhy: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                if (chats.size == 1) "1 conversation is an RCS chat" else "${chats.size} conversations are RCS chats",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                "Google Messages had them over RCS. While Winnow is your SMS app, new messages in them don't arrive: they wait with Google until " +
+                    "Google Messages is your SMS app again. A group chat's don't come as texts instead.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            val ink = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onTertiaryContainer)
+            chats.take(5).forEach { c ->
+                TextButton(onClick = { onOpen(c) }, contentPadding = PaddingValues(0.dp), colors = ink) {
+                    Text(c.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            if (chats.size > 5) Text("and ${chats.size - 5} more", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onWhy) { Text("What to do") }
+                TextButton(onClick = onDismiss, colors = ink) { Text("Got it") }
             }
         }
     }

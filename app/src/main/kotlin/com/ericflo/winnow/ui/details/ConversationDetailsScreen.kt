@@ -345,7 +345,7 @@ fun ConversationDetailsScreen(
                 }
             }
 
-            if (state.isGroup) {
+            if (state.isGroup || state.people.any { com.ericflo.winnow.data.isRcsAddress(it.address) }) {
                 item("group-name") {
                     ListItem(
                         headlineContent = { Text("Group name") },

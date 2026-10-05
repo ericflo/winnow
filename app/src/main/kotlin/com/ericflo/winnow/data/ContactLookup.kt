@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -45,16 +47,31 @@ class ContactLookup(private val context: Context, private val scope: CoroutineSc
     /** Bumped by [clear]: a lookup that started before it doesn't store what it found. */
     private val generation = AtomicInteger()
 
+    /**
+     * Names the user gave people Winnow can't name itself: someone in an RCS group chat, known
+     * only by an id Google Messages left in the store ("<id>@rcs.google.com"). This phone's only.
+     */
+    private val namesPrefs by lazy { context.getSharedPreferences("people_names", Context.MODE_PRIVATE) }
+    private val names = MutableStateFlow(0)
+
+    fun givenName(address: String): String? = namesPrefs.getString(address.trim().lowercase(), null)
+
+    /** Names [address] (null takes the name away); every list showing them reads names again. */
+    fun setGivenName(address: String, name: String?) {
+        namesPrefs.edit().apply { if (name.isNullOrBlank()) remove(address.trim().lowercase()) else putString(address.trim().lowercase(), name.trim()) }.apply()
+        names.update { it + 1 }
+    }
+
     // A colleague in a work profile is named once they're known to be one (see [isContact]): looking
     // every stranger up there to name them would cost a call to Android each.
-    fun displayName(address: String): String? = info(address)?.name ?: knownColleague(address)?.name
+    fun displayName(address: String): String? = givenName(address) ?: info(address)?.name ?: knownColleague(address)?.name
 
     /**
      * [displayName], if it's known without reading anything (looked up already, or in the list
      * as loaded): for the main thread, where reading the whole contact list would stall a frame.
      * Null when it isn't known yet, whether or not there's a name.
      */
-    fun nameIfKnown(address: String): String? = known(address)?.name
+    fun nameIfKnown(address: String): String? = givenName(address) ?: known(address)?.name
 
     /** [photoUri], under the same terms as [nameIfKnown]. */
     fun photoIfKnown(address: String): String? = known(address)?.photoUri
@@ -135,7 +152,8 @@ class ContactLookup(private val context: Context, private val scope: CoroutineSc
         }
     }.debounce(SETTLE_MILLIS).let { flow -> if (scope != null) flow.shareIn(scope, SharingStarted.WhileSubscribed(5_000)) else flow }
 
-    fun changes(): Flow<Unit> = shared
+    /** The contact list changing, or a name given (see [setGivenName]). */
+    fun changes(): Flow<Unit> = kotlinx.coroutines.flow.merge(shared, names.drop(1).map { })
 
     private fun info(address: String): Info? {
         if (!canRead()) return null
@@ -295,7 +313,7 @@ class ContactLookup(private val context: Context, private val scope: CoroutineSc
         fun isPersonalNumber(address: String): Boolean = numberKey(address)?.startsWith("short:") == false
 
         /** Someone who can be written back to: a full phone number, or an email address (by MMS). */
-        fun isReachable(address: String): Boolean = isPersonalNumber(address) || isEmailAddress(address)
+        fun isReachable(address: String): Boolean = isPersonalNumber(address) || (isEmailAddress(address) && !isRcsAddress(address))
 
         @Volatile private var appContext: Context? = null
         /** The SIM's country, once known. The network's is only a fallback, asked again later (a roaming phone is still from home). */
@@ -325,6 +343,8 @@ class ContactLookup(private val context: Context, private val scope: CoroutineSc
         }
 
         fun formatAddress(address: String): String {
+            // An RCS id says nothing to a person: its last few characters, to tell people apart.
+            if (isRcsAddress(address)) return rcsLabel(address)
             if (address.any(Char::isLetter)) return address
             val country = country()
             // Formatting a number costs about half a millisecond, and listing the conversations
@@ -352,6 +372,12 @@ class ContactLookup(private val context: Context, private val scope: CoroutineSc
             if (national.length != 10 || !national.all(Char::isDigit) || national[0] < '2' || national[3] < '2') return null
             return "(${national.substring(0, 3)}) ${national.substring(3, 6)}-${national.substring(6)}"
         }
+
+        /**
+         * Someone known only by an RCS id: its last four characters, to tell people apart, in one
+         * word so a group's name (first names only) keeps all of it: "RCS·a1b2".
+         */
+        fun rcsLabel(address: String): String = "RCS·" + address.trim().substringBefore('@').takeLast(4)
 
         /** [address] without its +1, for a phone in the US or Canada; null for anything else. */
         fun nationalForm(address: String, country: String): String? {

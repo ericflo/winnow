@@ -150,11 +150,17 @@ private fun BeDefault(isDefault: Boolean, onMakeDefault: () -> Unit, backups: Ba
                         "encryption don't. You can switch back to Google Messages any time.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                // Until RCS is off, other phones keep sending RCS, which only Google Messages receives;
-                // turned off first, people's messages arrive as texts, here, right away.
+                // Measured on a real phone: an RCS group chat's messages never reached Winnow while it was
+                // the SMS app. They waited with Google, and came only once Google Messages was again.
                 Text(
-                    "Before you switch: in Google Messages, open Settings, then RCS chats, and turn RCS off. " +
-                        "Otherwise messages people send you over RCS keep going to Google Messages for a while.",
+                    "Winnow can't receive RCS at all. While RCS is on, a message sent to you over RCS waits with Google and doesn't arrive here. " +
+                        "Someone texting you alone may be switched to SMS after a while; an RCS group chat isn't, so its messages go missing " +
+                        "until Google Messages is your SMS app again.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "Before you switch: in Google Messages, open Settings, then RCS chats, and turn RCS off. People's phones then send you " +
+                        "texts and picture messages, group chats included, which Winnow receives. Winnow marks any chat that was RCS.",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                 )

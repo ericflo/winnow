@@ -162,6 +162,15 @@
             </intent-filter>
         </service>
 
+        <!-- Told when the SMS app changes to or from Winnow (see RoleWatch). Android sends it to those two apps only. -->
+        <receiver
+            android:name=".data.RoleWatch$Receiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.provider.action.DEFAULT_SMS_PACKAGE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
         <receiver
             android:name=".sms.SmsStatusReceiver"
             android:exported="false" />

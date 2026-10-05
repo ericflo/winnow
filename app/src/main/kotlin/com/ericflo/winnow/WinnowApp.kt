@@ -188,6 +188,9 @@ class AppContainer(private val context: Context) {
         }
     }
 
+    /** When Winnow stopped being the SMS app, and what arrived until it was again (see RoleWatch). */
+    val roleWatch by lazy { com.ericflo.winnow.data.RoleWatch(context) }
+
     /** Why a text went where it did (see Provenance). */
     val provenance by lazy {
         com.ericflo.winnow.classify.ProvenanceSource(verdictDao, correctionDao, runDao, fitDao, settings, com.ericflo.winnow.data.MessageTexts(context))
@@ -438,6 +441,9 @@ class AppContainer(private val context: Context) {
     fun refreshAccess() {
         contacts.permissionsChanged()
         access.value = hasSmsAccess()
+        // In case Android's word of the SMS app changing was missed (see RoleWatch.Receiver).
+        val isDefault = isDefaultSmsApp()
+        appScope.launch(Dispatchers.IO) { runCatching { roleWatch.check(isDefault, messages::displayName) } }
         if (isDefaultSmsApp()) defaultRefused.value = false
     }
 

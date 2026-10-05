@@ -147,6 +147,8 @@ import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.ContactLookup
 import com.ericflo.winnow.data.OutgoingAttachment
 import com.ericflo.winnow.data.StoredVerdict
+import com.ericflo.winnow.data.isRcsAddress
+import com.ericflo.winnow.ui.components.RcsBanner
 import com.ericflo.winnow.data.Tapback
 import com.ericflo.winnow.data.db.ScheduledMessageEntity
 import com.ericflo.winnow.ui.components.Avatar
@@ -267,6 +269,9 @@ fun ThreadScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     // The message whose "why" is open (see ProvenanceSheet), by key.
     var explaining by rememberSaveable { mutableStateOf<String?>(null) }
+    // RCS: what it means for this conversation, and the RCS member being named.
+    var rcsWhy by rememberSaveable { mutableStateOf(false) }
+    var naming by rememberSaveable { mutableStateOf<String?>(null) }
     val sims by viewModel.sims.collectAsStateWithLifecycle()
     val selectedSim by viewModel.selectedSim.collectAsStateWithLifecycle()
     val blocked by viewModel.blocked.collectAsStateWithLifecycle()
@@ -750,6 +755,9 @@ fun ThreadScreen(
                     onDismiss = viewModel::dismissOwnNumberCard,
                 )
             }
+            // An RCS chat: say plainly that new messages in it may not arrive here.
+            var rcsDismissed by rememberSaveable(state.recipients) { mutableStateOf(false) }
+            if (state.rcs && !rcsDismissed) RcsBanner(onWhy = { rcsWhy = true }, onDismiss = { rcsDismissed = true })
             // Someone new, not yet answered: who is this? (Gone once they're added, or replied to.)
             var unknownDismissed by rememberSaveable(state.recipients) { mutableStateOf(false) }
             val unknown = state.addableContact
@@ -773,6 +781,7 @@ fun ThreadScreen(
                 onViewVideo = { audio.release(); watching = it },
                 audio = audio,
                 onActions = { actionsFor = it },
+                onNameSender = { naming = it },
                 onRetry = viewModel::retry,
                 onCopyCode = { copy(it, "Code copied") },
                 highlight = query.trim().takeIf { searching && it.length >= 2 },
@@ -866,6 +875,15 @@ fun ThreadScreen(
         )
     }
     selectingText?.let { text -> SelectTextDialog(text, onDismiss = { selectingText = null }) }
+    if (rcsWhy) com.ericflo.winnow.ui.components.RcsSheet(onDismiss = { rcsWhy = false })
+    naming?.let { address ->
+        com.ericflo.winnow.ui.components.NamePersonDialog(
+            current = viewModel.givenName(address),
+            label = state.senderNames[address] ?: "this person",
+            onName = { name -> viewModel.nameSender(address, name); naming = null },
+            onDismiss = { naming = null },
+        )
+    }
     explaining?.let { key ->
         com.ericflo.winnow.ui.insight.ProvenanceSheet(load = { viewModel.explain(key) }, onDismiss = { explaining = null }, onOpenRun = onOpenRun)
     }
@@ -1440,6 +1458,8 @@ private fun MessageList(
     onToggleSelected: (ChatMessage) -> Unit = {},
     textScale: Float = 1f,
     onTextScale: (Float) -> Unit = {},
+    /** Names an RCS member (see NamePersonDialog). */
+    onNameSender: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // Follows the pinch live; saved when the fingers lift.
@@ -1546,7 +1566,8 @@ private fun MessageList(
                     ) {
                         MessageBubble(
                             item = item,
-                            senderName = item.message.sender?.let { state.senderNames[it] }?.takeIf { state.isGroup },
+                            senderName = item.message.sender?.let { state.senderNames[it] }?.takeIf { state.showsSenders },
+                            onSenderName = item.message.sender?.takeIf { !item.message.outgoing && isRcsAddress(it) }?.let { sender -> { onNameSender(sender) } },
                             speaker = if (item.message.outgoing) "You" else item.message.sender?.let { state.senderNames[it] } ?: state.title,
                             senderPhoto = item.message.sender?.let { state.photos[it] },
                             showTime = revealed == item.key,
@@ -1698,6 +1719,8 @@ private fun MessageBubble(
     fraud: Boolean = item.message.verdict?.isFraud == true,
     /** When it's to come back, if the user asked to be reminded. */
     reminderAt: Long? = null,
+    /** Lets the user name the sender (an RCS member Winnow can't name), tapping their name. */
+    onSenderName: (() -> Unit)? = null,
 ) {
     val m = item.message
     val spoken = buildString {
@@ -1729,10 +1752,11 @@ private fun MessageBubble(
     ) {
         if (senderName != null && item.firstInGroup) {
             Text(
-                senderName,
+                // Asked only while they have no name; a named one's name can still be tapped to change it.
+                senderName + if (onSenderName != null && senderName.startsWith("RCS·")) " · name them" else "",
                 style = MaterialTheme.typography.labelMedium,
                 color = avatarColors(m.sender.orEmpty()).second,
-                modifier = Modifier.padding(start = 48.dp, bottom = 2.dp),
+                modifier = Modifier.padding(start = 48.dp, bottom = 2.dp).let { if (onSenderName != null) it.clickable(onClickLabel = "Name this person", onClick = onSenderName) else it },
             )
         }
         Row(verticalAlignment = Alignment.Bottom) {

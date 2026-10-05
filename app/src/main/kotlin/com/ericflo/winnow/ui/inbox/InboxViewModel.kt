@@ -137,6 +137,28 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
 
     private var watchdog: kotlinx.coroutines.Job? = null
 
+    /** What arrived while another app was the SMS app (see RoleWatch), until dismissed. */
+    val away: StateFlow<com.ericflo.winnow.data.RoleWatch.Away?> = container.roleWatch.away
+
+    fun dismissAway() = container.roleWatch.dismiss()
+
+    private val rcsPrefs by lazy { container.appContext.getSharedPreferences("rcs_card", android.content.Context.MODE_PRIVATE) }
+    private val rcsDismissedAt = MutableStateFlow(runCatching { rcsPrefs.getInt("dismissed_count", 0) }.getOrDefault(0))
+
+    /**
+     * Conversations that were RCS chats, wherever they're filed, while there are more than when the
+     * user last said they'd seen the card: new messages in them may not reach Winnow.
+     */
+    val rcs: StateFlow<List<ConversationSummary>> =
+        if (mode != ListMode.INBOX) MutableStateFlow(emptyList())
+        else combine(all, rcsDismissedAt) { list, dismissed -> list.filter { it.rcs }.takeIf { it.size > dismissed }.orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun dismissRcs(count: Int) {
+        rcsPrefs.edit().putInt("dismissed_count", count).apply()
+        rcsDismissedAt.value = count
+    }
+
     /** The listing under way, for the empty inbox to say how long it's been. */
     fun listingProgress() = repo.listingProgress()
 
