@@ -29,6 +29,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
@@ -90,7 +92,10 @@ class TelephonyMessageRepository(
     override suspend fun messagesNow(threadId: Long): List<ChatMessage> = withContext(Dispatchers.IO) { queryThread(threadId) }
 
     override fun messages(threadId: Long): Flow<List<ChatMessage>> {
-        val rows = changes().map { queryThread(threadId) }.flowOn(Dispatchers.IO)
+        val rows = changes().map {
+            val started = System.nanoTime()
+            queryThread(threadId).also { Log.d(TAG, "Loaded ${it.size} messages of thread $threadId in ${(System.nanoTime() - started) / 1_000_000} ms") }
+        }.flowOn(Dispatchers.IO)
         return combine(rows, verdictsByKey()) { list, verdicts -> list.map { it.copy(verdict = verdicts[it.key]) } }
     }
 
@@ -467,7 +472,17 @@ class TelephonyMessageRepository(
     }.flowOn(Dispatchers.Default)
 
     /** Emits once immediately, then whenever the SMS or MMS store changes. */
-    private fun changes(): Flow<Unit> = callbackFlow {
+    /**
+     * Once at once, then once whenever the message store has settled after a change. One new text
+     * notifies the SMS, MMS and combined stores separately, a few milliseconds apart, and each
+     * notification read the whole conversation (or the whole list) again: three reads of an
+     * 8,000-message thread for one text arriving anywhere. Waiting [CHANGE_SETTLE_MILLIS] for
+     * the notifications to stop makes that one read, and a burst of texts one read per pause.
+     */
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    private fun changes(): Flow<Unit> = merge(flowOf(Unit), storeChanges().debounce(CHANGE_SETTLE_MILLIS))
+
+    private fun storeChanges(): Flow<Unit> = callbackFlow {
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
                 trySend(Unit)
@@ -476,7 +491,6 @@ class TelephonyMessageRepository(
         listOf(Telephony.MmsSms.CONTENT_URI, Telephony.Sms.CONTENT_URI, Telephony.Mms.CONTENT_URI).forEach {
             resolver.registerContentObserver(it, true, observer)
         }
-        trySend(Unit)
         awaitClose { resolver.unregisterContentObserver(observer) }
     }.conflate()
 
@@ -675,7 +689,7 @@ class TelephonyMessageRepository(
                 attachments = own.filter { it.contentType != "text/plain" && it.contentType != "application/smil" }.map {
                     Attachment(ContentUris.withAppendedId(Telephony.Mms.Part.CONTENT_URI, it.partId).toString(), it.contentType, it.name)
                 },
-                sender = if (m.outgoing) null else mmsSender(m.id),
+                sender = if (m.outgoing) null else mmsSender(m.id, m.timestamp),
             )
         }.sortedBy { it.timestamp }
     }
@@ -726,6 +740,19 @@ class TelephonyMessageRepository(
         return subjects
     }
 
+    /**
+     * Who sent each received MMS, by its id and date: that never changes, and a conversation is
+     * read again on every change to the message store, which for a group chat full of photos was
+     * one query per picture message each time. The date keeps a reused id from matching.
+     */
+    private val mmsSenders = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun mmsSender(mmsId: Long, date: Long): String? {
+        val key = "$mmsId:$date"
+        mmsSenders[key]?.let { return it }
+        return mmsSender(mmsId)?.also { if (mmsSenders.size < MAX_CACHED_SENDERS) mmsSenders[key] = it }
+    }
+
     private fun mmsSender(mmsId: Long): String? =
         resolver.query(
             Telephony.Mms.Addr.getAddrUriForMessage(mmsId.toString()), arrayOf(Telephony.Mms.Addr.ADDRESS),
@@ -757,6 +784,12 @@ class TelephonyMessageRepository(
         const val ADDR_TYPE_FROM = 0x89
 
         private const val TAG = "WinnowStore"
+
+        /** How long the message store must be quiet after a change before it's read again (see changes). */
+        private const val CHANGE_SETTLE_MILLIS = 150L
+
+        /** Plenty for every picture message in a long history; a bound, so it can't grow without one. */
+        private const val MAX_CACHED_SENDERS = 50_000
 
         /** Drafts other SMS apps left in the store aren't messages. */
         /** Endings a bare domain in a text can have; matches MessageText's link finder. */
