@@ -172,6 +172,7 @@ fun InboxScreen(
     var alertsOffDismissed by rememberSaveable { mutableStateOf(false) }
     var labelingSelected by remember { mutableStateOf(false) }
     val alertsOff by viewModel.alertsOff.collectAsStateWithLifecycle()
+    val newProblems by viewModel.newProblems.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val atTop by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
     val farDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 6 } }
@@ -278,6 +279,16 @@ fun InboxScreen(
                                 AlertsOffCard(
                                     onTurnOn = { runCatching { context.startActivity(viewModel.alertSettingsIntent()) } },
                                     onDismiss = { alertsOffDismissed = true },
+                                )
+                            }
+                        }
+                        // Winnow crashed or froze since the user last looked: the details, to send on.
+                        if (newProblems > 0) {
+                            item("problems") {
+                                ProblemCard(
+                                    newProblems,
+                                    onShare = { runCatching { context.startActivity(viewModel.shareProblems()) } },
+                                    onDismiss = viewModel::dismissProblems,
                                 )
                             }
                         }
@@ -861,6 +872,31 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit, onClose: (
                 } else {
                     Spacer(Modifier.width(12.dp))
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProblemCard(count: Int, onShare: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text(if (count == 1) "Winnow ran into a problem" else "Winnow ran into $count problems", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "It crashed or stopped responding since you last opened it. The details are on this phone; sharing them helps get it fixed.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onShare) { Text("Share details") }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = onDismiss) { Text("Not now") }
             }
         }
     }

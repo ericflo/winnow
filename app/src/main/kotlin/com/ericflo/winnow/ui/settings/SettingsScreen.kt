@@ -420,6 +420,14 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
             item("backup") { BackupSection(backup, isDefault, canBackUpMessages, viewModel) }
 
             section("About")
+            item("problems") {
+                val problems by viewModel.problems.collectAsStateWithLifecycle()
+                ProblemsRow(
+                    problems,
+                    onShare = { runCatching { context.startActivity(viewModel.shareProblems()) } },
+                    onClear = viewModel::clearProblems,
+                )
+            }
             item("version") {
                 // What a bug report needs first.
                 val info = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull() }
@@ -863,5 +871,35 @@ private fun QuickRepliesRow(replies: List<String>, onSave: (List<String>) -> Uni
             }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = { editing = false }) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Crashes and freezes recorded on this phone, and the report to share. A report can carry bits
+ * of what was being handled when it went wrong, so it only leaves the phone when shared.
+ */
+@Composable
+private fun ProblemsRow(problems: List<com.ericflo.winnow.diagnostics.ProblemLog.Problem>, onShare: () -> Unit, onClear: () -> Unit) {
+    ListItem(
+        headlineContent = { Text("Problems on this phone") },
+        supportingContent = {
+            Column {
+                if (problems.isEmpty()) {
+                    Text("None recorded. If Winnow crashes or stops responding, the details are kept here, on this phone, for you to share.")
+                } else {
+                    val latest = problems.first()
+                    val at = java.time.format.DateTimeFormatter.ofLocalizedDateTime(java.time.format.FormatStyle.SHORT)
+                        .format(java.time.Instant.ofEpochMilli(latest.at).atZone(java.time.ZoneId.systemDefault()))
+                    Text(
+                        "${if (problems.size == 1) "1 recorded" else "${problems.size} recorded"}, the latest a ${latest.kind.label.lowercase()} on $at. " +
+                            "The report stays on this phone unless you share it, and can include bits of what Winnow was handling.",
+                    )
+                    Row {
+                        TextButton(onClick = onShare) { Text("Share report") }
+                        TextButton(onClick = onClear) { Text("Clear") }
+                    }
+                }
+            }
+        },
     )
 }

@@ -40,6 +40,15 @@ sealed interface TrialState {
 }
 
 class SettingsViewModel(private val container: AppContainer) : ViewModel() {
+    /** Crashes and freezes recorded on this phone (Settings → About). */
+    val problems = container.problems.problems
+
+    /** The report, to share; looking at it counts as seeing them. */
+    fun shareProblems(): android.content.Intent = container.problems.shareIntent().also { container.problems.markSeen() }
+
+    fun clearProblems() {
+        container.appScope.launch(kotlinx.coroutines.Dispatchers.IO) { container.problems.clear() }
+    }
     val settings: StateFlow<WinnowSettings?> =
         container.settings.settings.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 

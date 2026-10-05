@@ -69,6 +69,9 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        // First, so a crash anywhere after this is on record (Settings → About).
+        container.problems.install()
+        container.appScope.launch(Dispatchers.IO) { runCatching { container.problems.load() } }
         // Debug builds log main-thread disk and network work, and leaked resources: on a real
         // phone, slower than any emulator, those are where freezes and "not responding" come from.
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
@@ -271,6 +274,9 @@ class AppContainer(private val context: Context) {
     val keyShortcuts = kotlinx.coroutines.flow.MutableSharedFlow<KeyShortcut>(extraBufferCapacity = 1)
 
     /** Train Winnow: rounds of guesses for the user to confirm or fix (see Training). */
+    /** Crashes and freezes on this phone, for a report the user can share. */
+    val problems by lazy { com.ericflo.winnow.diagnostics.ProblemLog(context) }
+
     val training by lazy { com.ericflo.winnow.classify.Training(context, messages, verdictDao, learner, contacts) }
 
     /** The user's labels: filing messages by category and teaching the on-device model. */

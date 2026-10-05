@@ -203,6 +203,15 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     /** New texts can't alert the user: Winnow's notifications, or its message channel, are turned off. */
     val alertsOff: StateFlow<Boolean> = _alertsOff.asStateFlow()
 
+    /** Crashes or freezes since the user last looked: the inbox offers the report. */
+    val newProblems: StateFlow<Int> = container.problems.unseen
+
+    fun shareProblems(): android.content.Intent = container.problems.shareIntent().also { container.problems.markSeen() }
+
+    fun dismissProblems() {
+        container.appScope.launch(Dispatchers.IO) { container.problems.markSeen() }
+    }
+
     fun alertSettingsIntent(): android.content.Intent = container.notifier.alertSettingsIntent()
 
     fun refresh() {

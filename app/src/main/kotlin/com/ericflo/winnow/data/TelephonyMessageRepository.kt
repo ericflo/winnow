@@ -464,7 +464,7 @@ class TelephonyMessageRepository(
                 sender = row.address,
             )
         }
-    }
+    }.flowOn(Dispatchers.Default)
 
     /** Emits once immediately, then whenever the SMS or MMS store changes. */
     private fun changes(): Flow<Unit> = callbackFlow {
@@ -480,8 +480,10 @@ class TelephonyMessageRepository(
         awaitClose { resolver.unregisterContentObserver(observer) }
     }.conflate()
 
+    // These map every verdict on each change to the table (a history review or a round of labels
+    // writes hundreds): off the main thread, where the screens that collect them would run it.
     private fun verdictsByKey(): Flow<Map<String, StoredVerdict>> =
-        dao.observeAll().map { rows -> rows.associate { it.messageKey to it.toStored(ProviderKind::labelFor) } }
+        dao.observeAll().map { rows -> rows.associate { it.messageKey to it.toStored(ProviderKind::labelFor) } }.flowOn(Dispatchers.Default)
 
     private class ListVerdicts(val byKey: Map<String, StoredVerdict>, val latestByThread: Map<Long, StoredVerdict>)
 
@@ -490,7 +492,7 @@ class TelephonyMessageRepository(
             byKey = rows.associate { it.messageKey to it.toStored(ProviderKind::labelFor) },
             latestByThread = rows.groupBy { it.threadId }.mapValues { (_, r) -> r.maxBy { it.decidedAt }.toStored(ProviderKind::labelFor) },
         )
-    }
+    }.flowOn(Dispatchers.Default)
 
     // --- Conversation list ---------------------------------------------------------------
 
