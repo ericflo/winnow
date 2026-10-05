@@ -49,4 +49,46 @@ class PersonalizerTest {
         assertEquals(0, Personalizer.train(LocalModel.bundled, emptyList()).size)
         assertEquals(base.classify(promo), base.learn(emptyList()).classify(promo))
     }
+
+    @Test
+    fun `the fast fit gives exactly what the plain one does`() {
+        val r = kotlin.random.Random(7)
+        val words = "your package confirm account vote donate today free prize call reply stop click order code bank payment dinner tomorrow late".split(" ")
+        val corrections = (0 until 300).mapNotNull {
+            val body = (0 until 14).joinToString(" ") { words[r.nextInt(words.size)] } + " ${r.nextInt(1000)}"
+            base.correction(InboundMessage("+1415555${1000 + r.nextInt(8999)}", body), setOf(Category.entries[r.nextInt(7)]))
+        }
+        val fast = Personalizer.train(LocalModel.bundled, corrections)
+        val plain = plainTrain(LocalModel.bundled, corrections)
+        assertEquals(plain.keys, fast.weights.keys)
+        plain.forEach { (bucket, row) -> assertTrue("bucket $bucket", row.contentEquals(fast.weights.getValue(bucket))) }
+    }
+
+    /** Personalizer.train as it was first written, with maps: the reference the fast one must match. */
+    private fun plainTrain(base: LocalModel, corrections: List<Correction>, epochs: Int = 40, learningRate: Double = 0.5, l2: Double = 1e-3): Map<Int, FloatArray> {
+        val k = base.classes.size
+        val baseScores = corrections.map { base.scores(it.buckets) }
+        val weights = HashMap<Int, DoubleArray>()
+        val squares = HashMap<Int, DoubleArray>()
+        corrections.forEach { c -> c.buckets.forEach { weights.getOrPut(it) { DoubleArray(k) }; squares.getOrPut(it) { DoubleArray(k) { 1e-8 } } } }
+        repeat(epochs) {
+            corrections.forEachIndexed { n, correction ->
+                val value = LocalModel.featureValue(correction.buckets.size)
+                val scores = baseScores[n].copyOf()
+                for (i in correction.buckets) { val row = weights.getValue(i); for (c in 0 until k) scores[c] += row[c] * value }
+                val p = LocalModel.softmax(scores, base.temperature.toDouble())
+                for (c in 0 until k) {
+                    val g = p[c] - if (c == correction.label) 1.0 else 0.0
+                    for (i in correction.buckets) {
+                        val row = weights.getValue(i)
+                        val sq = squares.getValue(i)
+                        val gi = g * value + l2 * row[c]
+                        sq[c] += gi * gi
+                        row[c] -= learningRate * gi / kotlin.math.sqrt(sq[c])
+                    }
+                }
+            }
+        }
+        return weights.mapValues { (_, row) -> FloatArray(k) { row[it].toFloat() } }
+    }
 }
