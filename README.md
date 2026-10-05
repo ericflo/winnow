@@ -436,8 +436,11 @@ It uses `OPENROUTER_API_KEY` and/or `TYPESAFE_API_KEY`.
 CI runs on [Woodpecker](https://woodpecker-ci.org/) from `.woodpecker.yml`. Every push to
 `main` runs the full gate: unit tests for `:classifier`, `:mms` and `:app`, Android lint, and
 a debug build. It runs in `eclipse-temurin:21-jdk` as an unprivileged user.
-`scripts/ci/android-sdk.sh` installs the Android SDK (command-line tools pinned by checksum) and
-the Gradle cache into the workspace. The same gate locally:
+`scripts/ci/android-sdk.sh` installs the Android SDK (command-line tools pinned by checksum).
+The SDK and Gradle's home (its dependency and build caches) live on a persistent volume,
+`ci-build/winnow-gradle-cache` (defined in epsilon), locked so one build writes it at a time; a
+build that can't get it within ten minutes uses pod-local scratch and starts cold. The same
+gate locally:
 
 ```sh
 ./gradlew :classifier:test :mms:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
