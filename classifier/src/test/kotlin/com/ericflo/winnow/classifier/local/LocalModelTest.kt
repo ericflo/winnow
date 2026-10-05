@@ -81,7 +81,7 @@ class LocalModelTest {
     @Test
     fun `explains a toll phish by its link`() {
         val p = classifier.classify(InboundMessage("+18035550123", "SunPass: You have an unpaid toll of $4.15. Pay now to avoid a fee: sunpass.com-tollpay.vip"))
-        assertEquals(Category.PHISHING, p.category)
+        assertEquals(Category.SPAM, p.category)
         assertTrue(p.reasons.toString(), p.reasons.any { "link" in it || "web address" in it })
         assertTrue(p.reasons.toString(), p.reasons.none { it == "“pay”" && "“pay now”" in p.reasons })
     }

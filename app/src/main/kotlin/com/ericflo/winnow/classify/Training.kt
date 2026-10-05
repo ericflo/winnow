@@ -47,12 +47,17 @@ class Training(
         val firstGuess: Category = guess,
         /** What the classifier service (Jev) said of this conversation, if it was asked (see Bootstrap). */
         val providerSays: Category? = null,
+        /** The user's own label from before the six categories, here to be confirmed or changed. */
+        val before: Category? = null,
+        /** The service's fine-grained answer, if it gave one ("toll_phishing"). */
+        val providerDetail: String? = null,
     ) {
         /** What the model reads to guess: the newest text, as they sent it. */
         fun message() = InboundMessage(sender = recipients.first(), body = text, senderInContacts = false, userHasMessagedSender = repliedTo)
     }
 
-    data class Round(val candidates: List<Candidate>, val backlog: Int, val labeled: Int)
+    /** [rechecks] of the candidates are the user's earlier labels to confirm; [toRecheck] conversations wait in all. */
+    data class Round(val candidates: List<Candidate>, val backlog: Int, val labeled: Int, val rechecks: Int = 0, val toRecheck: Int = 0)
 
     /** A finished round, kept so progress can be shown round over round. */
     @Serializable
@@ -73,8 +78,13 @@ class Training(
     suspend fun nextRound(size: Int = ROUND_SIZE, seed: Long = System.currentTimeMillis()): Round = withContext(Dispatchers.IO) {
         val judged = verdicts.judgedThreads().toSet()
         val all = repo.conversations().first()
-        val backlog = all.filter { c -> eligible(c) && c.threadId !in judged && !knownEmpty(c) }
+        // The user's labels from before the six categories, by conversation: the newest one's category.
+        val before = verdicts.toRecheck().groupBy { it.threadId }
+            .mapValues { (_, rows) -> rows.maxBy { it.decidedAt }.userCategory?.let(Category::fromKey) }
+        // Rechecks come from any conversation the user labeled, contacts' included; the rest are strangers'.
+        val backlog = all.filter { c -> !c.isGroup && (c.threadId in before || eligible(c)) && c.threadId !in judged && !knownEmpty(c) }
         val classifier = learner.classifier()
+        val details = verdicts.providerDetails().associate { it.threadId to it.subcategory }
         // What the classifier service said of each conversation, from its newest label there.
         // Its label on the conversation's newest text (message ids grow with time), not its latest run's.
         val provider = corrections.all().filter { it.fromProvider && it.threadId != null }
@@ -84,7 +94,8 @@ class Training(
         val guessed = backlog.map { c ->
             val p = classifier.classify(InboundMessage(sender = c.address, body = c.snippet.removePrefix("You: ")))
             val disagree = provider[c.threadId]?.let { it != p.category } == true
-            c.threadId to if (disagree) p.confidence - 1.0 else p.confidence
+            val reminderLikely = provider[c.threadId] == Category.REMINDER || (p.distribution[Category.REMINDER] ?: 0.0) >= REMINDER_LIKELY
+            c.threadId to priority(p.confidence, recheck = c.threadId in before, reminderLikely = reminderLikely, disagree = disagree)
         }
         val byId = backlog.associateBy { it.threadId }
         val candidates = mutableListOf<Candidate>()
@@ -113,6 +124,8 @@ class Training(
                 earlier = covered.dropLast(1).asReversed().map(Labeler::textOf),
                 repliedTo = messages.any { it.outgoing },
                 providerSays = provider[c.threadId],
+                before = before[c.threadId],
+                providerDetail = details[c.threadId],
             )
         }
         Round(
@@ -120,6 +133,8 @@ class Training(
             candidates,
             backlog = backlog.count { !knownEmpty(it) },
             labeled = all.count { it.threadId in judged && eligible(it) },
+            rechecks = candidates.count { it.threadId in before },
+            toRecheck = before.size,
         )
     }
 
@@ -149,6 +164,22 @@ class Training(
 
     companion object {
         const val ROUND_SIZE = 20
+
+        /** At least this much of the model's belief on Reminder makes a conversation a likely one to show. */
+        const val REMINDER_LIKELY = 0.2
+
+        /**
+         * Where a conversation goes in the order a round picks from (lower first): the user's
+         * earlier labels to recheck, then likely reminders (a new category, which starts empty),
+         * then where the service and the model disagree, then by how unsure the model is. Pure,
+         * so it's unit-tested.
+         */
+        fun priority(confidence: Double, recheck: Boolean, reminderLikely: Boolean, disagree: Boolean): Double = when {
+            recheck -> confidence - 3.0
+            reminderLikely -> confidence - 2.0
+            disagree -> confidence - 1.0
+            else -> confidence
+        }
         private const val KEY_ROUNDS = "rounds"
         private const val MAX_ROUNDS_KEPT = 200
 

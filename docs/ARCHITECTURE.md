@@ -42,13 +42,23 @@ so providers can be compared on real traffic before switching.
 
 ### Taxonomy
 
-One Choice question, `category`, with seven options. Each option's rubric is the
-instruction the provider sees (`classifier/…/message/Taxonomy.kt`). The political, scam and
-phishing rubrics were tuned against patterns in a real spam folder: sensational "BREAKING"
-hooks, fake polls and petitions, wrong-name fundraising, and "are you free to talk?" openers.
-With Jev 1.13 on OpenRouter, the live test's 12 samples all land where they should. The two
-hardest (a fake "approval poll" and a wrong-name "tough news" text) score 0.55–0.61, so they
-are silenced rather than filtered.
+Six categories (`classifier/…/message/Taxonomy.kt`): personal, reminder, transactional,
+marketing, political and spam. Phishing and "likely scam" were categories of their own until
+they were folded into spam (Room migration 16→17 and backup format 2 rename them; the user's
+earlier labels, except political ones, are marked `recheck` and come first in Train).
+
+A provider isn't asked to choose among the six. One Choice question, `category`, offers 79
+finer kinds of text (`Subcategories.kt`), each described with the category it counts as, and
+the answer's probabilities are added up into the six (`Subcategories.aggregate`); the verdict
+keeps the finer kind as `subcategory`. TypeSafe's docs put a Choice's limit at 255 options and
+recommend giving the model the full list rather than a shortlist. The parent's confidence is
+its summed probability, not the provider's own `confidence` (which is over the 79). Personal
+options are listed first and spam last because Jev leans toward earlier options. With
+examples, the instructions also carry up to three of the user's own labeled texts per
+category, redacted like the message. A provider that answers with the six directly still
+works: `aggregate` falls back to category keys. The spam and political options were written
+against patterns in a real spam folder: sensational "BREAKING" hooks, fake polls and
+petitions, wrong-name fundraising, and "are you free to talk?" openers.
 
 ### Adding a provider
 
@@ -83,14 +93,15 @@ reads the unredacted message: nothing leaves the phone, so there's nothing to re
   redundant ones dropped ("pay now" makes "pay" redundant). They're stored with the verdict
   and shown in the banner.
 - **Policy:** an on-device verdict needs 85% confidence to take its category's full action
-  (`ActionPolicy.onDeviceMinConfidence`); below that it's softened a step. A scam or
-  phishing verdict also needs a hook (`Featurizer.hasHook`) before it can filter. A hook is
-  a link off the company's real domain, money, a phone number, an email address, or payment,
-  code, PIN, job, prize or crypto words. Without one the text is only silenced: bare
-  wrong-number openers are indistinguishable from real people on new numbers, and an alert
-  with no foreign link has nothing to phish with. That rule took cross-validated wanted
-  texts filtered from 1.1% to 0.1% while unwanted texts kept quiet rose to 96%. Deciding
-  without the provider needs 95%.
+  (`ActionPolicy.onDeviceMinConfidence`); below that it's softened a step. A spam verdict
+  also needs a hook (`Featurizer.hasHook`) before it can filter. A hook is a link off the
+  company's real domain, money, a phone number, an email address, or payment, code, PIN,
+  job, prize or crypto words. Without one the text is only silenced, and let through when
+  the model is under 60% sure (`hooklessNotifiesBelow`): bare wrong-number openers are
+  indistinguishable from real people on new numbers, and an alert with no foreign link has
+  nothing to phish with. Of the floors tried, 0.6 kept 91.7% of unwanted test texts quiet
+  while muting 2.2% of wanted ones (letting every unsure one through: 87.8% and 1.0%; none:
+  92.8% and 3.8%). Deciding without the provider needs 95%.
 - **Bagging:** the shipped model is the average of 5 models trained on bootstrap resamples.
   For a linear model that equals averaging their scores, so the ensemble costs nothing at
   run time; it improved recall and calibration (ECE 0.015 → 0.009).

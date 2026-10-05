@@ -113,10 +113,10 @@ fun Avatar(name: String, seed: String, size: Dp = 52.dp, modifier: Modifier = Mo
 /** At this size and up, an avatar shows the contact's full photo rather than its thumbnail. */
 private val SHARP_PHOTO_SIZE = 44.dp
 
-/** The Spam & blocked list's leading icon: a red "!" for fraud, a block sign for everything else filtered. */
+/** The Spam & blocked list's leading icon: a red "!" for spam, a block sign for everything else filtered. */
 @Composable
 fun FilteredAvatar(category: Category?, size: Dp = 52.dp) {
-    val fraud = category == Category.SCAM || category == Category.PHISHING
+    val fraud = category == Category.SPAM
     val c = MaterialTheme.colorScheme
     Box(
         modifier = Modifier.size(size).background(if (fraud) c.errorContainer else c.surfaceContainerHighest, CircleShape),
@@ -148,7 +148,7 @@ fun UnreadCountBadge(count: Int, modifier: Modifier = Modifier) {
     }
 }
 
-/** "Likely scam · 98%" or "Marketing · silenced". */
+/** "Spam · 98%" or "Marketing · silenced". */
 @Composable
 fun VerdictBadge(verdict: StoredVerdict, modifier: Modifier = Modifier) {
     val (container, content) = categoryColors(verdict.category)

@@ -73,7 +73,7 @@ class BackupArchiveTest {
         assertArrayEquals(map, media.getValue("draft-1-0.jpg"))
         assertEquals(backup, BackupArchive.peek(ByteArrayInputStream(out.toByteArray())))
         val manifest = java.util.zip.ZipInputStream(ByteArrayInputStream(out.toByteArray())).use { it.nextEntry; it.readBytes().decodeToString() }
-        assert(manifest.startsWith("{\"format\":1,")) { manifest.take(40) }
+        assert(manifest.startsWith("{\"format\":${WinnowBackup.FORMAT},")) { manifest.take(40) }
     }
 
     @Test

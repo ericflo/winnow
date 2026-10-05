@@ -66,7 +66,7 @@ fun main() {
         score("bagged 0.85 & gate(cost $cost) >= $g") { i -> top(pBag[i]) in unwanted && pBag[i].max() >= 0.85 && pGate.getValue(cost)[i] >= g }
     }
     // Per-category: stricter only for scam, where wrong-number openers look like real texts.
-    val scam = classes.indexOf("scam")
+    val scam = classes.indexOf("spam")
     for (sc in listOf(0.9, 0.95, 0.98)) score("single: 0.85, scam needs $sc") { i ->
         val t = top(pSingle[i]); t in unwanted && pSingle[i].max() >= (if (t == scam) sc else 0.85)
     }
@@ -120,7 +120,7 @@ fun main() {
     println("\nNotifications (bagged model, shipped policy):")
     for (floor in listOf(0.0, 0.5, 0.55, 0.6, 0.65, 0.7)) report("floor $floor") { action(it, floor) }
     // Narrower: only an unsure scam or phishing guess with nothing to defraud with is let through.
-    val needsHook = setOf(classes.indexOf("scam"), classes.indexOf("phishing"))
+    val needsHook = setOf(classes.indexOf("spam"))
     fun hooklessUnsure(i: Int, below: Double): Boolean {
         val p = pBag[i]; val t = top(p)
         return t in needsHook && p[t] < below && !Featurizer.hasHook(examples[i].features)

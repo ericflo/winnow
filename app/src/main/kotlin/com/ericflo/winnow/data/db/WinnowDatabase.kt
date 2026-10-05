@@ -28,7 +28,7 @@ import kotlinx.coroutines.flow.Flow
         VerdictEntity::class, SenderRuleEntity::class, ConversationStateEntity::class, ScheduledMessageEntity::class,
         CorrectionEntity::class, StarredEntity::class, ReminderEntity::class,
     ],
-    version = 16,
+    version = 17,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
@@ -40,6 +40,9 @@ import kotlinx.coroutines.flow.Flow
         AutoMigration(from = 14, to = 15, spec = WinnowDatabase.ArrivalsMarked::class),
         // 15 to 16 adds CorrectionEntity.source: every existing row is the user's.
         AutoMigration(from = 15, to = 16),
+        // 16 to 17: six categories. Phishing and scam fold into spam; labels the user gave before
+        // (but political ones, which stand) are marked to recheck; a provider's fine-grained answer.
+        AutoMigration(from = 16, to = 17, spec = WinnowDatabase.SixCategories::class),
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
@@ -61,6 +64,20 @@ abstract class WinnowDatabase : RoomDatabase() {
      * turned on), so that's the best there is: a live one that was summarized is left out, which
      * undercounts, never the other way.
      */
+    /**
+     * The move to six categories: everything that said phishing or "likely scam" says spam, in
+     * verdicts, labels and what the model learned; and the user's labels from before (all but
+     * political, which they said stand) come back to Train Winnow to be confirmed or changed.
+     */
+    class SixCategories : AutoMigrationSpec {
+        override fun onPostMigrate(db: SupportSQLiteDatabase) {
+            db.execSQL("UPDATE verdicts SET category = 'spam' WHERE category IN ('phishing', 'scam')")
+            db.execSQL("UPDATE verdicts SET userCategory = 'spam' WHERE userCategory IN ('phishing', 'scam')")
+            db.execSQL("UPDATE corrections SET label = 'spam' WHERE label IN ('phishing', 'scam')")
+            db.execSQL("UPDATE verdicts SET recheck = 1 WHERE userCategory IS NOT NULL AND userCategory != 'political'")
+        }
+    }
+
     class ArrivalsMarked : AutoMigrationSpec {
         override fun onPostMigrate(db: SupportSQLiteDatabase) {
             db.execSQL("UPDATE verdicts SET atArrival = 1 WHERE summarized = 0")
@@ -349,6 +366,10 @@ data class VerdictEntity(
      * restore, none of which ever buzzed (or didn't) because of Winnow.
      */
     @ColumnInfo(defaultValue = "0") val atArrival: Boolean = false,
+    /** A label from before the six categories, for the user to confirm or change in Train Winnow. */
+    @ColumnInfo(defaultValue = "0") val recheck: Boolean = false,
+    /** A provider's fine-grained answer ([com.ericflo.winnow.classifier.message.Subcategories]), when it gave one. */
+    val subcategory: String? = null,
 ) {
     fun toStored(providerNames: (String) -> String) = StoredVerdict(
         // The user's label wins: every badge, chip and list then follows it.
@@ -385,10 +406,14 @@ data class VerdictEntity(
                 model = model,
                 costUsd = verdict.costUsd,
                 decidedAt = now,
+                subcategory = verdict.subcategory,
             )
         }
     }
 }
+
+/** A conversation and a provider's fine-grained answer about it. */
+data class ThreadDetail(val threadId: Long, val subcategory: String?)
 
 @Entity(tableName = "sender_rules")
 data class SenderRuleEntity(
@@ -432,9 +457,32 @@ interface VerdictDao {
     @Query("SELECT COUNT(*) FROM verdicts WHERE userCategory IS NOT NULL")
     fun observeLabelCount(): Flow<Int>
 
-    /** Conversations the user has already judged: labeled, or corrected ("Not spam", "Filter sender"). */
-    @Query("SELECT DISTINCT threadId FROM verdicts WHERE userCategory IS NOT NULL OR userAction IS NOT NULL")
+    /**
+     * Conversations the user has already judged: labeled, or corrected ("Not spam", "Filter
+     * sender"), and not waiting to be rechecked.
+     */
+    @Query(
+        "SELECT DISTINCT threadId FROM verdicts WHERE (userCategory IS NOT NULL OR userAction IS NOT NULL) " +
+            "AND threadId NOT IN (SELECT threadId FROM verdicts WHERE recheck = 1)",
+    )
     suspend fun judgedThreads(): List<Long>
+
+    /** A conversation's labels from before the six categories, by message, with what they said. */
+    @Query("SELECT * FROM verdicts WHERE recheck = 1")
+    suspend fun toRecheck(): List<VerdictEntity>
+
+    @Query("SELECT * FROM verdicts WHERE threadId = :threadId AND recheck = 1")
+    suspend fun toRecheckIn(threadId: Long): List<VerdictEntity>
+
+    @Query("UPDATE verdicts SET recheck = 0 WHERE threadId = :threadId")
+    suspend fun clearRecheck(threadId: Long)
+
+    @Query("SELECT COUNT(DISTINCT threadId) FROM verdicts WHERE recheck = 1")
+    fun observeRecheckCount(): Flow<Int>
+
+    /** Each conversation's newest fine-grained answer from a provider, for Train Winnow's rows. */
+    @Query("SELECT threadId, subcategory FROM verdicts WHERE subcategory IS NOT NULL GROUP BY threadId HAVING decidedAt = MAX(decidedAt)")
+    suspend fun providerDetails(): List<ThreadDetail>
 
     @Query("DELETE FROM verdicts WHERE messageKey IN (:keys)")
     suspend fun deleteForMessages(keys: Collection<String>)

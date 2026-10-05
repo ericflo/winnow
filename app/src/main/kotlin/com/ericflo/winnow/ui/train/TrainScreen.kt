@@ -148,7 +148,7 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
                 unavailable = container.bootstrap.unavailable(current),
                 plan = plan,
                 taught = taught,
-                estimateUsd = if (current.provider == com.ericflo.winnow.data.ProviderKind.OPENROUTER_JEV) plan.texts * JEV_OPENROUTER_USD_PER_TEXT else null,
+                estimateUsd = if (current.provider in JEV) plan.texts * JEV_USD_PER_TEXT else null,
                 redo = redo,
             )
         }
@@ -175,8 +175,14 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
     private companion object {
         const val REGUESS_SETTLE_MILLIS = 350L
 
-        /** Jev via OpenRouter, measured 2026-10-05: 773 input tokens at $0.000000042 each, output free. */
-        const val JEV_OPENROUTER_USD_PER_TEXT = 0.0000325
+        /**
+         * Jev's price per text, the same on TypeSafe and OpenRouter: $0.042 per million input
+         * tokens, output free. A request with seven options measured 773 tokens on 2026-10-05;
+         * the 79 finer options add about 2,100 and the user's examples up to 800, so about
+         * 3,000 (an estimate until it's measured again).
+         */
+        const val JEV_USD_PER_TEXT = 0.00013
+        val JEV = setOf(com.ericflo.winnow.data.ProviderKind.TYPESAFE_JEV, com.ericflo.winnow.data.ProviderKind.OPENROUTER_JEV)
     }
 
     fun nextRound() {
@@ -359,6 +365,14 @@ private fun Reviewing(s: TrainState.Reviewing, viewModel: TrainViewModel, onOpen
         item("intro") {
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Round ${s.number}", style = MaterialTheme.typography.titleLarge)
+                if (s.round.rechecks > 0) {
+                    Text(
+                        "${plural(s.round.rechecks, "conversation")} here you labeled before the categories changed " +
+                            "(${s.round.toRecheck} wait in all). Confirm or change each; your political labels stand as they were.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Text(
                     "Here's what Winnow thinks of ${s.round.candidates.size} of your conversations. Tap ✓ when it's right, or tap its guess to fix it. " +
                         "Its other guesses update as you answer, so texts like one you fixed follow it. Anything you leave stays unlabeled.",
@@ -514,9 +528,21 @@ private fun CandidateRow(
                         )
                     }
                     // The classifier service's own answer, so its part in the guess is plain to see.
-                    c.providerSays?.let { says ->
+                    // The user's own label from before the six categories: confirm it, or change it.
+                    c.before?.let { was ->
                         Text(
-                            "$providerName said ${says.label}",
+                            "You said ${was.label} before",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(start = 32.dp, top = 2.dp),
+                        )
+                    }
+                    c.providerSays?.let { says ->
+                        val detail = c.providerDetail?.let(com.ericflo.winnow.classifier.message.Subcategories::of)
+                            ?.takeIf { it.parent == says }?.key?.replace('_', ' ')
+                        Text(
+                            "$providerName said ${says.label}" + (detail?.let { " · $it" } ?: ""),
                             style = MaterialTheme.typography.labelMedium,
                             color = if (says == c.guess) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.tertiary,
                             modifier = Modifier.padding(start = 32.dp, top = 2.dp),
@@ -650,12 +676,13 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
     val status by viewModel.bootstrap.collectAsStateWithLifecycle()
     val o = offer ?: return
     var confirming by rememberSaveable { mutableStateOf(false) }
-    val money = { usd: Double -> if (usd < 0.01) "under a cent" else String.format(java.util.Locale.US, "$%.2f", usd) }
+    // A service that reports no cost (a self-hosted one) shows none, rather than "under a cent".
+    val money = { usd: Double -> if (usd <= 0.0) null else if (usd < 0.01) "under a cent" else String.format(java.util.Locale.US, "$%.2f", usd) }
     when (val st = status) {
         is com.ericflo.winnow.classify.BootstrapStatus.Running -> BootstrapCard("${o.provider} is labeling your backlog") {
             LinearProgressIndicator(progress = { if (st.total == 0) 0f else st.done.toFloat() / st.total }, modifier = Modifier.fillMaxWidth())
             Text(
-                "${st.done} of ${st.total} texts · ${st.tally.labeled} labeled · ${money(st.tally.costUsd)} so far" +
+                "${st.done} of ${st.total} texts · ${st.tally.labeled} labeled" + (money(st.tally.costUsd)?.let { " · $it so far" } ?: "") +
                     (if (st.tally.unsure > 0) " · ${st.tally.unsure} too unsure to teach" else "") +
                     (if (st.tally.kept > 0) " · ${st.tally.kept} kept on your phone" else "") +
                     (if (st.tally.failed > 0) " · ${st.tally.failed} to try again" else ""),
@@ -673,7 +700,7 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
         is com.ericflo.winnow.classify.BootstrapStatus.Finished -> BootstrapCard(if (st.stopped) "Stopped" else "${o.provider} labeled your backlog") {
             Text(
                 (if (st.tally.labeled == 0) "No texts labeled this time."
-                else "${plural(st.tally.labeled, "text")} labeled, for ${money(st.tally.costUsd)}. Winnow's model has learned from them; your own labels count for more and always win.") +
+                else "${plural(st.tally.labeled, "text")} labeled" + (money(st.tally.costUsd)?.let { ", for $it" } ?: "") + ". Winnow's model has learned from them; your own labels count for more and always win.") +
                     (if (st.tally.unsure > 0) " ${st.tally.unsure} more got an answer too unsure to teach." else "") +
                     (if (st.tally.kept > 0) " ${st.tally.kept} stayed on your phone, as your privacy settings say." else "") +
                     (if (st.tally.failed > 0) " ${st.tally.failed} got no answer and will be tried next time." else "") +
@@ -727,7 +754,7 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
             onDismissRequest = { confirming = false },
             title = { Text(if (o.redo) "Ask ${o.provider} again about ${plural(o.plan.texts, "text")}?" else "Send ${plural(o.plan.texts, "text")} to ${o.provider}?") },
             text = {
-                Text(consentText(o, money))
+                Text(consentText(o) { usd -> money(usd) ?: "nothing" })
             },
             confirmButton = { TextButton(onClick = { confirming = false; viewModel.startBootstrap() }) { Text("Start") } },
             dismissButton = { TextButton(onClick = { confirming = false }) { Text("Not now") } },
@@ -779,7 +806,7 @@ private fun consentText(o: BootstrapOffer, money: (Double) -> String): String {
             )
         }
         append("\n\nIts answers teach Winnow's model (counting for less than your labels, which always win) and file texts Winnow never sorted. ")
-        append(o.estimateUsd?.let { "At OpenRouter's price for Jev that's about ${money(it)} in all. " } ?: "${o.provider} bills each one as usual; the cost so far shows as it goes. ")
+        append(o.estimateUsd?.let { "At Jev's price that's about ${money(it)} in all. " } ?: "${o.provider} bills each one as usual; the cost so far shows as it goes. ")
         append("You can stop at any time and pick up later; texts it has answered aren't sent again.")
     }
 }

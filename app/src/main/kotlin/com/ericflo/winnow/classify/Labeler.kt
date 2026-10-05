@@ -73,6 +73,10 @@ class Labeler(
             val undo = label(threadId, recipients, examples, hasOutgoing = messages.any { it.outgoing }, category, retrain = false)
             keys += undo.keys
             verdictsBefore += undo.verdictsBefore
+            // Labeled now: any of its labels from before the six categories are settled. Kept for an undo.
+            val waiting = verdicts.toRecheckIn(threadId).filter { r -> undo.verdictsBefore.none { it.messageKey == r.messageKey } }
+            verdictsBefore += waiting
+            if (waiting.isNotEmpty() || undo.verdictsBefore.any { it.recheck }) verdicts.clearRecheck(threadId)
             labelsBefore += undo.labelsBefore
             // Sender rules are one person's; a group's label leaves its members' rules alone.
             recipients.singleOrNull()?.let { disagreeingRule(it, action) }?.let { rule ->
@@ -136,7 +140,7 @@ class Labeler(
         val byKey = before.associateBy { it.messageKey }
         val action = settings.current().actionPolicy.forCategory(category).name
         for ((m, inbound) in examples) {
-            val row = byKey[m.key]?.copy(userCategory = category.key, userAction = action) ?: VerdictEntity(
+            val row = byKey[m.key]?.copy(userCategory = category.key, userAction = action, recheck = false) ?: VerdictEntity(
                 messageKey = m.key,
                 threadId = threadId,
                 address = inbound.sender,

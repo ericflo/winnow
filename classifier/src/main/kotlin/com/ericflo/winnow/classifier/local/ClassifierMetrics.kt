@@ -204,7 +204,7 @@ object MetricsCalculator {
         }
         val thresholds = listOf(0.3, 0.5, 0.7, 0.85, 0.95).map { t -> row("≥ ${(t * 100).toInt()}%") { scored[it].first >= t } }
         // Winnow's actual rule: the top category is a filtered one, it's at least filterAt sure,
-        // and a scam or phishing text has a hook.
+        // and a spam text has a hook.
         val operating = row("Winnow's rule") {
             val r = rows[it]
             r.predicted in unwanted && r.confidence >= filterAt && (r.predicted !in hookless || r.hasHook)

@@ -532,6 +532,13 @@ private fun ProviderFields(kind: ProviderKind, saved: ProviderSettings, onSave: 
             )
             Switch(checked = zeroRetention, onCheckedChange = null)
         }
+        if (kind == ProviderKind.TYPESAFE_JEV) {
+            Text(
+                "TypeSafe's terms offer zero retention only to enterprise accounts, so turn this on only if yours is one. Jev via OpenRouter can require it on every request.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Button(onClick = { onSave(edited) }, enabled = edited != saved) { Text("Save") }
     }
 }

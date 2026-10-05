@@ -11,17 +11,26 @@ enum class Category(val key: String, val label: String, val rubric: String, val 
             "are coordinating with. Not a stranger opening a conversation out of nowhere.",
         Action.ALLOW,
     ),
+    REMINDER(
+        "reminder", "Reminder",
+        "Someone the user already deals with (a landlord or building, school, daycare, coach, doctor's office, " +
+            "HOA, employer, utility, club) telling them something to do or know, not set off by anything they just " +
+            "did and not selling anything: maintenance and inspection notices, rent or dues coming up, closures and " +
+            "schedule changes, outages, pickups, forms to return, 'please test your heater before winter'.",
+        Action.ALLOW,
+    ),
     TRANSACTIONAL(
         "transactional", "Transactional",
-        "An automated message the user plausibly expects because of something they did: verification codes, real " +
-            "order or delivery updates, appointment reminders, bills and alerts from a bank, carrier or service " +
-            "they use. No pressure to click an unfamiliar link or to pay.",
+        "An automated message set off by something the user did: verification codes, real order or delivery " +
+            "updates, confirmations and reminders of appointments they booked, bills, payments and account alerts " +
+            "from a bank, carrier or service they use. No pressure to click an unfamiliar link or to pay.",
         Action.ALLOW,
     ),
     MARKETING(
         "marketing", "Marketing",
-        "Advertising from a business the user may have signed up with: sales, coupons, offers, member days, " +
-            "newsletters, surveys, loyalty programs. Usually offers an opt-out such as 'Reply STOP'.",
+        "A business the user may know wanting them to buy, spend or come back: sales, coupons, offers, member " +
+            "days, rewards and points, newsletters, surveys, loyalty programs. Usually offers an opt-out such as " +
+            "'Reply STOP'. If it's telling them something to do or know and wants nothing sold, it's a reminder.",
         Action.SILENCE,
     ),
     POLITICAL(
@@ -31,29 +40,27 @@ enum class Category(val key: String, val label: String, val rubric: String, val 
             "hooks about politicians, and fundraising texts addressed to someone else by name.",
         Action.FILTER,
     ),
-    PHISHING(
-        "phishing", "Phishing",
-        "Impersonates a company, bank, toll agency, delivery service, government office or one of the user's " +
-            "accounts to get a click, a login, a payment or personal details: fake unpaid tolls, package holds, " +
-            "account locks, refunds, benefit or Social Security payments.",
-        Action.FILTER,
-    ),
-    SCAM(
-        "scam", "Likely scam",
-        "Other fraud from strangers: 'wrong number' and 'hi, is this…' or 'are you free to talk?' openers, " +
-            "romance, job, prize, investment or crypto pitches, requests for gift cards or money.",
-        Action.FILTER,
-    ),
     SPAM(
         "spam", "Spam",
-        "Unsolicited bulk junk that is not clearly fraud or politics: lead generation, random offers, " +
-            "irrelevant mass texts, messages meant for someone else.",
+        "Unwanted texts from strangers: junk and lead generation, messages meant for someone else, scams ('wrong " +
+            "number', 'hi, is this…', 'are you free to talk?', job, prize, romance, crypto, gift cards) and phishing " +
+            "that impersonates a company, bank, toll agency, delivery service, government office or one of the " +
+            "user's accounts to get a click, a login, a payment or personal details.",
         Action.FILTER,
     ),
     ;
 
     companion object {
-        fun fromKey(key: String): Category? = entries.firstOrNull { it.key == key }
+        /**
+         * Phishing and "likely scam" were categories of their own until they were folded into spam:
+         * stored verdicts, labels, settings and backups that still say so read as spam.
+         */
+        private val FORMER = mapOf("phishing" to "spam", "scam" to "spam")
+
+        fun fromKey(key: String): Category? = (FORMER[key] ?: key).let { k -> entries.firstOrNull { it.key == k } }
+
+        /** Only a current key: for settings, where a former category's choice mustn't overwrite spam's. */
+        fun fromCurrentKey(key: String): Category? = entries.firstOrNull { it.key == key }
     }
 }
 

@@ -396,7 +396,7 @@ private fun ThresholdExplorer(b: BinaryMetrics, threshold: Double, onThreshold: 
         val rule = b.operatingPoint
         Note(
             "Winnow's own rule is stricter than any single threshold: it filters only when the top category is an unwanted one and it's at least 85% sure, " +
-                "and never filters a scam or phishing text with no hook (no link off the company's real site, money, number to call, or payment or code talk): " +
+                "and never filters a spam text with no hook (no link off the company's real site, money, number to call, or payment or code talk): " +
                 "a bare “hi, is this David?” reads exactly like a real person on a new number, and “your password was changed” has nothing to phish with. " +
                 "On your labeled texts, that filters ${pct(rule.recall)} of the unwanted ones with ${pct(rule.precision)} precision and ${pct(rule.falsePositiveRate)} of the wanted ones (F1 ${f2(rule.f1)}, MCC ${f2(rule.mcc)}, κ ${f2(rule.kappa)}). " +
                 "The rest are silenced rather than filtered: ${pct(b.unwantedQuieted)} of the unwanted ones would arrive without a sound.",
@@ -455,7 +455,7 @@ private fun Bar(value: Double, color: Color, label: String, labelWidth: Dp = 48.
 @Composable
 private fun ConfusionMatrix(m: ClassifierMetrics) {
     val c = MaterialTheme.colorScheme
-    val short = mapOf("personal" to "Pers", "transactional" to "Txn", "marketing" to "Mktg", "political" to "Pol", "phishing" to "Phish", "scam" to "Scam", "spam" to "Spam")
+    val short = mapOf("personal" to "Pers", "reminder" to "Rem", "transactional" to "Txn", "marketing" to "Mktg", "political" to "Pol", "spam" to "Spam")
     Section("Confusion matrix") {
         Text("Rows: what each text really was. Columns: what the model said.", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
         Row {

@@ -51,7 +51,7 @@ class PersonalEvaluationTest {
     fun enoughLabelsGiveEveryChart() {
         val m = PersonalEvaluation.metrics(model, labels(150), emptyList(), filterAt = 0.85)!!
         assertEquals(150, m.examples)
-        assertEquals(7, m.confusion.size)
+        assertEquals(Category.entries.size, m.confusion.size)
         assertEquals(150, m.confusion.sumOf { it.sum() })
         assertTrue(m.unwanted.roc.isNotEmpty())
         assertTrue(m.calibration.sumOf { it.count } == 150)

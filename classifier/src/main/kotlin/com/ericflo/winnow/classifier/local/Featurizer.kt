@@ -96,10 +96,10 @@ object Featurizer {
     /**
      * Whether a message carries a hook a fraudster could use: a link to anywhere but the
      * company's real website, money, a number to call, an email address, or talk of payment
-     * apps, codes, PINs, jobs, prizes or crypto. A "scam" without one is a bare opener ("hi, is
-     * this David?") that reads exactly like a real person on a new number. A "phishing" text
-     * without one ("your password was changed") has nothing to phish with. Winnow silences
-     * those rather than hiding them.
+     * apps, codes, PINs, jobs, prizes or crypto. Spam without one is a bare opener ("hi, is
+     * this David?") that reads exactly like a real person on a new number, or an impersonation
+     * ("your password was changed") with nothing to phish with. Winnow silences those rather
+     * than hiding them.
      */
     fun hasHook(features: List<String>): Boolean {
         // One __url__ per link and one __official_domain__ per link to a real company site.

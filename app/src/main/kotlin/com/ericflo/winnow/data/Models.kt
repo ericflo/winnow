@@ -110,12 +110,12 @@ data class StoredVerdict(
     val label: String
         get() = category?.label ?: if (source.startsWith(FilteredPhrases.REASON_PREFIX)) "Filtered word" else "Sender rule"
 
-    /** Links in fraud are never clickable, whatever the user later decides about the sender. */
+    /**
+     * Links in spam (which takes in scams and phishing) are never clickable, unless the user has
+     * said the sender is fine.
+     */
     val isFraud: Boolean
-        get() = userAction != Action.ALLOW && category in setOf(
-            com.ericflo.winnow.classifier.message.Category.PHISHING,
-            com.ericflo.winnow.classifier.message.Category.SCAM,
-        )
+        get() = userAction != Action.ALLOW && category == com.ericflo.winnow.classifier.message.Category.SPAM
 }
 
 /** One decision Winnow made, for the Activity screen. */

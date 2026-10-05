@@ -1248,7 +1248,7 @@ private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter:
     }
 }
 
-private val REPORTABLE = setOf(Category.SPAM, Category.SCAM, Category.PHISHING)
+private val REPORTABLE = setOf(Category.SPAM)
 
 /** Camera photos: the ones a rotation re-encodes without losing anything that matters. */
 private val ROTATABLE = setOf("image/jpeg", "image/jpg", "image/heic", "image/heif")
@@ -1828,7 +1828,7 @@ private fun MessageBubble(
                 if (fraud && m.body.contains('.')) {
                     // Its own verdict says why; a text that's off because of its sender's says that.
                     val why = m.verdict?.takeIf { it.isFraud }?.category?.label?.lowercase()?.let { "this looks like $it" }
-                        ?: "this sender has sent phishing or scams"
+                        ?: "this sender has sent spam"
                     Text("Links turned off: $why", style = MaterialTheme.typography.labelSmall, color = colors.error)
                 }
                 if (!m.outgoing) {

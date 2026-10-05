@@ -534,7 +534,10 @@ class BackupManager(
             lessons.forEach {
                 corrections.insert(
                     CorrectionEntity(
-                        threadId = null, buckets = it.buckets.joinToString(","), label = it.label, featurizerVersion = it.featurizerVersion,
+                        threadId = null, buckets = it.buckets.joinToString(","),
+                        // Under its current name (a backup from before the merge may say phishing or scam).
+                        label = com.ericflo.winnow.classifier.message.Category.fromKey(it.label)?.key ?: it.label,
+                        featurizerVersion = it.featurizerVersion,
                         createdAt = it.createdAt, messageKey = it.messageKey?.let { key -> RESTORED_LABEL + key },
                         source = if (it.source == CorrectionEntity.SOURCE_PROVIDER) CorrectionEntity.SOURCE_PROVIDER else CorrectionEntity.SOURCE_USER,
                     ),
@@ -615,7 +618,7 @@ class BackupManager(
                 // All already here: nothing to add, and no empty conversation to create for them.
                 knownTexts.forEach { m ->
                     val (key, inThread) = textsEverywhere.getValue(textKey(m)!!)
-                    if (key !in classified) restoreVerdict(m, conversation, inThread, key)
+                    if (key !in classified) restoreVerdict(m, conversation, inThread, key, backup.format)
                     relinkLabel(m, key, inThread)
                     if (m.starred) starred.star(StarredEntity(key, inThread, System.currentTimeMillis()))
                     restoreReminder(m, key, inThread, conversation)
@@ -634,7 +637,7 @@ class BackupManager(
 
             here.forEach { (m, at) ->
                 val (key, inThread) = at
-                if (key !in classified) restoreVerdict(m, conversation, inThread, key)
+                if (key !in classified) restoreVerdict(m, conversation, inThread, key, backup.format)
                 relinkLabel(m, key, inThread)
                 if (m.starred) starred.star(StarredEntity(key, inThread, System.currentTimeMillis()))
                 restoreReminder(m, key, inThread, conversation)
@@ -650,7 +653,7 @@ class BackupManager(
                     val id = result.uri?.let(ContentUris::parseId) ?: return@forEach
                     added++
                     settled(m)
-                    restoreVerdict(m, conversation, threadId, ChatMessage.messageKey(ChatMessage.Kind.SMS, id))
+                    restoreVerdict(m, conversation, threadId, ChatMessage.messageKey(ChatMessage.Kind.SMS, id), backup.format)
                     relinkLabel(m, ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId)
                     if (m.starred) starred.star(StarredEntity(ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId, System.currentTimeMillis()))
                     restoreReminder(m, ChatMessage.messageKey(ChatMessage.Kind.SMS, id), threadId, conversation)
@@ -672,7 +675,7 @@ class BackupManager(
                 if (uri != null) {
                     added++
                     settled(m)
-                    restoreVerdict(m, conversation, threadId, ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)))
+                    restoreVerdict(m, conversation, threadId, ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)), backup.format)
                     relinkLabel(m, ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)), threadId)
                     if (m.starred) starred.star(StarredEntity(ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)), threadId, System.currentTimeMillis()))
                     restoreReminder(m, ChatMessage.messageKey(ChatMessage.Kind.MMS, ContentUris.parseId(uri)), threadId, conversation)
@@ -819,9 +822,10 @@ class BackupManager(
         }
     }
 
-    private suspend fun restoreVerdict(m: MessageBackup, conversation: ConversationBackup, threadId: Long, key: String) {
+    private suspend fun restoreVerdict(m: MessageBackup, conversation: ConversationBackup, threadId: Long, key: String, format: Int) {
         // Restored, not received: never news for a daily summary.
-        val entity = m.verdict?.toEntity(key, threadId, m.sender ?: m.to ?: conversation.recipients.first())?.copy(summarized = true) ?: return
+        val address = m.sender ?: m.to ?: conversation.recipients.first()
+        val entity = m.verdict?.toEntity(key, threadId, address, sixCategories = format >= WinnowBackup.SIX_CATEGORIES)?.copy(summarized = true) ?: return
         verdicts.upsert(entity)
     }
 

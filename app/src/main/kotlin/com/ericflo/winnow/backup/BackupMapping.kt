@@ -88,7 +88,8 @@ fun WinnowSettings.restoring(backup: SettingsBackup) = copy(
     autoSaveMedia = backup.autoSaveMedia,
     dailySummary = backup.dailySummary,
     categoryActions = categoryActions + backup.categoryActions.mapNotNull { (key, action) ->
-        val category = Category.fromKey(key) ?: return@mapNotNull null
+        // A former category's choice (phishing, scam) mustn't overwrite what the backup says of spam.
+        val category = Category.fromCurrentKey(key) ?: return@mapNotNull null
         Action.entries.firstOrNull { it.name == action }?.let { category to it }
     },
 )
@@ -105,17 +106,24 @@ fun VerdictEntity.toBackup() = VerdictBackup(
     decidedAt = decidedAt,
     userCategory = userCategory,
     atArrival = atArrival,
+    recheck = recheck,
+    subcategory = subcategory,
 )
 
 /** Null when the backup names an action this version doesn't know, rather than storing garbage. */
-fun VerdictBackup.toEntity(messageKey: String, threadId: Long, address: String): VerdictEntity? {
+/**
+ * [sixCategories]: the backup was made under the six categories. One from before has its labels
+ * (but political ones, which stand) marked to recheck, as the database migration does.
+ */
+fun VerdictBackup.toEntity(messageKey: String, threadId: Long, address: String, sixCategories: Boolean = true): VerdictEntity? {
     if (Action.entries.none { it.name == action }) return null
     if (userAction != null && Action.entries.none { it.name == userAction }) return null
     return VerdictEntity(
         messageKey = messageKey,
         threadId = threadId,
         address = address,
-        category = category?.takeIf { Category.fromKey(it) != null },
+        // Under its current name: a backup from before phishing and scam were folded into spam says so.
+        category = category?.let { Category.fromKey(it)?.key },
         confidence = confidence,
         action = action,
         sourceKind = sourceKind,
@@ -124,7 +132,9 @@ fun VerdictBackup.toEntity(messageKey: String, threadId: Long, address: String):
         costUsd = costUsd,
         decidedAt = decidedAt,
         userAction = userAction,
-        userCategory = userCategory?.takeIf { Category.fromKey(it) != null },
+        userCategory = userCategory?.let { Category.fromKey(it)?.key },
         atArrival = atArrival,
+        recheck = recheck || (!sixCategories && userCategory != null && userCategory != Category.POLITICAL.key),
+        subcategory = subcategory,
     )
 }

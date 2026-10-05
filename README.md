@@ -1,8 +1,8 @@
 # Winnow
 
 **An Android SMS/MMS app that reads every incoming text before it can buzz your phone.**
-Messages from people come through. Phishing, scams, spam and political blasts go to
-Filtered, with no notification. Marketing arrives quietly. Nothing is deleted, and one tap
+Messages from people come through. Spam (scams and phishing included) and political blasts go
+to Filtered, with no notification. Marketing arrives quietly. Nothing is deleted, and one tap
 fixes a wrong call.
 
 <table>
@@ -35,13 +35,16 @@ phone.
 
 ### Filtering that explains itself
 
-Every incoming SMS and MMS gets one of seven categories: personal, transactional,
-marketing, political, phishing, likely scam or spam. Each category maps to an action, which
+Every incoming SMS and MMS gets one of six categories: **personal** (people you know),
+**reminder** (someone you already deal with telling you something to do or know, like a
+landlord's "test your heater before winter", not set off by anything you just did and not
+selling anything), **transactional** (set off by something you did: a code, an order, an
+appointment you booked), **marketing** (a business you know wanting you to buy), **political**
+and **spam** (junk, scams and phishing from strangers). Each category maps to an action, which
 you can change: **notify**, **silence** (inbox, no notification) or **filter** (Filtered,
 no notification). A filtered conversation carries a banner saying what Winnow decided and
 who decided it, with **Not spam**, **Filter sender** and **Report**. Report forwards the
-text to your carrier's 7726 spam service, after you confirm. Links in phishing and scam
-messages can't be tapped. **Filtered words** (Settings) send a stranger's text that uses one
+text to your carrier's 7726 spam service, after you confirm. Links in spam can't be tapped. **Filtered words** (Settings) send a stranger's text that uses one
 straight to Filtered, decided on the phone; whole words only, so "vote" doesn't catch
 "devoted", and contacts and people you've texted aren't affected. **Clear out old filtered
 texts** (optional) moves filtered conversations untouched for a month to Recently deleted,
@@ -53,7 +56,7 @@ and opens Filtered; nothing on a quiet day.
 
 **Label** anything: a conversation (its ⋮ menu), one message (long-press it), or many at once
 (long-press conversations in the inbox, Filtered or Archived, then the tag). The sheet lists
-the seven categories with what each means and where it files a text by your settings, so one
+the six categories with what each means and where it files a text by your settings, so one
 tap labels, moves the conversation there, and refits the on-phone model on the spot; Undo
 takes it all back. Labeling a whole conversation also removes a sender rule that disagrees
 with it (an "always allow" on texts you now call spam), so that sender's next texts are judged
@@ -64,7 +67,10 @@ to fix it (tap the text to read all of it, and the earlier texts the label cover
 guesses update as you answer, so fixing one text moves its lookalikes in the round with it.
 Finishing the round labels what you answered and retrains; the summary lists where it was
 wrong. Swipe a conversation left (in the inbox, Filtered or Archived) to label it from
-anywhere.
+anywhere. Labels you gave before the move to six categories wait in Train to be confirmed or
+changed, first in every round and with what you said before ("You said Marketing before");
+political labels stand as they were, and phishing and scam labels became spam on their own.
+Rounds also bring up likely reminders early, since that category starts out empty.
 
 **Let Jev label your backlog first.** With a classifier service set up (Jev via TypeSafe or
 OpenRouter) and marked zero data retention, Train Winnow offers to send the newest three
@@ -73,12 +79,20 @@ says how many and what leaves the phone. They go through the same pipeline as a 
 same redaction, and the same rules keep contacts, people you've written to, verification codes
 and senders you've set a rule for on the phone. On OpenRouter, each request asks for
 zero-retention endpoints only (`"provider": {"zdr": true}`); with a direct TypeSafe key, zero
-retention is TypeSafe's own policy, which you confirm in Settings. Jev's answers teach the
+retention is TypeSafe's own policy, which you confirm in Settings (TypeSafe's terms offer it
+only to enterprise accounts, so OpenRouter is the way to require it). Jev isn't asked to choose
+among the six: it picks among 79 finer kinds of text ("fake toll notice", "landlord maintenance
+notice", "school notice", "donation ask"), and their probabilities are added up into the six,
+since a precise option is easier to recognize than a broad one. Up to three texts you labeled
+yourself per category go along with each request, redacted the same way, so Jev sorts the way
+you do; Train shows the finer kind beside Jev's answer ("Jev said Spam · toll phishing"), and
+can ask again with your latest labels. Jev's answers teach the
 on-phone model at about a third of the weight of your own labels (yours always win, and replace
 Jev's on the same text) and file texts Winnow never sorted. Each round then puts first the
 conversations where Jev and the on-phone model disagree, and shows what Jev said beside every
 guess. Jev's labels never count as right answers on the accuracy screen, and Settings can forget
-just those. On OpenRouter, Jev costs about $0.00003 a text, so a whole backlog is a few cents. A run goes on with
+just those. Jev costs about $0.0001 a text (most of each request is the 79 options), so a
+backlog of a few thousand texts is well under a dollar. A run goes on with
 the screen off or Winnow closed (a foreground service, with progress and Stop in a quiet
 notification), stops itself if the service stops answering (saying why: a refused key, no credit,
 rate limiting, an outage), and picks up where it left off next time.
@@ -133,7 +147,7 @@ into backups.
   Movies/Winnow) as they arrive; filtered and silenced texts' never are.
 - **Conversations:** pin, archive, mute (for an hour, 8 hours, a day, or until you turn it
   back on), mark read/unread, delete, block (Android's system
-  block list), **Add contact** (a first text from a number that isn't in your contacts asks whether to add them or filter them; names update as soon as they're saved), name a group (just for you), **Add to home screen**, **Add people** (a new group with everyone in it plus whoever you add), a **Photos & videos** strip in Details, **Export** to a text file, an **Unread** filter (plus **Personal**, **Updates** and **Offers**, from what the classifier made of each conversation), **reply and birthday reminders** (a contact's question you haven't answered in two days, or yours they haven't, comes back to the top of the inbox until it's answered or dismissed, and so does a contact on the birthday their contact card has), and multi-select (in Filtered and Archived too, to rescue or clear several at once).
+  block list), **Add contact** (a first text from a number that isn't in your contacts asks whether to add them or filter them; names update as soon as they're saved), name a group (just for you), **Add to home screen**, **Add people** (a new group with everyone in it plus whoever you add), a **Photos & videos** strip in Details, **Export** to a text file, an **Unread** filter (plus **Personal**, **Reminders**, **Updates** and **Offers**, from what the classifier made of each conversation), **reply and birthday reminders** (a contact's question you haven't answered in two days, or yours they haven't, comes back to the top of the inbox until it's answered or dismissed, and so does a contact on the birthday their contact card has), and multi-select (in Filtered and Archived too, to rescue or clear several at once).
   Optionally, one-time codes from services are deleted a day after they arrive. That's off by
   default, never applies to texts from people, and keeps starred codes. Swipe to archive in the inbox (or set each direction to delete,
   mark read/unread, pin, or nothing), to mark not spam in Filtered, or to unarchive in
@@ -308,8 +322,8 @@ up as another ("sunpass.com-tollpay.vip"), a stranger introducing themselves "wi
 a donation "match", a deadline, a "reply STOP" opt-out, and letters from another alphabet
 posing as English. The weights are 230 KB. It classifies a text in about 50 µs on a laptop
 JVM (not yet measured on a phone), and it says why it decided ("Decided on this phone:
-“confirm”, “package”, “fee”"). It's trained from 1,369 labeled texts in
-`classifier/training/`, balanced across all seven categories.
+“confirm”, “package”, “fee”"). It's trained from 1,493 labeled texts in
+`classifier/training/`, across all six categories.
 `./gradlew :classifier:trainLocalModel` rebuilds it, and a test fails if the shipped model or
 its metrics don't match the corpus.
 
@@ -358,19 +372,19 @@ real traffic scores lower.
 
 | Accuracy | Macro F1 | Cohen's κ | MCC | ROC AUC (unwanted vs. wanted) | Avg. precision | Calibration error |
 |---|---|---|---|---|---|---|
-| 91.7% | 0.92 | 0.90 | 0.90 | 0.989 | 0.988 | 0.010 |
+| 91.6% | 0.92 | 0.89 | 0.90 | 0.987 | 0.986 | 0.014 |
 
-Winnow's own filtering rule filters an unwanted category at ≥85% confidence. A scam or
-phishing text only gets filtered if it has a hook: a link off the company's real site, money,
-a number to call, or payment or code talk. Anything without one is silenced instead, because
-a bare "hi, is this David?" reads exactly like a real person on a new number, and "your
-password was changed" has nothing to phish with; when the model isn't sure (under 85%) such a
-text isn't even silenced, since it can't defraud anyone and might be a friend. On the test
-texts, the rule filters 0.1% of wanted ones (99.8% precision) and 70.8% of unwanted ones;
-counting filtered and silenced, 92.3% of the unwanted test texts would never buzz a phone,
-while 2.4% of the personal and transactional ones would lose their notification. Per category,
-F1 runs from 0.97 (political) to 0.79 for "likely scam", whose openers read like real new
-numbers. On 120 more texts written separately and never trained on, it got all 120 right. The
+Winnow's own filtering rule filters an unwanted category at ≥85% confidence. A spam text
+only gets filtered if it has a hook: a link off the company's real site, money, a number to
+call, or payment or code talk. Anything without one is silenced instead, because a bare "hi,
+is this David?" reads exactly like a real person on a new number, and "your password was
+changed" has nothing to phish with; when the model is under 60% sure such a text isn't even
+silenced, since it can't defraud anyone and might be a friend. On the test texts, the rule
+filters 0.2% of wanted ones (99.5% precision) and 67.1% of unwanted ones; counting filtered and
+silenced, 91.7% of the unwanted test texts would never buzz a phone, while 2.2% of the personal
+and transactional ones would lose their notification. Per category, F1 runs from 0.96
+(political) to 0.87 for reminder, which shades into personal and transactional texts. On 135
+more texts written separately and never trained on, it got 97.8% right. The
 full numbers are in [classifier/training/REPORT.md](classifier/training/REPORT.md).
 
 It also **learns from your labels and corrections**. A label, "Not spam" or "Filter sender"

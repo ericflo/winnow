@@ -83,9 +83,10 @@ class BackupMappingTest {
     @Test
     fun `verdicts survive a round trip under their new keys`() {
         val entity = VerdictEntity(
-            messageKey = "sms:41", threadId = 7, address = "+13185550182", category = "phishing", confidence = 0.98,
+            messageKey = "sms:41", threadId = 7, address = "+13185550182", category = "spam", confidence = 0.98,
             action = "FILTER", sourceKind = "provider", sourceDetail = "systemone:openrouter", model = "jev-1.13",
             costUsd = 0.0001, decidedAt = 1_790_000_000_000, userAction = "ALLOW", userCategory = "personal", atArrival = true,
+            recheck = true, subcategory = "toll_phishing",
         )
         assertEquals(entity.copy(messageKey = "sms:9001", threadId = 3), entity.toBackup().toEntity("sms:9001", 3, "+13185550182"))
     }
@@ -97,5 +98,18 @@ class BackupMappingTest {
         assertEquals(ThemeMode.SYSTEM, WinnowSettings().restoring(configured.toBackup().copy(theme = "SEPIA")).theme)
         assertEquals(1f, TextScale.settle(1.03f))
         assertEquals(1.2f, TextScale.settle(1.2f))
+    }
+
+    @Test
+    fun `a backup from before the six categories restores under them, its labels to recheck`() {
+        val old = VerdictBackup(category = "phishing", confidence = 0.9, action = "FILTER", sourceKind = "local", sourceDetail = "", userCategory = "transactional")
+        val restored = old.toEntity("sms:1", 1, "+13185550182", sixCategories = false)!!
+        assertEquals("spam", restored.category)
+        assertEquals("transactional", restored.userCategory)
+        assertEquals(true, restored.recheck)
+        val political = old.copy(userCategory = "political").toEntity("sms:1", 1, "a", sixCategories = false)!!
+        assertEquals("political labels stand", false, political.recheck)
+        assertEquals("a scam label is a spam label", "spam", old.copy(userCategory = "scam").toEntity("sms:1", 1, "a", sixCategories = false)!!.userCategory)
+        assertEquals("a current backup's labels are as they were", false, old.toEntity("sms:1", 1, "a", sixCategories = true)!!.recheck)
     }
 }

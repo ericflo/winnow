@@ -10,7 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LinksOffTest {
-    private val phishing = StoredVerdict(Category.PHISHING, 0.9, Action.FILTER, "Classified on this phone")
+    private val phishing = StoredVerdict(Category.SPAM, 0.9, Action.FILTER, "Classified on this phone")
     private fun text(id: Long, verdict: StoredVerdict?, outgoing: Boolean = false, sender: String? = null) =
         ChatMessage(id, 1, "Pay now: ezpass-tolls.top/pay", id, outgoing, ChatMessage.Status.RECEIVED, verdict, sender = sender)
 

@@ -32,15 +32,15 @@ class PersonalizerTest {
         assertTrue("$changed of ${corpus.size} changed", changed <= corpus.size / 50)
 
         val phish = InboundMessage("+17025550161", "FasTrak: You have an unpaid toll of 6.25 USD. Pay now to avoid penalties: fastrak.com-billing.vip")
-        assertEquals(Category.PHISHING, taught.classify(phish).category)
+        assertEquals(Category.SPAM, taught.classify(phish).category)
     }
 
     @Test
     fun `the label is the likeliest acceptable category`() {
         val phish = InboundMessage("+17025550161", "Your E-ZPass has an unpaid balance. Pay now: ezpass.com-pay.top")
-        val filterable = setOf(Category.PHISHING, Category.SCAM, Category.SPAM, Category.POLITICAL)
+        val filterable = setOf(Category.SPAM, Category.SPAM, Category.SPAM, Category.POLITICAL)
         val c = base.correction(phish, filterable)!!
-        assertEquals(Category.PHISHING.key, LocalModel.bundled.classes[c.label])
+        assertEquals(Category.SPAM.key, LocalModel.bundled.classes[c.label])
         assertEquals(null, base.correction(phish, emptySet()))
     }
 
@@ -56,7 +56,7 @@ class PersonalizerTest {
         val words = "your package confirm account vote donate today free prize call reply stop click order code bank payment dinner tomorrow late".split(" ")
         val corrections = (0 until 300).mapNotNull {
             val body = (0 until 14).joinToString(" ") { words[r.nextInt(words.size)] } + " ${r.nextInt(1000)}"
-            base.correction(InboundMessage("+1415555${1000 + r.nextInt(8999)}", body), setOf(Category.entries[r.nextInt(7)]))
+            base.correction(InboundMessage("+1415555${1000 + r.nextInt(8999)}", body), setOf(Category.entries[r.nextInt(Category.entries.size)]))
         }
         val fast = Personalizer.train(LocalModel.bundled, corrections)
         val plain = plainTrain(LocalModel.bundled, corrections)

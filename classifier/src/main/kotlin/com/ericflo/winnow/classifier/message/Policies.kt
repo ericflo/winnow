@@ -26,7 +26,7 @@ data class RedactionPolicy(
 )
 
 /** Categories the on-device model only filters when the text has a hook (see [ActionPolicy.resolve]). */
-val NEEDS_HOOK = setOf(Category.SCAM, Category.PHISHING)
+val NEEDS_HOOK = setOf(Category.SPAM)
 
 /** Who classified a message, which decides how much benefit of the doubt the sender gets. */
 enum class Origin { PROVIDER, ON_DEVICE, HEURISTIC }
@@ -39,23 +39,29 @@ data class ActionPolicy(
     val onDeviceMinConfidence: Double = 0.85,
     /** The most severe action the offline heuristic may take on its own. */
     val heuristicCeiling: Action = Action.SILENCE,
+    /** Below this, the model's hookless spam guess notifies after all (see [resolve]). */
+    val hooklessNotifiesBelow: Double = 0.6,
 ) {
     fun forCategory(category: Category): Action = byCategory[category] ?: category.defaultAction
 
     /**
      * @param hasHook for on-device verdicts: whether the text carries anything a fraudster could
-     *   use. A hookless "scam" reads like a real person on a new number, and a hookless
-     *   "phishing" text has nothing to phish with, so the model silences those instead of hiding
-     *   them, and when it isn't sure, lets them through: in cross-validation that took the real
-     *   texts (personal and transactional) losing their notification from 5.6% to 1.4%, for 2.7
-     *   points fewer unwanted texts kept quiet, all of them without a link, money or a number.
+     *   use. A hookless "spam" opener reads like a real person on a new number, and a hookless
+     *   impersonation has nothing to phish with, so the model silences those instead of hiding
+     *   them, and when it's quite unsure (under [hooklessNotifiesBelow]), lets them through.
+     *   Since scams and phishing were folded into spam this covers plain junk too, and the floor
+     *   was chosen on the corpus (cross-validated) to keep both sides near what they were: 91.7%
+     *   of unwanted texts kept quiet, 2.2% of personal and transactional ones losing their
+     *   notification (letting every unsure one through: 87.8% and 1.0%; none: 92.8% and 3.8%).
      */
     fun resolve(category: Category, confidence: Double, origin: Origin = Origin.PROVIDER, hasHook: Boolean = true): Action {
         var action = forCategory(category)
         val unsure = confidence < if (origin == Origin.ON_DEVICE) onDeviceMinConfidence else minConfidence
         if (unsure) action = action.softened()
         if (origin == Origin.HEURISTIC && action > heuristicCeiling) action = heuristicCeiling
-        if (origin == Origin.ON_DEVICE && category in NEEDS_HOOK && !hasHook) action = if (unsure) Action.ALLOW else minOf(action, Action.SILENCE)
+        if (origin == Origin.ON_DEVICE && category in NEEDS_HOOK && !hasHook) {
+            action = if (confidence < hooklessNotifiesBelow) Action.ALLOW else minOf(action, Action.SILENCE)
+        }
         return action
     }
 }

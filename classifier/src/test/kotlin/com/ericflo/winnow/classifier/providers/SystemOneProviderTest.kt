@@ -109,4 +109,13 @@ class SystemOneProviderTest {
         assertEquals("""{"zdr":true}""", zdr["provider"].toString())
         assertEquals(setOf("model", "provider", "state", "questions"), zdr.keys)
     }
+
+    @Test
+    fun `an answer without a cost is priced from its tokens where the price is known`() = runTest {
+        val noCost = HttpTransport { _, _, _ -> HttpResult(200, """{"answers":{"q":{"choice":"a"}},"usage":{"input_tokens":2000,"output_tokens":1}}""") }
+        assertEquals(2000 * 0.042 / 1_000_000, SystemOneProvider(SystemOneConfig.typeSafe("k"), noCost).decide(request).usage.costUsd, 1e-12)
+        assertEquals(0.0, SystemOneProvider(SystemOneConfig.custom("http://h", "m"), noCost).decide(request).usage.costUsd)
+        val reported = HttpTransport { _, _, _ -> HttpResult(200, """{"answers":{"q":{"choice":"a"}},"usage":{"input_tokens":2000,"cost":0.5}}""") }
+        assertEquals(0.5, SystemOneProvider(SystemOneConfig.typeSafe("k"), reported).decide(request).usage.costUsd)
+    }
 }

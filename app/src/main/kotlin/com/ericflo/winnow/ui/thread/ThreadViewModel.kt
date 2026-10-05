@@ -90,7 +90,7 @@ data class ThreadUiState(
 ) {
     val isGroup: Boolean get() = recipients.size > 1
 
-    /** Who sent fraud (phishing, a scam) here that the user hasn't cleared, by normalized number. */
+    /** Who sent spam (scams and phishing among it) here that the user hasn't cleared, by normalized number. */
     private val fraudSenders: Set<String> by lazy {
         messages.filter { !it.outgoing && it.verdict?.isFraud == true }
             .mapNotNullTo(HashSet()) { (it.sender ?: recipients.singleOrNull())?.let(::normalizeAddress) }

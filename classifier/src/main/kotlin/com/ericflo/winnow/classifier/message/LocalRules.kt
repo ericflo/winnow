@@ -56,26 +56,27 @@ internal object HeuristicScorer {
         "\\bvote\\b", "donat", "campaign", "election", "paid for by", "\\bpac\\b", "ballot", "chip in",
         "\\bpoll\\b", "petition", "matched", "breaking:",
     )
-    private val transactional = words("your order", "delivered", "appointment", "reminder", "has shipped", "receipt")
+    private val transactional = words("your order", "delivered", "appointment", "has shipped", "receipt")
+    private val reminder = words("reminder", "maintenance", "inspection", "rent", "closed", "schedule change", "please remember")
 
     fun score(message: InboundMessage): Map<Category, Double> {
         val body = message.body
         val kind = SenderKind.of(message.sender)
         val raw = mutableMapOf(
             Category.PERSONAL to if (kind == SenderKind.PHONE_NUMBER) 1.0 else 0.2,
+            Category.REMINDER to 0.1,
             Category.TRANSACTIONAL to 0.3,
             Category.MARKETING to 0.2,
             Category.POLITICAL to 0.1,
-            Category.PHISHING to 0.1,
-            Category.SCAM to 0.1,
-            Category.SPAM to 0.2,
+            Category.SPAM to 0.3,
         )
         fun bump(c: Category, hits: Int, weight: Double) {
             raw[c] = raw.getValue(c) + hits * weight
         }
-        bump(Category.PHISHING, phishing.findAll(body).count(), 1.5)
-        bump(Category.PHISHING, shortLink.findAll(body).count(), 1.0)
-        bump(Category.SCAM, scam.findAll(body).count(), 1.5)
+        bump(Category.SPAM, phishing.findAll(body).count(), 1.5)
+        bump(Category.SPAM, shortLink.findAll(body).count(), 1.0)
+        bump(Category.SPAM, scam.findAll(body).count(), 1.5)
+        bump(Category.REMINDER, reminder.findAll(body).count(), 0.8)
         bump(Category.MARKETING, promo.findAll(body).count(), 1.0)
         bump(Category.POLITICAL, political.findAll(body).count(), 1.0)
         bump(Category.TRANSACTIONAL, transactional.findAll(body).count(), 0.8)

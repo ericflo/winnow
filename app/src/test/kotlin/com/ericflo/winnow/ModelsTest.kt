@@ -57,7 +57,7 @@ class ModelsTest {
 
     @Test
     fun `fraud verdicts stay fraud until the user allows them`() {
-        val phishing = StoredVerdict(Category.PHISHING, 0.98, Action.FILTER, "test")
+        val phishing = StoredVerdict(Category.SPAM, 0.98, Action.FILTER, "test")
         assertTrue(phishing.isFraud)
         assertFalse(phishing.copy(userAction = Action.ALLOW).isFraud)
         assertFalse(StoredVerdict(Category.POLITICAL, 0.98, Action.FILTER, "test").isFraud)

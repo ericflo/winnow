@@ -31,7 +31,14 @@ data class WinnowBackup(
     val messageCount: Int get() = conversations.sumOf { it.messages.size }
 
     companion object {
-        const val FORMAT = 1
+        /**
+         * 2: six categories (Reminder added; phishing and "likely scam" folded into spam). A
+         * format 1 backup's labels were given under the seven, so restoring marks them to recheck.
+         */
+        const val FORMAT = 2
+
+        /** The first format whose labels are in the six categories. */
+        const val SIX_CATEGORIES = 2
     }
 }
 
@@ -166,6 +173,10 @@ data class VerdictBackup(
     val userCategory: String? = null,
     /** Decided as it arrived (it counts in Activity), not on a look back at old texts. */
     val atArrival: Boolean = false,
+    /** A label from before the six categories, still to be confirmed in Train Winnow. */
+    val recheck: Boolean = false,
+    /** A provider's fine-grained answer. */
+    val subcategory: String? = null,
 )
 
 /** A correction the on-device model learned from: feature buckets and a category, no text. */

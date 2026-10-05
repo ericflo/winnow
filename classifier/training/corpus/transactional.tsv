@@ -29,7 +29,6 @@ tollfree	Your Netflix payment could not be processed. Please update your payment
 short	Your Comcast technician is on the way and should arrive in about 30 minutes.
 short	Your car is ready for pickup at Jiffy Lube. Total: $79.99
 phone	Reminder: Your dental cleaning is tomorrow at 2:00 PM with Smile Dental. Reply Y to confirm.
-short	City of Austin: Your trash pickup is delayed one day due to the holiday.
 short	Your Apple ID was used to sign in on a new device near San Jose, CA.
 phone	Google: Someone signed in to your account from a new Windows device. If this was you, ignore this message.
 short	Your library book "The Overstory" is due in 3 days. Renew at mylibrary.org.
@@ -37,7 +36,6 @@ short	Your return was received. Your refund of $34.99 will be issued in 3-5 busi
 tollfree	Target: Your order is ready for Drive Up. Tap here when you're on your way.
 short	Home Depot: Your order is ready for pickup at store #0612.
 short	Your Spectrum appointment is confirmed for Wed between 8-10am.
-phone	School alert: Lincoln Elementary will have a 2-hour delayed start tomorrow due to weather.
 short	Your vote-by-mail ballot has been received and counted. Thank you for voting! - County Elections Office
 short	Your Costco membership renews on 11/02.
 phone	Your ride receipt: $18.42 for your trip on Oct 3. Thanks for riding with Lyft.
@@ -59,14 +57,12 @@ phone	Your Ring doorbell detected motion at Front Door.
 short	ADT: Your system was armed at 10:42 PM.
 short	Your Nest thermostat lost connection to Wi-Fi.
 phone	Your Tesla has finished charging.
-short	Reminder from Bright Horizons: Picture day is Friday!
 short	Your reservation at Nopa for 4 people tonight at 7:30 is confirmed. Reply C to cancel.
 tollfree	OpenTable: Your reservation at Zuni Cafe is tomorrow at 8:00 PM.
 short	Your Planet Fitness membership fee of $10.00 will be charged on 10/17.
 short	Thanks for shopping at Trader Joe's! Your receipt: $63.21
 phone	Your Chewy order is out for delivery.
 short	Your appointment with Bay Area Physical Therapy is confirmed for Mon 10/13 at 4:00 PM.
-short	Jury duty reminder: Please report on 10/20 at 8:00 AM. Check status the night before at courts.ca.gov.
 phone	DMV: Your appointment is confirmed for 10/16 at 1:30 PM at the Fremont office.
 short	Your Fidelity transfer of $500.00 has completed.
 short	Your Schwab account statement is available online.
@@ -145,7 +141,6 @@ phone	Hi, this is Riverside Dental confirming your appointment Monday at 8:30 AM
 short	Kaiser Permanente: Reminder: video visit with Dr. Wong tomorrow at 1:00 PM. Join from the KP app.
 short	Your Spectrum internet outage has been resolved. Thank you for your patience.
 short	PG&E: Power has been restored to your area. We apologize for the inconvenience.
-short	Austin Energy: A planned outage is scheduled in your area on 10/14 from 9am to 1pm.
 short	County of Santa Clara: Your vote-by-mail ballot has been mailed. Track it at ballottrax.net
 short	BallotTrax: Your ballot has been accepted and will be counted. Thank you for voting!
 short	DMV: Your registration renewal has been processed. Your new sticker will arrive in 5-7 days.

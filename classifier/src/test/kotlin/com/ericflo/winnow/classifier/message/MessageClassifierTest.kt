@@ -38,22 +38,22 @@ class MessageClassifierTest {
 
     @Test
     fun `provider verdict maps to category and configured action`() = runTest {
-        val provider = FakeProvider { mapOf("phishing" to 0.95, "spam" to 0.05) }
+        val provider = FakeProvider { mapOf("toll_phishing" to 0.95, "other_junk" to 0.05) }
         val verdict = MessageClassifier(listOf(provider)).classify(stranger)
-        assertEquals(Category.PHISHING, verdict.category)
+        assertEquals(Category.SPAM, verdict.category)
         assertEquals(Action.FILTER, verdict.action)
         assertEquals(VerdictSource.Provider("fake", "fake-1"), verdict.source)
     }
 
     @Test
     fun `low confidence softens the action one step`() = runTest {
-        val provider = FakeProvider { mapOf("scam" to 0.55, "personal" to 0.45) }
+        val provider = FakeProvider { mapOf("wrong_number_opener" to 0.55, "friend_chat" to 0.45) }
         assertEquals(Action.SILENCE, MessageClassifier(listOf(provider)).classify(stranger).action)
     }
 
     @Test
     fun `contacts, prior conversations and codes never reach the provider`() = runTest {
-        val provider = FakeProvider { mapOf("scam" to 1.0) }
+        val provider = FakeProvider { mapOf("wrong_number_opener" to 1.0) }
         val classifier = MessageClassifier(listOf(provider))
         assertEquals(Action.ALLOW, classifier.classify(stranger.copy(senderInContacts = true)).action)
         assertEquals(Action.ALLOW, classifier.classify(stranger.copy(userHasMessagedSender = true)).action)
@@ -64,7 +64,7 @@ class MessageClassifierTest {
 
     @Test
     fun `sender rules override everything without classifying`() = runTest {
-        val classifier = MessageClassifier(listOf(FakeProvider { mapOf("personal" to 1.0) }))
+        val classifier = MessageClassifier(listOf(FakeProvider { mapOf("friend_chat" to 1.0) }))
         val filtered = classifier.classify(stranger.copy(senderInContacts = true, senderRule = SenderRule.ALWAYS_FILTER))
         assertEquals(Action.FILTER, filtered.action)
         assertNull(filtered.category)
@@ -72,7 +72,7 @@ class MessageClassifierTest {
 
     @Test
     fun `what stays on the phone is exactly what classify keeps from the provider`() = runTest {
-        val provider = FakeProvider { mapOf("scam" to 1.0) }
+        val provider = FakeProvider { mapOf("wrong_number_opener" to 1.0) }
         val classifier = MessageClassifier(listOf(provider), filteredPhrases = FilteredPhrases(listOf("toll")))
         val kept = listOf(
             stranger.copy(senderRule = SenderRule.ALWAYS_ALLOW),
@@ -94,28 +94,40 @@ class MessageClassifierTest {
     }
 
     @Test
-    fun `the user's examples go under their categories, redacted and trimmed`() = runTest {
-        val provider = FakeProvider { mapOf("spam" to 1.0) }
+    fun `the user's examples go with the question, redacted and trimmed`() = runTest {
+        val provider = FakeProvider { mapOf("other_junk" to 1.0) }
         val examples = mapOf(
             Category.SPAM to listOf("Win a FREE cruise! Call 8885550123 now", "x".repeat(400)),
-            Category.PERSONAL to listOf("dinner at 7?"),
+            Category.REMINDER to listOf("please test the heater before winter"),
         )
         MessageClassifier(listOf(provider), examples = examples).classify(stranger)
-        val options = provider.seen.single().questions.getValue(MessageClassifier.QUESTION_KEY).options
-        val spam = options.getValue("spam")!!
-        assertTrue(spam.startsWith(Category.SPAM.rubric), spam)
-        assertTrue("Call ##########" in spam && "8885550123" !in spam, spam)
-        assertTrue("x".repeat(MessageClassifier.EXAMPLE_CHARS) in spam && "x".repeat(MessageClassifier.EXAMPLE_CHARS + 1) !in spam, spam)
-        assertTrue("dinner at 7?" in options.getValue("personal")!!)
-        assertEquals(Category.POLITICAL.rubric, options.getValue("political"))
+        val question = provider.seen.single().questions.getValue(MessageClassifier.QUESTION_KEY)
+        val text = question.instructions
+        assertTrue("Spam: \u201cWin a FREE cruise! Call ##########" in text && "8885550123" !in text, text)
+        assertTrue("x".repeat(MessageClassifier.EXAMPLE_CHARS) in text && "x".repeat(MessageClassifier.EXAMPLE_CHARS + 1) !in text, text)
+        assertTrue("Reminder: \u201cplease test the heater before winter\u201d" in text, text)
+        assertEquals(MessageClassifier.QUESTION.options, question.options)
         // Without examples, the question is exactly the plain one.
         MessageClassifier(listOf(provider)).classify(stranger)
         assertEquals(MessageClassifier.QUESTION, provider.seen.last().questions.getValue(MessageClassifier.QUESTION_KEY))
     }
 
     @Test
+    fun `fine-grained answers add up into the six`() = runTest {
+        val provider = FakeProvider { mapOf("toll_phishing" to 0.4, "bank_phishing" to 0.3, "friend_chat" to 0.3) }
+        val verdict = MessageClassifier(listOf(provider)).classify(stranger)
+        assertEquals(Category.SPAM, verdict.category)
+        assertEquals(0.7, verdict.confidence, 1e-9)
+        assertEquals("toll_phishing", verdict.subcategory)
+        assertEquals(0.3, verdict.distribution.getValue(Category.PERSONAL), 1e-9)
+        // Every option the question offers is one of the six's.
+        assertTrue(MessageClassifier.QUESTION.options.keys.all { Subcategories.of(it) != null })
+        assertEquals(Category.entries.toSet(), Subcategories.all.map { it.parent }.toSet())
+    }
+
+    @Test
     fun `provider sees redacted text and no sender address by default`() = runTest {
-        val provider = FakeProvider { mapOf("scam" to 1.0) }
+        val provider = FakeProvider { mapOf("wrong_number_opener" to 1.0) }
         MessageClassifier(listOf(provider)).classify(stranger)
         val state = provider.seen.single().state.jsonObject
         assertEquals("Toll balance unpaid, pay at ezpass-help.top/…", state["message"]!!.jsonPrimitive.content)
@@ -126,8 +138,8 @@ class MessageClassifierTest {
 
     @Test
     fun `ZDR-only mode skips providers that retain data`() = runTest {
-        val retains = FakeProvider("retains", DataHandling.REMOTE) { mapOf("personal" to 1.0) }
-        val zdr = FakeProvider("zdr", DataHandling.REMOTE_ZERO_RETENTION) { mapOf("scam" to 1.0) }
+        val retains = FakeProvider("retains", DataHandling.REMOTE) { mapOf("friend_chat" to 1.0) }
+        val zdr = FakeProvider("zdr", DataHandling.REMOTE_ZERO_RETENTION) { mapOf("wrong_number_opener" to 1.0) }
         val privacy = PrivacyPolicy(allowedDataHandling = setOf(DataHandling.ON_DEVICE, DataHandling.REMOTE_ZERO_RETENTION))
         val verdict = MessageClassifier(listOf(retains, zdr), privacy).classify(stranger)
         assertEquals(VerdictSource.Provider("zdr", "fake-1"), verdict.source)
@@ -144,7 +156,7 @@ class MessageClassifierTest {
 
         val offline = MessageClassifier(listOf(failing), timeoutMillis = 1_000).classify(stranger)
         assertIs<VerdictSource.Heuristic>(offline.source)
-        assertEquals(Category.PHISHING, offline.category)
+        assertEquals(Category.SPAM, offline.category)
         assertEquals(Action.SILENCE, offline.action, "the heuristic alone may silence but not filter")
     }
 
@@ -156,7 +168,7 @@ class MessageClassifierTest {
         val source = assertIs<VerdictSource.OnDevice>(verdict.source)
         assertNull(source.fallbackReason)
         assertTrue(source.reasons.isNotEmpty())
-        assertEquals(Category.PHISHING, verdict.category)
+        assertEquals(Category.SPAM, verdict.category)
         assertFalse(verdict.providerContacted)
     }
 
@@ -172,7 +184,7 @@ class MessageClassifierTest {
 
     @Test
     fun `deciding on the phone when sure skips the provider`() = runTest {
-        val sure = FakeProvider("sure") { mapOf("personal" to 1.0) }
+        val sure = FakeProvider("sure") { mapOf("friend_chat" to 1.0) }
         val local = MessageClassifier(listOf(sure), onDevice = model, decideOnDeviceAbove = 0.0).classify(stranger)
         assertIs<VerdictSource.OnDevice>(local.source)
         assertFalse(local.providerContacted)
@@ -184,19 +196,21 @@ class MessageClassifierTest {
     }
 
     @Test
-    fun `the on-device model silences scams and phishing that have nothing to hook you with`() = runTest {
+    fun `the on-device model silences spam that has nothing to hook you with`() = runTest {
         val policy = ActionPolicy()
-        assertEquals(Action.SILENCE, policy.resolve(Category.SCAM, 0.99, Origin.ON_DEVICE, hasHook = false))
-        assertEquals(Action.SILENCE, policy.resolve(Category.PHISHING, 0.99, Origin.ON_DEVICE, hasHook = false))
-        assertEquals(Action.FILTER, policy.resolve(Category.SCAM, 0.99, Origin.ON_DEVICE, hasHook = true))
-        assertEquals(Action.FILTER, policy.resolve(Category.SPAM, 0.99, Origin.ON_DEVICE, hasHook = false))
+        // Sure, but no link, money or number: silenced, never hidden.
+        assertEquals(Action.SILENCE, policy.resolve(Category.SPAM, 0.99, Origin.ON_DEVICE, hasHook = false))
+        assertEquals(Action.FILTER, policy.resolve(Category.SPAM, 0.99, Origin.ON_DEVICE, hasHook = true))
+        // Other unwanted categories don't need a hook.
+        assertEquals(Action.FILTER, policy.resolve(Category.POLITICAL, 0.99, Origin.ON_DEVICE, hasHook = false))
         // Providers are judged as they are.
-        assertEquals(Action.FILTER, policy.resolve(Category.SCAM, 0.99, Origin.PROVIDER, hasHook = false))
-        // Not sure, and nothing to defraud with: it rings like any text ("sorry I missed your call").
-        assertEquals(Action.ALLOW, policy.resolve(Category.SCAM, 0.6, Origin.ON_DEVICE, hasHook = false))
-        assertEquals(Action.ALLOW, policy.resolve(Category.PHISHING, 0.84, Origin.ON_DEVICE, hasHook = false))
+        assertEquals(Action.FILTER, policy.resolve(Category.SPAM, 0.99, Origin.PROVIDER, hasHook = false))
+        // Quite unsure, and nothing to defraud with: it rings like any text ("sorry I missed your call").
+        assertEquals(Action.ALLOW, policy.resolve(Category.SPAM, 0.55, Origin.ON_DEVICE, hasHook = false))
+        // Unsure, but not that unsure: kept quiet.
+        assertEquals(Action.SILENCE, policy.resolve(Category.SPAM, 0.7, Origin.ON_DEVICE, hasHook = false))
         // With a hook, an unsure one is still kept quiet.
-        assertEquals(Action.SILENCE, policy.resolve(Category.SCAM, 0.6, Origin.ON_DEVICE, hasHook = true))
+        assertEquals(Action.SILENCE, policy.resolve(Category.SPAM, 0.6, Origin.ON_DEVICE, hasHook = true))
 
         val opener = MessageClassifier(emptyList(), onDevice = model).classify(InboundMessage("+14155550199", "Hi, is this David? This is Amy from yoga"))
         assertTrue(opener.action <= Action.SILENCE, "$opener")
@@ -205,9 +219,9 @@ class MessageClassifierTest {
     @Test
     fun `the on-device model must be surer than a provider to filter`() {
         val policy = ActionPolicy()
-        assertEquals(Action.FILTER, policy.resolve(Category.PHISHING, 0.8, Origin.PROVIDER))
-        assertEquals(Action.SILENCE, policy.resolve(Category.PHISHING, 0.8, Origin.ON_DEVICE))
-        assertEquals(Action.FILTER, policy.resolve(Category.PHISHING, 0.9, Origin.ON_DEVICE))
-        assertEquals(Action.SILENCE, policy.resolve(Category.PHISHING, 0.99, Origin.HEURISTIC))
+        assertEquals(Action.FILTER, policy.resolve(Category.SPAM, 0.8, Origin.PROVIDER))
+        assertEquals(Action.SILENCE, policy.resolve(Category.SPAM, 0.8, Origin.ON_DEVICE))
+        assertEquals(Action.FILTER, policy.resolve(Category.SPAM, 0.9, Origin.ON_DEVICE))
+        assertEquals(Action.SILENCE, policy.resolve(Category.SPAM, 0.99, Origin.HEURISTIC))
     }
 }

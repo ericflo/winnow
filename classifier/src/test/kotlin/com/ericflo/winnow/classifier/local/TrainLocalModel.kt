@@ -128,7 +128,7 @@ private object Report {
             appendLine("| ${Category.fromKey(c.key)?.label ?: c.key} | ${pct(c.precision)} | ${pct(c.recall)} | ${f(c.f1)} | ${f(c.auc, 3)} | ${c.support} |")
         }
         appendLine()
-        appendLine("## Filtering (political, phishing, scam and spam vs. everything else)")
+        appendLine("## Filtering (political and spam vs. everything else)")
         appendLine()
         appendLine("| Rule | Flagged | Precision | Recall | False positive rate | F1 | MCC | κ |")
         appendLine("|---|---|---|---|---|---|---|---|")
@@ -136,7 +136,7 @@ private object Report {
             appendLine("| ${r.label} | ${pct(r.flagged)} | ${pct(r.precision)} | ${pct(r.recall)} | ${pct(r.falsePositiveRate)} | ${f(r.f1)} | ${f(r.mcc)} | ${f(r.kappa)} |")
         }
         appendLine()
-        appendLine("Winnow's rule filters an unwanted category at ≥85% confidence, except a scam or phishing text with no hook (a link off the company's real site, money, a number to call, payment or code talk), which it only silences. " +
+        appendLine("Winnow's rule filters an unwanted category at ≥85% confidence, except a spam text with no hook (a link off the company's real site, money, a number to call, payment or code talk), which it only silences, and lets through when under 60% sure. " +
             "Unwanted texts that never buzzed the phone (filtered or silenced): ${pct(m.unwanted.unwantedQuieted)}. " +
             "Personal and transactional texts that lost their notification: ${pct(m.unwanted.importantMuted)}.")
         if (wrongfullyFiltered.isNotEmpty()) {

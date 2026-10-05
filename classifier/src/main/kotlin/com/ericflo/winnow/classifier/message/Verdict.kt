@@ -21,6 +21,8 @@ data class Verdict(
     val costUsd: Double = 0.0,
     /** A provider was sent the (redacted) message, whether or not it answered. */
     val providerContacted: Boolean = false,
+    /** The provider's fine-grained answer ([Subcategories]), when it gave one within [category]. */
+    val subcategory: String? = null,
 ) {
     companion object {
         internal fun rule(category: Category?, action: Action, reason: String) =

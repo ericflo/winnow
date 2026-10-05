@@ -49,6 +49,11 @@ data class SystemOneConfig(
      * turns on zero retention for this provider, so that switch is a request, not just a label.
      */
     val zeroRetentionRouting: Boolean = false,
+    /**
+     * What a million input tokens cost, for a service whose answers don't say what they cost
+     * (TypeSafe's own API reports tokens but no `usage.cost`; OpenRouter reports the cost).
+     */
+    val inputUsdPerMillion: Double? = null,
 ) {
     val url: String get() = baseUrl.trimEnd('/') + path
 
@@ -62,6 +67,7 @@ data class SystemOneConfig(
             baseUrl = "https://api.typesafe.ai",
             model = model,
             apiKey = apiKey,
+            inputUsdPerMillion = 0.042,
         )
 
         /** OpenRouter serves Jev on `/alpha/decisions` and `/v1/systemone` with identical shapes. */
@@ -118,10 +124,16 @@ class SystemOneProvider(
                     lastError = ProviderException("${config.id}: HTTP ${result.status} ${SystemOneWire.errorMessage(result.body)}", retryable = true)
                 result.status >= 400 ->
                     throw ProviderException("${config.id}: HTTP ${result.status} ${SystemOneWire.errorMessage(result.body)}", retryable = false)
-                else -> return SystemOneWire.decodeResponse(result.body, request.questions)
+                else -> return priced(SystemOneWire.decodeResponse(result.body, request.questions))
             }
         }
         throw lastError
+    }
+
+    private fun priced(response: DecisionResponse): DecisionResponse {
+        val price = config.inputUsdPerMillion ?: return response
+        if (response.usage.costUsd > 0.0) return response
+        return response.copy(usage = response.usage.copy(costUsd = response.usage.inputTokens * price / 1_000_000))
     }
 }
 

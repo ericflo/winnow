@@ -136,4 +136,24 @@ class LabelingTest {
         assertEquals("what Winnow did when it arrived is kept", Action.ALLOW, labeled.action)
         assertEquals(Action.FILTER, labeled.effectiveAction)
     }
+
+    @Test
+    fun roundsPutRechecksThenLikelyRemindersThenDisagreementsFirst() {
+        val recheck = Training.priority(0.99, recheck = true, reminderLikely = false, disagree = false)
+        val reminder = Training.priority(0.99, recheck = false, reminderLikely = true, disagree = false)
+        val disagree = Training.priority(0.99, recheck = false, reminderLikely = false, disagree = true)
+        val unsure = Training.priority(0.30, recheck = false, reminderLikely = false, disagree = false)
+        assertTrue(recheck < reminder && reminder < disagree && disagree < unsure)
+        // Within a kind, the least sure first.
+        assertTrue(Training.priority(0.4, recheck = true, reminderLikely = false, disagree = false) < recheck)
+    }
+
+    @Test
+    fun formerCategoriesReadAsSpamButNeverOverwriteASetting() {
+        assertEquals(Category.SPAM, Category.fromKey("phishing"))
+        assertEquals(Category.SPAM, Category.fromKey("scam"))
+        assertEquals(Category.REMINDER, Category.fromKey("reminder"))
+        assertEquals(null, Category.fromCurrentKey("phishing"))
+        assertEquals(6, Category.entries.size)
+    }
 }

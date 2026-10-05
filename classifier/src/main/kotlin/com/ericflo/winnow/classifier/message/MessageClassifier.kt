@@ -85,12 +85,16 @@ class MessageClassifier(
                 failures += if (response == null) "$id: timed out" else "$id: no category answer"
                 continue
             }
-            val distribution = answer.probabilities.mapNotNull { (k, p) -> Category.fromKey(k)?.let { it to p } }.toMap()
-            val category = Category.fromKey(answer.top) ?: Category.SPAM
+            // The provider picks a fine-grained kind; its probabilities add up into the six.
+            val distribution = Subcategories.aggregate(answer.probabilities)
+            val category = distribution.maxByOrNull { it.value }?.key
+                ?: Subcategories.of(answer.top)?.parent ?: Category.fromKey(answer.top) ?: Category.SPAM
+            val confidence = distribution[category] ?: answer.confidence
             return Verdict(
                 category = category,
-                confidence = answer.confidence,
-                action = actions.resolve(category, answer.confidence, Origin.PROVIDER),
+                confidence = confidence,
+                action = actions.resolve(category, confidence, Origin.PROVIDER),
+                subcategory = Subcategories.of(answer.top)?.takeIf { it.parent == category }?.key,
                 source = VerdictSource.Provider(id, response.model),
                 distribution = distribution,
                 costUsd = response.usage.costUsd,
@@ -126,10 +130,14 @@ class MessageClassifier(
     companion object {
         const val QUESTION_KEY = "category"
 
+        /** The six categories, as the question explains them: each option counts as one of these. */
+        private val CATEGORIES = Category.entries.joinToString(" ") { "${it.label}: ${it.rubric}" }
+
         val QUESTION = Choice(
             instructions = "This text message just arrived on the user's phone. What kind of message is it? " +
-                "Judge by its content and sender. Scams often imitate legitimate transactional messages.",
-            options = Category.entries.associate { it.key to it.rubric },
+                "Judge by its content and sender. Scams often imitate legitimate transactional messages. Pick the most " +
+                "specific option; each counts as one of six categories, which are: $CATEGORIES",
+            options = Subcategories.options(),
         )
 
         /** Most of an example's words, enough to show what it is; examples are many, and each one costs. */
@@ -142,14 +150,14 @@ class MessageClassifier(
          */
         fun question(examples: Map<Category, List<String>>, privacy: PrivacyPolicy): Choice {
             if (examples.values.all { it.isEmpty() }) return QUESTION
+            val mine = Category.entries.mapNotNull { c ->
+                val texts = examples[c].orEmpty().map { Redactor.redact(it, privacy.redaction).replace('\n', ' ').take(EXAMPLE_CHARS) }
+                if (texts.isEmpty()) null else "${c.label}: " + texts.joinToString("; ") { "\u201c$it\u201d" }
+            }
             return Choice(
-                instructions = QUESTION.instructions + " The user has labeled some of their own texts: where an option lists " +
-                    "their examples, sort the way they do.",
-                options = Category.entries.associate { c ->
-                    val mine = examples[c].orEmpty().map { Redactor.redact(it, privacy.redaction).replace('\n', ' ').take(EXAMPLE_CHARS) }
-                    c.key to if (mine.isEmpty()) c.rubric else c.rubric + " The user labels texts like these " + c.label + ": " +
-                        mine.joinToString("; ") { "\u201c$it\u201d" } + "."
-                },
+                instructions = QUESTION.instructions + " The user has labeled some of their own texts; sort the way they do. " +
+                    "The user labels texts like these as follows. " + mine.joinToString(". ") + ".",
+                options = QUESTION.options,
             )
         }
 
