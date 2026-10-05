@@ -194,8 +194,12 @@ class ModelLab(
     suspend fun inUse(): Pair<String, Predictor>? = withContext(Dispatchers.IO) {
         val id = runCatching { settings.current().labModel }.getOrNull() ?: return@withContext null
         val entry = _entries.value.firstOrNull { it.id == id } ?: return@withContext null
-        loadModel(id, entry.recipe.kind)?.let { id to it }
+        // Asked at every refit of the personal layer (every label): read from disk only when it changed.
+        loaded?.takeIf { it.first == id to entry.trainedAt }?.let { return@withContext id to it.second }
+        loadModel(id, entry.recipe.kind)?.also { loaded = (id to entry.trainedAt) to it }?.let { id to it }
     }
+
+    @Volatile private var loaded: Pair<Pair<String, Long?>, Predictor>? = null
 
     private fun launch(id: String, block: suspend (Entry) -> Unit) {
         if (job?.isActive == true) return
