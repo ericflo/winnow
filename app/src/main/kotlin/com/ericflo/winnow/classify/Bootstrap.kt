@@ -80,7 +80,14 @@ class Bootstrap(
      * the confirmation describes: whether people the user wrote to, codes or the sender's number
      * go, and what's masked).
      */
-    data class Plan(val conversations: Int, val texts: Int, val privacy: com.ericflo.winnow.classifier.message.PrivacyPolicy)
+    data class Plan(
+        val conversations: Int,
+        val texts: Int,
+        val privacy: com.ericflo.winnow.classifier.message.PrivacyPolicy,
+        /** The user's own labeled texts sent with each request as examples, and in how many categories. */
+        val examples: Int = 0,
+        val exampleCategories: Int = 0,
+    )
 
     /**
      * How a run went: texts [labeled] (taught to the model), [unsure] (answered, too unsure to
@@ -132,11 +139,19 @@ class Bootstrap(
         return null
     }
 
-    suspend fun plan(): Plan {
+    /**
+     * What a run would send. [redo]: ask again about texts the service has answered before (with
+     * the user's latest labels as examples); its new answers replace the old, never the user's.
+     */
+    suspend fun plan(redo: Boolean = false): Plan {
         val current = settings.current()
-        val texts = candidates(current)
+        val texts = candidates(current, redo)
         planned = texts
-        return Plan(texts.map { it.threadId }.distinct().size, texts.size, current.effectivePrivacy)
+        val examples = examples(current)
+        return Plan(
+            texts.map { it.threadId }.distinct().size, texts.size, current.effectivePrivacy,
+            examples = examples.values.sumOf { it.size }, exampleCategories = examples.count { it.value.isNotEmpty() },
+        )
     }
 
     fun start() {
@@ -152,6 +167,8 @@ class Bootstrap(
             // What's left to send; texts that failed for a reason waiting can fix go back to its front.
             val queue = ArrayDeque(texts)
             val pacer = Pacer(maxConcurrency = CONCURRENCY)
+            // The user's own labeled texts go with every request, so the service sorts the way they do.
+            val examples = examples(first)
             var batches = 0
             var lastDetail = ""
             try {
@@ -165,7 +182,7 @@ class Bootstrap(
                         return@launch
                     }
                     // The provider decides every text: no deciding on the phone when sure, a generous wait.
-                    val classifier = classifiers.create(current.copy(decideOnPhoneWhenSure = false), timeoutMillis = PROVIDER_TIMEOUT_MILLIS)
+                    val classifier = classifiers.create(current.copy(decideOnPhoneWhenSure = false), timeoutMillis = PROVIDER_TIMEOUT_MILLIS, examples = examples)
                     val judged = verdicts.judgedThreads().toSet()
                     val rules = senderRules()
                     val (stay, go) = batch
@@ -284,9 +301,12 @@ class Bootstrap(
 
     private suspend fun save(labels: List<CorrectionEntity>, filed: List<VerdictEntity>, retrain: Boolean) {
         learner.teach(labels, retrain)
-        // Filed only where Winnow had no verdict: never over one it made as the text arrived, or the user's.
-        val had = verdicts.existingKeys(filed.map { it.messageKey }).toSet()
-        filed.filterNot { it.messageKey in had }.forEach { verdicts.upsert(it) }
+        // Never over a verdict made as the text arrived, or one the user corrected or labeled: only
+        // where there was none, or one from an earlier look back (this service's, or a review's).
+        val kept = verdicts.forKeys(filed.map { it.messageKey })
+            .filter { it.atArrival || it.userAction != null || it.userCategory != null }
+            .mapTo(HashSet()) { it.messageKey }
+        filed.filterNot { it.messageKey in kept }.forEach { verdicts.upsert(it) }
     }
 
     private suspend fun senderRules() =
@@ -300,12 +320,14 @@ class Bootstrap(
      * keep on the phone (people the user wrote to, codes, sender rules, filtered words, as their
      * privacy settings say) isn't planned, and is checked again when sent.
      */
-    private suspend fun candidates(current: WinnowSettings): List<Text> = withContext(Dispatchers.IO) {
+    private suspend fun candidates(current: WinnowSettings, redo: Boolean = false): List<Text> = withContext(Dispatchers.IO) {
         val conversations = repo.conversations().first().filter { !it.isGroup && !contacts.isContact(it.address) }
         val judged = verdicts.judgedThreads().toSet()
         val wanted = conversations.filter { it.threadId !in judged }.associateBy { it.threadId }
         val replied = threadsWithOutgoing()
-        val done = corrections.taughtKeys().toHashSet().apply { addAll(asked()) }
+        // A redo skips only what the user taught; otherwise anything taught or answered before.
+        val done = if (redo) corrections.all().filterNot { it.fromProvider }.mapNotNullTo(HashSet()) { it.messageKey }
+        else corrections.taughtKeys().toHashSet().apply { addAll(asked()) }
         val newest = HashMap<Long, MutableList<Text>>()
         context.contentResolver.query(
             Telephony.Sms.CONTENT_URI,
@@ -330,6 +352,44 @@ class Bootstrap(
             .filterNot { it.key in done }
             .map { t -> t.withRule(rules[com.ericflo.winnow.data.normalizeAddress(t.sender)]) }
             .filterNot { gate.staysOnPhone(it.message()) }
+    }
+
+    /**
+     * Up to [EXAMPLES_PER_CATEGORY] of the user's own labeled texts per category, newest first:
+     * only ones the pipeline would send itself (never a contact's, someone's they wrote to, a
+     * code or a sender with a rule, unless their privacy settings send those), no repeats.
+     */
+    private suspend fun examples(current: WinnowSettings): Map<com.ericflo.winnow.classifier.message.Category, List<String>> = withContext(Dispatchers.IO) {
+        val mine = corrections.all()
+            .filter { !it.fromProvider && it.messageKey?.startsWith("sms:") == true }
+            .sortedByDescending { it.createdAt }
+            .mapNotNull { r -> r.messageKey!!.removePrefix("sms:").toLongOrNull()?.let { it to r.label } }
+        if (mine.isEmpty()) return@withContext emptyMap()
+        class Sms(val address: String, val body: String, val threadId: Long)
+        val sms = HashMap<Long, Sms>()
+        mine.map { it.first }.distinct().chunked(500).forEach { ids ->
+            context.contentResolver.query(
+                Telephony.Sms.CONTENT_URI,
+                arrayOf(Telephony.Sms._ID, Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.THREAD_ID),
+                "${Telephony.Sms._ID} IN (${ids.joinToString(",")}) AND ${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_INBOX}", null, null,
+            )?.use { c -> while (c.moveToNext()) sms[c.getLong(0)] = Sms(c.getString(1).orEmpty(), c.getString(2).orEmpty(), c.getLong(3)) }
+        }
+        val replied = threadsWithOutgoing()
+        val rules = senderRules()
+        val gate = classifiers.create(current)
+        val out = LinkedHashMap<com.ericflo.winnow.classifier.message.Category, MutableList<String>>()
+        for ((id, label) in mine) {
+            val category = com.ericflo.winnow.classifier.message.Category.fromKey(label) ?: continue
+            val list = out.getOrPut(category) { mutableListOf() }
+            val m = sms[id] ?: continue
+            if (list.size >= EXAMPLES_PER_CATEGORY || m.body.isBlank() || m.body in list) continue
+            val message = InboundMessage(
+                sender = m.address, body = m.body, senderInContacts = contacts.isContact(m.address),
+                userHasMessagedSender = m.threadId in replied, senderRule = rules[com.ericflo.winnow.data.normalizeAddress(m.address)],
+            )
+            if (!gate.staysOnPhone(message)) list += m.body
+        }
+        out.filterValues { it.isNotEmpty() }
     }
 
     private fun Text.withRule(rule: com.ericflo.winnow.classifier.message.SenderRule?) = Text(key, threadId, sender, body, date, repliedTo, rule)
@@ -381,6 +441,9 @@ class Bootstrap(
             val wait = if (seconds >= 60) "${(seconds + 59) / 60} min" else "$seconds s"
             return "$why. Trying again in $wait."
         }
+
+        /** The user's labeled texts sent per category with each request, as examples of how they sort. */
+        const val EXAMPLES_PER_CATEGORY = 3
 
         /** Newest received texts sent per conversation: enough to know it, few enough to keep sending down. */
         const val PER_CONVERSATION = 3

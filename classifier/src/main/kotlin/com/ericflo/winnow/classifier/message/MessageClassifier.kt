@@ -32,6 +32,12 @@ class MessageClassifier(
     private val onDevice: OnDeviceClassifier? = null,
     private val decideOnDeviceAbove: Double? = null,
     private val filteredPhrases: FilteredPhrases = FilteredPhrases(emptyList()),
+    /**
+     * Texts the user labeled, by category, sent with each request so the provider sorts the way
+     * the user does rather than by its own idea of the categories (see [question]). Redacted like
+     * the message. Empty for ordinary classification; a backlog run the user confirmed sets it.
+     */
+    private val examples: Map<Category, List<String>> = emptyMap(),
 ) {
 
     /**
@@ -62,7 +68,7 @@ class MessageClassifier(
             return fallback(message, local, "No provider fits your privacy settings", contacted = false)
         }
 
-        val request = buildRequest(message, privacy)
+        val request = buildRequest(message, privacy, examples)
         val failures = mutableListOf<String>()
         for (provider in eligible) {
             val id = provider.descriptor.id
@@ -126,8 +132,29 @@ class MessageClassifier(
             options = Category.entries.associate { it.key to it.rubric },
         )
 
+        /** Most of an example's words, enough to show what it is; examples are many, and each one costs. */
+        const val EXAMPLE_CHARS = 160
+
+        /**
+         * The question, with the user's own labeled [examples] (already chosen as fit to send)
+         * under each category, redacted by [privacy]: the provider is asked to follow how the
+         * user sorts. Without examples, the plain [QUESTION].
+         */
+        fun question(examples: Map<Category, List<String>>, privacy: PrivacyPolicy): Choice {
+            if (examples.values.all { it.isEmpty() }) return QUESTION
+            return Choice(
+                instructions = QUESTION.instructions + " The user has labeled some of their own texts: where an option lists " +
+                    "their examples, sort the way they do.",
+                options = Category.entries.associate { c ->
+                    val mine = examples[c].orEmpty().map { Redactor.redact(it, privacy.redaction).replace('\n', ' ').take(EXAMPLE_CHARS) }
+                    c.key to if (mine.isEmpty()) c.rubric else c.rubric + " The user labels texts like these " + c.label + ": " +
+                        mine.joinToString("; ") { "\u201c$it\u201d" } + "."
+                },
+            )
+        }
+
         /** The exact state a provider sees: redacted text and coarse sender facts. */
-        fun buildRequest(message: InboundMessage, privacy: PrivacyPolicy): DecisionRequest {
+        fun buildRequest(message: InboundMessage, privacy: PrivacyPolicy, examples: Map<Category, List<String>> = emptyMap()): DecisionRequest {
             val state = buildJsonObject {
                 put("message", Redactor.redact(message.body, privacy.redaction))
                 putJsonObject("sender") {
@@ -137,7 +164,7 @@ class MessageClassifier(
                     put("user_has_messaged_sender", message.userHasMessagedSender)
                 }
             }
-            return DecisionRequest(state, mapOf(QUESTION_KEY to QUESTION))
+            return DecisionRequest(state, mapOf(QUESTION_KEY to question(examples, privacy)))
         }
     }
 }

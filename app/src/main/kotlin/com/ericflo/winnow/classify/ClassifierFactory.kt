@@ -24,7 +24,12 @@ class ClassifierFactory(
     private val onDevice: suspend () -> OnDeviceClassifier,
 ) {
 
-    suspend fun create(settings: WinnowSettings, timeoutMillis: Long = 5_000): MessageClassifier =
+    suspend fun create(
+        settings: WinnowSettings,
+        timeoutMillis: Long = 5_000,
+        /** The user's labeled texts to send as examples (a backlog run only; see MessageClassifier). */
+        examples: Map<com.ericflo.winnow.classifier.message.Category, List<String>> = emptyMap(),
+    ): MessageClassifier =
         MessageClassifier(
             providers = listOfNotNull(provider(settings)),
             privacy = settings.effectivePrivacy,
@@ -34,6 +39,7 @@ class ClassifierFactory(
             onDevice = runCatching { onDevice() }.getOrNull(),
             decideOnDeviceAbove = SURE.takeIf { settings.decideOnPhoneWhenSure },
             filteredPhrases = FilteredPhrases(settings.filteredPhrases),
+            examples = examples,
         )
 
     /** Null when the choice is on-device only or the chosen provider isn't configured yet. */

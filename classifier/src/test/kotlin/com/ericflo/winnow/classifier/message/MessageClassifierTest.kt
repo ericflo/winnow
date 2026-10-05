@@ -94,6 +94,26 @@ class MessageClassifierTest {
     }
 
     @Test
+    fun `the user's examples go under their categories, redacted and trimmed`() = runTest {
+        val provider = FakeProvider { mapOf("spam" to 1.0) }
+        val examples = mapOf(
+            Category.SPAM to listOf("Win a FREE cruise! Call 8885550123 now", "x".repeat(400)),
+            Category.PERSONAL to listOf("dinner at 7?"),
+        )
+        MessageClassifier(listOf(provider), examples = examples).classify(stranger)
+        val options = provider.seen.single().questions.getValue(MessageClassifier.QUESTION_KEY).options
+        val spam = options.getValue("spam")!!
+        assertTrue(spam.startsWith(Category.SPAM.rubric), spam)
+        assertTrue("Call ##########" in spam && "8885550123" !in spam, spam)
+        assertTrue("x".repeat(MessageClassifier.EXAMPLE_CHARS) in spam && "x".repeat(MessageClassifier.EXAMPLE_CHARS + 1) !in spam, spam)
+        assertTrue("dinner at 7?" in options.getValue("personal")!!)
+        assertEquals(Category.POLITICAL.rubric, options.getValue("political"))
+        // Without examples, the question is exactly the plain one.
+        MessageClassifier(listOf(provider)).classify(stranger)
+        assertEquals(MessageClassifier.QUESTION, provider.seen.last().questions.getValue(MessageClassifier.QUESTION_KEY))
+    }
+
+    @Test
     fun `provider sees redacted text and no sender address by default`() = runTest {
         val provider = FakeProvider { mapOf("scam" to 1.0) }
         MessageClassifier(listOf(provider)).classify(stranger)

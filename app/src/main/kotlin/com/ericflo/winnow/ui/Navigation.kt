@@ -310,6 +310,8 @@ fun WinnowNavHost(
             com.ericflo.winnow.ui.train.TrainScreen(
                 viewModel = viewModel { com.ericflo.winnow.ui.train.TrainViewModel(container) },
                 onBack = dropUnlessResumed { nav.popBackStack() },
+                // The whole conversation, for context; Back returns to the round as it was.
+                onOpenThread = openThread,
             )
         }
         composable<StarredRoute> {

@@ -120,6 +120,8 @@ data class BootstrapOffer(
     val taught: Int,
     /** What sending the plan would cost at a price we know (Jev via OpenRouter's), else null. */
     val estimateUsd: Double?,
+    /** Asking again about texts answered before, with the user's latest labels. */
+    val redo: Boolean = false,
 )
 
 class TrainViewModel(private val container: AppContainer) : ViewModel() {
@@ -136,10 +138,10 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
         loadOffer()
     }
 
-    private fun loadOffer() {
+    private fun loadOffer(redo: Boolean = false) {
         viewModelScope.launch {
             val current = container.settings.current()
-            val plan = runCatching { container.bootstrap.plan() }.getOrNull() ?: return@launch
+            val plan = runCatching { container.bootstrap.plan(redo) }.getOrNull() ?: return@launch
             val taught = container.bootstrap.taught.first()
             _offer.value = BootstrapOffer(
                 provider = current.provider.label,
@@ -147,12 +149,19 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
                 plan = plan,
                 taught = taught,
                 estimateUsd = if (current.provider == com.ericflo.winnow.data.ProviderKind.OPENROUTER_JEV) plan.texts * JEV_OPENROUTER_USD_PER_TEXT else null,
+                redo = redo,
             )
         }
     }
 
     /** In a foreground service, so the run goes on with the screen off or Winnow closed. */
     fun startBootstrap() = com.ericflo.winnow.classify.BootstrapService.start(container.appContext)
+
+    /** Plans a redo (see Bootstrap.plan); the card then offers it for confirmation. */
+    fun planRedo() = loadOffer(redo = true)
+
+    /** Back to the ordinary offer, when a redo isn't wanted after all. */
+    fun cancelRedo() = loadOffer(redo = false)
 
     fun stopBootstrap() = container.bootstrap.stop()
 
@@ -292,7 +301,7 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TrainScreen(viewModel: TrainViewModel, onBack: () -> Unit) {
+fun TrainScreen(viewModel: TrainViewModel, onBack: () -> Unit, onOpenThread: (Long, List<String>) -> Unit = { _, _ -> }) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
@@ -324,7 +333,7 @@ fun TrainScreen(viewModel: TrainViewModel, onBack: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 Text(if (s == TrainState.Saving) "Learning from your labels…" else "Picking conversations…", style = MaterialTheme.typography.bodyMedium)
             }
-            is TrainState.Reviewing -> Reviewing(s, viewModel, Modifier.padding(padding))
+            is TrainState.Reviewing -> Reviewing(s, viewModel, onOpenThread, Modifier.padding(padding))
             is TrainState.Finished -> Finished(s, onNext = viewModel::nextRound, onDone = onBack, modifier = Modifier.padding(padding))
             is TrainState.Done -> Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 BootstrapSection(viewModel)
@@ -342,7 +351,7 @@ fun TrainScreen(viewModel: TrainViewModel, onBack: () -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Reviewing(s: TrainState.Reviewing, viewModel: TrainViewModel, modifier: Modifier) {
+private fun Reviewing(s: TrainState.Reviewing, viewModel: TrainViewModel, onOpenThread: (Long, List<String>) -> Unit, modifier: Modifier) {
     val offer by viewModel.offer.collectAsStateWithLifecycle()
     val groups = s.round.candidates.groupBy { it.guess }.toSortedMap(compareBy { it.ordinal })
     LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -381,6 +390,7 @@ private fun Reviewing(s: TrainState.Reviewing, viewModel: TrainViewModel, modifi
                 Box(Modifier.animateItem()) {
                 CandidateRow(
                     c,
+                    onOpenThread = { onOpenThread(c.threadId, c.recipients) },
                     providerName = offer?.provider?.let { if ("Jev" in it) "Jev" else it } ?: "Jev",
                     decision = s.decisions[c.threadId],
                     open = s.open == c.threadId,
@@ -400,6 +410,8 @@ private fun Reviewing(s: TrainState.Reviewing, viewModel: TrainViewModel, modifi
 @Composable
 private fun CandidateRow(
     c: Training.Candidate,
+    /** Opens the whole conversation, the user's own texts and all. */
+    onOpenThread: () -> Unit,
     /** The classifier service, as the user knows it ("Jev (TypeSafe)"). */
     providerName: String,
     decision: Decision?,
@@ -432,11 +444,15 @@ private fun CandidateRow(
                     var expanded by rememberSaveable(c.threadId) { mutableStateOf(false) }
                     var overflows by remember(c.threadId) { mutableStateOf(false) }
                     val expandable = expanded || overflows || c.earlier.isNotEmpty()
+                    // Nothing more to show here: a tap opens the conversation itself, for context.
                     Column(
                         Modifier.clickable(
-                            enabled = expandable,
-                            onClickLabel = if (expanded) "Show less" else "Read the whole message",
-                        ) { expanded = !expanded },
+                            onClickLabel = when {
+                                expanded -> "Show less"
+                                expandable -> "Read the whole message"
+                                else -> "See the conversation"
+                            },
+                        ) { if (expandable) expanded = !expanded else onOpenThread() },
                     ) {
                         Text(c.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
@@ -462,10 +478,14 @@ private fun CandidateRow(
                                 )
                             }
                         }
-                        if (expandable) {
+                        if (expanded) {
+                            TextButton(onClick = onOpenThread, contentPadding = PaddingValues(0.dp)) { Text("Open the whole conversation") }
+                        }
+                        run {
                             Text(
                                 when {
                                     expanded -> "Show less"
+                                    !expandable -> "See the conversation"
                                     c.earlier.isEmpty() -> "Read more"
                                     c.earlier.size == 1 -> "Read more · 1 earlier text"
                                     else -> "Read more · ${c.earlier.size} earlier texts"
@@ -664,11 +684,30 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
         }
         com.ericflo.winnow.classify.BootstrapStatus.Idle -> when {
             o.plan.texts == 0 && o.taught == 0 -> Unit
-            o.plan.texts == 0 -> Text(
-                "${o.provider} has labeled your backlog (${o.taught} texts). When new conversations come in, they're offered here to label too.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            o.redo -> BootstrapCard("Ask ${o.provider} again with your latest labels") {
+                Text(
+                    "It would ask again about ${plural(o.plan.texts, "text")} from ${plural(o.plan.conversations, "conversation")}" +
+                        (if (o.plan.examples > 0) ", this time with ${plural(o.plan.examples, "text")} you labeled as examples of how you sort" else "") +
+                        ". Its new answers replace its old ones; yours are never touched.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (o.unavailable != null) {
+                    Text(o.unavailable, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { confirming = true }, enabled = o.plan.texts > 0) { Text("Review and start") }
+                        TextButton(onClick = viewModel::cancelRedo) { Text("Not now") }
+                    }
+                }
+            }
+            o.plan.texts == 0 -> Column {
+                Text(
+                    "${o.provider} has labeled your backlog (${o.taught} texts). When new conversations come in, they're offered here to label too.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = viewModel::planRedo, contentPadding = PaddingValues(0.dp)) { Text("Ask ${o.provider} again with your latest labels") }
+            }
             else -> BootstrapCard(if (o.taught > 0) "Finish labeling your backlog with ${o.provider}" else "Let ${o.provider} label your backlog first") {
                 Text(
                     "It would label ${plural(o.plan.texts, "text")} from ${plural(o.plan.conversations, "conversation")} with people who aren't in your contacts, " +
@@ -686,7 +725,7 @@ private fun BootstrapSection(viewModel: TrainViewModel) {
     if (confirming) {
         AlertDialog(
             onDismissRequest = { confirming = false },
-            title = { Text("Send ${plural(o.plan.texts, "text")} to ${o.provider}?") },
+            title = { Text(if (o.redo) "Ask ${o.provider} again about ${plural(o.plan.texts, "text")}?" else "Send ${plural(o.plan.texts, "text")} to ${o.provider}?") },
             text = {
                 Text(consentText(o, money))
             },
@@ -733,6 +772,12 @@ private fun consentText(o: BootstrapOffer, money: (Double) -> String): String {
         append("Texts from ${list(stay)} stay on your phone.")
         if (p.classifyKnownConversations) append(" Your settings do send texts from people you've written to.")
         if (p.classifyVerificationCodes) append(" Your settings do send verification codes.")
+        if (o.plan.examples > 0) {
+            append(
+                " With each one go ${plural(o.plan.examples, "text")} you labeled yourself (up to ${com.ericflo.winnow.classify.Bootstrap.EXAMPLES_PER_CATEGORY} per category, " +
+                    "chosen and redacted by the same rules), so it sorts the way you do, not by its own idea of the categories.",
+            )
+        }
         append("\n\nIts answers teach Winnow's model (counting for less than your labels, which always win) and file texts Winnow never sorted. ")
         append(o.estimateUsd?.let { "At OpenRouter's price for Jev that's about ${money(it)} in all. " } ?: "${o.provider} bills each one as usual; the cost so far shows as it goes. ")
         append("You can stop at any time and pick up later; texts it has answered aren't sent again.")
