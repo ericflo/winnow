@@ -83,7 +83,7 @@ import kotlinx.coroutines.isActive
  * conversation they never looked at says nothing either way, so it isn't counted as agreement.
  */
 data class Agreement(
-    /** Conversations a model or provider classified on this phone. */
+    /** Conversations a model or provider classified for Winnow. */
     val decisions: Int,
     val corrected: Int,
     val notSpam: Int,
@@ -548,7 +548,7 @@ private fun AgreementCard(a: Agreement) {
         }
         val counts = buildList {
             if (a.labeled > 0) add("${count(a.labeled)} texts labeled by you")
-            if (a.decisions > 0) add("${count(a.decisions)} conversations classified on this phone")
+            if (a.decisions > 0) add("${count(a.decisions)} conversations Winnow has classified")
             if (a.notSpam > 0) add("${count(a.notSpam)} you marked “Not spam”")
             if (a.filteredByYou > 0) add("${count(a.filteredByYou)} you filtered yourself")
         }
