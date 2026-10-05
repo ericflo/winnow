@@ -375,7 +375,7 @@ class ThreadViewModel(
      */
     val suggestedReplies: StateFlow<List<String>> = combine(container.settings.settings.map { it.suggestedReplies }, state, _pending, answered) { on, s, pending, answeredKey ->
         // Reactions ("Loved “…”") aren't something to answer, nor what an answer reads.
-        val spoken = s.messages.filter { Tapback.parse(it.body) == null }
+        val spoken = latestSpoken(s.messages, SUGGESTION_CONTEXT)
         val newest = spoken.lastOrNull()
         // Not while a reply to it is on its way (undo window, a photo shrinking): it's answered.
         val worthIt = on && newest != null && !newest.outgoing && pending == null && newest.key != answeredKey &&
@@ -395,6 +395,8 @@ class ThreadViewModel(
                 .filter { it.text.isNotBlank() }
             emit(container.smartLinks.suggestReplies(turns))
         }
+        // Not on the main thread: it runs on every change to the conversation.
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     suspend fun preview(url: String): LinkPreview? = container.linkPreviews.get(url)
@@ -1201,3 +1203,10 @@ class ThreadViewModel(
         private const val MIN_VIDEO_ROOM = 150_000L
     }
 }
+
+/**
+ * The newest [n] of [messages] that aren't reactions, oldest first. Read from the end, and only
+ * as far as needed: a long conversation's whole history isn't, and is costly to go through.
+ */
+internal fun latestSpoken(messages: List<ChatMessage>, n: Int): List<ChatMessage> =
+    messages.asReversed().asSequence().filter { Tapback.parse(it.body) == null }.take(n).toList().asReversed()

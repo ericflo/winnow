@@ -77,4 +77,22 @@ class TapbackTest {
         assertTrue(sent.endsWith("…”"))
         assertTrue(Tapback.parse(sent)!!.matches(long))
     }
+
+    @Test
+    fun `every kind of reaction still parses, with or without spaces around it`() {
+        for (verb in listOf("Liked", "Loved", "Disliked", "Laughed at", "Emphasized", "Emphasised", "Questioned")) {
+            assertEquals(verb, "see you soon", Tapback.parse("  $verb “see you soon”\n")?.quoted)
+            assertEquals(verb, "an image", Tapback.parse("$verb an image")?.quoted)
+        }
+        assertTrue(Tapback.parse(" Removed a heart from “see you soon”")!!.removal)
+        assertEquals("🎉", Tapback.parse("Reacted 🎉 to “see you soon”")?.emoji)
+    }
+
+    @Test
+    fun `texts that only mention a reaction word are not reactions`() {
+        assertNull(Tapback.parse("Loved seeing you today"))
+        assertNull(Tapback.parse("I loved “see you soon”"))
+        assertNull(Tapback.parse("Reacted badly to the news"))
+        assertNull(Tapback.parse(""))
+    }
 }

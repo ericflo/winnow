@@ -72,6 +72,8 @@ data class Tapback(
             return if (text.length <= QUOTE_LIMIT) text else text.take(QUOTE_LIMIT).trimEnd() + "…"
         }
         private val REMOVE = Regex("""^Removed (${REMOVALS.keys.joinToString("|") { Regex.escape(it) }}) from $QUOTED$""", RegexOption.DOT_MATCHES_ALL)
+        /** Every reaction's first word. */
+        private val STARTS = (VERBS.keys.map { it.substringBefore(' ') } + "Removed" + "Reacted").distinct()
         private val REACTED = Regex("""^Reacted (\S+) to $QUOTED$""", RegexOption.DOT_MATCHES_ALL)
 
         /** A short description for previews: "Reacted ❤️ to “see you soon”", or [body] itself. */
@@ -81,6 +83,9 @@ data class Tapback(
 
         fun parse(body: String): Tapback? {
             val text = body.trim()
+            // Nearly every text isn't a reaction, and a conversation can hold tens of thousands:
+            // a first word that can't start one skips the patterns.
+            if (STARTS.none { text.startsWith(it) }) return null
             ADD.matchEntire(text)?.let { return Tapback(VERBS.getValue(it.groupValues[1]), it.groupValues[2].ifEmpty { it.groupValues[3] }) }
             REMOVE.matchEntire(text)?.let { return Tapback(REMOVALS.getValue(it.groupValues[1]), it.groupValues[2], removal = true) }
             REACTED.matchEntire(text)?.let { return Tapback(it.groupValues[1], it.groupValues[2]) }

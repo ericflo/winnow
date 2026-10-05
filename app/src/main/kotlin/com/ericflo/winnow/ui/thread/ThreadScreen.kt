@@ -462,8 +462,11 @@ fun ThreadScreen(
 
     // Several messages at once: "Select" in a message's sheet starts it, taps add and remove.
     var selected by remember { mutableStateOf(emptySet<String>()) }
-    val selectedMessages = remember(selected, state.messages) { state.messages.filter { it.key in selected } }
-    LaunchedEffect(state.messages) { selected = selected.filterTo(HashSet()) { key -> state.messages.any { it.key == key } } }
+    // Nothing selected is the usual case: no pass over a long conversation for it.
+    val selectedMessages = remember(selected, state.messages) { if (selected.isEmpty()) emptyList() else state.messages.filter { it.key in selected } }
+    LaunchedEffect(state.messages) {
+        if (selected.isNotEmpty()) selected = state.messages.mapTo(HashSet()) { it.key }.let { keys -> selected.filterTo(HashSet()) { it in keys } }
+    }
     BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
     var confirmDeleteSelected by remember { mutableStateOf(false) }
     var confirmDeleteOne by remember { mutableStateOf<ChatMessage?>(null) }
@@ -1330,6 +1333,23 @@ private const val BLOCK_GAP_MILLIS = 60 * 60_000L
 private const val GROUP_GAP_MILLIS = 5 * 60_000L
 
 /** Transport line, time headers and grouped bubbles. Newest first, for a reversed list. */
+/**
+ * The conversation as the list shows it. A few thousand messages fold in well within a frame; a
+ * long conversation's tens of thousands would freeze the screen ("isn't responding"), so those
+ * are folded off the main thread, the list on screen staying up while a change is folded in.
+ */
+@Composable
+private fun rememberItems(transport: String, messages: List<ChatMessage>, unreadOnOpen: List<String>): List<ListItem> {
+    if (messages.size <= ITEMS_ON_MAIN_THREAD) return remember(transport, messages, unreadOnOpen) { buildItems(transport, messages, unreadOnOpen) }
+    val items by produceState(listOf<ListItem>(ListItem.Transport(transport)), transport, messages, unreadOnOpen) {
+        value = withContext(Dispatchers.Default) { buildItems(transport, messages, unreadOnOpen) }
+    }
+    return items
+}
+
+/** Up to this many messages, the list is built as it's drawn (see [rememberItems]). */
+private const val ITEMS_ON_MAIN_THREAD = 2_000
+
 private fun buildItems(transport: String, messages: List<ChatMessage>, unreadOnOpen: List<String> = emptyList()): List<ListItem> {
     fun day(t: Long) = Instant.ofEpochMilli(t).atZone(ZoneId.systemDefault()).toLocalDate()
     fun newBlock(prev: ChatMessage?, m: ChatMessage) =
@@ -1398,7 +1418,7 @@ private fun MessageList(
         isEmailAddress(other) -> "Texting with $other (MMS)"
         else -> "Texting with ${ContactLookup.formatAddress(other)} (SMS/MMS)"
     }
-    val items = remember(transport, state.messages, unreadOnOpen) { buildItems(transport, state.messages, unreadOnOpen) }
+    val items = rememberItems(transport, state.messages, unreadOnOpen)
     val latestOutgoing = state.messages.lastOrNull { it.outgoing }?.key
     var revealed by rememberSaveable { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
