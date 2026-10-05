@@ -72,7 +72,9 @@ data class ChatMessage(
     enum class Kind { SMS, MMS }
 
     /** Unique across the SMS and MMS tables, whose ids overlap. Also the verdict key. */
-    val key: String get() = messageKey(kind, id)
+    // Kept, not built on each read: a long conversation's passes (its list, its verdicts, a
+    // selection of everything) read it tens of thousands of times.
+    val key: String = messageKey(kind, id)
 
     companion object {
         fun messageKey(kind: Kind, id: Long) = "${kind.name.lowercase()}:$id"

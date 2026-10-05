@@ -183,7 +183,7 @@ into backups.
   uses the SIM their last text arrived on, then your default. Replies from notifications and
   scheduled texts use the same SIM, and message details say which SIM a text came in on.
 - **Messages:** react (❤️ 👍 👎 😂 ‼️ ❓), copy (all or just part, with Select text),
-  forward, share, star, delete, details, and "Copy code" for verification codes. **Select** several to copy, star or delete them together. Reactions go out as `Loved “…”`, which iPhones show as a
+  forward, share, star, delete, details, and "Copy code" for verification codes. **Select** several to copy, star or delete them together, or **Select all** of the conversation (copying is capped at what Android's clipboard can carry; Details → Export conversation takes any amount). Reactions go out as `Loved “…”`, which iPhones show as a
   tapback. **Remind me** on a message brings it back as a notification later (in an hour,
   this evening, tomorrow morning or any time), opening the conversation right at it; "In an
   hour" there puts it off again. **Starred** (in the menu) collects starred messages from every conversation, photos

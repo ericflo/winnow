@@ -381,8 +381,14 @@ fun ThreadScreen(
     }
     fun copy(text: String, notice: String) {
         scope.launch {
-            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("message", text)))
-            snackbar.showSnackbar(notice)
+            // The clipboard goes through Android in one piece, and too big a piece fails (a whole
+            // long conversation, selected all at once): an export holds any amount.
+            if (text.length > COPY_LIMIT) {
+                snackbar.showSnackbar("That's too much to copy at once. Details → Export conversation saves it all to a file.")
+                return@launch
+            }
+            if (runCatching { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("message", text))) }.isSuccess) snackbar.showSnackbar(notice)
+            else snackbar.showSnackbar("Couldn't copy that")
         }
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -493,6 +499,11 @@ fun ThreadScreen(
             if (selected.isNotEmpty()) {
                 SelectionBar(
                     count = selected.size,
+                    allSelected = selected.size >= state.messages.size,
+                    onSelectAll = {
+                        val all = state.messages
+                        scope.launch { selected = withContext(Dispatchers.Default) { all.mapTo(HashSet()) { it.key } } }
+                    },
                     allStarred = selectedMessages.isNotEmpty() && selectedMessages.all { it.starred },
                     canCopy = selectedMessages.any { it.body.isNotBlank() },
                     onClose = { selected = emptySet() },
@@ -1349,6 +1360,9 @@ private fun rememberItems(transport: String, messages: List<ChatMessage>, unread
 
 /** Up to this many messages, the list is built as it's drawn (see [rememberItems]). */
 private const val ITEMS_ON_MAIN_THREAD = 2_000
+
+/** Most text copied in one go: Android hands the clipboard over in one piece, which can't be large. */
+private const val COPY_LIMIT = 100_000
 
 private fun buildItems(transport: String, messages: List<ChatMessage>, unreadOnOpen: List<String> = emptyList()): List<ListItem> {
     fun day(t: Long) = Instant.ofEpochMilli(t).atZone(ZoneId.systemDefault()).toLocalDate()
@@ -2744,6 +2758,9 @@ private fun SelectTextDialog(text: String, onDismiss: () -> Unit) {
 @Composable
 private fun SelectionBar(
     count: Int,
+    /** Every message is selected already: no Select all to offer. */
+    allSelected: Boolean,
+    onSelectAll: () -> Unit,
     allStarred: Boolean,
     canCopy: Boolean,
     onClose: () -> Unit,
@@ -2753,8 +2770,9 @@ private fun SelectionBar(
 ) {
     TopAppBar(
         navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Clear selection") } },
-        title = { Text("$count selected") },
+        title = { Text("${java.text.NumberFormat.getIntegerInstance().format(count)} selected") },
         actions = {
+            if (!allSelected) IconButton(onClick = onSelectAll) { Icon(painterResource(R.drawable.ic_select_all), contentDescription = "Select all") }
             if (canCopy) IconButton(onClick = onCopy) { Icon(painterResource(R.drawable.ic_copy), contentDescription = "Copy text") }
             IconButton(onClick = onStar) {
                 Icon(if (allStarred) Icons.Outlined.Star else Icons.Filled.Star, contentDescription = if (allStarred) "Unstar" else "Star")
