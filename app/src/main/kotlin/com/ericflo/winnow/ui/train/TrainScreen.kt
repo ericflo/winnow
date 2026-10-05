@@ -130,6 +130,9 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
     val state: StateFlow<TrainState> = _state.asStateFlow()
 
     val bootstrap: StateFlow<com.ericflo.winnow.classify.BootstrapStatus> = container.bootstrap.status
+
+    /** Whether Winnow can read the texts at all (see AppContainer.isLive). */
+    val live: StateFlow<Boolean> = container.isLive
     private val _offer = MutableStateFlow<BootstrapOffer?>(null)
     val offer: StateFlow<BootstrapOffer?> = _offer.asStateFlow()
 
@@ -395,9 +398,12 @@ fun TrainScreen(viewModel: TrainViewModel, onBack: () -> Unit, onOpenThread: (Lo
             is TrainState.Finished -> Finished(s, onNext = viewModel::nextRound, onDone = onBack, modifier = Modifier.padding(padding))
             is TrainState.Done -> Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 BootstrapSection(viewModel)
-                Text("Nothing left to label", style = MaterialTheme.typography.titleLarge)
+                val live by viewModel.live.collectAsStateWithLifecycle()
+                // Not the SMS app (any more): there's nothing to read, not nothing to label.
+                Text(if (live) "Nothing left to label" else "Winnow can't read your texts", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    if (s.labeled > 0) "You've sorted all ${s.labeled} conversations with people who aren't in your contacts. New ones show up here as they arrive."
+                    if (!live) "Android only lets the default SMS app read them. Make Winnow your SMS app again, from the inbox, to train it."
+                    else if (s.labeled > 0) "You've sorted all ${s.labeled} conversations with people who aren't in your contacts. New ones show up here as they arrive."
                     else "There are no conversations with people outside your contacts to label. Winnow always lets your contacts through.",
                     style = MaterialTheme.typography.bodyLarge,
                 )
