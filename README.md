@@ -247,6 +247,10 @@ into backups.
   Ctrl+, opens Settings; Meta+/ lists them.
 - **Display:** light, dark or the system theme, and a message text size. Pinch a
   conversation to zoom its text; it snaps back to normal near 100%.
+- **RCS:** Winnow can't receive RCS (Android gives it to Google Messages alone), and while it's
+  your SMS app an RCS group chat's messages wait with Google instead of arriving. Winnow marks
+  every conversation that was RCS, explains how to turn RCS off so they come as texts, says what
+  arrived while another app was your SMS app, and lets you name people known only by an RCS id.
 - **Getting started:** onboarding explains the RCS trade-off before it asks to become your
   SMS app. Once Winnow is in charge, it can review older conversations for spam.
 

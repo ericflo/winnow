@@ -364,3 +364,17 @@ Paths kept open:
    `MessageRepository`.
 
 The current decision is a full replacement on SMS/MMS, accepting the loss of RCS for now.
+
+Learned on a real phone (2026-10-05): while Winnow is the SMS app, Google Messages has RCS off,
+but Google may still take the number for RCS. A message sent over RCS then isn't delivered at
+all; it waits with Google until Google Messages is the SMS app again. One person's phone may
+resend it as SMS; an RCS group chat's doesn't, so a group's messages go missing meanwhile. Google
+Messages leaves RCS chats in the phone's store with RCS ids for addresses ("<id>@rcs.google.com";
+business chats "@rbm.goog"), which is how Winnow recognizes them (`isRcsAddress`). Winnow:
+
+- marks RCS chats (an inbox card naming them, a banner in each) and explains the fix in
+  `RcsSheet`: let anything waiting arrive through Google Messages, turn RCS off there so people's
+  phones send SMS/MMS, then make Winnow the SMS app again;
+- tracks when it stops and starts being the SMS app (`RoleWatch`, from Android's
+  `DEFAULT_SMS_PACKAGE_CHANGED` and every resume) and says what arrived meanwhile, unseen by it;
+- shows RCS ids as `RCS·a1b2` and lets the user name them (kept on the phone, `people_names`).
