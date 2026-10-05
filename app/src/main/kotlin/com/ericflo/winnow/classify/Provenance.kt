@@ -70,23 +70,26 @@ data class Explanation(
 )
 
 object Provenance {
-    fun decider(v: VerdictEntity): Decider = when (v.sourceKind) {
+    fun decider(v: VerdictEntity): Decider = decider(v.sourceKind, v.sourceDetail)
+
+    fun decider(sourceKind: String, sourceDetail: String): Decider = when (sourceKind) {
         VerdictEntity.KIND_PROVIDER -> Decider.PROVIDER
         VerdictEntity.KIND_LOCAL -> Decider.MODEL
         VerdictEntity.KIND_HEURISTIC -> Decider.FALLBACK
         // A label on a text Winnow had never decided becomes its only verdict.
-        else -> if (v.sourceDetail == LABELED_BY_YOU) Decider.YOU else Decider.RULE
+        else -> if (sourceDetail == LABELED_BY_YOU) Decider.YOU else Decider.RULE
     }
 
-    fun modelReason(v: VerdictEntity): ModelReason? {
-        if (v.sourceKind != VerdictEntity.KIND_LOCAL) return null
-        val reason = v.fallbackReason
+    fun modelReason(v: VerdictEntity): ModelReason? = modelReason(v.sourceKind, v.fallbackReason, v.localModel)
+
+    fun modelReason(sourceKind: String, fallbackReason: String?, localModel: String?): ModelReason? {
+        if (sourceKind != VerdictEntity.KIND_LOCAL) return null
         return when {
-            reason == VerdictSource.OnDevice.SURE -> ModelReason.SURE
-            reason?.startsWith("Provider unavailable") == true -> ModelReason.PROVIDER_FAILED
-            reason != null -> ModelReason.KEPT_ON_PHONE
+            fallbackReason == VerdictSource.OnDevice.SURE -> ModelReason.SURE
+            fallbackReason?.startsWith("Provider unavailable") == true -> ModelReason.PROVIDER_FAILED
+            fallbackReason != null -> ModelReason.KEPT_ON_PHONE
             // Since these were kept, every model verdict names its model.
-            v.localModel == null -> ModelReason.UNKNOWN
+            localModel == null -> ModelReason.UNKNOWN
             else -> ModelReason.ONLY_ONE
         }
     }

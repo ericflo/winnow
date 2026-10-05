@@ -446,6 +446,7 @@ fun WinnowNavHost(
                 onBack = dropUnlessResumed { nav.popBackStack() },
                 onOpenMetrics = { nav.navigate(MetricsRoute) },
                 onOpenModel = { nav.navigate(ModelRoute) },
+                onOpenRun = { nav.navigate(RunRoute(it)) },
             )
         }
         composable<MetricsRoute> {

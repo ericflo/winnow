@@ -522,6 +522,15 @@ class TelephonyMessageRepository(
                 decidedAt = row.decidedAt,
                 costUsd = row.costUsd,
                 sender = row.address,
+                key = row.messageKey,
+                threadId = row.threadId,
+                sourceKind = row.sourceKind,
+                sourceDetail = row.sourceDetail,
+                fallbackReason = row.fallbackReason,
+                localModel = row.localModel,
+                confidence = row.confidence,
+                userCategory = row.userCategory?.let(Category::fromKey),
+                userAction = row.userAction?.let { runCatching { Action.valueOf(it) }.getOrNull() },
             )
         }
     }.flowOn(Dispatchers.Default)

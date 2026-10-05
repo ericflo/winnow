@@ -130,6 +130,17 @@ data class VerdictRecord(
     val decidedAt: Long,
     val costUsd: Double,
     val sender: String,
+    /** The message, its conversation, and what decided it, for the decision log (see Provenance). */
+    val key: String = "",
+    val threadId: Long = 0,
+    val sourceKind: String = "",
+    val sourceDetail: String = "",
+    val fallbackReason: String? = null,
+    val localModel: String? = null,
+    val confidence: Double = 0.0,
+    /** What the user said since: their label, and their correction of the sender. */
+    val userCategory: com.ericflo.winnow.classifier.message.Category? = null,
+    val userAction: Action? = null,
 )
 
 /** A starred message with enough about its conversation to show it in the Starred list. */
