@@ -111,4 +111,16 @@ class PersonalizerTest {
         assertTrue("full ${full.confidence}", full.confidence > 0.95)
         assertTrue("light ${light.confidence}", light.confidence in 0.6..0.85)
     }
+
+    @Test
+    fun `a fit nobody wants stops between epochs`() {
+        var epochs = 0
+        val correction = base.correction(promo, setOf(Category.PERSONAL))!!
+        try {
+            Personalizer.train(LocalModel.bundled, listOf(correction), stopped = { ++epochs > 3 })
+            throw AssertionError("should have stopped")
+        } catch (e: java.util.concurrent.CancellationException) {
+            assertEquals(4, epochs)
+        }
+    }
 }

@@ -164,6 +164,8 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     private companion object {
+        const val REGUESS_SETTLE_MILLIS = 350L
+
         /** Jev via OpenRouter, measured 2026-10-05: 773 input tokens at $0.000000042 each, output free. */
         const val JEV_OPENROUTER_USD_PER_TEXT = 0.0000325
     }
@@ -193,6 +195,8 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
     private fun reguess() {
         reguessing?.cancel()
         reguessing = viewModelScope.launch {
+            // Answers given in quick succession ("All right", a run of ✓s) make one refit, not one each.
+            kotlinx.coroutines.delay(REGUESS_SETTLE_MILLIS)
             val r = _state.value as? TrainState.Reviewing ?: return@launch
             val answers = r.round.candidates.mapNotNull { c ->
                 when (val d = r.decisions[c.threadId]) {

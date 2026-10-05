@@ -71,10 +71,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 
 /**
  * What's known about Winnow on the user's own texts: only things they actually judged. A
@@ -114,8 +116,15 @@ class MetricsViewModel(container: AppContainer) : ViewModel() {
      * Recomputed whenever a label is added, changed or taken back, so the charts move as the user
      * labels; a computation still running when the next change comes is dropped for the newer one.
      */
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private val mine = container.correctionDao.observeAll().mapLatest { rows -> computeMine(rows) }.flowOn(Dispatchers.Default)
+    // Settled first: a backlog run or a round of answers changes the labels many times a minute.
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.coroutines.FlowPreview::class)
+    private val mine = container.correctionDao.observeAll()
+        .debounce(MINE_SETTLE_MILLIS)
+        .mapLatest { rows ->
+            val job = kotlinx.coroutines.currentCoroutineContext()
+            computeMine(rows) { !job.isActive }
+        }
+        .flowOn(Dispatchers.Default)
 
     val state: StateFlow<MetricsUiState> = combine(
         mine,
@@ -153,7 +162,7 @@ class MetricsViewModel(container: AppContainer) : ViewModel() {
  * corrections, and labels whose message a restore hasn't found yet, go into every refit
  * unscored. Ones made by an older featurizer mean nothing to this model and are left out.
  */
-private fun computeMine(rows: List<com.ericflo.winnow.data.db.CorrectionEntity>): Mine {
+private fun computeMine(rows: List<com.ericflo.winnow.data.db.CorrectionEntity>, stopped: () -> Boolean): Mine {
     val model = com.ericflo.winnow.classifier.local.LocalModel.bundled
     val current = rows.filter { it.featurizerVersion == com.ericflo.winnow.classifier.local.Featurizer.VERSION }
     fun buckets(e: com.ericflo.winnow.data.db.CorrectionEntity) = e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray()
@@ -167,9 +176,13 @@ private fun computeMine(rows: List<com.ericflo.winnow.data.db.CorrectionEntity>)
         val label = model.classes.indexOf(e.label).takeIf { it >= 0 } ?: return@mapNotNull null
         com.ericflo.winnow.classifier.local.Correction(buckets(e), label, if (e.fromProvider) com.ericflo.winnow.classify.Learner.PROVIDER_WEIGHT else 1.0)
     }
-    val metrics = runCatching {
-        com.ericflo.winnow.classifier.local.PersonalEvaluation.metrics(model, labels, others, ActionPolicy().onDeviceMinConfidence)
-    }.getOrNull()
+    val metrics = try {
+        com.ericflo.winnow.classifier.local.PersonalEvaluation.metrics(model, labels, others, ActionPolicy().onDeviceMinConfidence, stopped)
+    } catch (e: java.util.concurrent.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
+    }
     return Mine(metrics, labels.size, labels.map { it.label }.distinct().size)
 }
 
@@ -601,3 +614,6 @@ private fun pct(x: Double) = String.format(Locale.US, if (x >= 0.995 || x < 0.1)
 private fun f2(x: Double) = String.format(Locale.US, "%.2f", x)
 private fun f3(x: Double) = String.format(Locale.US, "%.3f", x)
 private fun count(n: Int) = NumberFormat.getIntegerInstance().format(n)
+
+/** How long the labels must be still before the charts are worked out again. */
+private const val MINE_SETTLE_MILLIS = 400L

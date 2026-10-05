@@ -45,7 +45,19 @@ object Personalizer {
     /** A label of weight w is pulled toward probability LIGHT_FLOOR + (1 - LIGHT_FLOOR) * w: 0.74 at 0.35, certainty at 1. */
     private const val LIGHT_FLOOR = 0.6
 
-    fun train(base: LocalModel, corrections: List<Correction>, epochs: Int = 40, learningRate: Double = 0.5, l2: Double = 1e-3): Adjustments {
+    /**
+     * [stopped] is asked between epochs: a fit nobody wants any more (the user answered again,
+     * the screen moved on) ends there with a CancellationException instead of running out its
+     * second or two on a phone.
+     */
+    fun train(
+        base: LocalModel,
+        corrections: List<Correction>,
+        epochs: Int = 40,
+        learningRate: Double = 0.5,
+        l2: Double = 1e-3,
+        stopped: () -> Boolean = { false },
+    ): Adjustments {
         // Corrections come from storage and backups: drop any that don't fit this model.
         @Suppress("NAME_SHADOWING")
         val corrections = corrections
@@ -78,6 +90,7 @@ object Personalizer {
         }
 
         repeat(epochs) {
+            if (stopped()) throw java.util.concurrent.CancellationException("fit no longer wanted")
             for (n in corrections.indices) {
                 val value = values[n]
                 val own = rows[n]

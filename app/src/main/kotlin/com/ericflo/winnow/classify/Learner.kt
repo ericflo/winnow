@@ -11,6 +11,8 @@ import com.ericflo.winnow.data.SettingsRepository
 import com.ericflo.winnow.data.db.CorrectionDao
 import com.ericflo.winnow.data.db.CorrectionEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -157,7 +159,15 @@ class Learner(private val dao: CorrectionDao, private val settings: SettingsRepo
         val rows = dao.all()
         return withContext(Dispatchers.Default) {
             val more = extra.mapNotNull { (message, category) -> base.correction(message, setOf(category)) }
-            runCatching { base.learn(corrections(rows) + more) }.getOrElse { trained ?: base }
+            val job = currentCoroutineContext()
+            // A newer answer cancels this preview; the fit stops then rather than running on.
+            try {
+                base.learn(corrections(rows) + more, stopped = { !job.isActive })
+            } catch (e: java.util.concurrent.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                trained ?: base
+            }
         }
     }
 

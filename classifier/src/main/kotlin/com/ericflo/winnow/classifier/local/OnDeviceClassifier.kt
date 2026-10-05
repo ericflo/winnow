@@ -60,7 +60,8 @@ class OnDeviceClassifier(
     )
 
     /** Trains adjustments from [corrections] against this classifier's base model. */
-    fun learn(corrections: List<Correction>): OnDeviceClassifier = withAdjustments(Personalizer.train(model, corrections))
+    fun learn(corrections: List<Correction>, stopped: () -> Boolean = { false }): OnDeviceClassifier =
+        withAdjustments(Personalizer.train(model, corrections, stopped = stopped))
 
     companion object {
         const val MODEL_NAME = "winnow-local-1"

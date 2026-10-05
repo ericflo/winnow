@@ -19,7 +19,7 @@ object PersonalEvaluation {
     fun enough(labels: List<Label>): Boolean = labels.size >= MIN_LABELS && labels.map { it.label }.distinct().size >= 2
 
     /** Each label, scored by a model refit without its conversation. Pure and deterministic. */
-    fun crossValidate(base: LocalModel, labels: List<Label>, others: List<Correction> = emptyList(), folds: Int = 5): List<Scored> {
+    fun crossValidate(base: LocalModel, labels: List<Label>, others: List<Correction> = emptyList(), folds: Int = 5, stopped: () -> Boolean = { false }): List<Scored> {
         val groups = labels.map { it.group }.distinct().sorted()
         if (groups.size < 2) return emptyList()
         val k = folds.coerceAtMost(groups.size)
@@ -30,15 +30,15 @@ object PersonalEvaluation {
             val held = labels.filter { foldOf.getValue(it.group) == fold }
             if (held.isEmpty()) return@flatMap emptyList()
             val train = labels.filter { foldOf.getValue(it.group) != fold }.map { Correction(it.buckets, it.label) } + others
-            val adjustments = Personalizer.train(base, train)
+            val adjustments = Personalizer.train(base, train, stopped = stopped)
             held.map { l -> Scored(l.label, LocalModel.softmax(base.scores(l.buckets, adjustments), temperature)) }
         }
     }
 
     /** The metrics screen's numbers, from [labels]; null when there aren't [enough]. */
-    fun metrics(base: LocalModel, labels: List<Label>, others: List<Correction>, filterAt: Double): ClassifierMetrics? {
+    fun metrics(base: LocalModel, labels: List<Label>, others: List<Correction>, filterAt: Double, stopped: () -> Boolean = { false }): ClassifierMetrics? {
         if (!enough(labels)) return null
-        val rows = crossValidate(base, labels, others)
+        val rows = crossValidate(base, labels, others, stopped = stopped)
         if (rows.isEmpty()) return null
         val unwanted = Category.entries.filter { it.defaultAction == com.ericflo.winnow.classifier.message.Action.FILTER }
             .map { base.classes.indexOf(it.key) }.filter { it >= 0 }.toSet()
