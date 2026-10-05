@@ -262,6 +262,7 @@ class AppContainer(private val context: Context) {
             ),
             demo = NoAccessMessageRepository(),
             isLive = access,
+            scope = appScope,
         )
     }
 

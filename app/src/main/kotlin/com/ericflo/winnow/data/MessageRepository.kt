@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.shareIn
 
 /** An image or file chosen in the composer, not yet sent. */
 data class OutgoingAttachment(val uri: String, val contentType: String, val name: String?)
@@ -145,10 +147,19 @@ class SwitchingMessageRepository(
     private val live: MessageRepository,
     private val demo: MessageRepository,
     private val isLive: StateFlow<Boolean>,
+    /** Where the one conversation list everyone shares is kept (see [conversations]). */
+    scope: kotlinx.coroutines.CoroutineScope? = null,
 ) : MessageRepository {
     private val current: MessageRepository get() = if (isLive.value) live else demo
 
-    override fun conversations() = isLive.flatMapLatest { if (it) live.conversations() else demo.conversations() }
+    private val list = isLive.flatMapLatest { if (it) live.conversations() else demo.conversations() }
+
+    // One list for every screen and job that reads it (the inbox, Filtered, the widget, Train, a
+    // backlog run): one query of the whole store per change, not one each, and the newest list
+    // handed over at once to whoever asks while another is reading it.
+    private val shared = scope?.let { list.shareIn(it, SharingStarted.WhileSubscribed(5_000), replay = 1) } ?: list
+
+    override fun conversations() = shared
     override fun messages(threadId: Long) = isLive.flatMapLatest { if (it) live.messages(threadId) else demo.messages(threadId) }
     override suspend fun messagesNow(threadId: Long, newestSenders: Int) = current.messagesNow(threadId, newestSenders)
     override fun displayName(address: String) = current.displayName(address)

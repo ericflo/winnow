@@ -8,6 +8,8 @@ import com.ericflo.winnow.data.ConversationSummary
 import com.ericflo.winnow.data.MessageRepository
 import com.ericflo.winnow.data.db.VerdictDao
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -104,12 +106,13 @@ class Training(
             .groupBy { it.threadId!! }.mapValues { (_, rows) -> Category.fromKey(rows.maxBy { r -> r.messageKey?.substringAfter(':')?.toLongOrNull() ?: 0 }.label) }
         // A first, cheap guess from each conversation's latest text, to choose the batch. Where the
         // service and the model disagree comes first: that's where the user's answer counts most.
-        val guessed = if (only != null) emptyList() else backlog.map { c ->
+        // Across the cores: a phone has several, and a backlog can be a thousand and more conversations.
+        val guessed = if (only != null) emptyList() else backlog.chunked(GUESS_CHUNK).map { chunk -> async(Dispatchers.Default) { chunk.map { c ->
             val p = classifier.classify(InboundMessage(sender = c.address, body = c.snippet.removePrefix("You: ")))
             val disagree = provider[c.threadId]?.let { it != p.category } == true
             val reminderLikely = provider[c.threadId] == Category.REMINDER || (p.distribution[Category.REMINDER] ?: 0.0) >= REMINDER_LIKELY
             c.threadId to priority(p.confidence, recheck = c.threadId in before, reminderLikely = reminderLikely, disagree = disagree)
-        }
+        } } }.awaitAll().flatten()
         val byId = backlog.associateBy { it.threadId }
         val candidates = mutableListOf<Candidate>()
         // In the order they'd be picked, skipping any with nothing received to label, until the round is full.
@@ -193,6 +196,9 @@ class Training(
 
     companion object {
         const val ROUND_SIZE = 20
+
+        /** Conversations guessed per job when choosing a round (see nextRound). */
+        private const val GUESS_CHUNK = 128
 
         /** At least this much of the model's belief on Reminder makes a conversation a likely one to show. */
         const val REMINDER_LIKELY = 0.2
