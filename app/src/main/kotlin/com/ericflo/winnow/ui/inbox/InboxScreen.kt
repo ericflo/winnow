@@ -624,6 +624,8 @@ fun SwipeAction(start: Swipe?, end: Swipe?, content: @Composable () -> Unit) {
             }
         },
         backgroundContent = {
+            // Nothing under a row at rest: every row on screen would lay out a hidden one each frame.
+            if (state.dismissDirection == SwipeToDismissBoxValue.Settled) return@SwipeToDismissBox
             val toEnd = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
             val swipe = (if (toEnd) start else end) ?: return@SwipeToDismissBox
             val colors = MaterialTheme.colorScheme

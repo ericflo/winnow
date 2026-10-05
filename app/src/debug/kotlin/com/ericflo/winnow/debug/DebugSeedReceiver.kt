@@ -44,7 +44,10 @@ import kotlin.random.Random
 class DebugSeedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val messages = intent.getIntExtra("messages", 5000)
-        val threads = intent.getIntExtra("threads", 100).coerceIn(1, 100)
+        // `--es areas 206,312,646` spreads the threads over those area codes' fictional 555-01xx
+        // numbers, 100 to an area, for an inbox of more than 100 conversations.
+        val areas = intent.getStringExtra("areas")?.split(',')?.map { it.trim() }?.filter { it.length == 3 && it.all(Char::isDigit) }.orEmpty().ifEmpty { listOf("415") }
+        val threads = intent.getIntExtra("threads", 100).coerceIn(1, 100 * areas.size)
         val container = (context.applicationContext as WinnowApp).container
         val pending = goAsync()
         val from = intent.getStringExtra("from")
@@ -105,7 +108,8 @@ class DebugSeedReceiver : BroadcastReceiver() {
                 val rows = Array(messages) { i ->
                     val incoming = random.nextInt(3) != 0
                     ContentValues().apply {
-                        put(Telephony.Sms.ADDRESS, "+1415555%04d".format(100 + random.nextInt(threads)))
+                        val n = random.nextInt(threads)
+                        put(Telephony.Sms.ADDRESS, "+1%s555%04d".format(areas[n / 100], 100 + n % 100))
                         put(Telephony.Sms.BODY, LINES[random.nextInt(LINES.size)])
                         // Spread over two years, oldest first.
                         put(Telephony.Sms.DATE, now - (messages - i) * 2L * 365 * 24 * 3_600_000 / messages)
