@@ -85,7 +85,8 @@ among the six: it picks among 79 finer kinds of text ("fake toll notice", "landl
 notice", "school notice", "donation ask"), and their probabilities are added up into the six,
 since a precise option is easier to recognize than a broad one. Up to three texts you labeled
 yourself per category go along with each request, redacted the same way, so Jev sorts the way
-you do; Train shows the finer kind beside Jev's answer ("Jev said Spam · toll phishing"), and
+you do (only labels given or confirmed under the six categories, since an older one may mean
+what the old categories meant); Train shows the finer kind beside Jev's answer ("Jev said Spam · toll phishing"), and
 can ask again with your latest labels. Jev's answers teach the
 on-phone model at about a third of the weight of your own labels (yours always win, and replace
 Jev's on the same text) and file texts Winnow never sorted. Each round then puts first the

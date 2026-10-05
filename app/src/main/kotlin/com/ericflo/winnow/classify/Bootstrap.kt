@@ -360,10 +360,7 @@ class Bootstrap(
      * code or a sender with a rule, unless their privacy settings send those), no repeats.
      */
     private suspend fun examples(current: WinnowSettings): Map<com.ericflo.winnow.classifier.message.Category, List<String>> = withContext(Dispatchers.IO) {
-        val mine = corrections.all()
-            .filter { !it.fromProvider && it.messageKey?.startsWith("sms:") == true }
-            .sortedByDescending { it.createdAt }
-            .mapNotNull { r -> r.messageKey!!.removePrefix("sms:").toLongOrNull()?.let { it to r.label } }
+        val mine = exampleLabels(corrections.all(), verdicts.recheckThreads().toSet())
         if (mine.isEmpty()) return@withContext emptyMap()
         class Sms(val address: String, val body: String, val threadId: Long)
         val sms = HashMap<Long, Sms>()
@@ -445,6 +442,18 @@ class Bootstrap(
             val wait = if (seconds >= 60) "${(seconds + 59) / 60} min" else "$seconds s"
             return "$why. Trying again in $wait."
         }
+
+        /**
+         * The user's labels that can show the service how they sort, as (SMS id, category key),
+         * newest first: their own (not the service's), on a text message, and not in a
+         * conversation still waiting to be confirmed under the six categories, whose label may
+         * mean what the old categories meant.
+         */
+        fun exampleLabels(corrections: List<CorrectionEntity>, recheckThreads: Set<Long>): List<Pair<Long, String>> =
+            corrections
+                .filter { !it.fromProvider && it.threadId !in recheckThreads && it.messageKey?.startsWith("sms:") == true }
+                .sortedByDescending { it.createdAt }
+                .mapNotNull { r -> r.messageKey!!.removePrefix("sms:").toLongOrNull()?.let { it to r.label } }
 
         /** The user's labeled texts sent per category with each request, as examples of how they sort. */
         const val EXAMPLES_PER_CATEGORY = 3

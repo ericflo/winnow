@@ -474,6 +474,9 @@ interface VerdictDao {
     @Query("SELECT * FROM verdicts WHERE threadId = :threadId AND recheck = 1")
     suspend fun toRecheckIn(threadId: Long): List<VerdictEntity>
 
+    @Query("SELECT DISTINCT threadId FROM verdicts WHERE recheck = 1")
+    suspend fun recheckThreads(): List<Long>
+
     @Query("UPDATE verdicts SET recheck = 0 WHERE threadId = :threadId")
     suspend fun clearRecheck(threadId: Long)
 
