@@ -23,11 +23,12 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
-class ContactLookup(private val context: Context, scope: CoroutineScope? = null) {
+class ContactLookup(private val context: Context, private val scope: CoroutineScope? = null) {
     private data class Info(val name: String, val photoUri: String?)
 
     init {
@@ -47,6 +48,23 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
     // A colleague in a work profile is named once they're known to be one (see [isContact]): looking
     // every stranger up there to name them would cost a call to Android each.
     fun displayName(address: String): String? = info(address)?.name ?: knownColleague(address)?.name
+
+    /**
+     * [displayName], if it's known without reading anything (looked up already, or in the list
+     * as loaded): for the main thread, where reading the whole contact list would stall a frame.
+     * Null when it isn't known yet, whether or not there's a name.
+     */
+    fun nameIfKnown(address: String): String? = known(address)?.name
+
+    /** [photoUri], under the same terms as [nameIfKnown]. */
+    fun photoIfKnown(address: String): String? = known(address)?.photoUri
+
+    private fun known(address: String): Info? {
+        if (!canRead()) return null
+        cache[address]?.let { return it.takeIf { found -> found !== NOT_FOUND } }
+        numberKey(address)?.let { key -> numbers?.get(key)?.let { return it } }
+        return knownColleague(address)
+    }
 
     /** The contact's thumbnail photo, if they have one. */
     fun photoUri(address: String): String? = info(address)?.photoUri ?: knownColleague(address)?.photoUri
@@ -87,6 +105,9 @@ class ContactLookup(private val context: Context, scope: CoroutineScope? = null)
     fun permissionsChanged() {
         clear()
         val can = canRead()
+        // Read the list again now, off the main thread, rather than on the first name a screen
+        // asks for (a conversation opened from a notification asks on the main thread: see nameIfKnown).
+        if (can) scope?.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { index(generation.get()) } }
         if (can && !couldRead) permissionChecks.update { it + 1 }
         couldRead = can
     }

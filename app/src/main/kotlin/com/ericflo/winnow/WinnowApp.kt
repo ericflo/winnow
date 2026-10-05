@@ -87,6 +87,10 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
         container.appScope.launch { runCatching { container.dailySummary.rearm() } }
         // A force stop cancels the app's jobs; waiting MMS retries are set again.
         container.appScope.launch(Dispatchers.IO) { runCatching { container.mmsRetries.rearm() } }
+        // Phone-number formatting reads its country's rules from disk the first time; done here, off
+        // the main thread, rather than by the first screen to show a number (a conversation opened
+        // from a notification, say). The contact list is read again on every resume (refreshAccess).
+        container.appScope.launch(Dispatchers.IO) { runCatching { ContactLookup.formatAddress("+12025550100") } }
         // A widget on the home screen follows the inbox while the app runs.
         container.widgetUpdates.start()
         // Yesterday's notification photos: their notifications are gone.

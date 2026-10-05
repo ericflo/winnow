@@ -126,7 +126,9 @@ class ThreadViewModel(
     private val repo = container.messages
     private val states = container.conversationStates
     private val threadId = MutableStateFlow(initialThreadId)
-    private val title = displayNameFor(recipients, repo::displayName)
+    // What shows before the state's first emission, so made on the main thread: from names already
+    // known only (see ContactLookup.nameIfKnown); the state reads the rest off it, a moment later.
+    private val title = displayNameFor(recipients) { container.contacts.nameIfKnown(it) ?: ContactLookup.formatAddress(it) }
     private val subtitle = subtitleFor(title)
 
     /** [number]'s contact name, or null if it isn't a contact. Reads contacts: not on the main thread. */
@@ -135,9 +137,18 @@ class ThreadViewModel(
     /** Whether contacts can be read, so "not a contact" means something. */
     fun canReadContacts(): Boolean = container.contacts.canRead()
 
-    /** For a group, the two faces its avatar shows (cached lookups, as the title's). */
-    private fun membersOf(): List<Member> =
-        if (recipients.size > 1) groupFaces(recipients.take(GROUP_FACE_CANDIDATES).map { Member(it, repo.displayName(it), repo.photoUri(it)) }) else emptyList()
+    /** For a group, the two faces its avatar shows. [known]: only from what's known already (on the main thread). */
+    private fun membersOf(known: Boolean = false): List<Member> =
+        if (recipients.size > 1) {
+            groupFaces(
+                recipients.take(GROUP_FACE_CANDIDATES).map {
+                    if (known) Member(it, container.contacts.nameIfKnown(it) ?: ContactLookup.formatAddress(it), container.contacts.photoIfKnown(it))
+                    else Member(it, repo.displayName(it), repo.photoUri(it))
+                },
+            )
+        } else {
+            emptyList()
+        }
 
     private fun subtitleFor(title: String) = when {
         recipients.size > 1 -> "${recipients.size + 1} people"
@@ -347,7 +358,7 @@ class ThreadViewModel(
         }
         // Contact lookups can hit the disk (the whole list, after a change).
         .flowOn(Dispatchers.IO)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThreadUiState(title, subtitle, recipients, members = membersOf()))
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThreadUiState(title, subtitle, recipients, members = membersOf(known = true)))
 
     /**
      * Whose links may be previewed here (normalized addresses), or null when the setting is off.
