@@ -25,6 +25,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import java.util.concurrent.atomic.AtomicInteger
 import com.ericflo.winnow.classifier.message.MessageClassifier
+import com.ericflo.winnow.classifier.message.VerdictSource
+import com.ericflo.winnow.classifier.message.Verdict
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.async
@@ -34,7 +36,8 @@ sealed interface ReviewStatus {
     data object Unknown : ReviewStatus
     data class Ready(val pending: Int) : ReviewStatus
     data class Running(val done: Int, val total: Int) : ReviewStatus
-    data class Finished(val reviewed: Int, val filtered: Int, val silenced: Int) : ReviewStatus
+    /** [unreached]: conversations left for next time because the classifier service couldn't be reached. */
+    data class Finished(val reviewed: Int, val filtered: Int, val silenced: Int, val unreached: Int = 0) : ReviewStatus
 }
 
 /**
@@ -75,25 +78,52 @@ class HistoryReviewer(
             val filtered = AtomicInteger()
             val silenced = AtomicInteger()
             val done = AtomicInteger()
+            val decided = AtomicInteger()
+            // The service asked and not answering, again and again (no signal, say): the rest wait
+            // for a review that can reach it, rather than each waiting out a timeout and being
+            // settled on the phone for good.
+            val failedInARow = AtomicInteger()
+            // Left for next time: the service didn't answer, or the review had stopped by then.
+            val unreached = AtomicInteger()
             // A few at once, as a backlog run asks: one at a time, a thousand conversations sent to
             // a classifier service take many minutes. Each is saved as it's decided, so one stopped
             // partway (Winnow closed) goes on from there next time.
             val gate = Semaphore(CONCURRENCY)
             _status.value = ReviewStatus.Running(0, pending.size)
-            pending.map { c -> async { gate.withPermit { review(c, classifier, replied, filtered, silenced) }; _status.value = ReviewStatus.Running(done.incrementAndGet(), pending.size) } }.awaitAll()
-            _status.value = ReviewStatus.Finished(pending.size, filtered.get(), silenced.get())
+            pending.map { c ->
+                async {
+                    gate.withPermit {
+                        if (failedInARow.get() >= GIVE_UP_AFTER) {
+                            unreached.incrementAndGet()
+                            return@withPermit
+                        }
+                        when (review(c, classifier, replied, filtered, silenced)) {
+                            true -> { decided.incrementAndGet(); failedInARow.set(0) }
+                            false -> { unreached.incrementAndGet(); failedInARow.incrementAndGet() }
+                            null -> Unit
+                        }
+                    }
+                    _status.value = ReviewStatus.Running(done.incrementAndGet(), pending.size)
+                }
+            }.awaitAll()
+            _status.value = ReviewStatus.Finished(decided.get(), filtered.get(), silenced.get(), unreached.get())
         }
     }
 
+    /**
+     * Classifies [c] and saves the verdict: true once decided, null if a verdict came meanwhile,
+     * false if the service was asked and didn't answer (then nothing is saved: it's asked again
+     * next time, not settled on the phone because the network was down).
+     */
     private suspend fun review(
         c: Candidate,
         classifier: MessageClassifier,
         replied: Set<Long>,
         filtered: AtomicInteger,
         silenced: AtomicInteger,
-    ) {
+    ): Boolean? {
         // Labeled, or arrived and classified, since the review began: that verdict stands.
-        if (dao.forKey(c.key) != null) return
+        if (dao.forKey(c.key) != null) return null
         val verdict = classifier.classify(
             InboundMessage(
                 sender = c.sender,
@@ -103,6 +133,7 @@ class HistoryReviewer(
                 senderRule = dao.senderRule(normalizeAddress(c.sender))?.let { runCatching { SenderRule.valueOf(it) }.getOrNull() },
             ),
         )
+        if (providerFailed(verdict)) return false
         // An older text, reviewed now: never news for a daily summary.
         dao.upsert(VerdictEntity.from(c.key, c.threadId, c.sender, verdict, System.currentTimeMillis()).copy(summarized = true))
         when (verdict.action) {
@@ -110,11 +141,15 @@ class HistoryReviewer(
             Action.SILENCE -> silenced.incrementAndGet()
             Action.ALLOW -> Unit
         }
+        return true
     }
 
     private companion object {
         /** Conversations sent to the classifier at once (as a backlog run does). */
         const val CONCURRENCY = 3
+
+        /** The service failing this many times in a row, with no answer between, ends a review. */
+        const val GIVE_UP_AFTER = 6
     }
 
     private fun canReadSms() =
@@ -170,3 +205,7 @@ class HistoryReviewer(
         return threads
     }
 }
+
+/** Whether [verdict] stands in for the classifier service's answer: it was asked, and didn't give one. */
+internal fun providerFailed(verdict: Verdict): Boolean = verdict.providerContacted && verdict.source !is VerdictSource.Provider
+

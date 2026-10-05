@@ -52,7 +52,7 @@ fun ReviewInboxCard(status: ReviewStatus, classifier: String, onStart: () -> Uni
         is ReviewStatus.Ready -> if (status.pending == 0) return else
             "Check older conversations for spam?" to "${status.pending} arrived before Winnow could look at them."
         is ReviewStatus.Running -> "Checking older conversations…" to "${status.done} of ${status.total}"
-        is ReviewStatus.Finished -> "Older conversations checked" to summary(status)
+        is ReviewStatus.Finished -> "Older conversations checked" to summary(status, classifier)
         ReviewStatus.Unknown -> return
     }
     Card(
@@ -95,7 +95,7 @@ fun ReviewSettingsRow(status: ReviewStatus, classifier: String, onStart: () -> U
                         ReviewStatus.Unknown -> "Counting…"
                         is ReviewStatus.Ready -> if (status.pending == 0) "Every conversation has been checked" else "${status.pending} not checked yet"
                         is ReviewStatus.Running -> "Checking ${status.done} of ${status.total}…"
-                        is ReviewStatus.Finished -> summary(status)
+                        is ReviewStatus.Finished -> summary(status, classifier)
                     },
                 )
                 if (status is ReviewStatus.Running) {
@@ -117,5 +117,6 @@ fun ReviewSettingsRow(status: ReviewStatus, classifier: String, onStart: () -> U
     }
 }
 
-private fun summary(status: ReviewStatus.Finished): String =
-    "Checked ${status.reviewed}: ${status.filtered} filtered, ${status.silenced} silenced."
+private fun summary(status: ReviewStatus.Finished, classifier: String): String =
+    "Checked ${status.reviewed}: ${status.filtered} filtered, ${status.silenced} silenced." +
+        if (status.unreached > 0) " Couldn't reach $classifier for the other ${status.unreached}: check them again when you're online (Settings → Check older conversations)." else ""
