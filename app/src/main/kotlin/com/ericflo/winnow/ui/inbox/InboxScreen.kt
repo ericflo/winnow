@@ -21,6 +21,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -144,6 +147,7 @@ fun InboxScreen(
     openThreadId: Long? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val empty by viewModel.emptyInbox.collectAsStateWithLifecycle()
     val scheduledCount by viewModel.scheduledCount.collectAsStateWithLifecycle()
     val trashCount by viewModel.trashCount.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
@@ -207,7 +211,7 @@ fun InboxScreen(
         scope.launch {
             snackbar.currentSnackbarData?.dismiss()
             val result = snackbar.showSnackbar(
-                if (ids.size == 1) "Conversation archived" else "${ids.size} conversations archived",
+                if (ids.size == 1) "Conversation archived" else "${java.text.NumberFormat.getIntegerInstance().format(ids.size)} conversations archived",
                 actionLabel = "Undo",
                 duration = SnackbarDuration.Long,
             )
@@ -221,7 +225,9 @@ fun InboxScreen(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surface,
-        snackbarHost = { SnackbarHost(snackbar) },
+        // Above the navigation bar: the screen draws edge to edge (contentWindowInsets below), so
+        // nothing else lifts these over the three-button bar.
+        snackbarHost = { SnackbarHost(snackbar, Modifier.navigationBarsPadding()) },
         floatingActionButton = {
             // Not over search results: a search is for finding, and Back leads out of it.
             if (selected.isEmpty() && !searching) {
@@ -230,6 +236,7 @@ fun InboxScreen(
                     expanded = atTop,
                     icon = { Icon(painterResource(R.drawable.ic_chat), contentDescription = null) },
                     text = { Text("Start chat") },
+                    modifier = Modifier.navigationBarsPadding(),
                 )
             }
         },
@@ -273,7 +280,8 @@ fun InboxScreen(
                                 LargeHeader(onSearch = { searching = true }, onMenu = { menuOpen = true })
                             }
                         }
-                        if (!state.live && !makeDefaultDismissed) {
+                        // An empty inbox says the same, and why, below.
+                        if (!state.live && !makeDefaultDismissed && state.conversations.isNotEmpty()) {
                             item("make-default") { MakeDefaultCard(onMakeDefault, onDismiss = { makeDefaultDismissed = true }) }
                         }
                         // Texts arriving without a sound or a notification at all: worth saying every time the inbox opens.
@@ -399,7 +407,38 @@ fun InboxScreen(
                             SearchHitRow(hit, state.query, filtered = hit.threadId in state.filteredThreads, onClick = { onOpenSearchHit(hit, state.query.trim()) })
                         }
                     }
-                    if (state.conversations.isEmpty() && state.messageHits.isEmpty() && !(searching && typed.isBlank() && browsing != null)) {
+                    // The inbox itself with nothing in it: say why, from what's actually on the phone.
+                    val whyEmpty = empty.takeIf { state.conversations.isEmpty() && state.query.isBlank() && state.filter == InboxFilter.ALL && !searching }
+                    if (whyEmpty != null) {
+                        item("why-empty") {
+                            EmptyInboxCard(
+                                whyEmpty,
+                                onMakeDefault = onMakeDefault,
+                                onAppSettings = { runCatching { context.startActivity(viewModel.appSettingsIntent()) } },
+                                onUnarchiveAll = {
+                                    viewModel.unarchiveAll { ids ->
+                                        scope.launch {
+                                            val result = snackbar.showSnackbar(
+                                                if (ids.size == 1) "1 conversation back in your inbox" else "${java.text.NumberFormat.getIntegerInstance().format(ids.size)} conversations back in your inbox",
+                                                actionLabel = "Undo",
+                                                duration = SnackbarDuration.Long,
+                                            )
+                                            if (result == SnackbarResult.ActionPerformed) viewModel.setArchived(ids, true)
+                                        }
+                                    }
+                                },
+                                onOpenArchived = onOpenArchived,
+                                onOpenFiltered = onOpenFiltered,
+                                onOpenTrash = onOpenTrash,
+                                onRetry = viewModel::relist,
+                                onShare = { runCatching { context.startActivity(viewModel.shareProblems()) } },
+                            )
+                        }
+                    } else if (
+                        state.conversations.isEmpty() && state.messageHits.isEmpty() && !(searching && typed.isBlank() && browsing != null) &&
+                        // The plain inbox waits a moment for why it's empty, rather than claim there's nothing.
+                        !(viewModel.isInbox && state.query.isBlank() && state.filter == InboxFilter.ALL && !searching)
+                    ) {
                         item("empty") {
                             Text(
                                 when {
@@ -993,6 +1032,73 @@ private fun AlertsOffCard(onTurnOn: () -> Unit, onDismiss: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onDismiss) { Text("Not now") }
             }
+        }
+    }
+}
+
+/** Why the inbox is empty (see [EmptyInbox]), and the one tap that fixes it where there is one. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EmptyInboxCard(
+    why: EmptyInbox,
+    onMakeDefault: () -> Unit,
+    onAppSettings: () -> Unit,
+    onUnarchiveAll: () -> Unit,
+    onOpenArchived: () -> Unit,
+    onOpenFiltered: () -> Unit,
+    onOpenTrash: () -> Unit,
+    onRetry: () -> Unit,
+    onShare: () -> Unit,
+) {
+    val n = { x: Int -> java.text.NumberFormat.getIntegerInstance().format(x) }
+    val plural = { x: Int, noun: String -> if (x == 1) "1 $noun" else "${n(x)} ${noun}s" }
+    val (title, body) = when (why) {
+        is EmptyInbox.NoAccess -> if (!why.isDefault) {
+            "Winnow isn't your SMS app" to "Android only lets the default SMS app read your texts, so none show here. They're all still on your phone: make Winnow your SMS app again and they're back."
+        } else {
+            "Winnow can't read your texts" to "It's your SMS app, but Android hasn't given it permission to read messages. Allow it in Winnow's app settings, under Permissions."
+        }
+        is EmptyInbox.Elsewhere -> "Your inbox is empty" to buildList {
+            if (why.archived > 0) add("${plural(why.archived, "conversation")} ${if (why.archived == 1) "is" else "are"} archived")
+            if (why.filtered > 0) add("${plural(why.filtered, "conversation")} ${if (why.filtered == 1) "is" else "are"} in Filtered")
+        }.joinToString(", and ").replaceFirstChar { it.uppercase() } + ". Nothing's gone: they're out of the inbox, not deleted."
+        is EmptyInbox.NotListed -> "Winnow couldn't list your texts" to
+            "Your phone has ${plural(why.counts.texts, "message")} in ${plural(why.counts.threads.coerceAtLeast(0), "conversation")}, but Winnow couldn't show any of them. " +
+            "They're safe in your phone's message store." +
+            (why.health?.failures?.takeIf { it.isNotEmpty() }?.let { " What went wrong: " + it.joinToString("; ") + "." } ?: "") +
+            (if (why.trashed > 0) " ${plural(why.trashed, "conversation")} ${if (why.trashed == 1) "is" else "are"} in Recently deleted, too." else "")
+        is EmptyInbox.AllDeleted -> "Your conversations are in Recently deleted" to
+            "${plural(why.trashed, "conversation")} can be restored from Recently deleted for 30 days after deleting."
+        EmptyInbox.Nothing -> "No texts on this phone yet" to "Conversations show up here as texts arrive. Start one with Start chat."
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(body, style = MaterialTheme.typography.bodyMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                when (why) {
+                    is EmptyInbox.NoAccess -> if (why.isDefault) Button(onClick = onAppSettings) { Text("Open app settings") } else Button(onClick = onMakeDefault) { Text("Set as default") }
+                    is EmptyInbox.Elsewhere -> {
+                        if (why.archived > 0) {
+                            Button(onClick = onUnarchiveAll) { Text(if (why.archived == 1) "Unarchive it" else "Unarchive all ${n(why.archived)}") }
+                            OutlinedButton(onClick = onOpenArchived) { Text("See archived") }
+                        }
+                        if (why.filtered > 0) OutlinedButton(onClick = onOpenFiltered) { Text("See Filtered") }
+                    }
+                    is EmptyInbox.NotListed -> {
+                        Button(onClick = onRetry) { Text("Try again") }
+                        OutlinedButton(onClick = onShare) { Text("Send a report") }
+                        if (why.trashed > 0) OutlinedButton(onClick = onOpenTrash) { Text("Recently deleted") }
+                    }
+                    is EmptyInbox.AllDeleted -> Button(onClick = onOpenTrash) { Text("Open Recently deleted") }
+                    EmptyInbox.Nothing -> Unit
+                }
+            }
+            if (why is EmptyInbox.NoAccess && !why.isDefault) RestrictedSettingHelp(Modifier.padding(top = 4.dp))
         }
     }
 }

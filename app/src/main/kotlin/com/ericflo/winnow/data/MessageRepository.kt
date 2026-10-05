@@ -126,6 +126,15 @@ interface MessageRepository {
 
     /** Every decision Winnow has recorded. */
     fun verdictRecords(): Flow<List<VerdictRecord>>
+
+    /** How the last listing of conversations went, step by step; null before one, or with nothing to read. */
+    fun listHealth(): ListHealth? = null
+
+    /** What the phone's message store holds, counted directly; null with no access to it. */
+    suspend fun storeCounts(): StoreCounts? = null
+
+    /** Lists the conversations again now, whether or not the store says anything changed. */
+    fun relist() {}
 }
 
 /** "Mom" for one recipient; "Alex, Sam, (555) 555-0199" for a group, using first names where known. */
@@ -193,6 +202,10 @@ class SwitchingMessageRepository(
         current.overrideVerdict(threadId, address, action)
     override suspend fun restoreVerdict(previous: PreviousVerdict) = current.restoreVerdict(previous)
     override fun verdictRecords() = isLive.flatMapLatest { if (it) live.verdictRecords() else demo.verdictRecords() }
+    override fun listHealth() = current.listHealth()
+    override fun relist() = live.relist()
+    // Counted whether or not Winnow may read the texts: the count is what says it can't.
+    override suspend fun storeCounts() = live.storeCounts()
 }
 
 /**

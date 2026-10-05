@@ -35,6 +35,7 @@ import com.ericflo.winnow.ui.components.allWebLinks
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import com.ericflo.winnow.data.StoreCounts
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -130,6 +131,50 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
             }
         }
     }
+
+    /** The inbox itself, not Filtered or Archived. */
+    val isInbox: Boolean get() = mode == ListMode.INBOX
+
+    /** Said once per run of the app: the problem report already has it. */
+    private var listingReported = false
+
+    /**
+     * Why the inbox is empty, when it is (see [EmptyInbox]): worked out from the phone's own
+     * message store, Recently deleted, and where the conversations Winnow did list are filed.
+     * Null while the inbox has conversations to show, and in the other lists.
+     */
+    val emptyInbox: StateFlow<EmptyInbox?> =
+        if (mode != ListMode.INBOX) MutableStateFlow(null)
+        else combine(all, container.isLive, isDefault, container.trash.items) { all, live, default, trashed -> Triple(all, live to default, trashed.size) }
+            .mapLatest { (all, access, trashed) ->
+                val (live, default) = access
+                if (all.any { !it.isFiltered && !it.archived }) return@mapLatest null
+                // Filed elsewhere is known from the list itself; only an empty list needs the store counted.
+                val counts = if (live && all.isEmpty()) repo.storeCounts() else if (live) StoreCounts(0, 0, 0) else null
+                EmptyInbox.of(
+                    live, default, counts, repo.listHealth(),
+                    listed = all.size, filtered = all.count { it.isFiltered }, archived = all.count { it.archived && !it.isFiltered }, trashed = trashed,
+                )
+            }
+            .onEach { e ->
+                // Texts on the phone and none listed: in the problem report, for the user to send on.
+                if (e is EmptyInbox.NotListed && !listingReported) {
+                    listingReported = true
+                    container.problems.note(com.ericflo.winnow.diagnostics.ProblemLog.Kind.LISTING, EmptyInbox.report(e.counts, e.health))
+                }
+            }
+            .flowOn(kotlinx.coroutines.Dispatchers.IO)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Every archived conversation back in the inbox; [onDone] gets them, for an undo. */
+    fun unarchiveAll(onDone: (Set<Long>) -> Unit) = launch {
+        val ids = all.first().filter { it.archived && !it.isFiltered }.mapTo(HashSet()) { it.threadId }
+        states.setArchived(ids, false)
+        onDone(ids)
+    }
+
+    /** Lists the conversations again (see MessageRepository.relist). */
+    fun relist() = repo.relist()
 
     private val hits = query.debounce(250).distinctUntilChanged().mapLatest { q -> if (q.length < 2) emptyList() else repo.search(q) }
 

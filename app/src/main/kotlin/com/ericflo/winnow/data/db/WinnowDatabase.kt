@@ -617,8 +617,15 @@ interface ConversationStateDao {
     @Query("SELECT * FROM conversation_state WHERE threadId = :threadId")
     suspend fun get(threadId: Long): ConversationStateEntity?
 
+    @Query("SELECT * FROM conversation_state WHERE threadId IN (:threadIds)")
+    suspend fun getAll(threadIds: List<Long>): List<ConversationStateEntity>
+
     @Upsert
     suspend fun upsert(state: ConversationStateEntity)
+
+    /** In one transaction: one change for every list watching, not one per conversation. */
+    @Upsert
+    suspend fun upsertAll(states: List<ConversationStateEntity>)
 
     @Query("DELETE FROM conversation_state WHERE threadId IN (:threadIds)")
     suspend fun delete(threadIds: Collection<Long>)

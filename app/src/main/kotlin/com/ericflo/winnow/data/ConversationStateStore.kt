@@ -64,8 +64,22 @@ class ConversationStateStore(private val dao: ConversationStateDao) {
 
     suspend fun forget(threadIds: Collection<Long>) = dao.delete(threadIds)
 
+    /**
+     * Read in chunks and written in one go: Select all then Archive is a thousand conversations
+     * and more, and a write each (each one telling every list to read the states again) took
+     * seconds to show.
+     */
     private suspend fun updateAll(threadIds: Collection<Long>, transform: (ConversationStateEntity) -> ConversationStateEntity) {
-        lock.withLock { threadIds.forEach { id -> dao.upsert(transform(get(id))) } }
+        if (threadIds.isEmpty()) return
+        lock.withLock {
+            val existing = threadIds.distinct().chunked(CHUNK).flatMap { dao.getAll(it) }.associateBy { it.threadId }
+            dao.upsertAll(threadIds.distinct().map { id -> transform(existing[id] ?: ConversationStateEntity(id)) })
+        }
+    }
+
+    private companion object {
+        /** Under SQLite's limit on a query's arguments. */
+        const val CHUNK = 500
     }
 }
 

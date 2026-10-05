@@ -29,6 +29,8 @@ class ProblemLog(private val context: Context) {
         NOT_RESPONDING("Not responding"),
         NATIVE_CRASH("Native crash"),
         OTHER("Stopped"),
+        /** Not a crash: the inbox found texts on the phone it couldn't list (see EmptyInbox). */
+        LISTING("Couldn't list conversations"),
     }
 
     private val dir get() = File(context.filesDir, "problems")
@@ -72,6 +74,14 @@ class ProblemLog(private val context: Context) {
         }
         exits.maxOfOrNull { it.timestamp }?.let { newest -> if (newest > since) prefs.edit().putLong(KEY_EXITS_READ, newest).apply() }
         publish(if (added) read() else recorded)
+    }
+
+    /** Records something that went wrong without a crash, with [detail] for the report. */
+    fun note(kind: Kind, detail: String) {
+        runCatching {
+            write(Problem(System.currentTimeMillis(), kind, detail))
+            publish(read())
+        }
     }
 
     /** The user has seen them (opened the report, or said "Not now"). */

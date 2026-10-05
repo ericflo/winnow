@@ -7,6 +7,7 @@ import android.database.ContentObserver
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.BaseColumns
 import android.provider.Telephony
 import android.util.Log
 import com.ericflo.winnow.classifier.message.Action
@@ -78,11 +79,35 @@ class TelephonyMessageRepository(
         val key: String get() = ChatMessage.messageKey(kind, id)
     }
 
+    /** How the last listing went (see [ListHealth]). */
+    @Volatile private var health: ListHealth? = null
+
+    /** The last list read whole: a listing that fails keeps showing it rather than nothing. */
+    @Volatile private var lastGood: List<Pair<ConversationSummary, String?>>? = null
+
+    override fun listHealth(): ListHealth? = health
+
+    private val relists = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    override fun relist() {
+        relists.tryEmit(Unit)
+    }
+
     override fun conversations(): Flow<List<ConversationSummary>> {
         // Contacts too: the list carries each conversation's name and photo.
-        val threads = merge(changes(), contacts.changes()).conflate().map {
+        val threads = merge(changes(), contacts.changes(), relists).conflate().map {
             val started = System.nanoTime()
-            queryConversations().also { Log.d(TAG, "Loaded ${it.size} conversations in ${(System.nanoTime() - started) / 1_000_000} ms") }
+            // A failure here must never end the list for good (every screen shares it), nor pass
+            // for an empty phone: it's recorded for the inbox to say so, and the last list stands.
+            runCatching { queryConversations() }
+                .onSuccess { lastGood = it }
+                .getOrElse { e ->
+                    Log.e(TAG, "Couldn't list conversations", e)
+                    health = (health ?: ListHealth(System.currentTimeMillis(), 0, 0, 0, 0, 0, 0))
+                        .copy(at = System.currentTimeMillis(), listed = lastGood?.size ?: 0, failures = listOf("listing: ${e::class.simpleName}: ${e.message}"))
+                    lastGood ?: emptyList()
+                }
+                .also { Log.d(TAG, "Loaded ${it.size} conversations in ${(System.nanoTime() - started) / 1_000_000} ms") }
         }.flowOn(Dispatchers.IO)
         return combine(threads, verdictsForList()) { list, verdicts ->
             list.map { (summary, incomingKey) ->
@@ -546,16 +571,29 @@ class TelephonyMessageRepository(
      * message: with tens of thousands of texts, reading them all took most of a second.
      */
     private fun queryConversations(): List<Pair<ConversationSummary, String?>> {
-        val recipients = resolver.threadRecipients()
-        val newestByThread = newestPerThread()
-        val unread = unreadCounts()
-        val snippets = HashMap<Long, String>()
-        resolver.query(THREADS_SIMPLE, arrayOf(Telephony.Threads._ID, Telephony.Threads.SNIPPET), null, null, null)?.use { c ->
-            while (c.moveToNext()) snippets[c.getLong(0)] = c.getString(1).orEmpty()
+        val failures = mutableListOf<String>()
+        // Each step on its own: one that fails costs what it adds, not the whole list.
+        fun <T> step(name: String, empty: T, block: () -> T): T = runCatching(block).getOrElse { e ->
+            Log.e(TAG, "Listing conversations: $name failed", e)
+            failures += "$name: ${e::class.simpleName}: ${e.message}"
+            empty
         }
-        val mmsText = mmsSnippets(newestByThread.values.filter { it.kind == Kind.MMS }.map { it.id })
+        val named = step("who's in each conversation", emptyMap()) { resolver.threadRecipients() }
+        val newestByThread = step("newest messages", emptyMap<Long, Head>()) { newestPerThread() ?: emptyMap<Long, Head>().also { failures += "newest messages: the store returned nothing" } }
+        // A conversation the store names no one in is found from its own messages, rather than left out.
+        val unnamed = newestByThread.keys.filter { named[it].isNullOrEmpty() }
+        val found = if (unnamed.isEmpty()) emptyMap() else step("people from messages", emptyMap()) { peopleFromMessages(unnamed) }
+        val recipients = named + found
+        val unread = step("unread counts", emptyMap()) { unreadCounts() }
+        val snippets = HashMap<Long, String>()
+        step("snippets", Unit) {
+            resolver.query(THREADS_SIMPLE, arrayOf(Telephony.Threads._ID, Telephony.Threads.SNIPPET), null, null, null)?.use { c ->
+                while (c.moveToNext()) snippets[c.getLong(0)] = c.getString(1).orEmpty()
+            }
+        }
+        val mmsText = step("picture message text", emptyMap()) { mmsSnippets(newestByThread.values.filter { it.kind == Kind.MMS }.map { it.id }) }
 
-        return newestByThread.mapNotNull { (threadId, newest) ->
+        val list = newestByThread.mapNotNull { (threadId, newest) ->
             val people = recipients[threadId]?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
             val raw = when (newest.kind) {
                 Kind.SMS -> snippets[threadId].orEmpty()
@@ -581,12 +619,42 @@ class TelephonyMessageRepository(
             // A placeholder has no verdict yet, so the thread keeps its latest one instead of losing it.
             summary to newest.key.takeIf { !newest.outgoing && !newest.placeholder }
         }.sortedByDescending { it.first.timestamp }
+        health = ListHealth(
+            at = System.currentTimeMillis(),
+            threads = snippets.size,
+            threadsWithPeople = named.count { it.value.isNotEmpty() },
+            withMessages = newestByThread.size,
+            recovered = found.count { it.value.isNotEmpty() },
+            withoutPeople = unnamed.count { found[it].isNullOrEmpty() },
+            listed = list.size,
+            failures = failures,
+        )
+        return list
     }
 
-    /** The newest SMS or MMS of every thread, drafts aside, from the provider's own per-thread query. */
-    private fun newestPerThread(): Map<Long, Head> {
+    /** Who's in each of [threadIds], from the addresses on their messages: when the store's own list of them fails. */
+    private fun peopleFromMessages(threadIds: List<Long>): Map<Long, List<String>> {
+        val out = HashMap<Long, MutableSet<String>>()
+        threadIds.chunked(500).forEach { ids ->
+            resolver.query(
+                Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.THREAD_ID, Telephony.Sms.ADDRESS),
+                "${Telephony.Sms.THREAD_ID} IN (${ids.joinToString(",")})", null, null,
+            )?.use { c ->
+                while (c.moveToNext()) c.getString(1)?.takeIf { it.isNotBlank() }?.let { out.getOrPut(c.getLong(0)) { LinkedHashSet() } += it }
+            }
+        }
+        return out.mapValues { it.value.toList() }
+    }
+
+    override suspend fun storeCounts(): StoreCounts = withContext(Dispatchers.IO) {
+        fun count(uri: Uri): Int = runCatching { resolver.query(uri, arrayOf(BaseColumns._ID), null, null, null)?.use { it.count } ?: -1 }.getOrDefault(-1)
+        StoreCounts(sms = count(Telephony.Sms.CONTENT_URI), mms = count(Telephony.Mms.CONTENT_URI), threads = count(THREADS_SIMPLE))
+    }
+
+    /** The newest SMS or MMS of every thread, drafts aside, from the provider's own per-thread query; null if it gave nothing back. */
+    private fun newestPerThread(): Map<Long, Head>? {
         val newest = HashMap<Long, Head>()
-        resolver.query(
+        return resolver.query(
             MMS_SMS_CONVERSATIONS,
             // No transport_type here: some providers lack the column. An SMS row has a type, an MMS row a msg_box.
             arrayOf("_id", "thread_id", "normalized_date", Telephony.Sms.TYPE, Telephony.Mms.MESSAGE_BOX, Telephony.Mms.MESSAGE_TYPE),
@@ -605,8 +673,8 @@ class TelephonyMessageRepository(
                 // Two messages can share a thread's newest timestamp; keep one.
                 if ((newest[threadId]?.date ?: Long.MIN_VALUE) < head.date) newest[threadId] = head
             }
+            newest
         }
-        return newest
     }
 
     /** Unread incoming messages per thread. */
