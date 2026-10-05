@@ -36,6 +36,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.stateDescription
@@ -297,11 +301,58 @@ private fun CandidateRow(
     ) {
         Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 8.dp)) {
             Row(verticalAlignment = Alignment.Top) {
-                Column(Modifier.weight(1f).clickable(onClick = onOpen)) {
-                    Text(c.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(c.text, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Column(Modifier.weight(1f)) {
+                    // The text, a few lines of it until tapped: then all of it, and the earlier texts
+                    // from them that a label here covers too, so nothing has to be guessed at.
+                    var expanded by rememberSaveable(c.threadId) { mutableStateOf(false) }
+                    var overflows by remember(c.threadId) { mutableStateOf(false) }
+                    val expandable = expanded || overflows || c.earlier.isNotEmpty()
+                    Column(
+                        Modifier.clickable(
+                            enabled = expandable,
+                            onClickLabel = if (expanded) "Show less" else "Read the whole message",
+                        ) { expanded = !expanded },
+                    ) {
+                        Text(c.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            c.text,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = if (expanded) Int.MAX_VALUE else COLLAPSED_LINES,
+                            overflow = TextOverflow.Ellipsis,
+                            onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
+                        )
+                        if (expanded && c.earlier.isNotEmpty()) {
+                            Text(
+                                "Earlier from them, labeled along with it",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+                            )
+                            c.earlier.forEach { text ->
+                                Text(
+                                    text,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                        }
+                        if (expandable) {
+                            Text(
+                                when {
+                                    expanded -> "Show less"
+                                    c.earlier.isEmpty() -> "Read more"
+                                    c.earlier.size == 1 -> "Read more · 1 earlier text"
+                                    else -> "Read more · ${c.earlier.size} earlier texts"
+                                },
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                    }
                     Spacer(Modifier.height(6.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable(onClick = onOpen)) {
                         CategoryDot(shown)
                         Spacer(Modifier.width(8.dp))
                         Text(
@@ -404,3 +455,6 @@ internal fun sureness(confidence: Double): String = when {
     confidence >= 0.65 -> "leaning this way"
     else -> "unsure"
 }
+
+/** How many lines of a message a review row shows until it's tapped open. */
+private const val COLLAPSED_LINES = 3

@@ -38,6 +38,8 @@ class Training(
         val text: String,
         val guess: Category,
         val confidence: Double,
+        /** The other received texts a label on this conversation covers, newest first. */
+        val earlier: List<String> = emptyList(),
     )
 
     data class Round(val candidates: List<Candidate>, val backlog: Int, val labeled: Int)
@@ -68,7 +70,8 @@ class Training(
             if (candidates.size >= size) break
             val c = byId.getValue(threadId)
             val messages = repo.messagesNow(threadId)
-            val newest = Labeler.examplesFrom(messages, c.recipients).lastOrNull()
+            val covered = Labeler.examplesFrom(messages, c.recipients)
+            val newest = covered.lastOrNull()
             if (newest == null) {
                 empty[threadId] = c.timestamp
                 continue
@@ -82,7 +85,10 @@ class Training(
                     userHasMessagedSender = messages.any { it.outgoing },
                 ),
             )
-            candidates += Candidate(c.threadId, c.recipients, c.displayName, c.photoUri, Labeler.textOf(newest), p.category, p.confidence)
+            candidates += Candidate(
+                c.threadId, c.recipients, c.displayName, c.photoUri, Labeler.textOf(newest), p.category, p.confidence,
+                earlier = covered.dropLast(1).asReversed().map(Labeler::textOf),
+            )
         }
         Round(
             // Ranked by doubt, like the batch was chosen; the screen groups them by guess.
