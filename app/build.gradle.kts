@@ -75,6 +75,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kxml2)
+    testImplementation(libs.kotlinx.coroutines.test)
     // Real SQLite on the JVM, to run the database's migrations in tests.
     testImplementation(libs.androidx.sqlite.bundled.jvm)
 }

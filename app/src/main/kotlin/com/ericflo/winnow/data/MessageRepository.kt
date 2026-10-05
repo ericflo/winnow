@@ -157,7 +157,7 @@ class SwitchingMessageRepository(
     // One list for every screen and job that reads it (the inbox, Filtered, the widget, Train, a
     // backlog run): one query of the whole store per change, not one each, and the newest list
     // handed over at once to whoever asks while another is reading it.
-    private val shared = scope?.let { list.shareIn(it, SharingStarted.WhileSubscribed(5_000), replay = 1) } ?: list
+    private val shared = scope?.let { list.sharedWhileWatched(it) } ?: list
 
     override fun conversations() = shared
     override fun messages(threadId: Long) = isLive.flatMapLatest { if (it) live.messages(threadId) else demo.messages(threadId) }
@@ -194,3 +194,13 @@ class SwitchingMessageRepository(
     override suspend fun restoreVerdict(previous: PreviousVerdict) = current.restoreVerdict(previous)
     override fun verdictRecords() = isLive.flatMapLatest { if (it) live.verdictRecords() else demo.verdictRecords() }
 }
+
+/**
+ * One reading of this flow for everyone watching it, the newest value handed at once to whoever
+ * starts watching while it runs; and when no one has watched for a few seconds, stopped, its
+ * value forgotten, so a later watcher waits for a fresh one instead of getting what was true
+ * when the last one left (hours ago, perhaps). Pure, so it's unit-tested.
+ */
+internal fun <T> Flow<T>.sharedWhileWatched(scope: kotlinx.coroutines.CoroutineScope): Flow<T> =
+    shareIn(scope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000, replayExpirationMillis = 0), replay = 1)
+
