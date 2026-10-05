@@ -59,7 +59,12 @@ class Labeler(
      * Labels whole conversations ([threadId] to its recipients): each one's last few received
      * messages, which is what the model judges a conversation by. Retrains once at the end.
      */
-    suspend fun labelConversations(conversations: List<Pair<Long, List<String>>>, category: Category): Result {
+    suspend fun labelConversations(
+        conversations: List<Pair<Long, List<String>>>,
+        category: Category,
+        /** False to leave the refit to the caller: labeling several categories in a row needs only one. */
+        retrain: Boolean = true,
+    ): Result {
         val keys = mutableListOf<String>()
         val verdictsBefore = mutableListOf<VerdictEntity>()
         val labelsBefore = mutableListOf<CorrectionEntity>()
@@ -87,7 +92,7 @@ class Labeler(
             labeledConversations++
         }
         if (keys.isEmpty()) return Result(0, 0, null)
-        learner.reload()
+        if (retrain) learner.reload()
         return Result(
             labeledConversations,
             keys.size,

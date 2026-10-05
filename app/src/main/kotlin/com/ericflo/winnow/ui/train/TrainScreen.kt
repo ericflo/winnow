@@ -192,6 +192,7 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
     fun nextRound() {
         _state.value = TrainState.Loading
         viewModelScope.launch {
+            refit?.join()
             val number = training.history().size + 1
             val resumed = training.progress()?.let { saved ->
                 resume(training.nextRound(only = saved.threadIds), saved).takeIf { (_, decisions) -> decisions.isNotEmpty() }
@@ -283,8 +284,9 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
                     else -> null
                 }
             }
+            // Every category's labels first, then one refit, not one a category (each is all the labels).
             val rulesRemoved = labels.groupBy({ it.second }, { it.first }).entries.sumOf { (category, conversations) ->
-                container.labeler.labelConversations(conversations.map { it.threadId to it.recipients }, category).rulesRemoved.size
+                container.labeler.labelConversations(conversations.map { it.threadId to it.recipients }, category, retrain = false).rulesRemoved.size
             }
             val result = Training.RoundResult(
                 System.currentTimeMillis(),
@@ -311,8 +313,14 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
                 labeled = r.round.labeled + labels.size,
                 rulesRemoved = rulesRemoved,
             )
+            // Behind the summary: a refit of every label takes a moment on a phone. The next round
+            // waits for it (see nextRound), so it's guessed by what this one taught.
+            if (labels.isNotEmpty()) refit = container.appScope.launch { container.learner.reload() }
         }
     }
+
+    /** The refit after a finished round, which the next round waits for. */
+    @Volatile private var refit: Job? = null
 }
 
 /** What to keep of a round being answered (see [Training.Progress]). */
