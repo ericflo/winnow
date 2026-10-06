@@ -1108,6 +1108,7 @@ private fun RestrictedCard(onSettings: () -> Unit, onDismiss: () -> Unit) {
 }
 
 /** What arrived while another app was the SMS app: Winnow didn't see it arrive. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AwayCard(a: com.ericflo.winnow.data.RoleWatch.Away, onReview: () -> Unit, onRcs: () -> Unit, onDismiss: () -> Unit) {
     val n = java.text.NumberFormat.getIntegerInstance()
@@ -1132,7 +1133,7 @@ private fun AwayCard(a: com.ericflo.winnow.data.RoleWatch.Away, onReview: () -> 
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.Center) {
                 Button(onClick = onReview) { Text("Sort them now") }
                 if (a.rcsConversations > 0) TextButton(onClick = onRcs) { Text("About RCS") }
                 TextButton(onClick = onDismiss) { Text("Dismiss") }

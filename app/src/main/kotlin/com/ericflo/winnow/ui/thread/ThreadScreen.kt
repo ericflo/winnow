@@ -1252,6 +1252,7 @@ private fun UnknownSenderBanner(onAddContact: () -> Unit, onFilter: () -> Unit, 
 }
 
 /** Why Winnow handled this conversation the way it did, and the one-tap correction. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter: () -> Unit, onReport: () -> Unit, onRelabel: () -> Unit, onWhy: (() -> Unit)? = null) {
     val (container, content) = categoryColors(if (verdict.userAction == Action.ALLOW) null else verdict.category)
@@ -1296,11 +1297,12 @@ private fun VerdictBanner(verdict: StoredVerdict, onAllow: () -> Unit, onFilter:
             Text(detail, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(end = 8.dp))
             // In the banner's own ink: the app's accent reads poorly on a red or amber banner.
             val buttons = ButtonDefaults.textButtonColors(contentColor = content)
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+            // Wraps: up to four buttons, which a large text size can't fit on one line.
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 onWhy?.let { TextButton(onClick = it, colors = buttons) { Text("Why?") } }
                 if (verdict.labeledByUser) {
                     TextButton(onClick = onRelabel, colors = buttons) { Text("Change label", fontWeight = FontWeight.SemiBold) }
-                    return@Row
+                    return@FlowRow
                 }
                 if (verdict.userAction == null && verdict.category in REPORTABLE) TextButton(onClick = onReport, colors = buttons) { Text("Report") }
                 if (verdict.effectiveAction != Action.ALLOW) TextButton(onClick = onAllow, colors = buttons) { Text("Not spam", fontWeight = FontWeight.SemiBold) }

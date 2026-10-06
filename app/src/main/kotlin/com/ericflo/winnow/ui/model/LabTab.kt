@@ -192,6 +192,7 @@ private fun ModelsHeader(viewModel: ModelViewModel) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Models(viewModel: ModelViewModel) {
     val entries by viewModel.lab.entries.collectAsStateWithLifecycle()
@@ -252,7 +253,8 @@ private fun Models(viewModel: ModelViewModel) {
                         style = MaterialTheme.typography.bodySmall,
                     )
                     val busy = status is ModelLab.Status.Running
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // Wraps: at a large text size four buttons don't fit one line, and the last went off the card.
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (!inUse && e.trainedAt != null) TextButton(onClick = { viewModel.useLab(e.id) }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Use it") }
                         TextButton(onClick = { viewModel.trainEntry(e.id) }, enabled = !busy, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(if (e.trainedAt == null) "Train" else "Retrain & rescore") }
                         TextButton(onClick = { viewModel.setDraft(e.recipe, "${e.name} (copy)") }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Edit a copy") }
