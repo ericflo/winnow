@@ -107,6 +107,8 @@ sealed interface TrainState {
         val labeled: Int,
         /** Sender rules the round's labels disagreed with, and so removed. */
         val rulesRemoved: Int = 0,
+        /** The round's senders whose labels now decide their next texts (see SenderInsight). */
+        val decidedSenders: Int = 0,
     ) : TrainState
 
     /** Nothing left to label. */
@@ -329,6 +331,18 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
             val rulesRemoved = labels.groupBy({ it.second }, { it.first }).entries.sumOf { (category, conversations) ->
                 container.labeler.labelConversations(conversations.map { it.threadId to it.recipients }, category, retrain = false).rulesRemoved.size
             }
+            // The round's senders whose labels, with these, now decide their next texts.
+            val roundSenders = labels.mapNotNullTo(HashSet()) { (c, _) -> c.recipients.singleOrNull()?.let(com.ericflo.winnow.classifier.local.SenderMemory::keyOf) }
+            val decidedSenders = if (roundSenders.isEmpty()) 0 else runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val all = container.verdictDao.senderLabelThreads().mapNotNull { row ->
+                        com.ericflo.winnow.classifier.message.Category.fromKey(row.userCategory)?.let { com.ericflo.winnow.classify.SenderInsight.Labeled(row.address, it, row.threadId) }
+                    }
+                    val conversing = runCatching { container.bootstrap.threadsWithOutgoing() }.getOrDefault(emptySet())
+                    com.ericflo.winnow.classify.SenderInsight.of(all, conversing, container.settings.current().senderMemory)
+                        .count { it.key in roundSenders && it.decides != null }
+                }
+            }.getOrDefault(0)
             val result = Training.RoundResult(
                 System.currentTimeMillis(),
                 reviewed = labels.size,
@@ -353,6 +367,7 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
                 backlog = (r.round.backlog - labels.size).coerceAtLeast(0),
                 labeled = r.round.labeled + labels.size,
                 rulesRemoved = rulesRemoved,
+                decidedSenders = decidedSenders,
             )
             // Behind the summary: a refit of every label takes a moment on a phone. The next round
             // waits for it (see nextRound), so it's guessed by what this one taught.
@@ -731,6 +746,15 @@ private fun Finished(s: TrainState.Finished, onNext: () -> Unit, onDone: () -> U
                             "conversations it's least sure of, so a round's score isn't a measure of how much it has learned.",
                         style = MaterialTheme.typography.bodyLarge,
                     )
+                    if (s.decidedSenders > 0) {
+                        Text(
+                            (if (s.decidedSenders == 1) "Your labels of one of these senders now decide their next texts"
+                            else "Your labels of ${s.decidedSenders} of these senders now decide their next texts") +
+                                ": ${com.ericflo.winnow.classifier.local.SenderMemory.DECISIVE_AT_LEAST} or more, all one way. Winnow's model → Inside lists every sender you've labeled.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     if (s.rulesRemoved > 0) {
                         Text(
                             if (s.rulesRemoved == 1) "Your answers disagreed with a sender rule, so it's gone: that sender's texts are judged afresh."
