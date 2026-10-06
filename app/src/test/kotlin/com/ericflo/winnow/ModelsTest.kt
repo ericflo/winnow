@@ -38,6 +38,9 @@ class ModelsTest {
         val names = mapOf("1" to "Alex Chen", "2" to "Priya Natarajan", "3" to "(555) 555-0199")
         assertEquals("Alex Chen", displayNameFor(listOf("1")) { names.getValue(it) })
         assertEquals("Alex, Priya, (555) 555-0199", displayNameFor(listOf("1", "2", "3")) { names.getValue(it) })
+        // A name given to an RCS member is kept whole: "Aunt" alone says little.
+        val rcs = mapOf("1" to "Alex Chen", "9f2c@rcs.google.com" to "Aunt Pat", "41a5@rcs.google.com" to "RCS·41a5")
+        assertEquals("Alex, Aunt Pat, RCS·41a5", displayNameFor(rcs.keys.toList()) { rcs.getValue(it) })
     }
 
     @Test

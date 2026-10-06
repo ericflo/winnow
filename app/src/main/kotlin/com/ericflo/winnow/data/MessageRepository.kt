@@ -146,7 +146,8 @@ fun displayNameFor(recipients: List<String>, single: (String) -> String): String
     1 -> single(recipients.first())
     else -> recipients.joinToString(", ") { address ->
         val name = single(address)
-        if (name.first().isLetter()) name.substringBefore(' ') else name
+        // An RCS member's name is one the user gave them ("Aunt Pat"), so all of it is kept.
+        if (name.first().isLetter() && !isRcsAddress(address)) name.substringBefore(' ') else name
     }
 }
 
