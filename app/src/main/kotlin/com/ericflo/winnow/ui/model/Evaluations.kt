@@ -9,6 +9,7 @@ import com.ericflo.winnow.classify.EvalResult
 import com.ericflo.winnow.classify.EvalSubject
 import com.ericflo.winnow.classify.Evaluator
 import com.ericflo.winnow.classify.LabDiagnosis
+import com.ericflo.winnow.classify.fitting
 import com.ericflo.winnow.data.MessageTexts
 import com.ericflo.winnow.data.db.EvalEntity
 import com.ericflo.winnow.data.db.EvalItemEntity
@@ -92,7 +93,7 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
                     EvalData.of(container.correctionDao.all(), container.verdictDao.all(), container.runDao.allAnswers(), conversing = container.bootstrap.threadsWithOutgoing())
                 }
                 val settings = container.settings.current()
-                val evaluator = Evaluator(policy = settings.actionPolicy, providerWeight = settings.providerWeight, senderMemory = settings.senderMemory)
+                val evaluator = Evaluator(policy = settings.actionPolicy, providerWeight = settings.providerWeight, senderMemory = settings.senderMemory, fitting = settings.fitting())
                 for (pick in picks) {
                     val subject = subjectOf(pick, serviceName) ?: continue
                     _progress.value = "Scoring ${subject.label}…"
@@ -127,8 +128,8 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
             try {
                 val data = withContext(Dispatchers.IO) { EvalData.of(container.correctionDao.all(), emptyList(), emptyList()) }
                 val ctx = currentCoroutineContext()
-                val weight = container.settings.current().providerWeight
-                _curve.value = withContext(Dispatchers.Default) { Evaluator(providerWeight = weight).learningCurve(data, stopped = { !ctx.isActive }) }
+                val settings = container.settings.current()
+                _curve.value = withContext(Dispatchers.Default) { Evaluator(providerWeight = settings.providerWeight, fitting = settings.fitting()).learningCurve(data, stopped = { !ctx.isActive }) }
             } finally {
                 _curving.value = false
             }

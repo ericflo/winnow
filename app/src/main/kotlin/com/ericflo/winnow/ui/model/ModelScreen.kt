@@ -76,6 +76,7 @@ import com.ericflo.winnow.ui.insight.count
 import com.ericflo.winnow.ui.insight.f2
 import com.ericflo.winnow.ui.insight.pct
 import com.ericflo.winnow.ui.metrics.Mine
+import com.ericflo.winnow.classify.fitting
 import com.ericflo.winnow.ui.metrics.computeMine
 import java.text.DateFormat
 import java.time.format.DateTimeFormatter
@@ -175,7 +176,7 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
             val job = kotlinx.coroutines.currentCoroutineContext()
             val senders = container.verdictDao.labeledSenders().associate { it.messageKey to it.address }
             val settings = container.settings.current()
-            computeMine(rows, settings.providerWeight, senders, settings.senderMemory, container.bootstrap.threadsWithOutgoing()) { !job.isActive }
+            computeMine(rows, settings.providerWeight, senders, settings.senderMemory, container.bootstrap.threadsWithOutgoing(), settings.fitting()) { !job.isActive }
         }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)

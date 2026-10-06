@@ -116,6 +116,16 @@ class EvaluatorTest {
         val leaked = Evaluator(providerWeight = 50.0).evaluate(EvalSubject.Now, EvalData(labels, emptyList(), listOf(unkeyed), emptyMap()))
         assertEquals(Category.PERSONAL, leaked.items.single { it.key == toll.key }.predicted)
     }
+
+    @Test
+    fun theModelNowIsRefitTheWayThePhoneFitsIt() {
+        val d = data()
+        val usual = Evaluator().evaluate(EvalSubject.Now, d)
+        // Barely fitted: one short pass can't learn the made-up club.
+        val barely = Evaluator(fitting = com.ericflo.winnow.classify.Learner.Fitting(1, 0.01, 0.001)).evaluate(EvalSubject.Now, d)
+        assertTrue(barely.how, barely.how.contains("1 passes, step 0.01, L2 0.001."))
+        assertTrue("${barely.metrics!!.accuracy} vs ${usual.metrics!!.accuracy}", barely.metrics!!.accuracy < usual.metrics!!.accuracy)
+    }
 }
 
 class RebuildWeightTest {

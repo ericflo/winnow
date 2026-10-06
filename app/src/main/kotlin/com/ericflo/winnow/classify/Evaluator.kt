@@ -138,6 +138,8 @@ class Evaluator(
     private val providerWeight: Double = Learner.PROVIDER_WEIGHT,
     /** How much the user's labels of each sender count with the model's answer (see WinnowSettings.senderMemory); 0 for not at all. */
     private val senderMemory: Double = SenderMemory.DEFAULT_STRENGTH,
+    /** How the personal layer is fitted now (see WinnowSettings.personalEpochs): every refit here is fitted the same way. */
+    private val fitting: Learner.Fitting = Learner.Fitting(Personalizer.EPOCHS, Personalizer.LEARNING_RATE, Personalizer.L2),
 ) {
     private val classes = model.classes
     private val unwanted = Category.entries.filter { it.defaultAction == Action.FILTER }.map { classes.indexOf(it.key) }.filter { it >= 0 }.toSet()
@@ -149,7 +151,10 @@ class Evaluator(
             data.corrections.map { Correction(it.buckets, it.label) } + provider(weight).map { Correction(it.buckets, it.label, weight) }
         fun crossValidated(weight: Double, how: String): EvalResult {
             val keys = data.corrections.map { null } + provider(weight).map { it.key }
-            val words = PersonalEvaluation.crossValidateIndexed(model, labels, others(weight), onFold = { f, k -> onProgress("${subject.label}: part ${f + 1} of $k") }, stopped = stopped, othersKeys = keys)
+            val words = PersonalEvaluation.crossValidateIndexed(
+                model, labels, others(weight), epochs = fitting.epochs, l2 = fitting.l2, learningRate = fitting.step,
+                onFold = { f, k -> onProgress("${subject.label}: part ${f + 1} of $k") }, stopped = stopped, othersKeys = keys,
+            )
             // Scored as the phone answers: with the user's labels of each sender, from the other conversations.
             val scored = PersonalEvaluation.withSenders(classes, labels, words, senderMemory)
             val leftOut = if (keys.any { it != null }) " The service's labels of the texts being scored are left out of their refit." else ""
@@ -158,7 +163,7 @@ class Evaluator(
                 " Your labels of each sender, from the other conversations, changed $changed of its answers, as they would on the phone."
             // Where who sent it counts most: a sender's texts are mostly one conversation, all held out together above.
             onProgress("${subject.label}: your newest labels")
-            val newest = PersonalEvaluation.scoreNewest(model, labels, others(weight), keys, senderMemory, stopped = stopped)?.let { n ->
+            val newest = PersonalEvaluation.scoreNewest(model, labels, others(weight), keys, senderMemory, epochs = fitting.epochs, learningRate = fitting.step, l2 = fitting.l2, stopped = stopped)?.let { n ->
                 fun pct(right: Int) = "${Math.round(100.0 * right / n.count)}%"
                 " On your newest ${n.count} labels, refit on the ones you made before them: " +
                     when {
@@ -172,7 +177,8 @@ class Evaluator(
         return when (subject) {
             EvalSubject.Now -> crossValidated(
                 providerWeight,
-                "Each of your labeled texts scored by the model refit without its conversation's labels, as it's fitted now: your labels, your corrections and the service's labels at ${(providerWeight * 100).toInt()}%.",
+                "Each of your labeled texts scored by the model refit without its conversation's labels, as it's fitted now: your labels, your corrections and the service's labels at ${(providerWeight * 100).toInt()}%" +
+                    (if (fitting.isDefault) "." else ", ${fitting.epochs} passes, step ${fitting.step}, L2 ${fitting.l2}."),
             )
             EvalSubject.YoursOnly -> crossValidated(0.0, "Cross-validated the same way, fitted on your labels and corrections alone, with nothing the service taught.")
             is EvalSubject.ServiceWeight -> crossValidated(
@@ -223,7 +229,7 @@ class Evaluator(
             val taught = ordered.take(cut).map { Correction(it.buckets, it.label) } +
                 data.corrections.filter { it.createdAt <= until }.map { Correction(it.buckets, it.label) } +
                 (if (providerWeight <= 0) emptyList() else data.provider.filter { it.createdAt <= until }.map { Correction(it.buckets, it.label, providerWeight) })
-            val adjustments = Personalizer.train(model, taught, stopped = stopped)
+            val adjustments = Personalizer.train(model, taught, epochs = fitting.epochs, learningRate = fitting.step, l2 = fitting.l2, stopped = stopped)
             val test = ordered.subList(cut, next)
             if (test.isEmpty()) return@mapNotNull null
             fun right(a: Adjustments) = test.count { l -> LocalModel.softmax(model.scoresOf(l.buckets, a), temperature).let { p -> p.indices.maxBy { p[it] } } == l.label }

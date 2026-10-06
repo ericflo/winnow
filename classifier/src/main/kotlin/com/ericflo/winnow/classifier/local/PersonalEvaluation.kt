@@ -37,8 +37,8 @@ object PersonalEvaluation {
 
     /**
      * [crossValidate], each score with its label's index in [labels], so it can be traced back to
-     * its text. [weight] is how much a label counts when it trains the others' folds (1 for the
-     * user's own); [epochs] and [l2] are the fit's, so a variant can be scored the same way.
+     * its text. [epochs], [learningRate] and [l2] are the fit's, so a variant can be scored the
+     * same way.
      */
     fun crossValidateIndexed(
         base: LocalModel,
@@ -55,6 +55,7 @@ object PersonalEvaluation {
          * score it.
          */
         othersKeys: List<String?> = emptyList(),
+        learningRate: Double = Personalizer.LEARNING_RATE,
     ): List<Pair<Int, Scored>> {
         val foldOf = foldsOf(labels, folds) ?: return emptyList()
         val k = folds.coerceAtMost(foldOf.size)
@@ -66,7 +67,7 @@ object PersonalEvaluation {
             val heldKeys = held.mapNotNullTo(HashSet()) { it.value.key }
             val kept = if (heldKeys.isEmpty() || othersKeys.isEmpty()) others else others.filterIndexed { j, _ -> othersKeys.getOrNull(j) !in heldKeys }
             val train = labels.filter { foldOf.getValue(it.group) != fold }.map { Correction(it.buckets, it.label) } + kept
-            val adjustments = Personalizer.train(base, train, epochs = epochs, l2 = l2, stopped = stopped)
+            val adjustments = Personalizer.train(base, train, epochs = epochs, learningRate = learningRate, l2 = l2, stopped = stopped)
             held.map { (i, l) -> i to Scored(l.label, LocalModel.softmax(base.scores(l.buckets, adjustments), temperature)) }
         }
     }
@@ -107,6 +108,7 @@ object PersonalEvaluation {
         share: Double = 0.2,
         atLeast: Int = 10,
         epochs: Int = Personalizer.EPOCHS,
+        learningRate: Double = Personalizer.LEARNING_RATE,
         l2: Double = Personalizer.L2,
         stopped: () -> Boolean = { false },
     ): Newest? {
@@ -117,7 +119,7 @@ object PersonalEvaluation {
         val older = byTime.dropLast(n).map(labels::get)
         val newestKeys = newest.mapNotNullTo(HashSet()) { labels[it].key }
         val kept = others.filterIndexed { j, _ -> othersKeys.getOrNull(j) !in newestKeys }
-        val adjustments = Personalizer.train(base, older.map { Correction(it.buckets, it.label) } + kept, epochs = epochs, l2 = l2, stopped = stopped)
+        val adjustments = Personalizer.train(base, older.map { Correction(it.buckets, it.label) } + kept, epochs = epochs, learningRate = learningRate, l2 = l2, stopped = stopped)
         val memory = SenderMemory.of(older.mapNotNull { l -> l.sender?.let { it to l.label } }, base.classes, strength)
         val temperature = base.temperature.toDouble()
         var words = 0
@@ -156,9 +158,14 @@ object PersonalEvaluation {
         othersKeys: List<String?> = emptyList(),
         /** How much the user's labels of each sender count (see [withSenders]); 0 for the words alone. */
         senderMemory: Double = 0.0,
+        /** How each refit is fitted, as the phone fits it. */
+        epochs: Int = Personalizer.EPOCHS,
+        learningRate: Double = Personalizer.LEARNING_RATE,
+        l2: Double = Personalizer.L2,
     ): ClassifierMetrics? {
         if (!enough(labels)) return null
-        val rows = withSenders(base.classes, labels, crossValidateIndexed(base, labels, others, stopped = stopped, othersKeys = othersKeys), senderMemory).map { it.second }
+        val cv = crossValidateIndexed(base, labels, others, epochs = epochs, l2 = l2, stopped = stopped, othersKeys = othersKeys, learningRate = learningRate)
+        val rows = withSenders(base.classes, labels, cv, senderMemory).map { it.second }
         if (rows.isEmpty()) return null
         val unwanted = Category.entries.filter { it.defaultAction == com.ericflo.winnow.classifier.message.Action.FILTER }
             .map { base.classes.indexOf(it.key) }.filter { it >= 0 }.toSet()

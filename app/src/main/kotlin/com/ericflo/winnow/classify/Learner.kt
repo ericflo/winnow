@@ -273,7 +273,7 @@ class Learner(
         val rows = dao.all()
         val current = runCatching { settings.current() }.getOrNull()
         val weight = current?.providerWeight ?: PROVIDER_WEIGHT
-        val fitting = Fitting(current?.personalEpochs ?: Personalizer.EPOCHS, current?.personalStep ?: Personalizer.LEARNING_RATE, current?.personalL2 ?: Personalizer.L2)
+        val fitting = current?.fitting() ?: Fitting(Personalizer.EPOCHS, Personalizer.LEARNING_RATE, Personalizer.L2)
         val lab = runCatching { labModel() }.getOrNull()
         // What the user's labels say about each sender, used with whichever model answers.
         val memory = runCatching {
@@ -375,3 +375,6 @@ class Learner(
         )
     }
 }
+
+/** How the personal layer is fitted, as these settings say. */
+fun com.ericflo.winnow.data.WinnowSettings.fitting() = Learner.Fitting(personalEpochs, personalStep, personalL2)

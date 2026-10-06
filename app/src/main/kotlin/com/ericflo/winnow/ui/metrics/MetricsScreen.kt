@@ -53,6 +53,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.ericflo.winnow.AppContainer
+import com.ericflo.winnow.classify.fitting
 import com.ericflo.winnow.classifier.local.BinaryMetrics
 import com.ericflo.winnow.classifier.local.CategoryMetrics
 import com.ericflo.winnow.classifier.local.ClassifierMetrics
@@ -125,7 +126,7 @@ class MetricsViewModel(private val container: AppContainer) : ViewModel() {
             val job = kotlinx.coroutines.currentCoroutineContext()
             val senders = container.verdictDao.labeledSenders().associate { it.messageKey to it.address }
             val settings = container.settings.current()
-            computeMine(rows, settings.providerWeight, senders, settings.senderMemory, container.bootstrap.threadsWithOutgoing()) { !job.isActive }
+            computeMine(rows, settings.providerWeight, senders, settings.senderMemory, container.bootstrap.threadsWithOutgoing(), settings.fitting()) { !job.isActive }
         }
         .flowOn(Dispatchers.Default)
 
@@ -174,6 +175,8 @@ internal fun computeMine(
     senderMemory: Double,
     /** Conversations the user has written in: their labels of those senders only nudge. */
     conversing: Set<Long>,
+    /** How the personal layer is fitted now: each refit is fitted the same way. */
+    fitting: com.ericflo.winnow.classify.Learner.Fitting,
     stopped: () -> Boolean,
 ): Mine {
     val model = com.ericflo.winnow.classifier.local.LocalModel.bundled
@@ -201,9 +204,14 @@ internal fun computeMine(
         null
     }
     val metrics = orNull {
-        evaluation.metrics(model, labels, others.map { it.second }, ActionPolicy().onDeviceMinConfidence, stopped, others.map { it.first }, senderMemory)
+        evaluation.metrics(
+            model, labels, others.map { it.second }, ActionPolicy().onDeviceMinConfidence, stopped, others.map { it.first }, senderMemory,
+            epochs = fitting.epochs, learningRate = fitting.step, l2 = fitting.l2,
+        )
     }
-    val newest = if (metrics == null) null else orNull { evaluation.scoreNewest(model, labels, others.map { it.second }, others.map { it.first }, senderMemory, stopped = stopped) }
+    val newest = if (metrics == null) null else orNull {
+        evaluation.scoreNewest(model, labels, others.map { it.second }, others.map { it.first }, senderMemory, epochs = fitting.epochs, learningRate = fitting.step, l2 = fitting.l2, stopped = stopped)
+    }
     return Mine(metrics, labels.size, labels.map { it.label }.distinct().size, newest)
 }
 
