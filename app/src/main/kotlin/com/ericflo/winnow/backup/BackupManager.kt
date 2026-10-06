@@ -816,7 +816,8 @@ class BackupManager(
      * same thing twice.
      */
     private suspend fun relinkLabel(m: MessageBackup, key: String, threadId: Long) {
-        val from = listOfNotNull(m.labelKey?.let { RESTORED_LABEL + it }, m.was?.takeIf { it != key })
+        // Set aside as it was deleted (see CorrectionDao.setAside), or, from before that, under the key it had.
+        val from = listOfNotNull(m.labelKey?.let { RESTORED_LABEL + it }, m.was?.let { com.ericflo.winnow.data.db.TRASHED + it }, m.was?.takeIf { it != key })
         for (old in from) {
             val coming = corrections.forMessages(listOf(old))
             if (coming.isEmpty()) continue

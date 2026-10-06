@@ -39,6 +39,9 @@ class Trash(
     private val onGone: suspend (Collection<Long>) -> Unit = {},
     /** The same for messages, by key: their reminders, which are kept with them here. */
     private val onMessagesGone: suspend (Collection<String>) -> Unit = {},
+    /** Sets aside the labels of messages deleted (see CorrectionDao.setAside): by key, or a conversation's up to its newest ids. */
+    private val setAsideLabels: suspend (keys: Collection<String>) -> Unit = {},
+    private val setAsideConversation: suspend (threadId: Long, newestSms: Long, newestMms: Long) -> Unit = { _, _, _ -> },
 ) {
     data class Item(
         val file: File,
@@ -96,6 +99,7 @@ class Trash(
                         // Exactly what was kept: a text that arrived since has a newer id, and stays.
                         if (repo.deleteThreadUpTo(threadId, result.snapshot.newestSms, result.snapshot.newestMms)) gone += threadId
                         kept += threadId
+                        runCatching { setAsideConversation(threadId, result.snapshot.newestSms, result.snapshot.newestMms) }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -169,6 +173,7 @@ class Trash(
                 withContext(NonCancellable) {
                     doomed.forEach { repo.deleteMessage(it) }
                     runCatching { onMessagesGone(doomed.map { it.key }) }
+                    runCatching { setAsideLabels(doomed.map { it.key }) }
                 }
             } finally {
                 withContext(NonCancellable) { reload() }

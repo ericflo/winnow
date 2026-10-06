@@ -429,6 +429,8 @@ class AppContainer(private val context: Context) {
             context, backups, messages, conversationStates, notifier, canWrite = ::isDefaultSmsApp,
             onGone = { reminders.cancelForThreads(it) },
             onMessagesGone = { keys -> keys.forEach { reminders.cancel(it) } },
+            setAsideLabels = { keys -> correctionDao.setAside(keys.toList()) },
+            setAsideConversation = { threadId, sms, mms -> correctionDao.setAsideInThread(threadId, sms, mms) },
         )
     }
 

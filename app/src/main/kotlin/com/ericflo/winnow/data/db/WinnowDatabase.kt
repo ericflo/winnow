@@ -297,6 +297,22 @@ interface CorrectionDao {
     @Query("UPDATE corrections SET messageKey = :to, threadId = :threadId WHERE messageKey = :from")
     suspend fun relink(from: String, to: String, threadId: Long)
 
+    /**
+     * Labels of messages just moved to Recently deleted, set aside under "trashed:<key>": the
+     * phone's store can give a deleted message's id to the next one that comes, which mustn't
+     * take its label. A restore links them back (BackupManager.relinkLabel).
+     */
+    @Query("UPDATE corrections SET messageKey = '$TRASHED' || messageKey WHERE messageKey IN (:keys)")
+    suspend fun setAside(keys: List<String>)
+
+    /** [setAside] for a conversation's messages up to the newest ids deleted (texts that came since keep theirs). */
+    @Query(
+        "UPDATE corrections SET messageKey = '$TRASHED' || messageKey WHERE threadId = :threadId AND (" +
+            "(messageKey LIKE 'sms:%' AND CAST(substr(messageKey, 5) AS INTEGER) <= :newestSms) OR " +
+            "(messageKey LIKE 'mms:%' AND CAST(substr(messageKey, 5) AS INTEGER) <= :newestMms))",
+    )
+    suspend fun setAsideInThread(threadId: Long, newestSms: Long, newestMms: Long)
+
     /** Labels still under a restore's placeholder keys: their messages didn't come back, so they keep teaching unlinked. */
     @Query("UPDATE corrections SET messageKey = NULL, threadId = NULL WHERE messageKey LIKE :prefix || '%'")
     suspend fun unlinkPrefixed(prefix: String)
@@ -680,3 +696,6 @@ interface ConversationStateDao {
 
 /** A verdict's message and the action that stood for it. */
 data class KeyAction(val messageKey: String, val stood: String)
+
+/** The prefix a label of a message in Recently deleted is kept under (see CorrectionDao.setAside). */
+const val TRASHED = "trashed:"
