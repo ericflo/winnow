@@ -564,7 +564,10 @@ private fun LazyListScope.inside(viewModel: ModelViewModel) {
 @Composable
 private fun BuiltCard(weight: Double) {
     val model = LocalModel.bundled
-    val shipped = runCatching { ClassifierMetrics.bundled }.getOrNull()
+    // Read from the APK the first time: off the main thread.
+    val shipped by androidx.compose.runtime.produceState<ClassifierMetrics?>(null) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { ClassifierMetrics.bundled }.getOrNull() }
+    }
     val policy = ActionPolicy()
     InsightCard("How it's built", subtitle = "Everything it is, with nothing left out") {
         Fact("Kind", "linear", "A softmax regression: one weight per feature bucket and category, plus a lean per category. Each category's score is the sum of its weights for the text's features; the odds come from those scores.")
