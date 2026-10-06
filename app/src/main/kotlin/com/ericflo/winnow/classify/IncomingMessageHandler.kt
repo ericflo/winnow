@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.cancellation.CancellationException
@@ -54,6 +55,18 @@ class IncomingMessageHandler(
 ) {
 
     suspend fun onSmsDelivered(address: String, body: String, sentAt: Long, subscriptionId: Int) {
+        storeSms(address, body, sentAt, subscriptionId)?.let { handleStored(it) }
+    }
+
+    /** An incoming SMS once it's in the store: what's left is classifying it and saying so. */
+    data class StoredSms(val uri: Uri, val threadId: Long, val address: String, val body: String)
+
+    /**
+     * Writes an incoming SMS to the store: the one thing Android waits on before it delivers the
+     * next text (see SmsDeliverReceiver). Null if it couldn't be stored, after telling the user
+     * it arrived anyway.
+     */
+    suspend fun storeSms(address: String, body: String, sentAt: Long, subscriptionId: Int): StoredSms? {
         val stored = withContext(Dispatchers.IO) { store(address, body, sentAt, subscriptionId) }
         if (stored == null) {
             Log.e(TAG, "Could not store incoming SMS; is Winnow the default SMS app?")
@@ -61,11 +74,33 @@ class IncomingMessageHandler(
                 -1, listOf(address), displayName(address), displayName(address), body,
                 hideOnLockScreen = runCatching { settings.current().hideOnLockScreen }.getOrDefault(false),
             )
-            return
+            return null
         }
-        val (uri, threadId) = stored
-        route(uri, ChatMessage.Kind.SMS, threadId, address, listOf(address), body, Tapback.summarize(body))
+        return StoredSms(stored.first, stored.second, address, body)
     }
+
+    /**
+     * Classifies a stored SMS and notifies. Texts are classified as they come, all at once, but
+     * each is acted on (notified, filtered) only after the text before it in its conversation, so
+     * a conversation's notification shows its texts in the order they came.
+     */
+    suspend fun handleStored(sms: StoredSms) {
+        // Its place in line, taken now: texts take theirs in the order they were stored.
+        val mine = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val before = synchronized(lastInLine) { lastInLine.put(sms.threadId, mine) }
+        try {
+            route(sms.uri, ChatMessage.Kind.SMS, sms.threadId, sms.address, listOf(sms.address), sms.body, Tapback.summarize(sms.body), beforeActing = { before?.await() })
+        } finally {
+            mine.complete(Unit)
+            synchronized(lastInLine) { if (lastInLine[sms.threadId] === mine) lastInLine.remove(sms.threadId) }
+        }
+    }
+
+    /** Texts being classified at once (see [routeNow]). */
+    private val classifyGate = kotlinx.coroutines.sync.Semaphore(CLASSIFY_AT_ONCE)
+
+    /** The last text in line in each conversation (see [handleStored]). */
+    private val lastInLine = HashMap<Long, kotlinx.coroutines.CompletableDeferred<Unit>>()
 
     /** A downloaded MMS, already stored by [com.ericflo.winnow.sms.MmsReceiver]. */
     suspend fun onMmsStored(uri: Uri, threadId: Long, sender: String, recipients: List<String>, text: String, mediaTypes: List<String>, subject: String? = null) {
@@ -125,6 +160,14 @@ class IncomingMessageHandler(
      */
     val classifying: kotlinx.coroutines.flow.StateFlow<Set<Long>> get() = _classifying
     private val _classifying = kotlinx.coroutines.flow.MutableStateFlow<Set<Long>>(emptySet())
+    /** How many texts each conversation has being classified: two at once mustn't clear each other. */
+    private val classifyingCounts = HashMap<Long, Int>()
+
+    private fun classifyingChanged(threadId: Long, by: Int) = synchronized(classifyingCounts) {
+        val n = (classifyingCounts[threadId] ?: 0) + by
+        if (n > 0) classifyingCounts[threadId] = n else classifyingCounts.remove(threadId)
+        _classifying.value = classifyingCounts.keys.toSet()
+    }
 
     private suspend fun route(
         uri: Uri,
@@ -136,12 +179,14 @@ class IncomingMessageHandler(
         preview: String,
         caption: String? = null,
         codeIn: List<String> = listOf(text),
+        /** Waited on once it's classified, before it's acted on (see [handleStored]). */
+        beforeActing: suspend () -> Unit = {},
     ): Action {
-        _classifying.update { it + threadId }
+        classifyingChanged(threadId, +1)
         return try {
-            routeNow(uri, kind, threadId, sender, recipients, text, preview, caption, codeIn)
+            routeNow(uri, kind, threadId, sender, recipients, text, preview, caption, codeIn, beforeActing)
         } finally {
-            _classifying.update { it - threadId }
+            classifyingChanged(threadId, -1)
         }
     }
 
@@ -157,6 +202,7 @@ class IncomingMessageHandler(
         caption: String? = null,
         /** Where to look for a verification code, in order. */
         codeIn: List<String> = listOf(text),
+        beforeActing: suspend () -> Unit = {},
     ): Action {
         val key = ChatMessage.messageKey(kind, ContentUris.parseId(uri))
         // The store reuses a deleted message's id, and a deletion Winnow didn't make (another app's,
@@ -164,7 +210,9 @@ class IncomingMessageHandler(
         dao.deleteForMessage(key)
         var asked: InboundMessage? = null
         val verdict = try {
-            withTimeout(BUDGET_MILLIS) { classify(sender, text, threadId) { asked = it } }
+            // A few at a time, as a burst of texts would otherwise ask the service all at once; the
+            // wait for a turn isn't counted against the text's budget.
+            classifyGate.withPermit { withTimeout(BUDGET_MILLIS) { classify(sender, text, threadId) { asked = it } } }
         } catch (e: TimeoutCancellationException) {
             Log.w(TAG, "Classification over budget; delivering normally")
             null
@@ -191,6 +239,8 @@ class IncomingMessageHandler(
         if (verdict != null && message != null && corrected == null && existing?.userCategory == null && teaches(verdict, settings.current().learnFromProvider)) {
             runCatching { learnFromAnswer(threadId, key, message, verdict.category!!) }.onFailure { Log.w(TAG, "Couldn't learn from an answer", it) }
         }
+        // The text before it in its conversation is acted on first.
+        beforeActing()
         val action = corrected ?: verdict?.action ?: Action.ALLOW
         // A new message brings an archived conversation back, unless it's being filtered.
         if (action != Action.FILTER) states.unarchive(threadId)
@@ -310,6 +360,8 @@ class IncomingMessageHandler(
 
         // goAsync() allows about 10 s; leave room to store, write the verdict and notify.
         const val BUDGET_MILLIS = 7_000L
+        /** Texts classified at once in a burst (coming back into signal, say). */
+        const val CLASSIFY_AT_ONCE = 4
         const val PROVIDER_TIMEOUT_MILLIS = 5_000L
     }
 }

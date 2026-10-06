@@ -13,7 +13,14 @@ import android.util.Log
 import com.ericflo.winnow.WinnowApp
 import kotlinx.coroutines.launch
 
-/** Incoming SMS. Only the default SMS app receives SMS_DELIVER, and it alone must store the message. */
+/**
+ * Incoming SMS. Only the default SMS app receives SMS_DELIVER, and it alone must store the
+ * message. Android delivers the next text only once this one's delivery ends, and gives it ten
+ * seconds (a foreground broadcast): so the delivery ends as soon as the text is stored, and
+ * classifying it (which can wait on a classifier service) and notifying follow. Otherwise a burst
+ * of texts (coming back into signal, say) arrives one classification at a time, and a slow
+ * service risks Android declaring Winnow unresponsive and ending it before it has said a word.
+ */
 class SmsDeliverReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_DELIVER_ACTION) return
@@ -26,10 +33,8 @@ class SmsDeliverReceiver : BroadcastReceiver() {
         val container = (context.applicationContext as WinnowApp).container
         val pending = goAsync()
         container.appScope.launch {
-            try {
-                container.incoming.onSmsDelivered(address, body, first.timestampMillis, subscriptionId)
-            } catch (e: Exception) {
-                // Never lose an SMS to a bug downstream: at least tell the user it arrived.
+            // Never lose an SMS to a bug downstream: at least tell the user it arrived.
+            suspend fun tellAnyway(e: Exception) {
                 Log.e("WinnowSms", "Handling incoming SMS failed", e)
                 runCatching {
                     container.notifier.showMessage(
@@ -37,8 +42,22 @@ class SmsDeliverReceiver : BroadcastReceiver() {
                         hideOnLockScreen = runCatching { container.settings.current().hideOnLockScreen }.getOrDefault(false),
                     )
                 }
+            }
+            val stored = try {
+                container.incoming.storeSms(address, body, first.timestampMillis, subscriptionId)
+            } catch (e: Exception) {
+                tellAnyway(e)
+                null
             } finally {
+                // Stored: the next text can come.
                 pending.finish()
+            }
+            if (stored != null) {
+                try {
+                    container.incoming.handleStored(stored)
+                } catch (e: Exception) {
+                    tellAnyway(e)
+                }
             }
         }
     }
