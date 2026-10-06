@@ -26,6 +26,15 @@ class LinksOffTest {
     }
 
     @Test
+    fun `one person whose number came written two ways isn't a group`() {
+        val a = text(1, verdict = null, sender = "+14155550100")
+        val b = text(2, verdict = null, sender = "4155550100")
+        assertFalse(ThreadUiState("(415) 555-0100", null, listOf("+14155550100"), messages = listOf(a, b)).showsSenders)
+        val other = text(3, verdict = null, sender = "+14155550101")
+        assertTrue("two people are", ThreadUiState("x", null, listOf("+14155550100"), messages = listOf(a, b, other)).showsSenders)
+    }
+
+    @Test
     fun `not once the user says it isn't spam`() {
         val old = text(1, verdict = null)
         val cleared = text(2, verdict = phishing.copy(userAction = Action.ALLOW))

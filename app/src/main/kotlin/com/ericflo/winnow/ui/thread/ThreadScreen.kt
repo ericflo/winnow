@@ -1416,7 +1416,7 @@ private fun buildItems(transport: String, messages: List<ChatMessage>, unreadOnO
     fun newBlock(prev: ChatMessage?, m: ChatMessage) =
         prev == null || m.timestamp - prev.timestamp > BLOCK_GAP_MILLIS || day(prev.timestamp) != day(m.timestamp)
     fun grouped(a: ChatMessage?, b: ChatMessage?) =
-        a != null && b != null && a.outgoing == b.outgoing && a.sender == b.sender &&
+        a != null && b != null && a.outgoing == b.outgoing && a.sender?.let(::normalizeAddress) == b.sender?.let(::normalizeAddress) &&
             !newBlock(a, b) && b.timestamp - a.timestamp < GROUP_GAP_MILLIS
 
     val (shown, reactions) = foldTapbacks(messages)

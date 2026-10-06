@@ -103,8 +103,12 @@ data class ThreadUiState(
     /** Its people Winnow can text: the ones with real numbers, for a new group with them. */
     val textable: List<String> get() = recipients.filterNot(::isRcsAddress)
 
-    /** Several people write here (a group, or an RCS chat whose people the store didn't list): bubbles say who. */
-    val showsSenders: Boolean get() = isGroup || messages.mapNotNullTo(HashSet()) { it.sender }.size > 1
+    /**
+     * Several people write here (a group, or an RCS chat whose people the store didn't list): bubbles
+     * say who. One person's number written two ways ("+14155550100", "4155550100", as carriers do)
+     * is one person.
+     */
+    val showsSenders: Boolean get() = isGroup || messages.mapNotNullTo(HashSet()) { it.sender?.let(::normalizeAddress) }.size > 1
 
     /** Who sent spam (scams and phishing among it) here that the user hasn't cleared, by normalized number. */
     private val fraudSenders: Set<String> by lazy {
