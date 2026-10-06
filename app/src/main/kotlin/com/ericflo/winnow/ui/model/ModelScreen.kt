@@ -176,7 +176,9 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
             val job = kotlinx.coroutines.currentCoroutineContext()
             val senders = container.verdictDao.labeledSenders().associate { it.messageKey to it.address }
             val settings = container.settings.current()
-            computeMine(rows, settings.providerWeight, senders, settings.senderMemory, container.bootstrap.threadsWithOutgoing(), settings.fitting()) { !job.isActive }
+            // Without access to the texts (no longer the SMS app), every sender counts as one the user doesn't text.
+            val conversing = runCatching { container.bootstrap.threadsWithOutgoing() }.getOrDefault(emptySet())
+            computeMine(rows, settings.providerWeight, senders, settings.senderMemory, conversing, settings.fitting()) { !job.isActive }
         }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
