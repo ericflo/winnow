@@ -163,6 +163,20 @@ fun InboxScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    // "Sort them now": how many conversations it would check, while asking first.
+    var awayConfirm by remember { mutableStateOf<Int?>(null) }
+    awayConfirm?.let { pending ->
+        if (pending == 0) {
+            // Nothing left unchecked: nothing to ask, nothing to send.
+            LaunchedEffect(Unit) { awayConfirm = null; viewModel.dismissAway() }
+        } else {
+            com.ericflo.winnow.ui.review.ReviewConfirmDialog(
+                pending, state.classifier,
+                onConfirm = { awayConfirm = null; viewModel.startReview(); viewModel.dismissAway() },
+                onDismiss = { awayConfirm = null },
+            )
+        }
+    }
     var searching by rememberSaveable { mutableStateOf(false) }
     // Ctrl+F: search, unless a conversation beside the list (a wide screen) has the keyboard's attention.
     val shortcutLifecycle = LocalLifecycleOwner.current.lifecycle
@@ -326,7 +340,9 @@ fun InboxScreen(
                         // Texts that came while another app was the SMS app, and RCS chats that don't reach Winnow.
                         away?.let { a ->
                             item("away") {
-                                AwayCard(a, onReview = { viewModel.startReview(); viewModel.dismissAway() }, onRcs = { rcsWhy = true }, onDismiss = viewModel::dismissAway)
+                                // It checks every older conversation not yet checked, which can go to the service:
+                                // asked first, with how many, as the review card does.
+                                AwayCard(a, onReview = { scope.launch { awayConfirm = viewModel.reviewPending() } }, onRcs = { rcsWhy = true }, onDismiss = viewModel::dismissAway)
                             }
                         }
                         if (rcs.isNotEmpty()) {

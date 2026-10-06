@@ -156,8 +156,10 @@ class HistoryReviewer(
             ),
         )
         if (providerFailed(verdict)) return false
-        // An older text, reviewed now: never news for a daily summary.
-        dao.upsert(VerdictEntity.from(c.key, c.threadId, c.sender, verdict, System.currentTimeMillis()).copy(summarized = true))
+        // An older text, reviewed now: never news for a daily summary. Asking can take seconds, and
+        // a label or "Not spam" given meanwhile stands: only where there's still no verdict.
+        val row = VerdictEntity.from(c.key, c.threadId, c.sender, verdict, System.currentTimeMillis()).copy(summarized = true)
+        if (dao.insertIfAbsent(row) == -1L) return null
         when (verdict.action) {
             Action.FILTER -> filtered.incrementAndGet()
             Action.SILENCE -> silenced.incrementAndGet()
@@ -178,6 +180,9 @@ class HistoryReviewer(
         context.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
 
     /** The newest incoming SMS or downloaded MMS of each thread, if it has no verdict yet. */
+    /** How many conversations a check would classify now, to ask the user before it does. */
+    suspend fun pending(): Int = candidates().size
+
     private suspend fun candidates(): List<Candidate> = withContext(Dispatchers.IO) {
         val newest = HashMap<Long, Candidate>()
         fun offer(c: Candidate) {

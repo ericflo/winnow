@@ -347,6 +347,9 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
 
     fun startReview() = container.historyReviewer.start()
 
+    /** How many conversations "Sort them now" would check, for asking first (see ReviewConfirmDialog). */
+    suspend fun reviewPending(): Int = runCatching { container.historyReviewer.pending() }.getOrDefault(0)
+
     fun dismissReview() = launch {
         // "Done" on how a review went: that's been read, so it goes (counted afresh, as an offer).
         if (container.historyReviewer.status.value is ReviewStatus.Finished) container.historyReviewer.refresh(dismissed = true)

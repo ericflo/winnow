@@ -544,6 +544,10 @@ interface VerdictDao {
     @Upsert
     suspend fun upsert(verdict: VerdictEntity)
 
+    /** [verdict], unless its message has one already (a label, or one made as it arrived): -1 then. */
+    @Insert(onConflict = androidx.room.OnConflictStrategy.IGNORE)
+    suspend fun insertIfAbsent(verdict: VerdictEntity): Long
+
     @Query("UPDATE verdicts SET userAction = :userAction WHERE threadId = :threadId")
     suspend fun setUserAction(threadId: Long, userAction: String?)
 
