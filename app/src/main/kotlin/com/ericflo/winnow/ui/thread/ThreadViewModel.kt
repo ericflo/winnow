@@ -230,6 +230,14 @@ class ThreadViewModel(
     val quickReplies: StateFlow<List<String>> = container.settings.settings.map { it.quickReplies }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /**
+     * Whether Winnow knows this phone's number, from Android or learned (see OwnNumbers): if it
+     * does, there's nothing to ask for. Known until found otherwise, so the card never flashes.
+     */
+    val ownNumberKnown: StateFlow<Boolean> = kotlinx.coroutines.flow.flow { emit(runCatching { com.ericflo.winnow.data.OwnNumbers(container.appContext).all().isNotEmpty() }.getOrDefault(true)) }
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
     /** Whether the user said "Not now" to the card asking for their own number; true until known, so it doesn't flash. */
     val ownNumberCardDismissed: StateFlow<Boolean> = container.settings.settings.map { it.ownNumberCardDismissed }
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)

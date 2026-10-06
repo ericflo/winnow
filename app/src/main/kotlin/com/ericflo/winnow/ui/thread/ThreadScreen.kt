@@ -756,7 +756,8 @@ fun ThreadScreen(
                 )
             }
             val ownNumberDismissed by viewModel.ownNumberCardDismissed.collectAsStateWithLifecycle()
-            if (state.isGroup && !phoneNumbersAllowed && !ownNumberDismissed) {
+            val ownNumberKnown by viewModel.ownNumberKnown.collectAsStateWithLifecycle()
+            if (state.isGroup && !phoneNumbersAllowed && !ownNumberKnown && !ownNumberDismissed) {
                 OwnNumberBanner(
                     onAllow = { phoneNumbersPermission.launch(android.Manifest.permission.READ_PHONE_NUMBERS) },
                     onDismiss = viewModel::dismissOwnNumberCard,
