@@ -61,11 +61,14 @@ class OnDeviceClassifier(
         val features = features(message)
         val classes = custom?.classes ?: model.classes
         // A model trained on the phone that learned from texts' context reads this one's too.
-        val read = if (custom?.readsContext == true) features + ContextFeatures.of(message.context) else features
+        val read = features +
+            (if (custom?.readsContext == true) ContextFeatures.of(message.context) else emptyList()) +
+            (if (custom?.readsShapes == true) TextShapes.of(message.body) else emptyList())
         val alone = custom?.probabilities(read) ?: model.predict(features, adjustments)
         // The texts before it in its conversation, read by the same model, lean its answer.
         val before = if (reading > 0) message.earlier.orEmpty().take(MAX_EARLIER).map { body ->
             val f = features(message.copy(body = body, earlier = null))
+            // Read as a sweep scores them: their words alone.
             custom?.probabilities(f) ?: model.predict(f, adjustments)
         } else emptyList()
         val words = ConversationReading.lean(alone, before, reading)

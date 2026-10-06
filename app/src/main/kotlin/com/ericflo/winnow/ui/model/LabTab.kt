@@ -189,6 +189,7 @@ private fun DesignCard(viewModel: ModelViewModel) {
             Toggle("Pieces of words", ModelLab.HELP.getValue("pieces"), r.pieces) { v -> viewModel.editDraft { it.copy(pieces = v) } }
             Toggle("When it came and what came before", ModelLab.HELP.getValue("context"), r.context) { v -> viewModel.editDraft { it.copy(context = v) } }
             Toggle("Words by who sent them", ModelLab.HELP.getValue("crosses"), r.crosses) { v -> viewModel.editDraft { it.copy(crosses = v) } }
+            Toggle("Percents, times, dates and codes", ModelLab.HELP.getValue("shapes"), r.shapes) { v -> viewModel.editDraft { it.copy(shapes = v) } }
         }
         Step("Passes", ModelLab.HELP.getValue("epochs"), EPOCHS, r.epochs, { "$it" }) { v -> viewModel.editDraft { it.copy(epochs = v) } }
         Step("Step size", ModelLab.HELP.getValue("learningRate"), STEPS, r.learningRate, { "$it" }) { v -> viewModel.editDraft { it.copy(learningRate = v) } }

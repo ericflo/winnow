@@ -79,7 +79,8 @@ object LabModelFile {
         }
         val pieced = if (recipe.pieces) PiecesPredictor(model) else model
         val read = if (recipe.crosses) CrossesPredictor(pieced) else pieced
-        return if (recipe.context) ContextPredictor(read) else read
+        val shaped = if (recipe.shapes) ShapesPredictor(read) else read
+        return if (recipe.context) ContextPredictor(shaped) else shaped
     }
 
     /** How many numbers [model] holds. */
@@ -89,6 +90,7 @@ object LabModelFile {
         is PiecesPredictor -> parameters(model.inner)
         is ContextPredictor -> parameters(model.inner)
         is CrossesPredictor -> parameters(model.inner)
+        is ShapesPredictor -> parameters(model.inner)
         is BiasedPredictor -> parameters(model.inner) + model.bias.size
         is BlendPredictor -> model.members.sumOf(::parameters)
         else -> 0
@@ -101,6 +103,7 @@ object LabModelFile {
         is PiecesPredictor -> PiecesPredictor(calibrate(model.inner, temperature))
         is ContextPredictor -> ContextPredictor(calibrate(model.inner, temperature))
         is CrossesPredictor -> CrossesPredictor(calibrate(model.inner, temperature))
+        is ShapesPredictor -> ShapesPredictor(calibrate(model.inner, temperature))
         // Calibrated on top: the model under it stays at its own odds.
         is BiasedPredictor -> model.also { it.temperature = temperature }
         is BlendPredictor -> model.also { it.temperature = temperature }
@@ -111,6 +114,7 @@ object LabModelFile {
         is PiecesPredictor -> unwrap(model.inner)
         is ContextPredictor -> unwrap(model.inner)
         is CrossesPredictor -> unwrap(model.inner)
+        is ShapesPredictor -> unwrap(model.inner)
         else -> model
     }
 }

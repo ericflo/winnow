@@ -441,6 +441,43 @@ class RecipeSweepTest {
         assertTrue(e is java.util.concurrent.CancellationException, "$e")
     }
 
+    @Test
+    fun textShapesFindWhatTheWordsLose() {
+        fun has(body: String) = TextShapes.of(body).map { it.removePrefix("__shape_").removeSuffix("__") }.toSet()
+        assertEquals(setOf("percent", "percent_off", "promo_code"), has("Take 20% off everything with promo code SAVE20"))
+        assertEquals(setOf("time", "date", "weekday"), has("Reminder: your appointment is Tue 10/15 at 3:30 PM"))
+        assertTrue("date" in has("See you on Oct 21st"))
+        assertTrue("order_number" in has("Your order #A1B2C3D4 has shipped"))
+        assertTrue("order_number" in has("Tracking number: 1Z999AA10123456784"))
+        assertEquals(emptySet<String>(), has("hey are we still on for lunch"))
+        assertEquals("a percent off", Featurizer.describe("__shape_percent_off__"))
+    }
+
+    @Test
+    fun aModelThatLearnsShapesReadsThemAndIsKeptWhole() {
+        // Two classes the words don't separate, their shapes do.
+        val marketing = classes.indexOf("marketing")
+        val transactional = classes.indexOf("transactional")
+        val items = (0 until 80).map { i ->
+            val promo = i % 2 == 0
+            val body = if (promo) "Your account update ${i % 5}: take 20% off with code SAVE${i}X" else "Your account update ${i % 5}: order #ZX${1000 + i}Q confirmed"
+            TrainingItem(listOf("w:your", "w:account", "w:update"), null, if (promo) marketing else transactional, 1.0, group = (i / 2).toLong(), key = "sms:s$i", source = TrainingItem.Source.USER, shapeFeatures = TextShapes.of(body))
+        }
+        val plain = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 12, epochs = 20, learningRate = 0.2, includeCorpus = false)
+        fun accuracy(r: Recipe) = RecipeTrainer.crossValidate(r, base, items, emptyList()).count { (i, l) -> l.indices.maxBy { l[it] } == items[i].label }.toDouble() / items.size
+        assertTrue(accuracy(plain.copy(shapes = true)) > 0.95)
+        assertTrue(accuracy(plain) < 0.7)
+        val model = RecipeTrainer.train(plain.copy(shapes = true), base, items)
+        assertTrue(model.readsShapes)
+        val p = model.probabilities(items[0].features!! + items[0].shapeFeatures!!)
+        val q = LocalModel.softmax(RecipeTrainer.logits(model, items[0])!!)
+        p.indices.forEach { assertEquals(p[it], q[it], 1e-9) }
+        val bytes = java.io.ByteArrayOutputStream().also { LabModelFile.write(plain.copy(shapes = true), model, 1f, it) }.toByteArray()
+        assertTrue(LabModelFile.read(plain.copy(shapes = true), java.io.ByteArrayInputStream(bytes))!!.readsShapes)
+        // A model that didn't learn them never reads them.
+        assertEquals(listOf("w:a"), featuresFor(RecipeTrainer.train(plain, base, items), listOf("w:a", "__shape_time__", "__ctx_weekend__")))
+    }
+
     private class FakeProvider(private val fail: Boolean = false, private val more: Double = 0.8, private val sure: Map<String, String> = emptyMap()) : DecisionProvider {
         override val descriptor = ProviderDescriptor("fake", "Fake Jev", DataHandling.REMOTE)
         var calls = 0

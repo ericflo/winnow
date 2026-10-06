@@ -25,6 +25,7 @@ object WordPieces {
 class ContextPredictor(val inner: Predictor) : Predictor {
     override val classes get() = inner.classes
     override val readsContext get() = true
+    override val readsShapes get() = inner.readsShapes
     override fun probabilities(features: List<String>) = inner.probabilities(features)
     override fun reasons(features: List<String>, classIndex: Int, limit: Int) = inner.reasons(features, classIndex, limit)
 }
@@ -36,6 +37,7 @@ class ContextPredictor(val inner: Predictor) : Predictor {
 class BiasedPredictor(val inner: Predictor, val bias: List<Double>, var temperature: Float = 1f) : Predictor {
     override val classes get() = inner.classes
     override val readsContext get() = inner.readsContext
+    override val readsShapes get() = inner.readsShapes
     override fun probabilities(features: List<String>): DoubleArray {
         val p = inner.probabilities(features)
         return LocalModel.softmax(DoubleArray(p.size) { ln(p[it].coerceAtLeast(1e-12)) + bias.getOrElse(it) { 0.0 } }, temperature.toDouble())
@@ -43,9 +45,18 @@ class BiasedPredictor(val inner: Predictor, val bias: List<Double>, var temperat
     override fun reasons(features: List<String>, classIndex: Int, limit: Int) = inner.reasons(features, classIndex, limit)
 }
 
-/** [features] as [model] learned to read them: without context features unless it learned from them. */
+/** A model that learned from a text's shapes too ([TextShapes]): it's given them beside the words. */
+class ShapesPredictor(val inner: Predictor) : Predictor {
+    override val classes get() = inner.classes
+    override val readsContext get() = inner.readsContext
+    override val readsShapes get() = true
+    override fun probabilities(features: List<String>) = inner.probabilities(features)
+    override fun reasons(features: List<String>, classIndex: Int, limit: Int) = inner.reasons(features, classIndex, limit)
+}
+
+/** [features] as [model] learned to read them: without context or shape features unless it learned from them. */
 fun featuresFor(model: Predictor, features: List<String>): List<String> =
-    if (model.readsContext) features else features.filterNot(ContextFeatures::isContext)
+    features.filter { (model.readsContext || !ContextFeatures.isContext(it)) && (model.readsShapes || !TextShapes.isShape(it)) }
 
 /**
  * Each word again, as from the kind of sender it came from ("x:short_code|appointment",
@@ -67,6 +78,7 @@ object SenderCrosses {
 class CrossesPredictor(val inner: Predictor) : Predictor {
     override val classes get() = inner.classes
     override val readsContext get() = inner.readsContext
+    override val readsShapes get() = inner.readsShapes
     override fun probabilities(features: List<String>) = inner.probabilities(SenderCrosses.expand(features))
     override fun reasons(features: List<String>, classIndex: Int, limit: Int) = inner.reasons(SenderCrosses.expand(features), classIndex, limit)
 }
@@ -75,6 +87,7 @@ class CrossesPredictor(val inner: Predictor) : Predictor {
 class PiecesPredictor(val inner: Predictor) : Predictor {
     override val classes get() = inner.classes
     override val readsContext get() = inner.readsContext
+    override val readsShapes get() = inner.readsShapes
     override fun probabilities(features: List<String>) = inner.probabilities(WordPieces.expand(features))
     override fun reasons(features: List<String>, classIndex: Int, limit: Int) = inner.reasons(WordPieces.expand(features), classIndex, limit)
 }
@@ -92,6 +105,7 @@ class BlendPredictor(val members: List<Predictor>, weights: List<Double>, var te
     private val shares = weights.sum().let { total -> weights.map { it / total } }
     override val classes get() = members.first().classes
     override val readsContext get() = members.any { it.readsContext }
+    override val readsShapes get() = members.any { it.readsShapes }
 
     /** The members' class probabilities averaged, as logits (their log): a softmax of these at 1 gives the average back. */
     fun blendLogits(memberLogits: List<DoubleArray>): DoubleArray = blendLogits(memberLogits, shares)
@@ -112,6 +126,7 @@ class BlendPredictor(val members: List<Predictor>, weights: List<Double>, var te
         is PiecesPredictor -> rawProbabilities(member.inner, WordPieces.expand(features))
         is CrossesPredictor -> rawProbabilities(member.inner, SenderCrosses.expand(features))
         is ContextPredictor -> rawProbabilities(member.inner, features)
+        is ShapesPredictor -> rawProbabilities(member.inner, features)
         else -> member.probabilities(features)
     }
 

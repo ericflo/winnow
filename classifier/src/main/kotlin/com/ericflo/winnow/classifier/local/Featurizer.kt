@@ -114,6 +114,7 @@ object Featurizer {
         feature.startsWith("h:") -> feature.removePrefix("h:").takeIf(::meaningful)?.let { "a link mentioning “$it”" }
         feature.startsWith("__tld_") -> "a .${feature.removePrefix("__tld_").removeSuffix("__")} link"
         ContextFeatures.isContext(feature) -> ContextFeatures.describe(feature)
+        TextShapes.isShape(feature) -> TextShapes.describe(feature)
         else -> DESCRIPTIONS[feature]
     }
 

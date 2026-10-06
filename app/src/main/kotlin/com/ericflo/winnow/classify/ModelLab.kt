@@ -3,6 +3,7 @@ package com.ericflo.winnow.classify
 import com.ericflo.winnow.classifier.local.ClassifierMetrics
 import com.ericflo.winnow.classifier.DecisionProvider
 import com.ericflo.winnow.classifier.local.ContextFeatures
+import com.ericflo.winnow.classifier.local.TextShapes
 import com.ericflo.winnow.classifier.local.ConversationReading
 import com.ericflo.winnow.classifier.local.Featurizer
 import com.ericflo.winnow.classifier.local.LabModelFile
@@ -636,7 +637,10 @@ class ModelLab(
             val idx = buckets(r.buckets)
             when {
                 // With its conversation, so it's left out wherever that conversation is held out.
-                r.fromProvider -> others += TrainingItem(f, idx, label, 1.0, group = r.threadId ?: -1, key = r.messageKey, source = TrainingItem.Source.SERVICE, contextFeatures = contextOf(r.messageKey))
+                r.fromProvider -> others += TrainingItem(
+                    f, idx, label, 1.0, group = r.threadId ?: -1, key = r.messageKey, source = TrainingItem.Source.SERVICE, contextFeatures = contextOf(r.messageKey),
+                    shapeFeatures = t?.body?.let(TextShapes::of),
+                )
                 // The user's labels on texts are the answer key, a conversation's labels kept together;
                 // a label still waiting to be rechecked under the six categories trains but isn't scored.
                 // Only those whose text is still here, which every recipe can read, so all are scored on
@@ -646,6 +650,7 @@ class ModelLab(
                     scored += TrainingItem(
                         f, idx, label, 1.0, group = r.threadId, key = r.messageKey, sender = t?.address, at = r.createdAt, conversing = r.threadId in replied,
                         source = TrainingItem.Source.USER, contextFeatures = contextOf(r.messageKey), earlier = earlierOf(r.messageKey),
+                        shapeFeatures = t?.body?.let(TextShapes::of),
                     )
                     scoredKeys += r.messageKey to r.threadId
                 }
@@ -655,7 +660,7 @@ class ModelLab(
                 // A conversation's own correction: left out wherever that conversation is held out.
                 else -> others += TrainingItem(
                     f, idx, label, 1.0, group = r.threadId ?: -1, key = r.messageKey ?: r.threadId?.let(com.ericflo.winnow.classifier.local.PersonalEvaluation::threadKey),
-                    source = TrainingItem.Source.USER, contextFeatures = contextOf(r.messageKey),
+                    source = TrainingItem.Source.USER, contextFeatures = contextOf(r.messageKey), shapeFeatures = t?.body?.let(TextShapes::of),
                 )
             }
         }
@@ -673,11 +678,15 @@ class ModelLab(
                 others += TrainingItem(
                     Featurizer.features(Featurizer.Input(address, t.body, contacts.isContact(address), thread in replied)), null, label, 1.0,
                     group = thread, key = "conversation:${t.key}", source = TrainingItem.Source.CONVERSATION, contextFeatures = ContextFeatures.of(ctx),
+                    shapeFeatures = TextShapes.of(t.body),
                 )
             }
         }
         ShippedCorpus.texts.forEach { t ->
-            others += TrainingItem(Featurizer.features(Featurizer.Input(t.sender, t.body)), null, classes.indexOf(t.category.key), 1.0, source = TrainingItem.Source.CORPUS)
+            others += TrainingItem(
+                Featurizer.features(Featurizer.Input(t.sender, t.body)), null, classes.indexOf(t.category.key), 1.0, source = TrainingItem.Source.CORPUS,
+                shapeFeatures = TextShapes.of(t.body),
+            )
         }
         Data(scored, scoredKeys, others, gone)
     }
@@ -771,6 +780,7 @@ class ModelLab(
             "inputDropout" to "The share of a text's words left out of each training step, a different few each time. No one word can carry a text, so the model learns from the rest of it too: it memorizes your labels less and carries them over to new texts better.",
             "pieces" to "Also learn from pieces of words, four letters at a time, so words that share a stem (redeliver, redelivery) or a misspelling share what's learned.",
             "conversationReading" to "Your categories are mostly a conversation's: a pharmacy's thread is reminders, a friend's is personal. This has the model read the texts before each one in its conversation too (no labels needed: they're there when it arrives), and lean its answer the way they read, by this much. A text whose own words are clear stays as they say; one that could be either goes the way its conversation does. 0 leaves it out. Scored the same way: on conversations it hadn't learned from, reading what came before.",
+            "shapes" to "Also learn from what a text's words lose: its numbers become placeholders, so \"20% off\", \"3:30 PM\", \"10/15\", \"promo code SAVE20\" and \"order #A1B2C3\" read as bare numbers. This adds which of them a text has (percents off, times, dates, weekdays, promo codes, order and tracking numbers, a run of emoji, several links): where marketing and transactional, or a reminder and a receipt, read alike, these can tell them apart.",
             "crosses" to "Also learn each word as from the kind of sender it came from: a business (a short code or a named sender), a stranger's number, or someone you text or have as a contact. \"Appointment\" from a clinic and from a friend can then mean different things to it.",
             "conversationWeight" to "How much each of your other texts counts in a conversation whose labels from you all agree, taken as that label: a pharmacy's other reminders, a friend's other texts. Many more of your own texts to learn from; never one in a conversation being scored. 0 leaves them out.",
             "context" to "Also learn from when each text came and what came before it in its conversation: the time of day, a weekday or the weekend, whether it opened the conversation or answered your text, how much came before it, how long since the last text. Where texts read alike, these can be what tells them apart to you. It reads the same of each new text, on this phone.",

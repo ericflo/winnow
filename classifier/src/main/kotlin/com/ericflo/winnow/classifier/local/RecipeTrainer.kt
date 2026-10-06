@@ -53,6 +53,8 @@ data class Recipe(
     val context: Boolean = false,
     /** Retrained kinds: each word as from the kind of sender it came from too (see [SenderCrosses]). */
     val crosses: Boolean = false,
+    /** Retrained kinds: the shapes its words lose (percents, times, dates, codes: see [TextShapes]) too. */
+    val shapes: Boolean = false,
     /** Linear only: models trained on resamples and averaged. */
     val bags: Int = 1,
     /** Retrained kinds: learn from the texts the shipped model learned from too, and how much each counts. */
@@ -112,6 +114,7 @@ data class Recipe(
         kind == RecipeKind.PERSONAL && pieces -> "Pieces of words need a retrained model: the personal layer reads the shipped model's features."
         kind == RecipeKind.PERSONAL && context -> "Context needs a retrained model: the personal layer reads the shipped model's features."
         kind == RecipeKind.PERSONAL && crosses -> "Words by sender need a retrained model: the personal layer reads the shipped model's features."
+        kind == RecipeKind.PERSONAL && shapes -> "Text shapes need a retrained model: the personal layer reads the shipped model's features."
         // Each bag's weights are kept until they're averaged: past this a phone runs short of memory.
         kind == RecipeKind.LINEAR && bags.toLong() * buckets > MAX_BAGGED_BUCKETS -> "Bags × buckets can be at most ${"%,d".format(MAX_BAGGED_BUCKETS)}: fewer bags, or fewer buckets."
         kind == RecipeKind.BLEND && members.size !in 2..MAX_MEMBERS -> "A blend needs 2 to $MAX_MEMBERS recipes."
@@ -155,7 +158,7 @@ data class Recipe(
 
     private fun num(x: Double) = if (x % 1.0 == 0.0) x.toInt().toString() else x.toString()
 
-    private fun extras(): String = (if (context) ", context" else "") + (if (crosses) ", words by sender" else "") + (if (pieces) ", word pieces" else "") + (if (inputDropout > 0) ", ${(inputDropout * 100).toInt()}% of words left out" else "")
+    private fun extras(): String = (if (context) ", context" else "") + (if (shapes) ", text shapes" else "") + (if (crosses) ", words by sender" else "") + (if (pieces) ", word pieces" else "") + (if (inputDropout > 0) ", ${(inputDropout * 100).toInt()}% of words left out" else "")
 
     companion object {
         const val MAX_EMBEDDING = 4_194_304L
@@ -197,6 +200,8 @@ class TrainingItem(
     val contextFeatures: List<String>? = null,
     /** The texts before it in its conversation, newest first, as features: what a model reads with it (see ConversationReading). */
     val earlier: List<List<String>>? = null,
+    /** Its text's shapes (see [TextShapes]), for recipes that learn from them; null when not known. */
+    val shapeFeatures: List<String>? = null,
 ) {
     /** [CONVERSATION]: another text in a conversation whose labels from the user all agree, taken as that label. */
     enum class Source { FIXED, USER, SERVICE, CORPUS, CONVERSATION }
@@ -212,13 +217,16 @@ class TrainingItem(
     }
 
     fun copy(features: List<String>? = this.features, weight: Double = this.weight) =
-        TrainingItem(features, baseIndices, label, weight, group, key, sender, at, conversing, source, contextFeatures, earlier)
+        TrainingItem(features, baseIndices, label, weight, group, key, sender, at, conversing, source, contextFeatures, earlier, shapeFeatures)
 
     /** With [WordPieces] among its features. */
     fun withPieces(): TrainingItem = if (features == null) this else copy(features = WordPieces.expand(features))
 
     /** With [SenderCrosses] among its features. */
     fun withCrosses(): TrainingItem = if (features == null) this else copy(features = SenderCrosses.expand(features))
+
+    /** With its shapes among its features, where both are known. */
+    fun withShapes(): TrainingItem = if (features == null || shapeFeatures.isNullOrEmpty()) this else copy(features = features + shapeFeatures)
 
     /** With its context among its features, where both are known. */
     fun withContext(): TrainingItem = if (features == null || contextFeatures.isNullOrEmpty()) this else copy(features = features + contextFeatures)
@@ -248,7 +256,7 @@ object RecipeTrainer {
         }
         // Each text counts as the recipe says for where its label came from.
         val weighted = items.mapNotNull { item -> item.weightUnder(recipe).takeIf { it > 0 }?.let { w -> if (w == item.weight) item else item.copy(weight = w) } }
-        val ready = weighted.map { if (recipe.context) it.withContext() else it }.map { if (recipe.pieces) it.withPieces() else it }.map { if (recipe.crosses) it.withCrosses() else it }
+        val ready = weighted.map { if (recipe.context) it.withContext() else it }.map { if (recipe.shapes) it.withShapes() else it }.map { if (recipe.pieces) it.withPieces() else it }.map { if (recipe.crosses) it.withCrosses() else it }
         val model = when (recipe.kind) {
             RecipeKind.PERSONAL -> {
                 val corrections = ready.mapNotNull { it.indicesIn(base.buckets)?.let { idx -> Correction(idx, it.label, it.weight.coerceAtMost(1.0)) } }
@@ -261,7 +269,8 @@ object RecipeTrainer {
         }
         val pieced = if (recipe.pieces) PiecesPredictor(model) else model
         val read = if (recipe.crosses) CrossesPredictor(pieced) else pieced
-        return if (recipe.context) ContextPredictor(read) else read
+        val shaped = if (recipe.shapes) ShapesPredictor(read) else read
+        return if (recipe.context) ContextPredictor(shaped) else shaped
     }
 
     /** The class scores [predictor] gives one item, before the softmax (with [Predictor]'s own temperature undone where it has one). */
@@ -271,6 +280,7 @@ object RecipeTrainer {
         is PiecesPredictor -> logits(predictor.inner, item.withPieces())
         is CrossesPredictor -> logits(predictor.inner, item.withCrosses())
         is ContextPredictor -> logits(predictor.inner, item.withContext())
+        is ShapesPredictor -> logits(predictor.inner, item.withShapes())
         is BiasedPredictor -> logits(predictor.inner, item)?.let { l -> DoubleArray(l.size) { l[it] + predictor.bias.getOrElse(it) { 0.0 } } }
         // The log of the members' averaged odds: a softmax of it gives the blend's answer back.
         is BlendPredictor -> predictor.members.map { logits(it, item) ?: return null }.let { predictor.blendLogits(it) }

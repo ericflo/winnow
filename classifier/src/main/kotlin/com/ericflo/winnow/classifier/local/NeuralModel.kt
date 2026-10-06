@@ -24,6 +24,9 @@ interface Predictor {
 
     /** Whether it learned from a text's context (see ContextFeatures), so it wants those features too. */
     val readsContext: Boolean get() = false
+
+    /** Whether it learned from a text's shapes (see TextShapes), so it wants those features too. */
+    val readsShapes: Boolean get() = false
 }
 
 /** The shipped linear model (or a retrained one), with [adjustments] the user taught it on top. */
