@@ -9,9 +9,10 @@ import kotlin.math.pow
  * that read alike can be different things to the user because of who sent them (one pharmacy's
  * pickup texts a reminder, another's transactional); this is how the model follows them there.
  *
- * Two ways, by how much the user has said. With [DECISIVE_AT_LEAST] labels of a sender or more,
- * nearly all ([DECISIVE_SHARE]) one way, that way decides ([decisive]): their labels are the
- * answer key, whatever the words suggest. With fewer, or mixed, they nudge the model's answer as
+ * Two ways, by what the user has said. With [DECISIVE_AT_LEAST] labels of a sender or more, all
+ * one way, that way decides ([decisive]): their labels are the answer key, whatever the words
+ * suggest. One label the other way says the sender sends more than one kind and the user tells
+ * them apart, so it's never outvoted: with mixed labels, or fewer, they nudge the model's answer as
  * a smoothed prior ([apply]): each category's chance times ((its labels + ½) / (all labels + k/2))
  * to the power [strength], then normalized. A sender with no labels changes nothing, and neither
  * does strength 0. Only the user's labels count, never a classifier service's. Pure, so it's
@@ -49,8 +50,8 @@ class SenderMemory(
     }
 
     /**
-     * The category the user's labels of [sender] settle, by index: enough of them, nearly all
-     * one way. Null when they don't, when strength is 0, or when the user texts with them
+     * The category the user's labels of [sender] settle, by index: enough of them, all one way.
+     * Null when they don't, when strength is 0, or when the user texts with them
      * ([conversing]: their labels of a person only nudge).
      */
     fun decisive(sender: String, conversing: Boolean = false): Int? {
@@ -58,7 +59,7 @@ class SenderMemory(
         val c = countsFor(sender) ?: return null
         val n = c.sum()
         val top = c.indices.maxByOrNull { c[it] } ?: return null
-        return top.takeIf { n >= DECISIVE_AT_LEAST && c[top] >= n * DECISIVE_SHARE }
+        return top.takeIf { n >= DECISIVE_AT_LEAST && c[top] == n }
     }
 
     /** How sure the user's labels make it, when [decisive]: 3 of 3 is 75%, 9 of 9 is 90%. */
@@ -98,9 +99,8 @@ class SenderMemory(
 
     companion object {
         const val DEFAULT_STRENGTH = 1.0
-        /** Labels of one sender, nearly all one way, that decide on their own (see [decisive]). */
+        /** Labels of one sender, all one way, that decide on their own (see [decisive]). */
         const val DECISIVE_AT_LEAST = 3
-        const val DECISIVE_SHARE = 0.8
         private const val ALPHA = 0.5
 
         val NONE = SenderMemory(emptyMap(), emptyList(), 0.0)

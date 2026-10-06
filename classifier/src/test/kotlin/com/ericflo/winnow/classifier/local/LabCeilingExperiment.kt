@@ -249,6 +249,14 @@ private fun partSender(user: List<LabeledText>, service: List<LabeledText>, corp
                 }.toDouble() / newest.size
                 println(String.format(Locale.US, "%-16s %-14s newest of each conversation %.1f%% (sender memory at strength %.1f)", name, "words+memory", memAcc * 100, strength))
             }
+            // As shipped (SenderMemory): all of a sender's labels one way decide, otherwise they nudge.
+            val shipped = SenderMemory.of(older.map { sender[it]!! to labels[it] }, classes)
+            val shippedAcc = newest.count { i ->
+                val logits = RecipeTrainer.logits(model, TrainingItem(feats(i, false), null, labels[i], 1.0)) ?: return@count false
+                shipped.follow(LocalModel.softmax(logits, t.toDouble()), sender[i]!!).best == labels[i]
+            }.toDouble() / newest.size
+            val decided = newest.count { shipped.decisive(sender[it]!!) != null }
+            println(String.format(Locale.US, "%-16s %-14s newest of each conversation %.1f%% (as shipped: %d of %d decided by the labels)", name, "words+memory", shippedAcc * 100, decided, newest.size))
         }
     }
 }

@@ -86,6 +86,17 @@ class SenderMemoryTest {
     }
 
     @Test
+    fun `one label the other way is never outvoted, and the sender goes back to the words, leaned`() {
+        // A bank: nine one-time codes labeled transactional, and one promotion the user called marketing.
+        val memory = SenderMemory.of(List(9) { "72166" to c(Category.TRANSACTIONAL) } + listOf("72166" to c(Category.MARKETING)), classes)
+        assertNull(memory.decisive("72166"))
+        val promo = DoubleArray(classes.size) { 0.01 }.also { it[c(Category.MARKETING)] = 0.9 }
+        assertEquals("a promotion the words are sure of stays marketing", c(Category.MARKETING), memory.follow(promo, "72166").best)
+        val unsure = DoubleArray(classes.size) { 0.01 }.also { it[c(Category.MARKETING)] = 0.45; it[c(Category.TRANSACTIONAL)] = 0.4 }
+        assertEquals("where the words can't tell, the labels lean it", c(Category.TRANSACTIONAL), memory.follow(unsure, "72166").best)
+    }
+
+    @Test
     fun `counts are kept per class in model order`() {
         val memory = SenderMemory.of(listOf("72166" to c(Category.SPAM), "72166" to c(Category.SPAM), "72166" to c(Category.MARKETING)), classes)
         val counts = memory.countsFor("72166")!!

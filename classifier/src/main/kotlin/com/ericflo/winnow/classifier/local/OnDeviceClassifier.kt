@@ -17,7 +17,7 @@ data class LocalPrediction(
     val senderLabels: Int = 0,
     val senderLabelsTotal: Int = 0,
     /**
-     * The user has labeled enough of this sender's texts, nearly all one way, and this is that
+     * The user has labeled enough of this sender's texts, all one way, and this is that
      * way (see SenderMemory.decisive): their labels decide, before any classifier service is asked.
      */
     val yourLabelsDecide: Boolean = false,

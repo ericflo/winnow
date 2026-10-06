@@ -128,8 +128,8 @@ object LabDiagnosis {
                 "With \"Who sent it\" off, your labels of each sender don't count here: turned on, they can settle what a text's words don't."
             } else {
                 "What helps most is labeling texts from the senders behind them: once you've labeled ${SenderMemory.DECISIVE_AT_LEAST} or more of a sender's texts, " +
-                    "at least ${Math.round(SenderMemory.DECISIVE_SHARE * 100)}% of them one way, that sender's next texts follow your label. " +
-                    "For someone you text with, who sends every kind, your labels of them lean its answer instead."
+                    "all the same way, that sender's next texts follow your label. Where you've labeled a sender's texts both ways, or it's someone you text with, " +
+                    "your labels of them lean its answer instead, and the words decide between them."
             }
             out += Suggestion(
                 "It can't yet tell your $a from $b",

@@ -427,7 +427,7 @@ class ModelLab(
             "serviceWeight" to "How much each of the classifier service's labels counts; 0 leaves them out. Your labels always count more: where the service sees texts differently from you, less here lets yours set the model.",
             "balance" to "Count each category equally, however many texts it has: it helps the model follow you on the categories you've labeled few of.",
             "senderMemory" to "Texts that read alike can be different things to you because of who sent them. This makes your labels of each sender count with the model's answer for their next texts: " +
-                "three or more labels of a sender you don't text with (a pharmacy, a short code), nearly all one way, decide; fewer, or of someone you text with, who sends every kind, nudge, by this much. " +
+                "three or more labels of a sender you don't text with (a pharmacy, a short code), all one way, decide; otherwise (fewer, labeled both ways, or someone you text with) they nudge, by this much. " +
                 "0 leaves who sent it out. Your newest labels, scored by a model trained on the older ones, show what it adds.",
         )
     }

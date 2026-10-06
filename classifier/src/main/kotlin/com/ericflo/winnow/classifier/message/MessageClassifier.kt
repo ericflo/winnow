@@ -66,7 +66,7 @@ class MessageClassifier(
 
         // The model is a fallback as much as a first opinion, so a failure here must not stop classification.
         val local = onDevice?.let { runCatching { it.classify(message) }.getOrNull() }
-        // The user's own labels of this sender, enough of them and nearly all one way: theirs
+        // The user's own labels of this sender, enough of them and all one way: theirs
         // outweigh any service's, so it isn't asked.
         if (local != null && local.yourLabelsDecide) {
             return onDeviceVerdict(local, VerdictSource.OnDevice.YOUR_LABELS.takeIf { providers.isNotEmpty() && keepOnPhone == null })
