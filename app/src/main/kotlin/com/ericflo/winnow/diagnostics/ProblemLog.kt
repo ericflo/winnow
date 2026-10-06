@@ -45,6 +45,10 @@ class ProblemLog(private val context: Context) {
     /** Problems since the user last looked at or dismissed them (see [markSeen]). */
     val unseen: StateFlow<Int> = _unseen.asStateFlow()
 
+    private val _unseenAt = MutableStateFlow<Long?>(null)
+    /** When the newest unseen problem happened; null when there's none. */
+    val unseenAt: StateFlow<Long?> = _unseenAt.asStateFlow()
+
     private val _unseenEarlier = MutableStateFlow<String?>(null)
     /** When every unseen problem happened in an earlier version than this one: the newest such version. */
     val unseenEarlier: StateFlow<String?> = _unseenEarlier.asStateFlow()
@@ -105,6 +109,7 @@ class ProblemLog(private val context: Context) {
     fun markSeen() {
         prefs.edit().putLong(KEY_SEEN, _problems.value.maxOfOrNull { it.at } ?: System.currentTimeMillis()).apply()
         _unseen.value = 0
+        _unseenAt.value = null
         _unseenEarlier.value = null
     }
 
@@ -129,6 +134,7 @@ class ProblemLog(private val context: Context) {
         val seen = prefs.getLong(KEY_SEEN, 0)
         val unseen = problems.filter { it.at > seen }
         _unseen.value = unseen.size
+        _unseenAt.value = unseen.maxOfOrNull { it.at }
         _unseenEarlier.value = earlierVersion(unseen, version)
     }
 
