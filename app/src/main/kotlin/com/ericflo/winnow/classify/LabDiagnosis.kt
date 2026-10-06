@@ -125,11 +125,12 @@ object LabDiagnosis {
             val a = apart.label.label.lowercase()
             val b = apart.predicted.label.lowercase()
             val senders = if (senderMemory != null && senderMemory <= 0.0) {
-                "With \"Who sent it\" off, your labels of each sender don't count here: turned on, they can settle what a text's words don't."
+                "With \"Who sent it\" off, your labels of each sender don't count here: turned on (in the design, or for the model in use on the Inside tab), they can settle what a text's words don't."
             } else {
                 "What helps most is labeling texts from the senders behind them: once you've labeled ${SenderMemory.DECISIVE_AT_LEAST} or more of a sender's texts, " +
                     "all the same way, that sender's next texts follow your label. Where you've labeled a sender's texts both ways, or it's someone you text with, " +
-                    "your labels of them lean its answer instead, and the words decide between them."
+                    "your labels of them lean its answer instead, and the words decide between them. " +
+                    "The Inside tab lists every sender you've labeled and what your labels do for each."
             }
             out += Suggestion(
                 "It can't yet tell your $a from $b",
