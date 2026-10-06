@@ -9,6 +9,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.provider.Telephony
 import android.util.Log
+import kotlinx.coroutines.launch
 import com.ericflo.winnow.WinnowApp
 
 /**
@@ -109,13 +110,19 @@ class MmsRetries(private val context: Context, private val readiness: SendReadin
     }
 }
 
-/** Runs [MmsRetries.runDue]; the downloads themselves report back through MmsDownloadedReceiver. */
+/**
+ * Runs [MmsRetries.runDue]; the downloads themselves report back through MmsDownloadedReceiver.
+ * Off the main thread (a job starts on it): each retry reads and writes the message store.
+ */
 class MmsRetryJob : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
         val container = (application as WinnowApp).container
-        runCatching { container.mmsRetries.runDue(container.mmsReceiver::retryDownload) }
-            .onFailure { Log.w("WinnowMms", "MMS retries failed", it) }
-        return false
+        container.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { container.mmsRetries.runDue(container.mmsReceiver::retryDownload) }
+                .onFailure { Log.w("WinnowMms", "MMS retries failed", it) }
+            jobFinished(params, false)
+        }
+        return true
     }
 
     override fun onStopJob(params: JobParameters): Boolean = false

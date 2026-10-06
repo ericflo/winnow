@@ -127,7 +127,7 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
         // way than opening it, would keep the badge with nothing unread to show for it.
         if (mode == ListMode.INBOX) {
             viewModelScope.launch {
-                repo.conversations().collect { list -> container.notifier.keepOnlyUnread(list.filter { it.unread }.mapTo(HashSet()) { it.threadId }) }
+                repo.conversations().collect { list -> keepOnlyUnread(list) }
             }
         }
     }
@@ -337,7 +337,7 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     fun refresh() {
         // Coming back to the inbox: notifications for conversations read meanwhile go (see init).
         if (mode == ListMode.INBOX) launch {
-            container.notifier.keepOnlyUnread(repo.conversations().first().filter { it.unread }.mapTo(HashSet()) { it.threadId })
+            keepOnlyUnread(repo.conversations().first())
         }
         isDefault.value = container.isDefaultSmsApp()
         if (mode == ListMode.INBOX) container.historyReviewer.refresh()
@@ -401,6 +401,18 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
 
     fun browse(kind: Browse?) {
         _browsing.value = kind
+    }
+
+    /**
+     * Clears notifications of conversations [list] says are read (see Notifier.keepOnlyUnread):
+     * not from a listing that partly failed, which may be missing unread ones, and only ones
+     * posted before the listing began.
+     */
+    private fun keepOnlyUnread(list: List<com.ericflo.winnow.data.ConversationSummary>) {
+        val health = repo.listHealth()
+        if (health != null && health.failures.isNotEmpty()) return
+        val began = health?.let { it.at - it.millis } ?: System.currentTimeMillis()
+        container.notifier.keepOnlyUnread(list.filter { it.unread }.mapTo(HashSet()) { it.threadId }, now = began)
     }
 
     fun markAllRead() = launch {

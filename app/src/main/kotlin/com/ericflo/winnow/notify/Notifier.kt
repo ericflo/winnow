@@ -584,13 +584,17 @@ class Notifier(
      * Clears the new-message notifications of every conversation not in [unread]: one read some
      * other way than opening it (Mark all as read, a swipe, the selection bar, another app) would
      * otherwise stay, and keep a badge on the app icon with nothing unread to show for it.
+     * [now] is when the listing [unread] came from began: only notifications from before it can
+     * be known read by it. Never the alert for a text that couldn't be stored (conversation -1):
+     * it's the only copy of that text.
      */
     fun keepOnlyUnread(unread: Set<Long>, now: Long = System.currentTimeMillis()) {
         val ids = unread.mapTo(HashSet()) { notificationId(it) }
+        val unstored = notificationId(-1)
         runCatching {
             manager.activeNotifications
                 // Not one just posted: [unread] may have been read from the store a moment before its text arrived.
-                .filter { it.tag == TAG && it.id !in ids && now - it.postTime > JUST_POSTED_MILLIS }
+                .filter { it.tag == TAG && it.id !in ids && it.id != unstored && now - it.postTime > JUST_POSTED_MILLIS }
                 .forEach { n ->
                     recent.keys.removeIf { notificationId(it) == n.id }
                     manager.cancel(TAG, n.id)
