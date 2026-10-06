@@ -30,7 +30,7 @@ import kotlinx.coroutines.flow.Flow
         CorrectionEntity::class, StarredEntity::class, ReminderEntity::class,
         RunEntity::class, RunAnswerEntity::class, ModelFitEntity::class, EvalEntity::class, EvalItemEntity::class,
     ],
-    version = 18,
+    version = 19,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
@@ -48,6 +48,8 @@ import kotlinx.coroutines.flow.Flow
         // 17 to 18: what decided each text and what the on-device model thought of it; backlog runs
         // and each answer in them; every fit of the on-device model; evaluations and their items.
         AutoMigration(from = 17, to = 18, spec = WinnowDatabase.RunsKept::class),
+        // 18 to 19: the service's answer where the user's labels of the sender outweighed it.
+        AutoMigration(from = 18, to = 19),
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
@@ -421,7 +423,21 @@ data class VerdictEntity(
     val runId: Long? = null,
     /** The user's labeled texts sent with the question as examples (a backlog run's); 0 when none were. */
     @ColumnInfo(defaultValue = "0") val promptExamples: Int = 0,
+    /**
+     * The classifier service's answer where it was asked and the user's labels of the sender
+     * outweighed it (VerdictSource.OnDevice.OVER_SERVICE): a [Category] key and how sure. Null otherwise.
+     */
+    val serviceCategory: String? = null,
+    val serviceConfidence: Double? = null,
 ) {
+    /** What the classifier service said of this text as it was decided, if it was asked and answered. */
+    val serviceAnswer: Pair<String, Double>?
+        get() = when {
+            sourceKind == KIND_PROVIDER -> category?.let { it to confidence }
+            serviceCategory != null -> serviceCategory to (serviceConfidence ?: 0.0)
+            else -> null
+        }
+
     fun toStored(providerNames: (String) -> String) = StoredVerdict(
         // The user's label wins: every badge, chip and list then follows it.
         category = (userCategory ?: category)?.let(Category::fromKey),
@@ -469,6 +485,8 @@ data class VerdictEntity(
                 fallbackReason = fallback,
                 latencyMillis = verdict.latencyMillis,
                 promptExamples = verdict.promptExamples,
+                serviceCategory = verdict.serviceOpinion?.category?.key,
+                serviceConfidence = verdict.serviceOpinion?.confidence,
             )
         }
 

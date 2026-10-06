@@ -111,7 +111,7 @@ class EvalData(
             val (labels, rest) = current.partition { !it.fromProvider && it.messageKey != null && it.threadId != null && !it.messageKey.startsWith(BackupLabelPrefix) }
             val service = HashMap<String, Pair<Category, Double>>()
             answers.sortedBy { it.answeredAt }.forEach { a -> Category.fromKey(a.category)?.let { service[a.messageKey] = it to a.confidence } }
-            verdicts.filter { it.sourceKind == VerdictEntity.KIND_PROVIDER }.forEach { v -> v.category?.let(Category::fromKey)?.let { service[v.messageKey] = it to v.confidence } }
+            verdicts.forEach { v -> v.serviceAnswer?.let { (c, sure) -> Category.fromKey(c)?.let { service[v.messageKey] = it to sure } } }
             val senders = verdicts.filter { it.address.isNotBlank() }.associate { it.messageKey to it.address }
             return EvalData(
                 labels = labels.map { Labeled(it.messageKey!!, it.threadId!!, buckets(it), model.classes.indexOf(it.label), it.createdAt, senders[it.messageKey], it.threadId in conversing) },

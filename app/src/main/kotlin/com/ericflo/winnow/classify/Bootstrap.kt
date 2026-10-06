@@ -246,6 +246,12 @@ class Bootstrap(
                                 tally = tally.copy(kept = tally.kept + 1)
                                 done++
                             }
+                            // The user's labels of the sender decided it, or outweighed the service's
+                            // answer: an answer, not a failure, and nothing for the service to teach.
+                            verdict?.decidedByYourLabels == true -> {
+                                tally = tally.copy(kept = tally.kept + 1, costUsd = tally.costUsd + verdict.costUsd)
+                                done++
+                            }
                             else -> {
                                 lastDetail = (verdict?.source as? VerdictSource.OnDevice)?.fallbackReason ?: "no answer"
                                 tally = tally.copy(costUsd = tally.costUsd + (verdict?.costUsd ?: 0.0))
@@ -330,7 +336,7 @@ class Bootstrap(
         runCatching {
             val model = learner.classifier()
             val before = verdicts.forKeys(answers.map { it.first.key })
-                .filter { it.sourceKind == VerdictEntity.KIND_PROVIDER }.associate { it.messageKey to it.category }
+                .mapNotNull { v -> v.serviceAnswer?.let { v.messageKey to it.first } }.toMap()
             val now = System.currentTimeMillis()
             val rows = withContext(Dispatchers.Default) {
                 answers.map { (t, v) ->

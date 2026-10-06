@@ -126,6 +126,21 @@ class ProvenanceTest {
         assertFalse(teaches(answer.copy(source = VerdictSource.OnDevice("m", emptyList())), learnFromProvider = true))
         assertFalse(teaches(answer.copy(category = null), learnFromProvider = true))
     }
+
+    @Test
+    fun aServicesAnswerYourLabelsOutweighedSaysWhatItSaidAndWhyItDidntStand() {
+        val v = verdict(
+            kind = VerdictEntity.KIND_LOCAL, detail = "you labeled 3 of this sender's 4 texts transactional", category = "transactional",
+            localCategory = "transactional", fallback = "${VerdictSource.OnDevice.OVER_SERVICE} (it said personal)",
+        ).copy(serviceCategory = "personal", serviceConfidence = 0.88)
+        assertEquals(ModelReason.OVER_SERVICE, Provenance.modelReason(v))
+        val e = explain(v)
+        assertTrue(e.why.first(), e.why.first().contains("called it personal, which you've never called this sender's texts"))
+        assertTrue(e.why.any { "answered in" in it })
+        val service = e.opinions.single { it.who == "Classifier service" }
+        assertEquals(Category.PERSONAL, service.category)
+        assertEquals("outweighed by your labels of this sender", service.detail)
+    }
 }
 
 class DescribeModelTest {

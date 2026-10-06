@@ -74,7 +74,7 @@ object ModelInsight {
             a.modelCategory?.let(Category::fromKey)?.let { model[a.messageKey] = it }
         }
         verdicts.forEach { v ->
-            if (v.sourceKind == VerdictEntity.KIND_PROVIDER) v.category?.let(Category::fromKey)?.let { service[v.messageKey] = it }
+            v.serviceAnswer?.first?.let(Category::fromKey)?.let { service[v.messageKey] = it }
             val opinion = v.localCategory ?: v.category.takeIf { v.sourceKind == VerdictEntity.KIND_LOCAL }
             opinion?.let(Category::fromKey)?.let { if (v.messageKey !in model) model[v.messageKey] = it }
         }
@@ -95,10 +95,10 @@ object ModelInsight {
      * does. Only weeks with something to compare. Pure, so it's unit-tested.
      */
     fun weekly(verdicts: List<VerdictEntity>, zone: ZoneId = ZoneId.systemDefault()): List<WeekAgreement> =
-        verdicts.filter { it.sourceKind == VerdictEntity.KIND_PROVIDER && it.atArrival && it.localCategory != null && it.category != null }
+        verdicts.filter { it.atArrival && it.localCategory != null && it.serviceAnswer != null }
             .groupBy { Instant.ofEpochMilli(it.decidedAt).atZone(zone).toLocalDate().let { d -> d.minusDays((d.dayOfWeek.value - 1).toLong()) } }
             .toSortedMap()
-            .map { (week, rows) -> WeekAgreement(week, Pairwise(rows.size, rows.count { it.localCategory == it.category })) }
+            .map { (week, rows) -> WeekAgreement(week, Pairwise(rows.size, rows.count { it.localCategory == it.serviceAnswer?.first })) }
 
     /** Who decided the texts that arrived since [since] (see [DeciderCounts]). Pure, so it's unit-tested. */
     fun deciders(verdicts: List<VerdictEntity>, since: Long): DeciderCounts {
@@ -112,7 +112,7 @@ object ModelInsight {
                 Decider.MODEL -> when (Provenance.modelReason(v)) {
                     ModelReason.ONLY_ONE -> c.copy(modelOnly = c.modelOnly + 1)
                     ModelReason.SURE -> c.copy(modelSure = c.modelSure + 1)
-                    ModelReason.YOUR_LABELS -> c.copy(modelYourLabels = c.modelYourLabels + 1)
+                    ModelReason.YOUR_LABELS, ModelReason.OVER_SERVICE -> c.copy(modelYourLabels = c.modelYourLabels + 1)
                     ModelReason.PROVIDER_FAILED -> c.copy(modelFallback = c.modelFallback + 1)
                     ModelReason.KEPT_ON_PHONE -> c.copy(modelKept = c.modelKept + 1)
                     ModelReason.UNKNOWN, null -> c.copy(modelUnknown = c.modelUnknown + 1)

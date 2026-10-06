@@ -128,4 +128,15 @@ class ModelInsightTest {
         assertEquals("“#”", ModelInspector.name("w:zznumshort"))
         assertEquals("“at [link]”", ModelInspector.name("b:at zzurl"))
     }
+
+    @Test
+    fun aServicesAnswerYourLabelsOutweighedStillCountsAsItsAnswer() {
+        val outweighed = v("sms:1", kind = VerdictEntity.KIND_LOCAL, category = "transactional", local = "transactional", mine = "transactional")
+            .copy(serviceCategory = "personal", serviceConfidence = 0.9)
+        val x = ModelInsight.agreement(listOf(outweighed), emptyList())
+        assertEquals(Pairwise(1, 0), x.youService)
+        assertEquals(Pairwise(1, 0), x.modelService)
+        assertEquals(1, x.modelWithYouAgainstService)
+        assertEquals(listOf(Pairwise(1, 0)), ModelInsight.weekly(listOf(outweighed), ZoneOffset.UTC).map { it.pair })
+    }
 }

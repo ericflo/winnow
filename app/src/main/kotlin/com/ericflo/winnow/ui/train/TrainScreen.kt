@@ -840,7 +840,7 @@ private fun BootstrapSection(viewModel: TrainViewModel, onOpenRun: (Long) -> Uni
                 (if (st.tally.labeled == 0) "No texts labeled this time."
                 else "${plural(st.tally.labeled, "text")} labeled" + (money(st.tally.costUsd)?.let { ", for $it" } ?: "") + ". Winnow's model has learned from them; your own labels count for more and always win.") +
                     (if (st.tally.unsure > 0) " ${st.tally.unsure} more got an answer too unsure to teach." else "") +
-                    (if (st.tally.kept > 0) " ${st.tally.kept} stayed on your phone, as your privacy settings say." else "") +
+                    (if (st.tally.kept > 0) " ${st.tally.kept} kept your phone's answer: your contacts and your labels already answer for them, or your privacy settings keep them here." else "") +
                     (if (st.tally.failed > 0) " ${st.tally.failed} got no answer and will be tried next time." else "") +
                     (st.error?.let { " $it" } ?: ""),
                 style = MaterialTheme.typography.bodyMedium,

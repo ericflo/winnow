@@ -307,4 +307,35 @@ class MessageClassifierTest {
         classifier.classify(stranger.copy(sender = "+15555550199"))
         assertEquals(1, provider.seen.size)
     }
+
+    @Test
+    fun `a service's answer the user has never given a sender they've labeled is outweighed, and kept`() = runTest {
+        // A pharmacy labeled both ways (so its labels don't decide), and never personal.
+        val pharmacy = InboundMessage(sender = "+12395550160", body = "Your prescription is ready for pickup at the Main St pharmacy")
+        val classes = com.ericflo.winnow.classifier.local.LocalModel.bundled.classes
+        val labels = List(3) { pharmacy.sender to classes.indexOf(Category.TRANSACTIONAL.key) } + listOf(pharmacy.sender to classes.indexOf(Category.REMINDER.key))
+        val memory = com.ericflo.winnow.classifier.local.SenderMemory.of(labels, classes)
+        val onDevice = OnDeviceClassifier().withMemory(memory)
+        val local = onDevice.classify(pharmacy)
+        assertTrue(local.category in setOf(Category.TRANSACTIONAL, Category.REMINDER), "${local.category}")
+        // The service calls it personal: asked and paid, but outweighed.
+        val outweighed = MessageClassifier(listOf(FakeProvider { mapOf("friend_chat" to 1.0) }), onDevice = onDevice).classify(pharmacy)
+        assertEquals(local.category, outweighed.category)
+        val source = assertIs<VerdictSource.OnDevice>(outweighed.source)
+        assertEquals("${VerdictSource.OnDevice.OVER_SERVICE} (it said personal)", source.fallbackReason)
+        assertTrue(outweighed.providerContacted)
+        assertTrue(outweighed.decidedByYourLabels)
+        assertEquals(Category.PERSONAL, outweighed.serviceOpinion?.category)
+        // One the user has given them: the service decides, as ever.
+        val theirs = MessageClassifier(listOf(FakeProvider { mapOf("school_notice" to 1.0) }), onDevice = onDevice).classify(pharmacy)
+        assertEquals(Category.REMINDER, theirs.category)
+        assertIs<VerdictSource.Provider>(theirs.source)
+        assertFalse(theirs.decidedByYourLabels)
+        // Someone the user texts with can send any kind: the service decides.
+        val known = PrivacyPolicy(classifyKnownConversations = true)
+        assertIs<VerdictSource.Provider>(MessageClassifier(listOf(FakeProvider { mapOf("friend_chat" to 1.0) }), known, onDevice = onDevice).classify(pharmacy.copy(userHasMessagedSender = true)).source)
+        // Too few labels of a sender to say what they send: the service decides.
+        val few = OnDeviceClassifier().withMemory(com.ericflo.winnow.classifier.local.SenderMemory.of(labels.take(2), classes))
+        assertIs<VerdictSource.Provider>(MessageClassifier(listOf(FakeProvider { mapOf("friend_chat" to 1.0) }), onDevice = few).classify(pharmacy).source)
+    }
 }

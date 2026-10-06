@@ -5,6 +5,7 @@ import com.ericflo.winnow.classifier.DecisionProvider
 import com.ericflo.winnow.classifier.DecisionRequest
 import com.ericflo.winnow.classifier.local.LocalPrediction
 import com.ericflo.winnow.classifier.local.OnDeviceClassifier
+import com.ericflo.winnow.classifier.local.SenderMemory
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -106,6 +107,21 @@ class MessageClassifier(
             val category = distribution.maxByOrNull { it.value }?.key
                 ?: Subcategories.of(answer.top)?.parent ?: Category.fromKey(answer.top) ?: Category.SPAM
             val confidence = distribution[category] ?: answer.confidence
+            // The user has labeled several of this sender's texts, never this way, and the model,
+            // leaning on those labels, says one of theirs: their labels outweigh the service's answer.
+            // It was asked and paid, and what it said is kept. Not for someone the user texts with,
+            // who can send any kind (see SenderMemory.decisive).
+            if (local != null && !message.userHasMessagedSender && local.senderLabelsTotal >= SenderMemory.DECISIVE_AT_LEAST &&
+                category !in local.senderCategories && local.category in local.senderCategories
+            ) {
+                return onDeviceVerdict(local, "${VerdictSource.OnDevice.OVER_SERVICE} (it said ${category.label.lowercase()})").copy(
+                    providerContacted = true,
+                    costUsd = response.usage.costUsd,
+                    latencyMillis = (System.nanoTime() - asked) / 1_000_000,
+                    promptExamples = examples.values.sumOf { it.size },
+                    serviceOpinion = ModelOpinion(category, confidence, response.model ?: id),
+                )
+            }
             return Verdict(
                 category = category,
                 confidence = confidence,

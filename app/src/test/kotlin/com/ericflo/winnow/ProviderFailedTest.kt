@@ -25,4 +25,11 @@ class ProviderFailedTest {
         assertFalse(providerFailed(verdict(VerdictSource.OnDevice("m", emptyList(), "Winnow can't see your contacts"), contacted = false)))
         assertFalse(providerFailed(verdict(VerdictSource.OnDevice("m", emptyList()), contacted = false)))
     }
+
+    @Test
+    fun anAnswerYourLabelsOutweighedIsNoFailure() {
+        val outweighed = verdict(VerdictSource.OnDevice("m", emptyList(), "${VerdictSource.OnDevice.OVER_SERVICE} (it said personal)"), contacted = true)
+        assertTrue(outweighed.decidedByYourLabels)
+        assertFalse(providerFailed(outweighed))
+    }
 }

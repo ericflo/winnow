@@ -34,6 +34,9 @@ enum class ModelReason {
     /** The user's own labels of this sender decided it, so no service was asked (see SenderMemory). */
     YOUR_LABELS,
 
+    /** The service answered with a category the user has never given this sender: their labels outweighed it. */
+    OVER_SERVICE,
+
     /** The service was asked and didn't answer. */
     PROVIDER_FAILED,
 
@@ -90,6 +93,7 @@ object Provenance {
         return when {
             fallbackReason == VerdictSource.OnDevice.SURE -> ModelReason.SURE
             fallbackReason == VerdictSource.OnDevice.YOUR_LABELS -> ModelReason.YOUR_LABELS
+            fallbackReason?.startsWith(VerdictSource.OnDevice.OVER_SERVICE) == true -> ModelReason.OVER_SERVICE
             fallbackReason?.startsWith("Provider unavailable") == true -> ModelReason.PROVIDER_FAILED
             fallbackReason != null -> ModelReason.KEPT_ON_PHONE
             // Since these were kept, every model verdict names its model.
@@ -173,7 +177,14 @@ object Provenance {
             Decider.MODEL -> {
                 when (modelReason(v)) {
                     ModelReason.SURE -> why += "It was ${pct(v.confidence)} sure, so the classifier service wasn't asked (Settings: decide on this phone when it's sure, at 95%)."
-                    ModelReason.YOUR_LABELS -> why += "Your labels of this sender decided it: you've labeled their texts this way, and your labels outweigh the classifier service's, so it wasn't asked."
+                    ModelReason.YOUR_LABELS -> why += "Your labels of this sender decided it: you've labeled their texts this way, every one, and your labels outweigh the classifier service's, so it wasn't asked. " +
+                        "Label one of their texts another way and your labels of them only lean the model from then on, its reading of the words deciding between your categories."
+                    ModelReason.OVER_SERVICE -> {
+                        val said = v.serviceCategory?.let(Category::fromKey)?.label?.lowercase()
+                        why += "The classifier service was asked and called it ${said ?: "something else"}, which you've never called this sender's texts. " +
+                            "You've labeled several of them, and your labels outweigh the service's, so the on-device model's answer, leaning on your labels, stands."
+                        v.latencyMillis?.let { why += "The service answered in ${millis(it)}" + (if (v.costUsd > 0) ", for ${money(v.costUsd)}." else ".") }
+                    }
                     ModelReason.PROVIDER_FAILED -> why += "The classifier service was asked and didn't answer: ${v.fallbackReason!!.removePrefix("Provider unavailable (").removeSuffix(")")}."
                     ModelReason.KEPT_ON_PHONE -> why += "Nothing was sent anywhere: ${v.fallbackReason!!.replaceFirstChar { it.lowercase() }}."
                     ModelReason.ONLY_ONE -> why += "No classifier service is set up, so the on-device model decides everything that no rule does."
@@ -189,6 +200,7 @@ object Provenance {
         val opinions = buildList {
             if (mine != null) add(Opinion("You", mine, null, "your label"))
             if (v.sourceKind == VerdictEntity.KIND_PROVIDER) add(Opinion(service ?: "Classifier service", category, v.confidence, v.subcategory?.replace('_', ' ')))
+            v.serviceCategory?.let(Category::fromKey)?.let { add(Opinion("Classifier service", it, v.serviceConfidence, "outweighed by your labels of this sender")) }
             val local = v.localCategory?.let(Category::fromKey) ?: category.takeIf { v.sourceKind == VerdictEntity.KIND_LOCAL }
             val localSure = v.localConfidence ?: v.confidence.takeIf { v.sourceKind == VerdictEntity.KIND_LOCAL }
             if (local != null) add(Opinion("On-device model", local, localSure, modelName?.let(::describeModel)))

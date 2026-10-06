@@ -33,6 +33,11 @@ class ClassifierFactory(
         examples: Map<com.ericflo.winnow.classifier.message.Category, List<String>> = emptyMap(),
         /** A sample the user typed to try the classifier: no one's message, so never held back. */
         sample: Boolean = false,
+        /**
+         * The service's own answers, for measuring it: no on-device model, so neither its being
+         * sure nor the user's labels of a sender stand in for the service.
+         */
+        serviceOnly: Boolean = false,
     ): MessageClassifier =
         MessageClassifier(
             providers = listOfNotNull(provider(settings)),
@@ -40,7 +45,7 @@ class ClassifierFactory(
             actions = settings.actionPolicy,
             timeoutMillis = timeoutMillis,
             // Without its learned adjustments the model still works; without the model, rules still do.
-            onDevice = runCatching { onDevice() }.getOrNull(),
+            onDevice = if (serviceOnly) null else runCatching { onDevice() }.getOrNull(),
             decideOnDeviceAbove = SURE.takeIf { settings.decideOnPhoneWhenSure },
             filteredPhrases = FilteredPhrases(settings.filteredPhrases),
             examples = examples,

@@ -130,7 +130,8 @@ class ExamplesExperiment(
                 val trials = mutableListOf<Trial>()
                 _status.value = ExperimentStatus.Running(0, chosen.size, 0.0)
                 val pacer = Pacer(maxConcurrency = CONCURRENCY)
-                val plain = classifiers.create(current.copy(decideOnPhoneWhenSure = false), timeoutMillis = TIMEOUT_MILLIS)
+                // The service's own answers, both ways: the user's labels of a sender mustn't answer for it.
+                val plain = classifiers.create(current.copy(decideOnPhoneWhenSure = false), timeoutMillis = TIMEOUT_MILLIS, serviceOnly = true)
                 // One classifier per set of examples: all of them, or all but a text's own conversation's.
                 val withExamples = HashMap<Set<Long>, MessageClassifier>()
                 suspend fun classifierFor(threadId: Long): MessageClassifier {
@@ -139,6 +140,7 @@ class ExamplesExperiment(
                         classifiers.create(
                             current.copy(decideOnPhoneWhenSure = false), timeoutMillis = TIMEOUT_MILLIS,
                             examples = pool.filter { it.threadId !in leaveOut }.groupBy({ it.category }, { it.body }),
+                            serviceOnly = true,
                         )
                     }
                 }

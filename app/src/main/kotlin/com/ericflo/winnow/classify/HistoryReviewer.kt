@@ -228,6 +228,9 @@ class HistoryReviewer(
     }
 }
 
-/** Whether [verdict] stands in for the classifier service's answer: it was asked, and didn't give one. */
-internal fun providerFailed(verdict: Verdict): Boolean = verdict.providerContacted && verdict.source !is VerdictSource.Provider
+/**
+ * Whether [verdict] stands in for the classifier service's answer: it was asked, and didn't give
+ * one. Not when it answered and the user's labels of the sender outweighed it.
+ */
+internal fun providerFailed(verdict: Verdict): Boolean = verdict.providerContacted && verdict.source !is VerdictSource.Provider && !verdict.decidedByYourLabels
 

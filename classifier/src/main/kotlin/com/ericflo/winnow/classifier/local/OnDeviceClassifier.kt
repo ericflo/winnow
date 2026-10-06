@@ -16,6 +16,8 @@ data class LocalPrediction(
     /** Of the user's labels of this sender, how many are [category], and how many in all (see SenderMemory). */
     val senderLabels: Int = 0,
     val senderLabelsTotal: Int = 0,
+    /** The categories the user has given this sender's texts. */
+    val senderCategories: Set<Category> = emptySet(),
     /**
      * The user has labeled enough of this sender's texts, all one way, and this is that
      * way (see SenderMemory.decisive): their labels decide, before any classifier service is asked.
@@ -63,7 +65,8 @@ class OnDeviceClassifier(
         val p = followed?.p ?: words
         val best = followed?.best ?: p.indices.maxBy { p[it] }
         val fromWords = words.indices.maxBy { words[it] }
-        val said = memory.countsFor(message.sender)?.takeIf { p !== words }
+        val counts = if (followed != null && memory.strength > 0) memory.countsFor(message.sender) else null
+        val said = counts?.takeIf { p !== words }
         val sender = said?.let { c ->
             val n = c.getOrElse(best) { 0 }
             val total = c.sum()
@@ -82,8 +85,9 @@ class OnDeviceClassifier(
             },
             model = version,
             hasHook = Featurizer.hasHook(features),
-            senderLabels = said?.getOrElse(best) { 0 } ?: 0,
-            senderLabelsTotal = said?.sum() ?: 0,
+            senderLabels = counts?.getOrElse(best) { 0 } ?: 0,
+            senderLabelsTotal = counts?.sum() ?: 0,
+            senderCategories = counts?.let { c -> c.indices.filter { c[it] > 0 }.mapNotNullTo(HashSet()) { Category.fromKey(classes[it]) } }.orEmpty(),
             yourLabelsDecide = followed?.decided == true,
         )
     }

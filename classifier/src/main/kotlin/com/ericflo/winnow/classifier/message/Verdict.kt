@@ -33,7 +33,21 @@ data class Verdict(
     val latencyMillis: Long? = null,
     /** The user's labeled texts sent with the question as examples of how they sort (see MessageClassifier.question). */
     val promptExamples: Int = 0,
+    /**
+     * The classifier service's answer when it was asked but didn't decide: the user's labels of
+     * the sender outweighed it ([VerdictSource.OnDevice.OVER_SERVICE]). Kept, so what it said is
+     * never lost.
+     */
+    val serviceOpinion: ModelOpinion? = null,
 ) {
+    /**
+     * The user's own labels of the sender decided it ([VerdictSource.OnDevice.YOUR_LABELS] or
+     * [VerdictSource.OnDevice.OVER_SERVICE]): an answer, not a service that failed to give one.
+     */
+    val decidedByYourLabels: Boolean get() = (source as? VerdictSource.OnDevice)?.fallbackReason?.let {
+        it == VerdictSource.OnDevice.YOUR_LABELS || it.startsWith(VerdictSource.OnDevice.OVER_SERVICE)
+    } == true
+
     companion object {
         internal fun rule(category: Category?, action: Action, reason: String) =
             Verdict(category, 1.0, action, VerdictSource.Rule(reason))
@@ -60,6 +74,12 @@ sealed interface VerdictSource {
             const val SURE = "Sure enough to decide without asking"
             /** The user's own labels of this sender decided it: theirs outweigh any service's (see SenderMemory). */
             const val YOUR_LABELS = "Your labels of this sender decided it"
+            /**
+             * The service was asked and answered with a category the user has never given this
+             * sender's texts, though they've labeled several (and doesn't text with them): their labels outweigh it, and the
+             * on-device model's answer, leaning on them, stands. Followed by the service's answer.
+             */
+            const val OVER_SERVICE = "Your labels of this sender outweighed the service's answer"
         }
     }
 
