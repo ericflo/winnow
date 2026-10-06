@@ -3,6 +3,7 @@ package com.ericflo.winnow.classify
 import com.ericflo.winnow.classifier.local.ClassifierMetrics
 import com.ericflo.winnow.classifier.DecisionProvider
 import com.ericflo.winnow.classifier.local.ContextFeatures
+import com.ericflo.winnow.classifier.local.ConversationReading
 import com.ericflo.winnow.classifier.local.Featurizer
 import com.ericflo.winnow.classifier.local.LabModelFile
 import com.ericflo.winnow.classifier.local.LocalModel
@@ -212,9 +213,11 @@ class ModelLab(
         val data = data()
         val ctx = currentCoroutineContext()
         val started = System.currentTimeMillis()
-        val cv = withContext(Dispatchers.Default) {
-            RecipeTrainer.crossValidate(recipe, LocalModel.bundled, data.scored, data.others, onFold = { f, k -> say("Scoring on your labels: part ${f + 1} of $k", 0.8f * f / k) }, stopped = { !ctx.isActive })
+        val rows = withContext(Dispatchers.Default) {
+            RecipeTrainer.crossValidateRows(recipe, LocalModel.bundled, data.scored, data.others, onFold = { f, k -> say("Scoring on your labels: part ${f + 1} of $k", 0.8f * f / k) }, stopped = { !ctx.isActive })
         }
+        val cv = rows.map { it.index to it.logits }
+        val cvEarlier = rows.associate { it.index to it.earlier }
         // A trained model's odds set to match how often it was right on labels it hadn't seen.
         val temperature = if (recipe.kind == RecipeKind.PERSONAL) LocalModel.bundled.temperature else RecipeTrainer.calibrate(cv.map { (i, s) -> s to data.scored[i].label })
         val classes = LocalModel.bundled.classes
@@ -223,21 +226,26 @@ class ModelLab(
         // from the other conversations only.
         val folds = RecipeTrainer.foldsOf(data.scored)
         val memories = folds?.let { f -> (0..f.max()).associateWith { fold -> memoryOf(data.scored.indices.filter { f[it] != fold }) } }.orEmpty()
+        // What came before each text in its conversation, read by the same model, leans it first (see ConversationReading).
+        fun leaned(i: Int, s: DoubleArray, earlier: Map<Int, List<DoubleArray>>) =
+            ConversationReading.lean(LocalModel.softmax(s, temperature.toDouble()), earlier[i].orEmpty().map { LocalModel.softmax(it, temperature.toDouble()) }, recipe.conversationReading)
         val answered = cv.map { (i, s) ->
-            val p = LocalModel.softmax(s, temperature.toDouble())
+            val p = leaned(i, s, cvEarlier)
             val memory = folds?.let { memories[it[i]] }
             i to (data.scored[i].sender?.let { sender -> memory?.follow(p, sender, data.scored[i].conversing) }?.distribution ?: p)
         }
         val evalId = keepScoring(entry, data, answered, started)
         // On their newest labels, by a model trained on their older ones: where who sent it can count.
         say("Scoring on your newest labels…", 0.8f)
-        val newest = withContext(Dispatchers.Default) { RecipeTrainer.scoreNewest(recipe, LocalModel.bundled, data.scored, data.others, stopped = { !ctx.isActive }) }
+        val newestRows = withContext(Dispatchers.Default) { RecipeTrainer.scoreNewestRows(recipe, LocalModel.bundled, data.scored, data.others, stopped = { !ctx.isActive }) }
+        val newest = newestRows.map { it.index to it.logits }
+        val newestEarlier = newestRows.associate { it.index to it.earlier }
         val newestSet = newest.mapTo(HashSet()) { it.first }
         val olderMemory = memoryOf(data.scored.indices.filter { it !in newestSet })
         fun argmax(p: DoubleArray) = p.indices.maxBy { p[it] }
         val newestWords = newest.count { (i, s) -> argmax(s) == data.scored[i].label }
         val newestFollowed = newest.count { (i, s) ->
-            val p = LocalModel.softmax(s, temperature.toDouble())
+            val p = leaned(i, s, newestEarlier)
             (data.scored[i].sender?.let { olderMemory.follow(p, it, data.scored[i].conversing).best } ?: argmax(p)) == data.scored[i].label
         }
         say("Training on everything…", 0.85f)
@@ -310,6 +318,9 @@ class ModelLab(
     )
 
     private val contexts = com.ericflo.winnow.data.MessageContexts(context)
+    /** The texts before each labeled one in its conversation, read once a process. */
+    private val earlierCache: MutableMap<String, List<String>> = java.util.Collections.synchronizedMap(HashMap())
+
     /** Each labeled conversation's latest texts, read once a process. */
     private val conversationCache: MutableMap<Long, List<Pair<com.ericflo.winnow.data.MessageTexts.Text, com.ericflo.winnow.classifier.message.MessageContext>>> =
         java.util.Collections.synchronizedMap(HashMap())
@@ -505,7 +516,8 @@ class ModelLab(
             settings.update { it.copy(labModel = entry?.id) }
         }
         // Who sent it counts on the phone as the design that's put in use says.
-        entry?.let { e -> settings.update { it.copy(senderMemory = e.recipe.senderMemory) } }
+        // Who sent it, and what came before in its conversation, count on the phone as the design in use says.
+        settings.update { it.copy(senderMemory = entry?.recipe?.senderMemory ?: it.senderMemory, conversationReading = entry?.recipe?.conversationReading ?: 0.0) }
         onModelChanged()
     }
 
@@ -584,6 +596,13 @@ class ModelLab(
             val ctx = contextCache.getOrPut(key) { contexts.before(t.threadId, t.date, key) } ?: return null
             return ContextFeatures.of(ctx)
         }
+        // The texts before each labeled one in its conversation, as the phone reads them with it.
+        fun earlierOf(key: String?): List<List<String>>? {
+            val t = key?.let(found::get) ?: return null
+            val address = t.address ?: return null
+            val bodies = earlierCache.getOrPut(key) { contexts.earlierBodies(t.threadId, t.date, key) }
+            return bodies.map { Featurizer.features(Featurizer.Input(address, it, contacts.isContact(address), t.threadId in replied)) }
+        }
         fun featuresOf(key: String?): List<String>? {
             val t = key?.let(found::get) ?: return null
             val address = t.address ?: return null
@@ -612,7 +631,7 @@ class ModelLab(
                 r.messageKey != null && r.threadId != null && !r.messageKey.startsWith("restored:") && r.threadId !in recheck && f != null -> {
                     scored += TrainingItem(
                         f, idx, label, 1.0, group = r.threadId, key = r.messageKey, sender = t?.address, at = r.createdAt, conversing = r.threadId in replied,
-                        source = TrainingItem.Source.USER, contextFeatures = contextOf(r.messageKey),
+                        source = TrainingItem.Source.USER, contextFeatures = contextOf(r.messageKey), earlier = earlierOf(r.messageKey),
                     )
                     scoredKeys += r.messageKey to r.threadId
                 }
@@ -733,6 +752,7 @@ class ModelLab(
             "bags" to "Train this many on resampled texts and average them: steadier, slower.",
             "inputDropout" to "The share of a text's words left out of each training step, a different few each time. No one word can carry a text, so the model learns from the rest of it too: it memorizes your labels less and carries them over to new texts better.",
             "pieces" to "Also learn from pieces of words, four letters at a time, so words that share a stem (redeliver, redelivery) or a misspelling share what's learned.",
+            "conversationReading" to "Your categories are mostly a conversation's: a pharmacy's thread is reminders, a friend's is personal. This has the model read the texts before each one in its conversation too (no labels needed: they're there when it arrives), and lean its answer the way they read, by this much. A text whose own words are clear stays as they say; one that could be either goes the way its conversation does. 0 leaves it out. Scored the same way: on conversations it hadn't learned from, reading what came before.",
             "crosses" to "Also learn each word as from the kind of sender it came from: a business (a short code or a named sender), a stranger's number, or someone you text or have as a contact. \"Appointment\" from a clinic and from a friend can then mean different things to it.",
             "conversationWeight" to "How much each of your other texts counts in a conversation whose labels from you all agree, taken as that label: a pharmacy's other reminders, a friend's other texts. Many more of your own texts to learn from; never one in a conversation being scored. 0 leaves them out.",
             "context" to "Also learn from when each text came and what came before it in its conversation: the time of day, a weekday or the weekend, whether it opened the conversation or answered your text, how much came before it, how long since the last text. Where texts read alike, these can be what tells them apart to you. It reads the same of each new text, on this phone.",

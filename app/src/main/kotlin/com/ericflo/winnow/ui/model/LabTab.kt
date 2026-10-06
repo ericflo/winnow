@@ -202,6 +202,9 @@ private fun DesignCard(viewModel: ModelViewModel) {
         }
         Step("Each of $service's labels counts", ModelLab.HELP.getValue("serviceWeight"), SERVICE_WEIGHTS, r.serviceWeight, { if (it == 0.0) "left out" else times(it) }) { v -> viewModel.editDraft { it.copy(serviceWeight = v) } }
         Step("Who sent it: your labels of each sender count", ModelLab.HELP.getValue("senderMemory"), SENDER_STRENGTHS, r.senderMemory, { if (it == 0.0) "not at all" else times(it) }) { v -> viewModel.editDraft { it.copy(senderMemory = v) } }
+        Step("What came before in its conversation counts", ModelLab.HELP.getValue("conversationReading"), READINGS, r.conversationReading, { if (it == 0.0) "not at all" else times(it) }) { v ->
+            viewModel.editDraft { it.copy(conversationReading = v) }
+        }
         if (r.kind != RecipeKind.PERSONAL) Toggle("Balance the categories", ModelLab.HELP.getValue("balance"), r.balance) { v -> viewModel.editDraft { it.copy(balance = v) } }
         Step("Seed", "The same seed trains the same model from the same texts.", (1..100).toList(), r.seed, { "$it" }) { v -> viewModel.editDraft { it.copy(seed = v) } }
         val problem = r.problem()
@@ -507,6 +510,7 @@ private val USER_WEIGHTS = listOf(0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0)
 private val CONVERSATION_WEIGHTS = listOf(0.0, 0.05, 0.1, 0.25, 0.5, 1.0)
 private val SERVICE_WEIGHTS = listOf(0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0, 1.5, 2.0)
 private val SENDER_STRENGTHS = listOf(0.0, 0.5, 1.0, 2.0, 3.0, 4.0)
+private val READINGS = listOf(0.0, 0.5, 1.0, 2.0, 3.0, 4.0)
 
 /** "8.0 MB", "640 KB": what a trained model takes up on the phone. */
 private fun sizeOf(bytes: Long): String =

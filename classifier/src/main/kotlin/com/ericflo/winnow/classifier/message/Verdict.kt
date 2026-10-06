@@ -10,6 +10,8 @@ data class InboundMessage(
     val senderRule: SenderRule? = null,
     /** When it came and what came before it in its conversation, where known (see ContextFeatures). */
     val context: MessageContext? = null,
+    /** The texts before it in its conversation, newest first, where known: a model reads them with it (see ConversationReading). */
+    val earlier: List<String>? = null,
 )
 
 /**

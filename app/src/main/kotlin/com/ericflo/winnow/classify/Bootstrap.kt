@@ -229,8 +229,9 @@ class Bootstrap(
                     tally = tally.copy(kept = tally.kept + stay.size)
                     done += stay.size
                     val gate = Semaphore(pacer.concurrency)
-                    // A model in use that learned from texts' context reads each one's.
-                    val reads = runCatching { learner.classifier().custom?.readsContext == true }.getOrDefault(false)
+                    // A model in use that learned from texts' context reads each one's, and one that reads
+                    // conversations, what came before each.
+                    val reads = runCatching { learner.classifier().let { it.custom?.readsContext == true || it.reading > 0 } }.getOrDefault(false)
                     val results = go.map { t -> async(Dispatchers.IO) { gate.withPermit { t to runCatching { classifier.classify(t.message(reads)) }.getOrNull() } } }.awaitAll()
                     val labels = mutableListOf<CorrectionEntity>()
                     val filed = mutableListOf<VerdictEntity>()
@@ -362,7 +363,7 @@ class Bootstrap(
         if (answers.isEmpty()) return
         runCatching {
             val model = learner.classifier()
-            val reads = model.custom?.readsContext == true
+            val reads = model.custom?.readsContext == true || model.reading > 0
             val before = verdicts.forKeys(answers.map { it.first.key })
                 .mapNotNull { v -> v.serviceAnswer?.let { v.messageKey to it.first } }.toMap()
             val now = System.currentTimeMillis()
@@ -544,7 +545,8 @@ class Bootstrap(
     private fun Text.message() = InboundMessage(sender = sender, body = body, senderInContacts = false, userHasMessagedSender = repliedTo, senderRule = senderRule)
 
     /** The text as a model reads it, with its context when the model learned from texts' context. */
-    private fun Text.message(withContext: Boolean) = if (withContext) message().copy(context = contexts.before(threadId, date, key)) else message()
+    private fun Text.message(withContext: Boolean) =
+        if (withContext) message().copy(context = contexts.before(threadId, date, key), earlier = contexts.earlierBodies(threadId, date, key)) else message()
 
     private val contexts by lazy { com.ericflo.winnow.data.MessageContexts(context) }
 

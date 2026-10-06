@@ -313,7 +313,7 @@ class Learner(
             // Loading the model happens here too, off the main thread.
             if (kept != null) {
                 if (fit != null) record(fit, rows, kept.size, millis = 0, onlyIfNew = true, weight = weight, fitting = fitting)
-                return@withContext withLab(base.withAdjustments(kept, fit), lab).withMemory(memory)
+                return@withContext withLab(base.withAdjustments(kept, fit), lab).withMemory(memory).withReading(current?.conversationReading ?: 0.0)
             }
             val started = System.nanoTime()
             // A bad correction must never stop classification: fall back to the bundled model.
@@ -324,7 +324,7 @@ class Learner(
                 withContext(Dispatchers.IO) { store?.save(stamp, fitted.adjustments) }
                 if (fit != null) record(fit, rows, fitted.adjustments.size, millis = (System.nanoTime() - started) / 1_000_000, onlyIfNew = false, weight = weight, fitting = fitting)
             }
-            withLab(fitted ?: base, lab).withMemory(memory)
+            withLab(fitted ?: base, lab).withMemory(memory).withReading(current?.conversationReading ?: 0.0)
         }.also { trained = it }
     }
 

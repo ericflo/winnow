@@ -157,6 +157,7 @@ class HistoryReviewer(
                 senderRule = dao.senderRule(normalizeAddress(c.sender))?.let { runCatching { SenderRule.valueOf(it) }.getOrNull() },
                 // For a model that learned from texts' context.
                 context = withContext(Dispatchers.IO) { contexts.before(c.threadId, c.date, c.key) },
+                earlier = withContext(Dispatchers.IO) { contexts.earlierBodies(c.threadId, c.date, c.key) },
             ),
         )
         if (providerFailed(verdict)) return false

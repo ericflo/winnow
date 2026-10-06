@@ -74,6 +74,12 @@ data class Recipe(
      * (see SenderMemory): 0 leaves them out. Enough of them, one way, decide.
      */
     val senderMemory: Double = SenderMemory.DEFAULT_STRENGTH,
+    /**
+     * How much what came before a text in its conversation counts with the model's answer for it:
+     * the model reads those earlier texts too, and their answers lean this one's (see
+     * ConversationReading). 0 leaves them out. No labels from the conversation are needed.
+     */
+    val conversationReading: Double = 0.0,
     val seed: Int = 42,
     /** Blend only: the recipes blended (linear and neural), and how much each counts (equally when empty). */
     val members: List<Recipe> = emptyList(),
@@ -101,6 +107,7 @@ data class Recipe(
         userWeight <= 0 || userWeight > 100 || serviceWeight < 0 || serviceWeight > 100 || corpusWeight < 0 || corpusWeight > 100 ||
             conversationWeight < 0 || conversationWeight > 100 -> "Weights must be 0 to 100 (yours above 0)."
         senderMemory < 0 || senderMemory > 4 -> "Who sent it must count 0 to 4."
+        conversationReading < 0 || conversationReading > 4 -> "What came before in its conversation must count 0 to 4."
         inputDropout < 0 || inputDropout >= 0.9 -> "Words left out must be 0 to 0.9."
         kind == RecipeKind.PERSONAL && pieces -> "Pieces of words need a retrained model: the personal layer reads the shipped model's features."
         kind == RecipeKind.PERSONAL && context -> "Context needs a retrained model: the personal layer reads the shipped model's features."
@@ -129,6 +136,7 @@ data class Recipe(
 
     /** The rest of what it says, for telling apart recipes [describe] calls the same: how it's fitted and what it learns from. */
     fun details(): String = fitting() + " · who sent it ×${num(senderMemory)}" +
+        (if (conversationReading > 0) " · its conversation ×${num(conversationReading)}" else "") +
         (if (classBias.any { it != 0.0 }) " · leanings " + classBias.joinToString(" ") { (if (it > 0) "+" else "") + "%.2f".format(it) } else "")
 
     private fun fitting(): String = when (kind) {
@@ -187,6 +195,8 @@ class TrainingItem(
     val source: Source = Source.FIXED,
     /** Its context as features (see [ContextFeatures]), for recipes that learn from it; null when not known. */
     val contextFeatures: List<String>? = null,
+    /** The texts before it in its conversation, newest first, as features: what a model reads with it (see ConversationReading). */
+    val earlier: List<List<String>>? = null,
 ) {
     /** [CONVERSATION]: another text in a conversation whose labels from the user all agree, taken as that label. */
     enum class Source { FIXED, USER, SERVICE, CORPUS, CONVERSATION }
@@ -202,7 +212,7 @@ class TrainingItem(
     }
 
     fun copy(features: List<String>? = this.features, weight: Double = this.weight) =
-        TrainingItem(features, baseIndices, label, weight, group, key, sender, at, conversing, source, contextFeatures)
+        TrainingItem(features, baseIndices, label, weight, group, key, sender, at, conversing, source, contextFeatures, earlier)
 
     /** With [WordPieces] among its features. */
     fun withPieces(): TrainingItem = if (features == null) this else copy(features = WordPieces.expand(features))
@@ -286,7 +296,24 @@ object RecipeTrainer {
         folds: Int = 5,
         onFold: (Int, Int) -> Unit = { _, _ -> },
         stopped: () -> Boolean = { false },
-    ): List<Pair<Int, DoubleArray>> {
+    ): List<Pair<Int, DoubleArray>> = crossValidateRows(recipe, base, scoredItems, others, folds, onFold, stopped).map { it.index to it.logits }
+
+    /**
+     * One scored text's logits, by a model that didn't learn from its conversation, and that same
+     * model's logits for each of the texts before it in its conversation ([TrainingItem.earlier]).
+     */
+    class Row(val index: Int, val logits: DoubleArray, val earlier: List<DoubleArray> = emptyList())
+
+    /** [crossValidate], with each scored text's earlier texts read by the same model (see [Row]). */
+    fun crossValidateRows(
+        recipe: Recipe,
+        base: LocalModel,
+        scoredItems: List<TrainingItem>,
+        others: List<TrainingItem>,
+        folds: Int = 5,
+        onFold: (Int, Int) -> Unit = { _, _ -> },
+        stopped: () -> Boolean = { false },
+    ): List<Row> {
         val foldOf = foldsOf(scoredItems, folds) ?: return emptyList()
         val k = foldOf.max() + 1
         return (0 until k).flatMap { fold ->
@@ -299,8 +326,14 @@ object RecipeTrainer {
             val heldGroups = held.mapTo(HashSet()) { scoredItems[it].group }
             val train = scoredItems.filterIndexed { i, _ -> foldOf[i] != fold } + others.filter { (it.key == null || it.key !in heldKeys) && (it.group < 0 || it.group !in heldGroups) }
             val model = train(recipe, base, train, stopped = stopped)
-            held.mapNotNull { i -> logits(model, scoredItems[i])?.let { i to it } }
+            held.mapNotNull { i -> rowOf(model, i, scoredItems[i]) }
         }
+    }
+
+    private fun rowOf(model: Predictor, i: Int, item: TrainingItem): Row? {
+        val l = logits(model, item) ?: return null
+        val earlier = item.earlier.orEmpty().mapNotNull { f -> logits(model, TrainingItem(f, null, -1, 1.0)) }
+        return Row(i, l, earlier)
     }
 
     /**
@@ -329,7 +362,18 @@ object RecipeTrainer {
         share: Double = 0.2,
         atLeast: Int = 10,
         stopped: () -> Boolean = { false },
-    ): List<Pair<Int, DoubleArray>> {
+    ): List<Pair<Int, DoubleArray>> = scoreNewestRows(recipe, base, scoredItems, others, share, atLeast, stopped).map { it.index to it.logits }
+
+    /** [scoreNewest], with each newest text's earlier texts read by the same model (see [Row]). */
+    fun scoreNewestRows(
+        recipe: Recipe,
+        base: LocalModel,
+        scoredItems: List<TrainingItem>,
+        others: List<TrainingItem>,
+        share: Double = 0.2,
+        atLeast: Int = 10,
+        stopped: () -> Boolean = { false },
+    ): List<Row> {
         val n = maxOf(atLeast, (scoredItems.size * share).toInt())
         if (scoredItems.size < n * 2) return emptyList()
         // Labels given together stay on one side (see PersonalEvaluation.newestSplit).
@@ -340,7 +384,7 @@ object RecipeTrainer {
         val newestGroups = newest.mapTo(HashSet()) { scoredItems[it].group }
         val train = scoredItems.filterIndexed { i, _ -> i !in newestSet } + others.filter { (it.key == null || it.key !in newestKeys) && (it.group < 0 || it.group !in newestGroups) }
         val model = train(recipe, base, train, stopped = stopped)
-        return newest.mapNotNull { i -> logits(model, scoredItems[i])?.let { i to it } }
+        return newest.mapNotNull { i -> rowOf(model, i, scoredItems[i]) }
     }
 
     private fun TrainingItem.indicesIn(buckets: Int): IntArray? = when {

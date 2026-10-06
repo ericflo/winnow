@@ -467,6 +467,8 @@ class IncomingMessageHandler(
             senderRule = dao.senderRule(normalizeAddress(address))?.let { runCatching { SenderRule.valueOf(it) }.getOrNull() },
             // For a model that learned from texts' context: it came now, after what's in its conversation.
             context = withContext(Dispatchers.IO) { contexts.before(threadId, System.currentTimeMillis(), key) },
+            // For a model that reads what came before in its conversation.
+            earlier = withContext(Dispatchers.IO) { contexts.earlierBodies(threadId, System.currentTimeMillis(), key) },
         )
         onMessage(message)
         return classifiers.create(current, timeoutMillis = PROVIDER_TIMEOUT_MILLIS).classify(message)

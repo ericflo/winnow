@@ -43,6 +43,23 @@ class MessageContexts(private val context: Context) {
     }.getOrNull()
 
     /**
+     * The texts from them before [key] (sent at [sentAt]) in [threadId], newest first, at most
+     * [limit]: what a model reads with it (see ConversationReading). Text messages (a picture
+     * message's words take a query each); empty when the store can't say.
+     */
+    fun earlierBodies(threadId: Long, sentAt: Long, key: String?, limit: Int = 8): List<String> = runCatching {
+        if (threadId < 0) return emptyList()
+        val smsId = key?.let { ChatMessage.idIn(ChatMessage.Kind.SMS, it) } ?: -1L
+        val out = ArrayList<String>()
+        context.contentResolver.query(
+            Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.BODY),
+            "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.DATE} <= ? AND ${Telephony.Sms._ID} != ? AND ${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_INBOX}",
+            arrayOf(threadId.toString(), sentAt.toString(), smsId.toString()), "${Telephony.Sms.DATE} DESC LIMIT $limit",
+        )?.use { c -> while (c.moveToNext()) c.getString(0)?.takeIf { it.isNotBlank() }?.let(out::add) }
+        out
+    }.getOrDefault(emptyList())
+
+    /**
      * A conversation's latest [limit] texts from them (text messages; a picture message's words
      * take a query each), newest first, each with its context read from the same texts: what came
      * before it among the latest, so counts near the oldest are short of the whole conversation's.

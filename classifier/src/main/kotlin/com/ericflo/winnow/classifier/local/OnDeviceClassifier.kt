@@ -51,6 +51,8 @@ class OnDeviceClassifier(
      * makes them different.
      */
     val memory: SenderMemory = SenderMemory.NONE,
+    /** How much what came before a text in its conversation leans the answer for it (see ConversationReading); 0 not at all. */
+    val reading: Double = 0.0,
 ) {
     /** The model and its fit, as verdicts record it: "winnow-local-1" as it ships, "winnow-local-1·3fa2c1" once taught. */
     val version: String get() = if (fit == null) name else "$name·$fit"
@@ -60,7 +62,13 @@ class OnDeviceClassifier(
         val classes = custom?.classes ?: model.classes
         // A model trained on the phone that learned from texts' context reads this one's too.
         val read = if (custom?.readsContext == true) features + ContextFeatures.of(message.context) else features
-        val words = custom?.probabilities(read) ?: model.predict(features, adjustments)
+        val alone = custom?.probabilities(read) ?: model.predict(features, adjustments)
+        // The texts before it in its conversation, read by the same model, lean its answer.
+        val before = if (reading > 0) message.earlier.orEmpty().take(MAX_EARLIER).map { body ->
+            val f = features(message.copy(body = body, earlier = null))
+            custom?.probabilities(f) ?: model.predict(f, adjustments)
+        } else emptyList()
+        val words = ConversationReading.lean(alone, before, reading)
         // The user's labels of this sender, where they've given any: enough of them, one way,
         // decide; fewer nudge.
         val followed = if (memory.classes == classes) memory.follow(words, message.sender, conversing = message.userHasMessagedSender) else null
@@ -69,6 +77,11 @@ class OnDeviceClassifier(
         val fromWords = words.indices.maxBy { words[it] }
         val counts = if (followed != null && memory.strength > 0) memory.countsFor(message.sender) else null
         val said = counts?.takeIf { p !== words }
+        // Said when its conversation made the difference: "its conversation reads as reminders".
+        val fromAlone = alone.indices.maxBy { alone[it] }
+        val conversation = ConversationReading.leaning(before)?.takeIf { it == fromWords && fromWords != fromAlone }?.let { c ->
+            "the rest of its conversation reads as ${Category.fromKey(classes[c])?.label?.lowercase() ?: classes[c]}"
+        }
         val sender = said?.let { c ->
             val n = c.getOrElse(best) { 0 }
             val total = c.sum()
@@ -80,7 +93,7 @@ class OnDeviceClassifier(
             category = Category.fromKey(classes[best]) ?: Category.SPAM,
             confidence = followed?.confidence ?: p[best],
             distribution = classes.withIndex().mapNotNull { (i, key) -> Category.fromKey(key)?.let { it to p[i] } }.toMap(),
-            reasons = when {
+            reasons = listOfNotNull(conversation) + when {
                 sender == null -> wordReasons
                 best != fromWords -> listOf(sender) + wordReasons
                 else -> wordReasons + sender
@@ -95,10 +108,13 @@ class OnDeviceClassifier(
     }
 
     /** This classifier with different learned adjustments, the fit named [fit]. */
-    fun withAdjustments(adjustments: Adjustments, fit: String? = this.fit) = OnDeviceClassifier(model, adjustments, name, fit, custom, memory)
+    fun withAdjustments(adjustments: Adjustments, fit: String? = this.fit) = OnDeviceClassifier(model, adjustments, name, fit, custom, memory, reading)
 
     /** This classifier with [memory] of the user's labels per sender. */
-    fun withMemory(memory: SenderMemory) = OnDeviceClassifier(model, adjustments, name, fit, custom, memory)
+    fun withMemory(memory: SenderMemory) = OnDeviceClassifier(model, adjustments, name, fit, custom, memory, reading)
+
+    /** This classifier reading what came before a text in its conversation, at [reading]. */
+    fun withReading(reading: Double) = OnDeviceClassifier(model, adjustments, name, fit, custom, memory, reading)
 
     /**
      * What to remember when the user corrects [message]: its feature buckets, labeled with the
@@ -133,5 +149,7 @@ class OnDeviceClassifier(
 
     companion object {
         const val MODEL_NAME = "winnow-local-1"
+        /** The texts before one that are read with it, at most. */
+        const val MAX_EARLIER = 8
     }
 }

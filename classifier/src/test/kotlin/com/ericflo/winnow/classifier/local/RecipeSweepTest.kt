@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlin.random.Random
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -86,8 +87,8 @@ class RecipeSweepTest {
         val lib = listOf(linear to s.crossValidate(linear), neural to s.crossValidate(neural))
         val blend = Recipe(kind = RecipeKind.BLEND, members = listOf(linear, neural), memberWeights = listOf(0.5, 0.5))
         assertNull(blend.problem())
-        val trained = s.crossValidate(blend).toMap()
-        val fromTries = lib.map { it.second.toMap() }
+        val trained = s.crossValidate(blend).associate { it.index to it.logits }
+        val fromTries = lib.map { (_, rows) -> rows.associate { it.index to it.logits } }
         trained.forEach { (i, logits) ->
             val expected = BlendPredictor.blendLogits(fromTries.map { it.getValue(i) }, listOf(0.5, 0.5))
             logits.indices.forEach { c -> assertEquals(expected[c], logits[c], 1e-6) }
@@ -308,7 +309,7 @@ class RecipeSweepTest {
         val leaning = recipe.copy(classBias = listOf(0.5, -0.25, 0.0, 0.75, -0.5, 0.25).take(classes.size))
         assertNull(leaning.problem())
         val asLab = RecipeTrainer.crossValidate(leaning, base, scored, others)
-        assertEquals(s.score(leaning, cv, tune = false)!!.accuracy, s.score(leaning.copy(classBias = emptyList()), asLab, tune = false)!!.accuracy, 1e-12)
+        assertEquals(s.score(leaning, cv, tune = false)!!.accuracy, s.score(leaning.copy(classBias = emptyList()), s.rows(asLab), tune = false)!!.accuracy, 1e-12)
         // Kept, and read back with its calibration on top.
         val model = LabModelFile.calibrate(RecipeTrainer.train(leaning, base, scored), 1.4f)
         assertTrue(model is BiasedPredictor)
@@ -392,6 +393,39 @@ class RecipeSweepTest {
         // It's told what's been tried and where it leaned.
         val shown = stuck.requests.last().state.toString()
         assertTrue("times_each_value_was_tried" in shown && "your_earlier_leanings" in shown)
+    }
+
+    @Test
+    fun aConversationsEarlierTextsLeanAnAnswerTheWayTheyRead() {
+        // Two classes; the text itself barely leans the first, its conversation clearly the second.
+        val p = doubleArrayOf(0.55, 0.45)
+        val earlier = listOf(doubleArrayOf(0.1, 0.9), doubleArrayOf(0.2, 0.8))
+        assertTrue(ConversationReading.lean(p, earlier, 1.0)[1] > 0.5)
+        assertContentEquals(p, ConversationReading.lean(p, earlier, 0.0))
+        assertContentEquals(p, ConversationReading.lean(p, emptyList(), 2.0))
+        // A text whose words are sure stays itself against a lukewarm conversation.
+        assertTrue(ConversationReading.lean(doubleArrayOf(0.97, 0.03), listOf(doubleArrayOf(0.4, 0.6)), 1.0)[0] > 0.9)
+        assertEquals(1, ConversationReading.leaning(earlier))
+    }
+
+    @Test
+    fun readingConversationsHelpsWhereEachIsOneThingAndTheSweepFindsItForFree() {
+        // Each of "your" labeled texts with its conversation's earlier texts: more of the same category.
+        val byCategory = texts.groupBy { it.category }
+        val groups = byCategory.values.flatMap { it.chunked(7).filter { c -> c.size == 7 }.take(5) }
+        fun f(t: LabeledText) = Featurizer.features(Featurizer.Input(t.sender, t.body))
+        val labeled = groups.mapIndexed { g, c ->
+            TrainingItem(f(c[0]), null, classes.indexOf(c[0].category.key), 1.0, group = g.toLong(), key = "sms:c$g", source = TrainingItem.Source.USER, earlier = c.drop(1).map(::f))
+        }
+        val s = SweepScorer(base, labeled, others, emptySet(), 0.9)
+        val recipe = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 13, epochs = 8, learningRate = 0.2, senderMemory = 0.0)
+        val rows = s.crossValidate(recipe)
+        assertTrue(rows.all { it.earlier.size == 6 })
+        val alone = s.score(recipe, rows, tune = false)!!.accuracy
+        val reading = s.score(recipe.copy(conversationReading = 1.0), rows, tune = false)!!.accuracy
+        assertTrue(reading > alone, "reading its conversation $reading, alone $alone")
+        // Tuned for free, it's chosen.
+        assertTrue(s.score(recipe, rows, tune = true)!!.recipe.conversationReading > 0)
     }
 
     private class FakeProvider(private val fail: Boolean = false, private val more: Double = 0.8, private val sure: Map<String, String> = emptyMap()) : DecisionProvider {
