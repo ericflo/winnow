@@ -67,6 +67,22 @@ import com.ericflo.winnow.data.LinkPreviewFetcher
 class WinnowApp : Application(), SingletonImageLoader.Factory {
     val container by lazy { AppContainer(this) }
 
+    /** Messages an earlier run stored but was ended before telling anyone about: told now. */
+    private suspend fun recoverUnfinished() {
+        val mms = com.ericflo.winnow.sms.MmsStore(this)
+        runCatching {
+            container.incoming.recoverUnfinished { id ->
+                val sender = mms.sender(id) ?: return@recoverUnfinished null
+                val types = mms.parts(id).map { it.contentType }
+                com.ericflo.winnow.classify.IncomingMessageHandler.StoredMms(
+                    sender, mms.text(id),
+                    types.filter { it != com.ericflo.winnow.mms.ContentTypes.TEXT_PLAIN && it != com.ericflo.winnow.mms.ContentTypes.SMIL },
+                    mms.subject(id),
+                )
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         // First, so a crash anywhere after this is on record (Settings → About).
@@ -74,18 +90,11 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
         container.appScope.launch(Dispatchers.IO) { runCatching { container.problems.load() } }
         // Messages an earlier run stored but was ended before telling anyone about: told now.
         container.appScope.launch(Dispatchers.IO) {
-            if (!runCatching { container.isDefaultSmsApp() }.getOrDefault(false)) return@launch
-            val mms = com.ericflo.winnow.sms.MmsStore(this@WinnowApp)
-            runCatching {
-                container.incoming.recoverUnfinished { id ->
-                    val sender = mms.sender(id) ?: return@recoverUnfinished null
-                    val types = mms.parts(id).map { it.contentType }
-                    com.ericflo.winnow.classify.IncomingMessageHandler.StoredMms(
-                        sender, mms.text(id),
-                        types.filter { it != com.ericflo.winnow.mms.ContentTypes.TEXT_PLAIN && it != com.ericflo.winnow.mms.ContentTypes.SMIL },
-                        mms.subject(id),
-                    )
-                }
+            try {
+                if (runCatching { container.isDefaultSmsApp() }.getOrDefault(false)) recoverUnfinished()
+            } finally {
+                // Seen to: a job keeping Winnow going for it (IncomingWorkJob) can end.
+                container.incoming.markRecovered()
             }
         }
         // Debug builds log main-thread disk and network work, and leaked resources: on a real
@@ -444,6 +453,9 @@ class AppContainer(private val context: Context) {
         IncomingMessageHandler(
             context, verdictDao, contacts, settings, classifiers, notifier, conversationStates, visibleThread, saveToPhone = mediaExport::save,
             learnFromAnswer = { threadId, key, message, category -> learner.learnFromAnswer(threadId, key, message, category) },
+            background = appScope,
+            keepAlive = { com.ericflo.winnow.classify.IncomingWorkJob.schedule(context) },
+            settled = { com.ericflo.winnow.classify.IncomingWorkJob.settled(context) },
         )
     }
 

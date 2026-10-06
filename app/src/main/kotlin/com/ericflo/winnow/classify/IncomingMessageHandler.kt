@@ -25,8 +25,11 @@ import com.ericflo.winnow.notify.Notifier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.ericflo.winnow.data.threadRecipients
 import kotlinx.coroutines.withTimeout
@@ -53,6 +56,15 @@ class IncomingMessageHandler(
     private val saveToPhone: (Attachment) -> String? = { null },
     /** Teaches the on-device model a classifier service's answer (see Learner.learnFromAnswer). */
     private val learnFromAnswer: suspend (threadId: Long, key: String, message: InboundMessage, category: com.ericflo.winnow.classifier.message.Category) -> Boolean = { _, _, _, _ -> false },
+    /**
+     * Where learning from an answer runs, after the text is announced: a refit holding the model
+     * can take a while, and mustn't hold up this text's alert or the next one's. Null runs it in line.
+     */
+    private val background: kotlinx.coroutines.CoroutineScope? = null,
+    /** Asks Android to keep Winnow running while a stored text is still being said (see IncomingWorkJob). */
+    private val keepAlive: () -> Unit = {},
+    /** Everything stored has been said: what [keepAlive] asked for can go. */
+    private val settled: () -> Unit = {},
 ) {
 
     suspend fun onSmsDelivered(address: String, body: String, sentAt: Long, subscriptionId: Int) {
@@ -107,10 +119,30 @@ class IncomingMessageHandler(
     /** [uri] is stored; what's left is classifying it and saying so. Written through at once, off the main thread. */
     fun markUnfinished(uri: Uri) {
         runCatching { unfinished.edit().putLong(uri.toString(), System.currentTimeMillis()).commit() }
+        inFlight.update { it + uri.toString() }
+        runCatching { keepAlive() }
     }
 
     private fun markFinished(uri: Uri) {
         runCatching { unfinished.edit().remove(uri.toString()).apply() }
+        if (inFlight.updateAndGet { it - uri.toString() }.isEmpty() && recovered.value) runCatching { settled() }
+    }
+
+    /** Texts this run stored that aren't yet classified and said. */
+    private val inFlight = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+    /** Whether what an earlier run left has been finished (see [recoverUnfinished]); true once it's been seen to. */
+    private val recovered = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    /** Nothing stored is waiting to be classified and said, this run's or an earlier one's (see IncomingWorkJob). */
+    val idle: StateFlow<Boolean> by lazy {
+        kotlinx.coroutines.flow.combine(inFlight, recovered) { busy, done -> busy.isEmpty() && done }
+            .stateIn(background ?: kotlinx.coroutines.CoroutineScope(Dispatchers.Default), kotlinx.coroutines.flow.SharingStarted.Eagerly, false)
+    }
+
+    /** What an earlier run left is seen to, or there was nothing to see to (see [recoverUnfinished]). */
+    fun markRecovered() {
+        recovered.value = true
+        if (inFlight.value.isEmpty()) runCatching { settled() }
     }
 
     /** What [recoverUnfinished] needs of a stored MMS. */
@@ -320,10 +352,13 @@ class IncomingMessageHandler(
                     .copy(userAction = corrected?.name, userCategory = existing?.userCategory, summarized = existing?.summarized ?: false),
             )
         }
-        // The service's answer goes on teaching the on-device model, unless the user has had their say.
+        // The service's answer goes on teaching the on-device model, unless the user has had their
+        // say: after the text is announced (see [background]).
         val message = asked
         if (verdict != null && message != null && corrected == null && existing?.userCategory == null && teaches(verdict, settings.current().learnFromProvider)) {
-            runCatching { learnFromAnswer(threadId, key, message, verdict.category!!) }.onFailure { Log.w(TAG, "Couldn't learn from an answer", it) }
+            val category = verdict.category!!
+            val learn: suspend () -> Unit = { runCatching { learnFromAnswer(threadId, key, message, category) }.onFailure { Log.w(TAG, "Couldn't learn from an answer", it) } }
+            background?.launch { learn() } ?: learn()
         }
         // The text before it in its conversation is acted on first.
         beforeActing()

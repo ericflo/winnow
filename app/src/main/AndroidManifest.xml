@@ -149,6 +149,12 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Keeps Winnow running while a stored text is still being classified and announced. -->
+        <service
+            android:name=".classify.IncomingWorkJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
         <service
             android:name=".sms.MmsRetryJob"
             android:exported="false"
