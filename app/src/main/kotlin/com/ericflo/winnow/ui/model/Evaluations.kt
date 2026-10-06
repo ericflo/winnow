@@ -2,6 +2,7 @@ package com.ericflo.winnow.ui.model
 
 import com.ericflo.winnow.AppContainer
 import com.ericflo.winnow.classifier.local.ClassifierMetrics
+import com.ericflo.winnow.classifier.local.SenderMemory
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classify.CurvePoint
 import com.ericflo.winnow.classify.EvalData
@@ -149,8 +150,12 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
     /** A labeled text to open, with what [LabDiagnosis] says of it. */
     data class Shown(val key: String, val threadId: Long?, val address: String?, val text: String?, val label: Category, val predicted: Category? = null, val confidence: Double? = null)
 
-    /** Two texts the user labeled differently that read alike, for them to look at together. */
-    data class Review(val id: String, val a: Shown, val b: Shown)
+    /**
+     * Two texts the user labeled differently that read alike, for them to look at together;
+     * [oneSender] when both are from the same sender, so the answer also says whether that sender
+     * sends one kind or both (see SenderMemory).
+     */
+    data class Review(val id: String, val a: Shown, val b: Shown, val oneSender: Boolean = false)
 
     /** Everything [LabDiagnosis] says of one scoring, with the texts to open. */
     data class Diagnosis(
@@ -222,7 +227,12 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
             confusions = LabDiagnosis.confusions(scored),
             categories = LabDiagnosis.categories(scored),
             mistakes = LabDiagnosis.surestMistakes(scored).map { shown(it.key, it.label, it.predicted, it.confidence) },
-            toReview = toReview.map { Review(it.id, shown(it.a.key, it.a.label), shown(it.b.key, it.b.label)) },
+            // One sender's pairs first: how the user answers them changes how their labels of the sender count.
+            toReview = toReview.map { p ->
+                val a = shown(p.a.key, p.a.label)
+                val b = shown(p.b.key, p.b.label)
+                Review(p.id, a, b, oneSender = a.address?.let(SenderMemory::keyOf)?.let { it == b.address?.let(SenderMemory::keyOf) } == true)
+            }.sortedByDescending { it.oneSender },
             keptApart = apart.count { it.id in kept },
             suggestions = LabDiagnosis.suggestions(scored, toReview.size, apart.count { it.id in kept }, fitAccuracy, serviceWeight, agreement, senderMemory),
         )

@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ericflo.winnow.classifier.local.SenderMemory
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classify.LabDiagnosis
 import com.ericflo.winnow.data.db.EvalEntity
@@ -140,7 +141,10 @@ fun DiagnosisSections(
             Text("Similar texts, different labels from you: ${count(d.toReview.size)}", style = MaterialTheme.typography.labelLarge)
             Note("These read nearly alike (numbers and links aside) but got different labels from you. Pick one label for both, or keep both if they're different to you; either way, it's your call.")
             if (!open) TextButton(onClick = { open = true }, contentPadding = PaddingValues(0.dp)) { Text("Look at them") }
-            else d.toReview.take(SHOWN).forEach { r -> ReviewPair(viewModel, r, onOpenThread, onChanged) }
+            else {
+                d.toReview.take(SHOWN).forEach { r -> ReviewPair(viewModel, r, onOpenThread, onChanged) }
+                if (d.toReview.size > SHOWN) Note("And ${count(d.toReview.size - SHOWN)} more: they show here as you answer these.")
+            }
         }
         if (d.keptApart > 0) Note("You kept ${count(d.keptApart)} ${if (d.keptApart == 1) "pair" else "pairs"} of alike texts apart: the words don't separate them, so the model needs signals it doesn't have yet to follow you there.")
     }
@@ -156,6 +160,11 @@ private fun ReviewPair(viewModel: ModelViewModel, r: Evaluations.Review, onOpenT
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             ShownRow(r.a, onOpenThread)
             ShownRow(r.b, onOpenThread)
+            // One sender's two texts: the answer also says whether the sender sends one kind or both.
+            if (r.oneSender) Note(
+                "Both are from the same sender. Keeping both says they send both kinds, so the words decide between them; one label for both keeps your labels of them all one way, " +
+                    "and ${SenderMemory.DECISIVE_AT_LEAST} or more all one way decide their next texts (unless you text with them).",
+            )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(enabled = !busy, onClick = { busy = true; scope.launch { viewModel.evals.keepBoth(r); onChanged() } }) { Text("Keep both") }
                 fun both(category: Category, other: Evaluations.Shown) {
