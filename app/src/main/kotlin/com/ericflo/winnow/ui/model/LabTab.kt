@@ -251,7 +251,7 @@ private fun Models(viewModel: ModelViewModel) {
                             e.fitAccuracy?.let { "follows ${pct(it)} of the labels it learns from" },
                             e.newestAccuracy?.let { a ->
                                 "on your newest ${count(e.newestCount)} labels ${pct(a)}" +
-                                    (e.newestWordsAccuracy?.takeIf { e.recipe.senderMemory > 0 }?.let { " (${pct(it)} from the words alone)" } ?: "")
+                                    (e.newestWordsAccuracy?.takeIf { e.recipe.senderMemory > 0 }?.let { if (it == a) " (the same from the words alone)" else " (${pct(it)} from the words alone)" } ?: "")
                             },
                             if (e.parameters > 0) "${count(e.parameters.toInt())} numbers" else null,
                             e.bytes.takeIf { it > 0 }?.let { "${sizeOf(it)} on this phone" },
