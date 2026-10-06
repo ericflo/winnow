@@ -78,6 +78,7 @@ import com.ericflo.winnow.ui.insight.pct
 import com.ericflo.winnow.ui.metrics.Mine
 import com.ericflo.winnow.classify.fitting
 import com.ericflo.winnow.ui.metrics.computeMine
+import com.ericflo.winnow.ui.runs.plural
 import java.text.DateFormat
 import java.time.format.DateTimeFormatter
 import java.util.Date
@@ -418,9 +419,9 @@ private fun FitCard(o: Overview) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AssistChip(onClick = {}, label = { Text("${count(f.userLabels)} your labels") })
-                    if (f.corrections > 0) AssistChip(onClick = {}, label = { Text("${count(f.corrections)} your corrections") })
-                    if (f.providerLabels > 0) AssistChip(onClick = {}, label = { Text("${count(f.providerLabels)} ${o.provider} backlog answers") })
+                    AssistChip(onClick = {}, label = { Text(plural(f.userLabels, "label") + " of yours") })
+                    if (f.corrections > 0) AssistChip(onClick = {}, label = { Text(plural(f.corrections, "correction") + " of yours") })
+                    if (f.providerLabels > 0) AssistChip(onClick = {}, label = { Text("${count(f.providerLabels)} ${o.provider} backlog ${if (f.providerLabels == 1) "answer" else "answers"}") })
                     if (f.providerLive > 0) AssistChip(onClick = {}, label = { Text("${count(f.providerLive)} ${o.provider} ${if (f.providerLive == 1) "answer" else "answers"} as texts arrived") })
                 }
                 Text(
@@ -732,11 +733,11 @@ private fun LazyListScope.history(viewModel: ModelViewModel) {
                             }
                             Text(
                                 listOfNotNull(
-                                    "${count(f.userLabels)} your labels",
-                                    f.corrections.takeIf { it > 0 }?.let { "${count(it)} corrections" },
-                                    f.providerLabels.takeIf { it > 0 }?.let { "${count(it)} backlog answers" },
-                                    f.providerLive.takeIf { it > 0 }?.let { "${count(it)} live answers" },
-                                    "${count(f.buckets)} buckets",
+                                    plural(f.userLabels, "label") + " of yours",
+                                    f.corrections.takeIf { it > 0 }?.let { plural(it, "correction") },
+                                    f.providerLabels.takeIf { it > 0 }?.let { plural(it, "backlog answer") },
+                                    f.providerLive.takeIf { it > 0 }?.let { plural(it, "live answer") },
+                                    plural(f.buckets, "bucket"),
                                     if (f.millis > 0) "${f.millis} ms" else "loaded as kept",
                                 ).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall,
