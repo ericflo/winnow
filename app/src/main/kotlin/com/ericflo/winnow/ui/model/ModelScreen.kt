@@ -349,7 +349,7 @@ fun ModelScreen(
             when (ModelTab.entries[tab]) {
                 ModelTab.OVERVIEW -> overview(viewModel, onOpenMetrics, onOpenRuns, onOpenTrain)
                 ModelTab.EVALUATE -> evaluate(viewModel, onOpenThread)
-                ModelTab.LAB -> lab(viewModel)
+                ModelTab.LAB -> lab(viewModel, onOpenThread)
                 ModelTab.INSIDE -> inside(viewModel)
                 ModelTab.HISTORY -> history(viewModel)
             }

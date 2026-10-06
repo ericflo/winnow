@@ -82,3 +82,13 @@ tasks.register<JavaExec>("deepExperiment") {
     mainClass.set("com.ericflo.winnow.classifier.local.DeepExperimentKt")
     maxHeapSize = "2g"
 }
+
+tasks.register<JavaExec>("labCeilingExperiment") {
+    group = "winnow"
+    description = "Measures what caps a Lab model's accuracy on someone's own labels."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.ericflo.winnow.classifier.local.LabCeilingExperimentKt")
+    maxHeapSize = "3g"
+    // -Ppart=two for part two (labels it's sure are wrong, parts of words, more labels).
+    providers.gradleProperty("part").orNull?.let { systemProperty("part", it) }
+}

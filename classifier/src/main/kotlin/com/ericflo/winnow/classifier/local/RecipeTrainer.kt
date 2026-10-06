@@ -79,11 +79,13 @@ data class Recipe(
     companion object {
         const val MAX_EMBEDDING = 4_194_304L
 
+        // In the order they did on the hand-written corpus with labels that words alone don't
+        // separate (`:classifier:labCeilingExperiment`): one layer did as well as more, and deeper worse.
         val PRESETS = listOf(
             "As Winnow does now" to Recipe(),
             "Retrained, wider" to Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 16, epochs = 60, learningRate = 0.2, l2 = 1e-5, userWeight = 3.0),
-            "Neural, deeper" to Recipe(kind = RecipeKind.NEURAL, layers = listOf(64, 32), wide = true, epochs = 20, learningRate = 0.05, l2 = 1e-6, dropout = 0.1, userWeight = 3.0),
             "Neural, wider" to Recipe(kind = RecipeKind.NEURAL, buckets = 1 shl 16, layers = listOf(64), wide = true, epochs = 20, learningRate = 0.05, l2 = 1e-6, userWeight = 3.0),
+            "Neural, deeper" to Recipe(kind = RecipeKind.NEURAL, layers = listOf(64, 32), wide = true, epochs = 20, learningRate = 0.05, l2 = 1e-6, dropout = 0.1, userWeight = 3.0),
         )
     }
 }

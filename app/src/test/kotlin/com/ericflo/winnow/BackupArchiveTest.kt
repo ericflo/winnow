@@ -81,7 +81,7 @@ class BackupArchiveTest {
     fun `names given to rcs people and lab designs travel too, and older backups without them still read`() {
         val withMore = backup.copy(
             names = mapOf("3f9a0c1d2e4b5a69@rcs.google.com" to "Aunt Pat"),
-            labRecipes = listOf(LabRecipeBackup("d5c2a3", "Neural, deeper", com.ericflo.winnow.classifier.local.Recipe.PRESETS[2].second, 7)),
+            labRecipes = listOf(LabRecipeBackup("d5c2a3", "Neural, deeper", com.ericflo.winnow.classifier.local.Recipe.PRESETS.first { it.first == "Neural, deeper" }.second, 7)),
         )
         val out = ByteArrayOutputStream()
         BackupArchive.write(out, withMore) { null }

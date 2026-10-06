@@ -53,9 +53,11 @@ import com.ericflo.winnow.ui.insight.pct
  * for new models (their kind, capacity, fitting and what they learn from, every number
  * changeable), and every model designed so far with how it scored on the user's own labels.
  */
-internal fun LazyListScope.lab(viewModel: ModelViewModel) {
+internal fun LazyListScope.lab(viewModel: ModelViewModel, onOpenThread: (Long, List<String>) -> Unit = { _, _ -> }) {
     item("in-use") { InUseCard(viewModel) }
     item("status") { StatusCard(viewModel) }
+    // What holds the models back from following the user's labels, and what would help.
+    item("follow") { FollowYourLabelsCard(viewModel, onOpenThread) }
     item("design") { DesignCard(viewModel) }
     item("models-head") { ModelsHeader(viewModel) }
     item("models") { Models(viewModel) }
@@ -245,6 +247,7 @@ private fun Models(viewModel: ModelViewModel) {
                         else listOfNotNull(
                             "trained ${ago(e.trainedAt)} (final fit ${com.ericflo.winnow.ui.insight.duration(e.trainMillis)})",
                             e.accuracy?.let { "macro F1 ${e.macroF1?.let(::f2)} on ${count(e.scoredOn)} labels" },
+                            e.fitAccuracy?.let { "follows ${pct(it)} of the labels it learns from" },
                             if (e.parameters > 0) "${count(e.parameters.toInt())} numbers" else null,
                             e.bytes.takeIf { it > 0 }?.let { "${sizeOf(it)} on this phone" },
                             "learned from ${count(e.learnedFrom)} texts",

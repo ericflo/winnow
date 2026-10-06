@@ -86,7 +86,15 @@ class ModelLab(
         val leftOut: Int = 0,
         /** What its trained model takes up on the phone (compressed); 0 for a personal layer, which keeps no file. */
         val bytes: Long = 0,
+        /**
+         * Of the user's labels, the share the model trained on everything gets right: how well it
+         * fits the labels it learns from, beside how it does on ones it hasn't seen (see LabDiagnosis).
+         */
+        val fitAccuracy: Double? = null,
     )
+
+    /** What a training of everything came to. */
+    private data class Trained(val millis: Long, val parameters: Long, val bytes: Long, val fitAccuracy: Double?)
 
     sealed interface Status {
         data object Idle : Status
@@ -160,12 +168,13 @@ class ModelLab(
         val temperature = if (recipe.kind == RecipeKind.PERSONAL) LocalModel.bundled.temperature else RecipeTrainer.calibrate(cv.map { (i, s) -> s to data.scored[i].label })
         val evalId = keepScoring(entry, data, cv, temperature, started)
         progress(id, "Training on everything…", 0.85f)
-        val (millis, parameters, bytes) = trainFinal(id, recipe, data, temperature)
+        val trained = trainFinal(id, recipe, data, temperature)
         val m = evalId?.let { evals.get(it) }
         update(id) {
             it.copy(
                 trainedAt = System.currentTimeMillis(), evalId = evalId, accuracy = m?.accuracy, macroF1 = m?.macroF1, scoredOn = m?.examples ?: 0,
-                trainMillis = millis, parameters = parameters, temperature = temperature, learnedFrom = data.scored.size + data.others.size, leftOut = data.leftOut, bytes = bytes,
+                trainMillis = trained.millis, parameters = trained.parameters, temperature = temperature, learnedFrom = data.scored.size + data.others.size, leftOut = data.leftOut,
+                bytes = trained.bytes, fitAccuracy = trained.fitAccuracy,
             )
         }
         if (settings.current().labModel == id) onModelChanged()
@@ -178,8 +187,13 @@ class ModelLab(
             launch(id) { entry ->
                 progress(id, "Training on everything…", 0.1f)
                 val data = data(entry.recipe)
-                val (millis, parameters, bytes) = trainFinal(id, entry.recipe, data, entry.temperature)
-                update(id) { it.copy(trainedAt = System.currentTimeMillis(), trainMillis = millis, parameters = parameters, learnedFrom = data.scored.size + data.others.size, leftOut = data.leftOut, bytes = bytes) }
+                val t = trainFinal(id, entry.recipe, data, entry.temperature)
+                update(id) {
+                    it.copy(
+                        trainedAt = System.currentTimeMillis(), trainMillis = t.millis, parameters = t.parameters, learnedFrom = data.scored.size + data.others.size,
+                        leftOut = data.leftOut, bytes = t.bytes, fitAccuracy = t.fitAccuracy,
+                    )
+                }
                 onModelChanged()
             }
         }
@@ -285,7 +299,7 @@ class ModelLab(
     }
 
     /** Trains on everything and keeps the model; its training time and size. */
-    private suspend fun trainFinal(id: String, recipe: Recipe, data: Data, temperature: Float): Triple<Long, Long, Long> {
+    private suspend fun trainFinal(id: String, recipe: Recipe, data: Data, temperature: Float): Trained {
         val ctx = currentCoroutineContext()
         val started = System.nanoTime()
         val model = withContext(Dispatchers.Default) {
@@ -310,7 +324,12 @@ class ModelLab(
             if (recipe.kind == RecipeKind.PERSONAL) part.delete() else part.renameTo(modelFile(id))
         }
         val bytes = withContext(Dispatchers.IO) { modelFile(id).takeIf { recipe.kind != RecipeKind.PERSONAL && it.exists() }?.length() ?: 0 }
-        return Triple(millis, parameters, bytes)
+        // The labels it learned from, scored by it: what it can fit at all.
+        val fit = withContext(Dispatchers.Default) {
+            data.scored.mapNotNull { item -> RecipeTrainer.logits(model, item)?.let { s -> s.indices.maxBy { s[it] } == item.label } }
+                .takeIf { it.isNotEmpty() }?.let { r -> r.count { it }.toDouble() / r.size }
+        }
+        return Trained(millis, parameters, bytes, fit)
     }
 
     private fun modelFile(id: String) = File(dir, "$id.model")
@@ -359,17 +378,17 @@ class ModelLab(
         val HELP = mapOf(
             "kind" to "Personal layer: the shipped model with a light layer of what you taught on top (what Winnow does now). Linear: one weight per word and category, trained from scratch here. Neural: a small network that can learn combinations words alone can't say.",
             "buckets" to "Words are hashed into this many buckets. More is wider: fewer words share one, more to learn.",
-            "layers" to "The network's widths: the first is each word's embedding, each after is a hidden layer. More layers is deeper; bigger numbers are wider.",
+            "layers" to "The network's widths: the first is each word's embedding, each after is a hidden layer. More layers is deeper; bigger numbers are wider. On texts this short, one layer usually follows your labels as well as two or more, and deeper can do worse: try one first.",
             "wide" to "Adds a linear part beside the network, so single words still count directly (wide & deep).",
-            "epochs" to "Passes over every text while training. More fits closer, and can overfit.",
+            "epochs" to "Passes over every text while training. More fits the labels it learns from closer; past a point a network carries them over to new texts worse, not better.",
             "learningRate" to "How big each step is (AdaGrad). Too big jumps around; too small learns slowly.",
             "l2" to "How hard every weight is pulled toward zero: more is plainer and steadier, less fits closer.",
             "dropout" to "The share of the network left out at each step, so it can't lean on any one part.",
             "bags" to "Train this many on resampled texts and average them: steadier, slower.",
             "corpus" to "Also learn from the 1,493 hand-written texts the shipped model learned from.",
             "userWeight" to "How much each of your labels counts against one shipped text.",
-            "serviceWeight" to "How much each of the classifier service's labels counts; 0 leaves them out.",
-            "balance" to "Count each category equally, however many texts it has.",
+            "serviceWeight" to "How much each of the classifier service's labels counts; 0 leaves them out. Your labels always count more: where the service sees texts differently from you, less here lets yours set the model.",
+            "balance" to "Count each category equally, however many texts it has: it helps the model follow you on the categories you've labeled few of.",
         )
     }
 }

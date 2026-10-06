@@ -38,7 +38,7 @@ class RecipeTrainerTest {
         val linear = RecipeTrainer.train(Recipe.PRESETS[1].second.copy(epochs = 30), base, items(train))
         val linearAccuracy = accuracy(linear, test)
         assertTrue(linearAccuracy > 0.85, "linear $linearAccuracy")
-        val neural = RecipeTrainer.train(Recipe.PRESETS[2].second.copy(epochs = 12), base, items(train))
+        val neural = RecipeTrainer.train(Recipe.PRESETS.first { it.first == "Neural, deeper" }.second.copy(epochs = 12), base, items(train))
         val neuralAccuracy = accuracy(neural, test)
         assertTrue(neuralAccuracy > 0.85, "neural $neuralAccuracy")
         println("held out: linear $linearAccuracy, neural $neuralAccuracy")

@@ -195,17 +195,9 @@ private fun ResultRow(viewModel: ModelViewModel, e: EvalEntity, onOpenThread: (L
 
 @Composable
 private fun Detail(viewModel: ModelViewModel, e: EvalEntity, onOpenThread: (Long, List<String>) -> Unit) {
-    val metrics = remember(e.id) { viewModel.evals.metricsOf(e) }
     e.note?.let { Note(it) }
-    metrics?.perCategory?.filter { it.support > 0 }?.forEach { c ->
-        val category = Category.fromKey(c.key) ?: return@forEach
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            CategoryDot(category)
-            Spacer(Modifier.width(8.dp))
-            Text(category.label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            Text("F1 ${f2(c.f1)} · ${count(c.support)} texts", style = MaterialTheme.typography.labelMedium)
-        }
-    }
+    // Where it goes wrong, by category, its surest mistakes, and alike texts labeled differently (see LabDiagnosis).
+    if (e.dataset == com.ericflo.winnow.data.db.EvalEntity.DATASET_MINE) DiagnosisFor(viewModel, e, null, null, onOpenThread, showSuggestions = false)
     var misses by remember(e.id) { mutableStateOf<List<Miss>?>(null) }
     LaunchedEffect(e.id) { misses = viewModel.evals.misses(e) }
     val list = misses

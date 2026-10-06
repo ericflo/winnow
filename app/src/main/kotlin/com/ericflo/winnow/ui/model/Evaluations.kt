@@ -8,6 +8,7 @@ import com.ericflo.winnow.classify.EvalData
 import com.ericflo.winnow.classify.EvalResult
 import com.ericflo.winnow.classify.EvalSubject
 import com.ericflo.winnow.classify.Evaluator
+import com.ericflo.winnow.classify.LabDiagnosis
 import com.ericflo.winnow.data.MessageTexts
 import com.ericflo.winnow.data.db.EvalEntity
 import com.ericflo.winnow.data.db.EvalItemEntity
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -143,6 +145,88 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
         }
     }
 
+    /** A labeled text to open, with what [LabDiagnosis] says of it. */
+    data class Shown(val key: String, val threadId: Long?, val address: String?, val text: String?, val label: Category, val predicted: Category? = null, val confidence: Double? = null)
+
+    /** Two texts the user labeled differently that read alike, for them to look at together. */
+    data class Review(val id: String, val a: Shown, val b: Shown)
+
+    /** Everything [LabDiagnosis] says of one scoring, with the texts to open. */
+    data class Diagnosis(
+        val eval: EvalEntity,
+        val accuracy: Double,
+        val fitAccuracy: Double?,
+        val confusions: List<LabDiagnosis.Confusion>,
+        val categories: List<LabDiagnosis.CategoryRow>,
+        /** The model's surest mistakes (see LabDiagnosis.surestMistakes). */
+        val mistakes: List<Shown>,
+        /** Alike texts with different labels the user hasn't looked at yet, and how many they kept apart. */
+        val toReview: List<Review>,
+        val keptApart: Int,
+        val suggestions: List<LabDiagnosis.Suggestion>,
+    )
+
+    /** Pairs of alike texts the user chose to keep labeled apart: never asked about again. */
+    private val reviewed by lazy { container.appContext.getSharedPreferences("lab_review", android.content.Context.MODE_PRIVATE) }
+
+    private fun keptApart(): Set<String> = runCatching { reviewed.getStringSet(KEY_KEPT, null) }.getOrNull().orEmpty()
+
+    /** The user keeps both labels of a pair (see [Review]): they're different to them. */
+    suspend fun keepBoth(review: Review) = withContext(Dispatchers.IO) {
+        runCatching { reviewed.edit().putStringSet(KEY_KEPT, keptApart() + review.id).apply() }
+    }
+
+    /**
+     * The user picks [category] for [shown] (one of a pair they're reviewing): labeled as any
+     * label they give is. False if the text is gone.
+     */
+    suspend fun relabel(shown: Shown, category: Category): Boolean = withContext(Dispatchers.IO) {
+        val threadId = shown.threadId ?: return@withContext false
+        val all = container.messages.messages(threadId).first()
+        val message = all.firstOrNull { it.key == shown.key } ?: return@withContext false
+        container.labeler.labelMessages(threadId, container.messages.recipientsFor(threadId), listOf(message), category, all)
+        true
+    }
+
+    /**
+     * What [eval]'s results say about how the model follows the user's labels (see LabDiagnosis):
+     * [fitAccuracy] is how well it fits the labels it learned from, if known, and [serviceWeight]
+     * how much the service's labels counted in it.
+     */
+    suspend fun diagnosis(eval: EvalEntity, fitAccuracy: Double? = null, serviceWeight: Double? = null): Diagnosis? = withContext(Dispatchers.IO) {
+        val items = container.evalDao.items(eval.id)
+        val scored = items.mapNotNull { i -> LabDiagnosis.Scored(i.messageKey, Category.fromKey(i.label) ?: return@mapNotNull null, Category.fromKey(i.predicted) ?: return@mapNotNull null, i.confidence) }
+        if (scored.isEmpty()) return@withContext null
+        // The user's own labels on texts still on the phone, to find alike ones labeled differently.
+        val mine = container.correctionDao.all().filter { !it.fromProvider && it.messageKey != null }
+        val texts = MessageTexts(container.appContext).of((mine.mapNotNull { it.messageKey } + items.map { it.messageKey }).distinct())
+        val labeled = mine.mapNotNull { c ->
+            val t = texts[c.messageKey!!] ?: return@mapNotNull null
+            LabDiagnosis.LabeledText(c.messageKey, t.body, Category.fromKey(c.label) ?: return@mapNotNull null)
+        }.distinctBy { it.key }
+        val kept = keptApart()
+        val apart = LabDiagnosis.labeledApart(labeled)
+        val toReview = apart.filter { it.id !in kept }
+        // How often the service's recorded answers agree with the user's labels, from its latest scoring.
+        val agreement = container.evalDao.observeAll().first().filter { it.model.startsWith("provider") && it.dataset == EvalEntity.DATASET_MINE && it.examples >= 10 }
+            .maxByOrNull { it.at }?.accuracy
+        fun shown(key: String, label: Category, predicted: Category? = null, confidence: Double? = null): Shown {
+            val t = texts[key]
+            return Shown(key, t?.threadId ?: items.firstOrNull { it.messageKey == key }?.threadId, t?.address, t?.body, label, predicted, confidence)
+        }
+        Diagnosis(
+            eval = eval,
+            accuracy = scored.count { it.label == it.predicted }.toDouble() / scored.size,
+            fitAccuracy = fitAccuracy,
+            confusions = LabDiagnosis.confusions(scored),
+            categories = LabDiagnosis.categories(scored),
+            mistakes = LabDiagnosis.surestMistakes(scored).map { shown(it.key, it.label, it.predicted, it.confidence) },
+            toReview = toReview.map { Review(it.id, shown(it.a.key, it.a.label), shown(it.b.key, it.b.label)) },
+            keptApart = apart.count { it.id in kept },
+            suggestions = LabDiagnosis.suggestions(scored, toReview.size, apart.count { it.id in kept }, fitAccuracy, serviceWeight, agreement),
+        )
+    }
+
     /** The whole result of [eval], for its charts. */
     fun metricsOf(eval: EvalEntity): ClassifierMetrics? =
         eval.metrics?.let { runCatching { json.decodeFromString(ClassifierMetrics.serializer(), it) }.getOrNull() }
@@ -185,6 +269,7 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
     }
 
     companion object {
+        private const val KEY_KEPT = "kept_apart"
         /**
          * A result's metrics as kept: a score with nothing to measure (the AUC of a category with
          * no texts, a κ of perfect agreement by chance) is NaN, which plain JSON can't hold.
