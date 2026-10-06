@@ -50,7 +50,8 @@ fun ReviewInboxCard(status: ReviewStatus, classifier: String, onStart: () -> Uni
     var confirming by remember { mutableStateOf(false) }
     val (title, body) = when (status) {
         is ReviewStatus.Ready -> if (status.pending == 0) return else
-            "Check older conversations for spam?" to "${status.pending} arrived before Winnow could look at them."
+            "Check older conversations for spam?" to
+                if (status.pending == 1) "1 conversation arrived before Winnow could look at it." else "${status.pending} conversations arrived before Winnow could look at them."
         is ReviewStatus.Running -> "Checking older conversations…" to "${status.done} of ${status.total}"
         is ReviewStatus.Finished -> "Older conversations checked" to summary(status, classifier)
         ReviewStatus.Unknown -> return
