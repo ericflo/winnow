@@ -12,10 +12,10 @@ import org.junit.Test
 class LabDiagnosisTest {
     private fun s(n: Int, label: Category, predicted: Category, confidence: Double = 0.6) = Scored("sms:$n", label, predicted, confidence)
 
-    /** 20 reminders (12 called transactional), 30 personal (2 called spam), 10 spam all right. */
+    /** 20 marketing (12 called transactional), 30 personal (2 called spam), 10 spam all right. */
     private val items = buildList {
-        repeat(8) { add(s(it, Category.REMINDER, Category.REMINDER)) }
-        repeat(12) { add(s(100 + it, Category.REMINDER, Category.TRANSACTIONAL, if (it < 2) 0.95 else 0.6)) }
+        repeat(8) { add(s(it, Category.MARKETING, Category.MARKETING)) }
+        repeat(12) { add(s(100 + it, Category.MARKETING, Category.TRANSACTIONAL, if (it < 2) 0.95 else 0.6)) }
         repeat(28) { add(s(200 + it, Category.PERSONAL, Category.PERSONAL)) }
         repeat(2) { add(s(300 + it, Category.PERSONAL, Category.SPAM, 0.97)) }
         repeat(10) { add(s(400 + it, Category.SPAM, Category.SPAM)) }
@@ -24,7 +24,7 @@ class LabDiagnosisTest {
     @Test
     fun `mistakes are grouped by where they went, biggest first`() {
         val c = LabDiagnosis.confusions(items)
-        assertEquals(Category.REMINDER, c[0].label)
+        assertEquals(Category.MARKETING, c[0].label)
         assertEquals(Category.TRANSACTIONAL, c[0].predicted)
         assertEquals(12, c[0].count)
         assertEquals(20, c[0].ofLabel)
@@ -33,9 +33,9 @@ class LabDiagnosisTest {
 
     @Test
     fun `each category says how many labels and how many it follows`() {
-        val reminder = LabDiagnosis.categories(items).single { it.category == Category.REMINDER }
-        assertEquals(20, reminder.labels)
-        assertEquals(0.4, reminder.recall, 1e-9)
+        val marketing = LabDiagnosis.categories(items).single { it.category == Category.MARKETING }
+        assertEquals(20, marketing.labels)
+        assertEquals(0.4, marketing.recall, 1e-9)
         val transactional = LabDiagnosis.categories(items).single { it.category == Category.TRANSACTIONAL }
         assertEquals(0, transactional.labels)
         assertEquals(0.0, transactional.precision!!, 1e-9)
@@ -52,9 +52,9 @@ class LabDiagnosisTest {
     @Test
     fun `alike texts labeled differently are found, numbers and links aside, and a pair is one pair either way round`() {
         val texts = listOf(
-            LabeledText("a", "Your Walgreens prescription is ready for pickup at 123 Main St. Reply STOP to opt out", Category.REMINDER),
+            LabeledText("a", "Your Walgreens prescription is ready for pickup at 123 Main St. Reply STOP to opt out", Category.MARKETING),
             LabeledText("b", "Your Walgreens prescription is ready for pickup at 900 Oak Ave. Reply STOP to opt out", Category.TRANSACTIONAL),
-            LabeledText("c", "Your Walgreens prescription is ready for pickup at 55 Elm St. Reply STOP to opt out", Category.REMINDER),
+            LabeledText("c", "Your Walgreens prescription is ready for pickup at 55 Elm St. Reply STOP to opt out", Category.MARKETING),
             LabeledText("d", "Hey are we still on for dinner tonight?", Category.PERSONAL),
             LabeledText("e", "Track your order at https://ups.com/x123 now", Category.TRANSACTIONAL),
             LabeledText("f", "Track your order at https://ups.com/y999 now", Category.SPAM),
@@ -74,7 +74,7 @@ class LabDiagnosisTest {
         val out = LabDiagnosis.suggestions(items, toReview = 3, keptApart = 2, fitAccuracy = 1.0, serviceWeight = 0.35, serviceAgreement = 0.6)
         val titles = out.map { it.title }
         assertEquals("Similar texts, different labels from you", titles[0])
-        assertTrue(titles.any { it == "It can't yet tell your reminder from transactional" })
+        assertTrue(titles.any { it == "It can't yet tell your marketing from transactional" })
         assertTrue(titles.any { it == "A bigger model won't help" })
         assertTrue(titles.any { it == "Your labels outweigh the service's" })
         // Kept apart: the model's limit, said so.

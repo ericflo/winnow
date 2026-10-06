@@ -30,7 +30,7 @@ import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.ui.theme.categoryColors
 
 /**
- * "Label as": the six categories, each with what it means and where it goes, so the user
+ * "Label as": the five categories, each with what it means and where it goes, so the user
  * knows what a tap will do. One tap labels; there's no confirm (an Undo follows instead).
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -81,8 +81,7 @@ fun CategoryDot(category: Category?, modifier: Modifier = Modifier) {
 /** What a category means, in a few words. */
 fun hint(category: Category): String = when (category) {
     Category.PERSONAL -> "Someone writing to you"
-    Category.REMINDER -> "Something to do or know, from someone you deal with"
-    Category.TRANSACTIONAL -> "Codes, orders, bills, appointments"
+    Category.TRANSACTIONAL -> "Codes, orders, bills, appointments, notices"
     Category.MARKETING -> "Ads and offers from a business"
     Category.POLITICAL -> "Campaigns, donations, polls"
     Category.SPAM -> "Junk, scams and phishing from strangers"

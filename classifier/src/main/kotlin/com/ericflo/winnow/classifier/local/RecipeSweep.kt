@@ -452,7 +452,7 @@ class SweepScorer(
             Scored(item.label, item.sender?.let { sender -> memory?.follow(p, sender, item.conversing)?.distribution } ?: p)
         }
         fun accuracy(rows: List<Scored>) = rows.count { it.predicted == it.label }.toDouble() / rows.size
-        var bias = recipe.classBias
+        var bias = recipe.leaningsIn(classes)
         var c = leaned(bias)
         var temperature = temperatureOf(c)
         // Ties go to the recipe's own, then to the nearest to it.

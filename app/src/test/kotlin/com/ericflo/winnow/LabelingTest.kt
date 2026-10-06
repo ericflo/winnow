@@ -138,22 +138,31 @@ class LabelingTest {
     }
 
     @Test
-    fun roundsPutRechecksThenLikelyRemindersThenDisagreementsFirst() {
-        val recheck = Training.priority(0.99, recheck = true, reminderLikely = false, disagree = false)
-        val reminder = Training.priority(0.99, recheck = false, reminderLikely = true, disagree = false)
-        val disagree = Training.priority(0.99, recheck = false, reminderLikely = false, disagree = true)
-        val unsure = Training.priority(0.30, recheck = false, reminderLikely = false, disagree = false)
-        assertTrue(recheck < reminder && reminder < disagree && disagree < unsure)
+    fun roundsPutRechecksThenDisagreementsFirst() {
+        val recheck = Training.priority(0.99, recheck = true, disagree = false)
+        val disagree = Training.priority(0.99, recheck = false, disagree = true)
+        val unsure = Training.priority(0.30, recheck = false, disagree = false)
+        assertTrue(recheck < disagree && disagree < unsure)
         // Within a kind, the least sure first.
-        assertTrue(Training.priority(0.4, recheck = true, reminderLikely = false, disagree = false) < recheck)
+        assertTrue(Training.priority(0.4, recheck = true, disagree = false) < recheck)
     }
 
     @Test
     fun formerCategoriesReadAsSpamButNeverOverwriteASetting() {
         assertEquals(Category.SPAM, Category.fromKey("phishing"))
         assertEquals(Category.SPAM, Category.fromKey("scam"))
-        assertEquals(Category.REMINDER, Category.fromKey("reminder"))
         assertEquals(null, Category.fromCurrentKey("phishing"))
-        assertEquals(6, Category.entries.size)
+        assertEquals(5, Category.entries.size)
+    }
+
+    @Test
+    fun reminderIsGoneTheUsersLabelsOfItReadAsNothingAndAnswersOfItAsTransactional() {
+        // The user's own labels of it were cleared to label again (some were marketing), never moved.
+        assertEquals(null, Category.fromKey("reminder"))
+        assertEquals(Category.TRANSACTIONAL, Category.fromAnswerKey("reminder"))
+        assertEquals(Category.SPAM, Category.fromAnswerKey("phishing"))
+        // Its finer kinds count as transactional now, so a service's answer adds up there.
+        val answer = com.ericflo.winnow.classifier.message.Subcategories.aggregate(mapOf("school_notice" to 0.4, "order_shipped" to 0.2, "retail_promo" to 0.4))
+        assertEquals(0.6, answer.getValue(Category.TRANSACTIONAL), 1e-9)
     }
 }

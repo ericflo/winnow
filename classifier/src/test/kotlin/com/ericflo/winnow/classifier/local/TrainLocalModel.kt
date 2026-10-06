@@ -42,14 +42,22 @@ object LocalModelBuild {
         val report: String get() = Report.render(metrics, mistakes, wrongfullyFiltered)
     }
 
-    fun trainer() = LocalModelTrainer(Corpus.classes, bags = BAGS)
+    fun trainer(costs: DoubleArray? = COSTS) = LocalModelTrainer(Corpus.classes, bags = BAGS, costs = costs)
+
+    /**
+     * Transactional counts half again. Since Reminder's notices joined it, it's the biggest class
+     * a wanted text can be, and balancing the classes alone weighed each of its texts down until
+     * more lost their notification: 3.5% of wanted texts muted, cross-validated, against 2.6%
+     * this way (and 2.2% with Reminder), with accuracy no worse.
+     */
+    val COSTS = DoubleArray(Corpus.classes.size) { if (Corpus.classes[it] == Category.TRANSACTIONAL.key) 1.5 else 1.0 }
 
     /** Bootstrap models averaged into the shipped one; see [LocalModelTrainer]. */
     const val BAGS = 5
 
     val unwanted: Set<Int> = Category.entries.filter { it.defaultAction == Action.FILTER }.map { Corpus.classes.indexOf(it.key) }.toSet()
 
-    fun run(corpusDir: File, evalFile: File): Result {
+    fun run(corpusDir: File, evalFile: File, costs: DoubleArray? = COSTS): Result {
         val corpus = Corpus.load(corpusDir)
         val classes = Corpus.classes
 
@@ -57,7 +65,7 @@ object LocalModelBuild {
         val outOfFold = arrayOfNulls<DoubleArray>(corpus.size)
         Corpus.folds(corpus, FOLDS).forEach { testIndices ->
             val held = testIndices.toSet()
-            val model = trainer().train(corpus.filterIndexed { i, _ -> i !in held }.map { it.example(classes) })
+            val model = trainer(costs).train(corpus.filterIndexed { i, _ -> i !in held }.map { it.example(classes) })
             testIndices.forEach { i -> outOfFold[i] = model.scores(model.indices(corpus[i].example(classes).features)) }
         }
         val logits = outOfFold.map { it!! }
@@ -67,7 +75,7 @@ object LocalModelBuild {
         val lures = corpus.map { Featurizer.hasHook(it.example(classes).features) }
         val rows = logits.mapIndexed { i, s -> Scored(classes.indexOf(corpus[i].category.key), LocalModel.softmax(s, temperature.toDouble()), lures[i]) }
 
-        val full = trainer().train(corpus.map { it.example(classes) })
+        val full = trainer(costs).train(corpus.map { it.example(classes) })
         val model = LocalModel(classes, full.buckets, full.weights, full.bias, temperature)
 
         val evaluation = loadEval(evalFile).map { t ->

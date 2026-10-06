@@ -129,8 +129,8 @@ class PersonalizerTest {
         val learned = base.learn(listOf(base.correction(promo, setOf(Category.PERSONAL))!!))
         assertEquals(learned.classify(promo).distribution, learned.learnMore(emptyList()).classify(promo).distribution)
         val heater = InboundMessage("+12065550123", "Landlord here: please test your heater before Friday")
-        val more = learned.learnMore(listOf(base.correction(heater, setOf(Category.REMINDER))!!))
-        assertEquals(Category.REMINDER, more.classify(heater).category)
+        val more = learned.learnMore(listOf(base.correction(heater, setOf(Category.MARKETING))!!))
+        assertEquals(Category.MARKETING, more.classify(heater).category)
         // What was learned before still stands.
         assertEquals(learned.classify(promo).category, more.classify(promo).category)
     }

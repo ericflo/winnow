@@ -57,9 +57,9 @@ class PersonalEvaluationTest {
         assertTrue(m.calibration.sumOf { it.count } == 150)
     }
 
-    // A pharmacy's pickup texts, which read as transactional, that the user calls reminders.
-    private val pickup = base.correction(InboundMessage("+12395550160", "Your prescription 4471 is ready for pickup at the Main St pharmacy"), setOf(Category.REMINDER))!!
-    private val reminder = model.classes.indexOf(Category.REMINDER.key)
+    // A pharmacy's pickup texts, which read as transactional, that the user calls marketing.
+    private val pickup = base.correction(InboundMessage("+12395550160", "Your prescription 4471 is ready for pickup at the Main St pharmacy"), setOf(Category.MARKETING))!!
+    private val marketing = model.classes.indexOf(Category.MARKETING.key)
 
     private fun wordsSay(buckets: IntArray): Int =
         LocalModel.softmax(model.scores(buckets, Adjustments.NONE), model.temperature.toDouble()).let { p -> p.indices.maxBy { p[it] } }
@@ -78,24 +78,24 @@ class PersonalEvaluationTest {
 
     @Test
     fun aSendersLabelsInOtherConversationsCountAsOnThePhoneAndItsOwnNever() {
-        assertTrue("the words alone don't say reminder", wordsSay(pickup.buckets) != reminder)
+        assertTrue("the words alone don't say marketing", wordsSay(pickup.buckets) != marketing)
         // The pharmacy's texts in two conversations (a group text, say), in different folds: other
         // texts of theirs in the first, so its words teach little about a pickup text.
-        val hours = base.correction(InboundMessage("+12395550160", "Main St pharmacy hours this week: Mon-Fri 9-7, Sat 10-4"), setOf(Category.REMINDER))!!
-        fun of(other: Long) = List(3) { PersonalEvaluation.Label(hours.buckets, reminder, group = 1, sender = "+12395550160") } +
-            listOf(PersonalEvaluation.Label(pickup.buckets, reminder, group = other, sender = "(239) 555-0160"))
+        val hours = base.correction(InboundMessage("+12395550160", "Main St pharmacy hours this week: Mon-Fri 9-7, Sat 10-4"), setOf(Category.MARKETING))!!
+        fun of(other: Long) = List(3) { PersonalEvaluation.Label(hours.buckets, marketing, group = 1, sender = "+12395550160") } +
+            listOf(PersonalEvaluation.Label(pickup.buckets, marketing, group = other, sender = "(239) 555-0160"))
         val labels = (2L..50L).map(::of).first { l -> PersonalEvaluation.foldsOf(l, 2)!!.values.toSet().size == 2 }
         val words = PersonalEvaluation.crossValidateIndexed(model, labels, folds = 2)
         val followed = PersonalEvaluation.withSenders(model.classes, labels, words, strength = 1.0, folds = 2).toMap()
         // Held out, conversation 2's text has the other conversation's three labels to go by: decided.
-        assertEquals(reminder, followed.getValue(3).predicted)
+        assertEquals(marketing, followed.getValue(3).predicted)
         assertTrue("at least as sure as 3 of 3 labels make it", followed.getValue(3).confidence >= 0.75 - 1e-9)
         // Conversation 1's texts have only one label of the sender from elsewhere: a nudge, not a decision.
-        assertTrue((0..2).all { followed.getValue(it).probabilities[reminder] > words.toMap().getValue(it).probabilities[reminder] })
+        assertTrue((0..2).all { followed.getValue(it).probabilities[marketing] > words.toMap().getValue(it).probabilities[marketing] })
         // Someone the user texts with: their labels lean, never decide.
         val person = labels.map { PersonalEvaluation.Label(it.buckets, it.label, it.group, sender = it.sender, conversing = true) }
         val leaned = PersonalEvaluation.withSenders(model.classes, person, words, strength = 1.0, folds = 2).toMap()
-        assertTrue(leaned.getValue(3).probabilities[reminder] < followed.getValue(3).probabilities[reminder])
+        assertTrue(leaned.getValue(3).probabilities[marketing] < followed.getValue(3).probabilities[marketing])
         // At strength 0, the words alone.
         assertTrue(PersonalEvaluation.withSenders(model.classes, labels, words, strength = 0.0, folds = 2) === words)
     }
@@ -104,8 +104,8 @@ class PersonalEvaluationTest {
     fun theNewestLabelsAreScoredByARefitOnTheOlderOnesWithAndWithoutTheSendersLabels() {
         val older = labels(40).mapIndexed { i, l -> PersonalEvaluation.Label(l.buckets, l.label, l.group, key = "sms:$i", at = i.toLong()) }
         // The pharmacy: three labeled before, ten after.
-        val before = List(3) { PersonalEvaluation.Label(pickup.buckets, reminder, group = 100, key = "p$it", sender = "+12395550160", at = 50L + it) }
-        val after = List(10) { PersonalEvaluation.Label(pickup.buckets, reminder, group = 100, key = "q$it", sender = "+12395550160", at = 100L + it) }
+        val before = List(3) { PersonalEvaluation.Label(pickup.buckets, marketing, group = 100, key = "p$it", sender = "+12395550160", at = 50L + it) }
+        val after = List(10) { PersonalEvaluation.Label(pickup.buckets, marketing, group = 100, key = "q$it", sender = "+12395550160", at = 100L + it) }
         val n = PersonalEvaluation.scoreNewest(model, older + before + after, strength = 1.0, share = 0.0, atLeast = 10)!!
         assertEquals(10, n.count)
         assertEquals("the sender's earlier labels decide every one", 10, n.withSenders)

@@ -116,15 +116,15 @@ class ModelInsightTest {
     fun whatTeachingChangedIsNamedFromTheTextsThatTaughtIt() {
         val base = OnDeviceClassifier()
         val texts = listOf(InboundMessage("+15555550101", "Rehearsal moved to the blue barn tonight"))
-        val taught = base.learn(texts.map { Correction(base.model.indices(base.features(it)), base.model.classes.indexOf(Category.REMINDER.key)) })
+        val taught = base.learn(texts.map { Correction(base.model.indices(base.features(it)), base.model.classes.indexOf(Category.TRANSACTIONAL.key)) })
         val learned = ModelInspector.learned(taught, texts)
-        val reminder = learned.getValue(Category.REMINDER)
-        assertTrue(reminder.isNotEmpty())
-        assertTrue(reminder.joinToString { it.name }, reminder.any { "barn" in it.name || "rehearsal" in it.name })
+        val transactional = learned.getValue(Category.TRANSACTIONAL)
+        assertTrue(transactional.isNotEmpty())
+        assertTrue(transactional.joinToString { it.name }, transactional.any { "barn" in it.name || "rehearsal" in it.name })
         // Nothing taught toward personal from that text.
         assertTrue(learned.getValue(Category.PERSONAL).isEmpty())
         val reading = ModelInspector.read(taught, texts.single())
-        assertTrue(reading.taught.getValue(Category.REMINDER) > reading.shipped.getValue(Category.REMINDER))
+        assertTrue(reading.taught.getValue(Category.TRANSACTIONAL) > reading.shipped.getValue(Category.TRANSACTIONAL))
         assertEquals("“#”", ModelInspector.name("w:zznumshort"))
         assertEquals("“at [link]”", ModelInspector.name("b:at zzurl"))
     }

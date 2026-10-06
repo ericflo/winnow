@@ -51,8 +51,13 @@ class Training(
         val firstGuess: Category = guess,
         /** What the classifier service (Jev) said of this conversation, if it was asked (see Bootstrap). */
         val providerSays: Category? = null,
-        /** The user's own label from before the six categories, here to be confirmed or changed. */
+        /**
+         * The user's own label from before the six categories, here to be confirmed or changed.
+         * Null for one they labeled Reminder, which was cleared to label again (see [Round.cleared]).
+         */
         val before: Category? = null,
+        /** The user labeled it Reminder, cleared when that was taken out: to label again. */
+        val cleared: Boolean = false,
         /** The service's fine-grained answer, if it gave one ("toll_phishing"). */
         val providerDetail: String? = null,
         /** The backlog run [providerSays] came from, if one did: which service it was is the run's. */
@@ -62,13 +67,18 @@ class Training(
         fun message() = InboundMessage(sender = recipients.first(), body = text, senderInContacts = false, userHasMessagedSender = repliedTo)
     }
 
-    /** [rechecks] of the candidates are the user's earlier labels to confirm; [toRecheck] conversations wait in all. */
+    /**
+     * [rechecks] of the candidates are the user's earlier labels to confirm, [cleared] of those
+     * their Reminder labels, cleared when it was taken out, to label again; [toRecheck]
+     * conversations wait in all.
+     */
     data class Round(
         val candidates: List<Candidate>,
         val backlog: Int,
         val labeled: Int,
         val rechecks: Int = 0,
         val toRecheck: Int = 0,
+        val cleared: Int = 0,
         /** Why these conversations, when they were picked for a reason (see [Focus]). */
         val focus: String? = null,
     )
@@ -135,7 +145,8 @@ class Training(
     suspend fun nextRound(size: Int = ROUND_SIZE, seed: Long = System.currentTimeMillis(), only: List<Long>? = null): Round = withContext(Dispatchers.IO) {
         val judged = verdicts.judgedThreads().toSet()
         val all = repo.conversations().first()
-        // The user's labels from before the six categories, by conversation: the newest one's category.
+        // The user's labels from before the six categories, by conversation: the newest one's category
+        // (none for their Reminder labels, cleared to label again).
         val before = verdicts.toRecheck().groupBy { it.threadId }
             .mapValues { (_, rows) -> rows.maxBy { it.decidedAt }.userCategory?.let(Category::fromKey) }
         // Rechecks come from any conversation the user labeled, contacts' and groups' included (a
@@ -154,8 +165,7 @@ class Training(
         val guessed = if (only != null) emptyList() else backlog.chunked(GUESS_CHUNK).map { chunk -> async(Dispatchers.Default) { chunk.map { c ->
             val p = classifier.classify(InboundMessage(sender = c.address, body = c.snippet.removePrefix("You: ")))
             val disagree = provider[c.threadId]?.let { it != p.category } == true
-            val reminderLikely = provider[c.threadId] == Category.REMINDER || (p.distribution[Category.REMINDER] ?: 0.0) >= REMINDER_LIKELY
-            c.threadId to priority(p.confidence, recheck = c.threadId in before, reminderLikely = reminderLikely, disagree = disagree)
+            c.threadId to priority(p.confidence, recheck = c.threadId in before, disagree = disagree)
         } } }.awaitAll().flatten()
         val byId = backlog.associateBy { it.threadId }
         val candidates = mutableListOf<Candidate>()
@@ -188,6 +198,7 @@ class Training(
                 providerSays = provider[c.threadId],
                 providerRunId = providerRows[c.threadId]?.runId?.takeIf { it > 0 },
                 before = before[c.threadId],
+                cleared = c.threadId in before && before[c.threadId] == null,
                 providerDetail = details[c.threadId],
             )
         }
@@ -197,6 +208,7 @@ class Training(
             backlog = backlog.count { !knownEmpty(it) },
             labeled = all.count { it.threadId in judged && eligible(it) },
             rechecks = candidates.count { it.threadId in before },
+            cleared = candidates.count { it.cleared },
             // Those a round can show: not a conversation deleted since, nor one with nothing received in it.
             toRecheck = backlog.count { it.threadId in before && !knownEmpty(it) },
         )
@@ -252,15 +264,6 @@ class Training(
         /** Conversations guessed per job when choosing a round (see nextRound). */
         private const val GUESS_CHUNK = 128
 
-        /** At least this much of the model's belief on Reminder makes a conversation a likely one to show. */
-        const val REMINDER_LIKELY = 0.2
-
-        /**
-         * Where a conversation goes in the order a round picks from (lower first): the user's
-         * earlier labels to recheck, then likely reminders (a new category, which starts empty),
-         * then where the service and the model disagree, then by how unsure the model is. Pure,
-         * so it's unit-tested.
-         */
         /**
          * Of [pool] (an id and a text's features), the [size] whose words are most like the closest
          * of [examples]: cosine over words, word pairs and named signals, each weighted by how rare
@@ -283,9 +286,15 @@ class Training(
             }.sortedByDescending { it.second }.take(size).map { it.first }
         }
 
-        fun priority(confidence: Double, recheck: Boolean, reminderLikely: Boolean, disagree: Boolean): Double = when {
-            recheck -> confidence - 3.0
-            reminderLikely -> confidence - 2.0
+
+        /**
+         * Where a conversation goes in the order a round picks from (lower first): the user's
+         * earlier labels to recheck (and their Reminder labels, cleared to label again), then where
+         * the service and the model disagree, then by how unsure the model is. Pure, so it's
+         * unit-tested.
+         */
+        fun priority(confidence: Double, recheck: Boolean, disagree: Boolean): Double = when {
+            recheck -> confidence - 2.0
             disagree -> confidence - 1.0
             else -> confidence
         }

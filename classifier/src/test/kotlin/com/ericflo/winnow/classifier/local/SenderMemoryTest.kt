@@ -32,12 +32,12 @@ class SenderMemoryTest {
 
     @Test
     fun `one label nudges and many decide, toward the user's category`() {
-        val p = DoubleArray(classes.size) { 0.02 }.also { it[c(Category.REMINDER)] = 0.9 }
+        val p = DoubleArray(classes.size) { 0.02 }.also { it[c(Category.MARKETING)] = 0.9 }
         fun memory(n: Int) = SenderMemory.of(List(n) { "+14155550100" to c(Category.TRANSACTIONAL) }, classes)
         val one = memory(1).apply(p, "+14155550100")
         assertEquals(1.0, one.sum(), 1e-9)
         assertTrue("nudged", one[c(Category.TRANSACTIONAL)] > p[c(Category.TRANSACTIONAL)])
-        assertEquals("but one label doesn't overrule a sure model", c(Category.REMINDER), one.indices.maxBy { one[it] })
+        assertEquals("but one label doesn't overrule a sure model", c(Category.MARKETING), one.indices.maxBy { one[it] })
         // Enough labels, one way, settle it whatever the model says.
         assertNull("two don't", memory(2).decisive("+14155550100"))
         assertEquals("three do", c(Category.TRANSACTIONAL), memory(3).decisive("+14155550100"))
@@ -48,7 +48,7 @@ class SenderMemoryTest {
     fun `the classifier follows the user's labels of a sender, and says so`() {
         val text = InboundMessage("+14155550100", "Your prescription is ready for pickup at the pharmacy counter")
         val plain = OnDeviceClassifier().classify(text)
-        val target = if (plain.category == Category.TRANSACTIONAL) Category.REMINDER else Category.TRANSACTIONAL
+        val target = if (plain.category == Category.TRANSACTIONAL) Category.MARKETING else Category.TRANSACTIONAL
         val memory = SenderMemory.of(List(6) { "(415) 555-0100" to c(target) }, classes)
         val followed = OnDeviceClassifier().withMemory(memory).classify(text)
         assertEquals(target, followed.category)
@@ -62,21 +62,21 @@ class SenderMemoryTest {
     @Test
     fun `labels that disagree with each other don't decide on their own`() {
         val text = InboundMessage("+14155550100", "Your prescription is ready for pickup at the pharmacy counter")
-        val memory = SenderMemory.of(List(3) { "+14155550100" to c(Category.REMINDER) } + List(3) { "+14155550100" to c(Category.TRANSACTIONAL) }, classes)
+        val memory = SenderMemory.of(List(3) { "+14155550100" to c(Category.MARKETING) } + List(3) { "+14155550100" to c(Category.TRANSACTIONAL) }, classes)
         assertFalse(OnDeviceClassifier().withMemory(memory).classify(text).yourLabelsDecide)
     }
 
     @Test
     fun `someone the user texts with is leaned toward their labels, never decided by them`() {
-        // A friend: four texts labeled reminder ("can you grab milk?"), and now dinner plans.
+        // A friend: four texts labeled marketing (a friend who sells candles), and now dinner plans.
         val dinner = InboundMessage("+14155550198", "Dinner Friday? We could try the new thai place", userHasMessagedSender = true)
-        val memory = SenderMemory.of(List(4) { "+14155550198" to c(Category.REMINDER) }, classes)
+        val memory = SenderMemory.of(List(4) { "+14155550198" to c(Category.MARKETING) }, classes)
         val p = DoubleArray(classes.size) { 0.02 }.also { it[c(Category.PERSONAL)] = 0.9 }
         assertNull(memory.decisive("+14155550198", conversing = true))
-        assertEquals(c(Category.REMINDER), memory.decisive("+14155550198"))
+        assertEquals(c(Category.MARKETING), memory.decisive("+14155550198"))
         val leaned = memory.follow(p, "+14155550198", conversing = true)
         assertFalse(leaned.decided)
-        assertTrue("nudged toward their labels", leaned.p[c(Category.REMINDER)] > p[c(Category.REMINDER)])
+        assertTrue("nudged toward their labels", leaned.p[c(Category.MARKETING)] > p[c(Category.MARKETING)])
         val said = OnDeviceClassifier().withMemory(memory).classify(dinner)
         assertFalse(said.yourLabelsDecide)
         assertEquals(Category.PERSONAL, OnDeviceClassifier().classify(dinner).category)

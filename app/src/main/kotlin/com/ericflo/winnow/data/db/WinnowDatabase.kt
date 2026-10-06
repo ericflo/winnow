@@ -30,7 +30,7 @@ import kotlinx.coroutines.flow.Flow
         CorrectionEntity::class, StarredEntity::class, ReminderEntity::class,
         RunEntity::class, RunAnswerEntity::class, ModelFitEntity::class, EvalEntity::class, EvalItemEntity::class,
     ],
-    version = 19,
+    version = 20,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
@@ -50,6 +50,8 @@ import kotlinx.coroutines.flow.Flow
         AutoMigration(from = 17, to = 18, spec = WinnowDatabase.RunsKept::class),
         // 18 to 19: the service's answer where the user's labels of the sender outweighed it.
         AutoMigration(from = 18, to = 19),
+        // 19 to 20: Reminder taken out. The user's labels of it are cleared, to label again; answers of it say transactional.
+        AutoMigration(from = 19, to = 20, spec = WinnowDatabase.ReminderTakenOut::class),
     ],
 )
 abstract class WinnowDatabase : RoomDatabase() {
@@ -109,6 +111,27 @@ abstract class WinnowDatabase : RoomDatabase() {
     class RunsKept : AutoMigrationSpec {
         override fun onPostMigrate(connection: SQLiteConnection) {
             connection.execSQL("UPDATE corrections SET runId = 0 WHERE source = 'provider'")
+        }
+    }
+
+    /**
+     * 19 to 20, Reminder taken out. The user's own labels of it are cleared rather than called
+     * transactional, since some were marketing: their conversations come back to Train Winnow
+     * first, to be labeled again (a recheck with no label to confirm). Winnow's and a classifier
+     * service's answers of it say transactional, which those kinds of text count as now (see
+     * Category.fromAnswerKey), as does a "Not spam" correction the model filed under it.
+     */
+    class ReminderTakenOut : AutoMigrationSpec {
+        override fun onPostMigrate(connection: SQLiteConnection) {
+            connection.execSQL("UPDATE verdicts SET userCategory = NULL, recheck = 1 WHERE userCategory = 'reminder'")
+            connection.execSQL("DELETE FROM corrections WHERE label = 'reminder' AND source != 'provider' AND messageKey IS NOT NULL")
+            connection.execSQL("UPDATE corrections SET label = 'transactional' WHERE label = 'reminder'")
+            for (column in listOf("category", "localCategory", "serviceCategory")) {
+                connection.execSQL("UPDATE verdicts SET $column = 'transactional' WHERE $column = 'reminder'")
+            }
+            for (column in listOf("category", "modelCategory", "previous")) {
+                connection.execSQL("UPDATE run_answers SET $column = 'transactional' WHERE $column = 'reminder'")
+            }
         }
     }
 

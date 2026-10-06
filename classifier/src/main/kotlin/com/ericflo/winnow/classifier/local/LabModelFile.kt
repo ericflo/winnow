@@ -57,7 +57,7 @@ object LabModelFile {
             require(d.readInt() == LEAN_MAGIC) { "Not a model with leanings" }
             val temperature = d.readFloat()
             val inner = read(recipe.copy(classBias = emptyList()), d) ?: return null
-            return BiasedPredictor(inner, recipe.classBias, temperature)
+            return BiasedPredictor(inner, recipe.leaningsIn(inner.classes), temperature)
         }
         val model: Predictor = when (recipe.kind) {
             RecipeKind.PERSONAL -> return null

@@ -720,6 +720,8 @@ class ModelLab(
 
     private fun loadModel(id: String, recipe: Recipe): Predictor? = runCatching {
         InflaterInputStream(modelFile(id).inputStream().buffered()).use { input -> LabModelFile.read(recipe, input) }
+            // One trained while Reminder was a category answers over the categories there are now.
+            ?.let { m -> if (m.classes == LocalModel.bundled.classes) m else com.ericflo.winnow.classifier.local.ClassesPredictor(m, LocalModel.bundled.classes) }
     }.onFailure { android.util.Log.w("WinnowLab", "Couldn't read the model of $id", it) }.getOrNull()
 
     /** The cross-validated scores kept as an evaluation of this recipe, beside every other. */

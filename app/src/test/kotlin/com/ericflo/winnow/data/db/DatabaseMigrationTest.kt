@@ -122,6 +122,52 @@ class DatabaseMigrationTest {
     }
 
     @Test
+    fun takingReminderOutClearsTheUsersLabelsOfItToLabelAgainAndCallsAnswersOfItTransactional() {
+        val c = createdAt(19)
+        fun verdict(key: String, category: String?, userCategory: String?, local: String? = null, service: String? = null) = c.execSQL(
+            "INSERT INTO verdicts (messageKey, threadId, address, category, confidence, action, sourceKind, sourceDetail, costUsd, decidedAt, userCategory, localCategory, serviceCategory) " +
+                "VALUES ('$key', ${key.substringAfter(':')}, '+15555550101', ${category?.let { "'$it'" }}, 0.9, 'ALLOW', 'on_device', '', 0, 0, " +
+                "${userCategory?.let { "'$it'" }}, ${local?.let { "'$it'" }}, ${service?.let { "'$it'" }})",
+        )
+        verdict("sms:1", "reminder", "reminder", local = "reminder")
+        verdict("sms:2", "transactional", "reminder")
+        verdict("sms:3", "reminder", null, service = "reminder")
+        verdict("sms:4", "marketing", "marketing")
+        fun correction(at: Int, label: String, key: String?, source: String) = c.execSQL(
+            "INSERT INTO corrections (threadId, buckets, label, featurizerVersion, createdAt, messageKey, source) " +
+                "VALUES (1, '1', '$label', 4, $at, ${key?.let { "'$it'" }}, '$source')",
+        )
+        correction(1, "reminder", "sms:1", "user") // the user's label: cleared
+        correction(2, "reminder", "restored:sms:9", "user") // the user's, from a backup: cleared
+        correction(3, "reminder", null, "user") // "Not spam", filed under the likeliest it allowed
+        correction(4, "reminder", "sms:3", "provider")
+        correction(5, "marketing", "sms:4", "user")
+        c.execSQL(
+            "INSERT INTO run_answers (runId, messageKey, threadId, address, category, subcategory, confidence, taught, modelCategory, modelConfidence, previous, answeredAt) " +
+                "VALUES (1, 'sms:3', 3, '+15555550101', 'reminder', 'school_notice', 0.8, 1, 'reminder', 0.5, 'reminder', 0)",
+        )
+
+        upgrade(c, 19)
+
+        assertEquals(
+            listOf(
+                listOf("sms:1", "transactional", null, "1", "transactional"),
+                listOf("sms:2", "transactional", null, "1", null),
+                listOf("sms:3", "transactional", null, "0", null),
+                listOf("sms:4", "marketing", "marketing", "0", null),
+            ),
+            rows(c, "SELECT messageKey, category, userCategory, recheck, localCategory FROM verdicts ORDER BY messageKey"),
+        )
+        assertEquals(listOf(listOf("transactional")), rows(c, "SELECT serviceCategory FROM verdicts WHERE serviceCategory IS NOT NULL"))
+        assertEquals(
+            listOf(listOf("transactional", null, "user"), listOf("transactional", "sms:3", "provider"), listOf("marketing", "sms:4", "user")),
+            rows(c, "SELECT label, messageKey, source FROM corrections ORDER BY createdAt"),
+        )
+        assertEquals(listOf(listOf("transactional", "school_notice", "transactional", "transactional")), rows(c, "SELECT category, subcategory, modelCategory, previous FROM run_answers"))
+        assertTrue(delegate.onValidateSchema(c).isValid)
+    }
+
+    @Test
     fun keepingRunsMarksEarlierServiceLabelsAsFromABacklogRunAndLeavesTheUsersAlone() {
         val c = createdAt(17)
         c.execSQL("INSERT INTO corrections (threadId, buckets, label, featurizerVersion, createdAt, messageKey, source) VALUES (1, '1', 'spam', 4, 1, 'sms:1', 'provider')")

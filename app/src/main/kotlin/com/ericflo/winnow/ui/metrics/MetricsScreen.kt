@@ -487,7 +487,7 @@ private fun Bar(value: Double, color: Color, label: String, labelWidth: Dp = 48.
 @Composable
 private fun ConfusionMatrix(m: ClassifierMetrics) {
     val c = MaterialTheme.colorScheme
-    val short = mapOf("personal" to "Pers", "reminder" to "Rem", "transactional" to "Txn", "marketing" to "Mktg", "political" to "Pol", "spam" to "Spam")
+    val short = mapOf("personal" to "Pers", "transactional" to "Txn", "marketing" to "Mktg", "political" to "Pol", "spam" to "Spam")
     Section("Confusion matrix") {
         Text("Rows: what each text really was. Columns: what the model said.", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
         Row {

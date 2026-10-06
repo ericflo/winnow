@@ -56,7 +56,6 @@ fun categoryColors(category: Category?): Pair<Color, Color> {
         Category.SPAM -> c.errorContainer to c.onErrorContainer
         Category.POLITICAL -> c.tertiaryContainer to c.onTertiaryContainer
         Category.MARKETING -> c.secondaryContainer to c.onSecondaryContainer
-        Category.REMINDER -> c.primaryContainer to c.onPrimaryContainer
         else -> c.surfaceContainerHighest to c.onSurfaceVariant
     }
 }

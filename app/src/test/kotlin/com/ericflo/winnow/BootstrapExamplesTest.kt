@@ -17,11 +17,11 @@ class BootstrapExamplesTest {
             label(2, "sms:20", "marketing", at = 5), // labeled before the six categories, not yet confirmed
             label(3, "sms:30", "political", at = 2), // political labels stand, so never wait
             label(4, "sms:40", "spam", at = 9, source = CorrectionEntity.SOURCE_PROVIDER), // the service's, not the user's
-            label(5, "mms:50", "reminder", at = 8), // a photo message has no text to show
-            label(6, "sms:60", "reminder", at = 7), // confirmed since: its conversation no longer waits
+            label(5, "mms:50", "transactional", at = 8), // a photo message has no text to show
+            label(6, "sms:60", "transactional", at = 7), // confirmed since: its conversation no longer waits
         )
         assertEquals(
-            listOf(60L to "reminder", 30L to "political", 10L to "personal"),
+            listOf(60L to "transactional", 30L to "political", 10L to "personal"),
             Bootstrap.exampleLabels(rows, recheckThreads = setOf(2L)),
         )
     }

@@ -14,8 +14,8 @@ class AdjustmentsStoreTest {
     fun whatWasLearnedReadsBackToTheSameGuesses() {
         val base = OnDeviceClassifier()
         val texts = listOf(
-            "Your landlord here: please test the heater before Friday" to Category.REMINDER,
-            "Practice moved to 6pm at the rec center" to Category.REMINDER,
+            "Your landlord here: please test the heater before Friday" to Category.TRANSACTIONAL,
+            "Practice moved to 6pm at the rec center" to Category.PERSONAL,
             "Old Navy: 40% off everything today" to Category.SPAM,
         )
         val taught = base.learn(texts.map { (body, c) -> base.correction(InboundMessage("+12065550123", body), setOf(c))!! })

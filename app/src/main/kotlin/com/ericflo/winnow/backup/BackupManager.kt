@@ -540,14 +540,16 @@ class BackupManager(
             val learnedAtAll = here.mapTo(HashSet()) { it.buckets to it.label }
             val lessons = backup.corrections.filter { c ->
                 val id = c.buckets.joinToString(",") to c.label
-                if (c.source == CorrectionEntity.SOURCE_PROVIDER) id !in learnedAtAll else id !in learnedByUser
+                // The user's own label of Reminder, since taken out, stays cleared: they label it again.
+                if (c.label == com.ericflo.winnow.classifier.message.Category.FORMER_REMINDER && c.source != CorrectionEntity.SOURCE_PROVIDER && c.messageKey != null) false
+                else if (c.source == CorrectionEntity.SOURCE_PROVIDER) id !in learnedAtAll else id !in learnedByUser
             }
             lessons.forEach {
                 corrections.insert(
                     CorrectionEntity(
                         threadId = null, buckets = it.buckets.joinToString(","),
-                        // Under its current name (a backup from before the merge may say phishing or scam).
-                        label = com.ericflo.winnow.classifier.message.Category.fromKey(it.label)?.key ?: it.label,
+                        // Under its current name (a backup from before the merge may say phishing or scam, or reminder).
+                        label = com.ericflo.winnow.classifier.message.Category.fromAnswerKey(it.label)?.key ?: it.label,
                         featurizerVersion = it.featurizerVersion,
                         createdAt = it.createdAt, messageKey = it.messageKey?.let { key -> RESTORED_LABEL + key },
                         source = if (it.source == CorrectionEntity.SOURCE_PROVIDER) CorrectionEntity.SOURCE_PROVIDER else CorrectionEntity.SOURCE_USER,

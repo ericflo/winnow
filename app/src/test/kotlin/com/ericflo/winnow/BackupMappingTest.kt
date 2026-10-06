@@ -81,6 +81,19 @@ class BackupMappingTest {
     }
 
     @Test
+    fun `a backup's Reminder labels come back cleared to label again, and answers of it as transactional`() {
+        val mine = VerdictBackup(category = "reminder", confidence = 0.9, action = "ALLOW", sourceKind = "on_device", sourceDetail = "", userCategory = "reminder")
+            .toEntity("sms:1", 1, "+13185550182")!!
+        assertEquals("transactional", mine.category)
+        assertNull(mine.userCategory)
+        assertTrue("back in Train, first", mine.recheck)
+        val theirs = VerdictBackup(category = "reminder", confidence = 0.9, action = "ALLOW", sourceKind = "provider", sourceDetail = "jev", subcategory = "school_notice")
+            .toEntity("sms:2", 2, "+13185550182")!!
+        assertEquals("transactional", theirs.category)
+        assertFalse(theirs.recheck)
+    }
+
+    @Test
     fun `verdicts survive a round trip under their new keys`() {
         val entity = VerdictEntity(
             messageKey = "sms:41", threadId = 7, address = "+13185550182", category = "spam", confidence = 0.98,

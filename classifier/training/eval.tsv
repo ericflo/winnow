@@ -5,7 +5,7 @@ personal	+12125550177	Hey! It's Becca from book club, finally got a new phone. S
 personal	+13125550103	Can you let the dog out at lunch? I'm stuck in meetings all day
 personal	+16175550190	I just saw the photos, the baby is so cute!!
 personal	+12065550111	we're getting pizza tonight, want in?
-reminder	+15125550164	Hey, it's Ryan from the soccer team. Practice moved to the north field
+transactional	+15125550164	Hey, it's Ryan from the soccer team. Practice moved to the north field
 personal	+13035550129	thanks for checking in. doing a lot better today
 personal	+14045550186	Did you leave the back door unlocked? Delivery guy says he can't get in
 transactional	72166	Your Chase card ending in 0912 was charged $64.20 at WHOLE FOODS.
@@ -121,18 +121,18 @@ spam	+18445550267	Hello! Get 50% off pest control in your area this week. Reply 
 spam	+18885550268	This message is for Angela Brooks. Please call 555-0199 regarding your account. Reply STOP to opt out
 spam	+18665550269	Stream every sports game for just $9.99/month: sportsstream.live Reply STOP to unsubscribe
 spam	+18775550270	Free consultation: Were you or a loved one exposed to toxic chemicals? You may be entitled to compensation. Call 555-0196. STOP to end
-reminder	+15035550142	Hi this is Elena, your landlord. The heating guy is coming Thursday morning to service the furnace, please make sure the closet is clear.
-reminder	+12065550117	Building notice: hot water will be off tonight from 11pm to 3am while we replace a valve.
-reminder	+13125550186	This is Mrs. Chen from room 12. Library books are due back Friday, please help your kiddo find them!
-reminder	+16175550131	Hi it's the swim coach. Meet warmups start at 7:15 Saturday, not 7:45. See you there.
-reminder	48291	Clark County Water: Scheduled maintenance may cause low pressure on your street Wed 8am-noon.
-reminder	51633	Hillcrest Elementary will dismiss at 1pm on Wednesday for staff development.
-reminder	+17025550188	Front office here, the gym in the clubhouse is closed all next week for new flooring.
-reminder	30922	Reminder from the City: holiday trash pickup shifts one day later this week.
-reminder	+19145550120	Hi, this is Dr. Ahmed's office. We're moving to a new suite on the 3rd floor starting Monday.
-reminder	+14045550153	It's the property manager, please don't leave bikes in the hallway, the fire marshal is inspecting next week.
-reminder	77104	Your teen's sports physical form is due before the first practice on Monday.
-reminder	+18165550109	Choir folks: rehearsal tomorrow is in the fellowship hall, the sanctuary is being painted.
-reminder	62210	Library notice: the Eastside branch will be closed Saturday for a power upgrade.
-reminder	+15855550165	Hey it's Paul from the HOA, the gate code changes on Nov 1. New code will be on the board.
-reminder	+13035550174	Hi, it's your landlord. Please check your smoke and CO alarms this week and tell me if any are chirping.
+transactional	+15035550142	Hi this is Elena, your landlord. The heating guy is coming Thursday morning to service the furnace, please make sure the closet is clear.
+transactional	+12065550117	Building notice: hot water will be off tonight from 11pm to 3am while we replace a valve.
+transactional	+13125550186	This is Mrs. Chen from room 12. Library books are due back Friday, please help your kiddo find them!
+transactional	+16175550131	Hi it's the swim coach. Meet warmups start at 7:15 Saturday, not 7:45. See you there.
+transactional	48291	Clark County Water: Scheduled maintenance may cause low pressure on your street Wed 8am-noon.
+transactional	51633	Hillcrest Elementary will dismiss at 1pm on Wednesday for staff development.
+transactional	+17025550188	Front office here, the gym in the clubhouse is closed all next week for new flooring.
+transactional	30922	Reminder from the City: holiday trash pickup shifts one day later this week.
+transactional	+19145550120	Hi, this is Dr. Ahmed's office. We're moving to a new suite on the 3rd floor starting Monday.
+transactional	+14045550153	It's the property manager, please don't leave bikes in the hallway, the fire marshal is inspecting next week.
+transactional	77104	Your teen's sports physical form is due before the first practice on Monday.
+transactional	+18165550109	Choir folks: rehearsal tomorrow is in the fellowship hall, the sanctuary is being painted.
+transactional	62210	Library notice: the Eastside branch will be closed Saturday for a power upgrade.
+transactional	+15855550165	Hey it's Paul from the HOA, the gate code changes on Nov 1. New code will be on the board.
+transactional	+13035550174	Hi, it's your landlord. Please check your smoke and CO alarms this week and tell me if any are chirping.

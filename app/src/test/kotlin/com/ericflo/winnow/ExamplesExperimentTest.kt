@@ -21,9 +21,9 @@ class ExamplesExperimentTest {
                 // Right plainly, wrong with examples: away.
                 t(Category.PERSONAL, Category.PERSONAL, Category.SPAM, "c"),
                 // Wrong both ways, differently.
-                t(Category.REMINDER, Category.PERSONAL, Category.MARKETING, "d"),
+                t(Category.TRANSACTIONAL, Category.PERSONAL, Category.MARKETING, "d"),
                 // Not answered both ways: left out.
-                t(Category.REMINDER, null, Category.REMINDER, "e"),
+                t(Category.TRANSACTIONAL, null, Category.TRANSACTIONAL, "e"),
             ),
         )
         assertEquals(ExperimentSummary(trials = 4, plainRight = 2, withRight = 2, changed = 3, toward = 1, away = 1), s)

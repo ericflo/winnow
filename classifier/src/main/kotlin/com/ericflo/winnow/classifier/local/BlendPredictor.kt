@@ -54,6 +54,26 @@ class ShapesPredictor(val inner: Predictor) : Predictor {
     override fun reasons(features: List<String>, classIndex: Int, limit: Int) = inner.reasons(features, classIndex, limit)
 }
 
+/**
+ * [inner], trained on other categories, answering over [classes]: one it knew that's gone since
+ * (Reminder) is left out, the rest sharing its odds as they would have without it; one it never
+ * learned gets none. A Lab model trained before Reminder was taken out runs this way until it's
+ * trained again.
+ */
+class ClassesPredictor(val inner: Predictor, override val classes: List<String>) : Predictor {
+    private val from = classes.map { inner.classes.indexOf(it) }
+    override val readsContext get() = inner.readsContext
+    override val readsShapes get() = inner.readsShapes
+    override fun probabilities(features: List<String>): DoubleArray {
+        val p = inner.probabilities(features)
+        val kept = DoubleArray(classes.size) { i -> if (from[i] >= 0) p[from[i]] else 0.0 }
+        val sum = kept.sum()
+        return if (sum > 0) DoubleArray(kept.size) { kept[it] / sum } else DoubleArray(kept.size) { 1.0 / kept.size }
+    }
+    override fun reasons(features: List<String>, classIndex: Int, limit: Int): List<String> =
+        from.getOrNull(classIndex)?.takeIf { it >= 0 }?.let { inner.reasons(features, it, limit) }.orEmpty()
+}
+
 /** [features] as [model] learned to read them: without context or shape features unless it learned from them. */
 fun featuresFor(model: Predictor, features: List<String>): List<String> =
     features.filter { (model.readsContext || !ContextFeatures.isContext(it)) && (model.readsShapes || !TextShapes.isShape(it)) }

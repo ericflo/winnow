@@ -1,10 +1,10 @@
 package com.ericflo.winnow.classifier.message
 
 /**
- * One fine-grained kind of text, belonging to one of the six [Category]s. A classifier service
- * is asked to pick among these rather than among the six directly: a precise option ("fake toll
+ * One fine-grained kind of text, belonging to one of the [Category]s. A classifier service
+ * is asked to pick among these rather than among the categories directly: a precise option ("fake toll
  * notice", "landlord maintenance notice") is easier to recognize than a broad one, and the
- * probabilities are then added up into the six (see [Subcategories.aggregate]). The keys are
+ * probabilities are then added up into the categories (see [Subcategories.aggregate]). The keys are
  * sent as the question's options, so wording changes here change classification behavior.
  *
  * Order matters too: Jev leans toward options listed first, so personal ones come first and
@@ -14,7 +14,8 @@ data class Subcategory(val key: String, val parent: Category, val description: S
 
 object Subcategories {
     private fun personal(key: String, description: String) = Subcategory(key, Category.PERSONAL, description)
-    private fun reminder(key: String, description: String) = Subcategory(key, Category.REMINDER, description)
+    /** Notices from someone the user deals with: Reminder's kinds once, transactional since it was taken out. */
+    private fun notice(key: String, description: String) = Subcategory(key, Category.TRANSACTIONAL, description)
     private fun transactional(key: String, description: String) = Subcategory(key, Category.TRANSACTIONAL, description)
     private fun marketing(key: String, description: String) = Subcategory(key, Category.MARKETING, description)
     private fun political(key: String, description: String) = Subcategory(key, Category.POLITICAL, description)
@@ -36,17 +37,17 @@ object Subcategories {
         personal("service_person", "A tradesperson, tutor, sitter or other individual the user hired, writing as themselves"),
         personal("congratulations", "Someone the user knows sending congratulations, condolences or birthday wishes"),
 
-        reminder("landlord_maintenance", "A landlord or property manager asking the user to do or allow something: test the heater, filter changes, entry for repairs"),
-        reminder("building_notice", "A building or HOA notice: water shutoff, elevator work, pest control, parking changes"),
-        reminder("rent_or_dues_due", "Rent, HOA dues or tuition coming due, from the landlord, school or association itself (not a bill alert from a payment app)"),
-        reminder("school_notice", "A school or daycare notice: closure, early pickup, picture day, forms to return, lunch money"),
-        reminder("team_or_club", "A coach, team, club, church or class organizer with a schedule change, practice or event logistics"),
-        reminder("utility_outage", "A utility or city warning of a planned outage, boil notice, street sweeping or trash schedule change"),
-        reminder("employer_notice", "An employer or manager with shift, schedule or workplace logistics"),
-        reminder("doctor_office_notice", "A doctor's or dentist's office with something to do that the user didn't just book: overdue checkup, forms, office closure"),
-        reminder("pickup_ready", "Something the user left or ordered in person is ready, from the person or place holding it (dry cleaning, repair shop, library hold)"),
-        reminder("community_notice", "A community, library, neighborhood or volunteer group notice with no sale or donation ask"),
-        reminder("seasonal_reminder", "A reminder to do something seasonal or periodic: winterize, renew a permit, change smoke detector batteries"),
+        notice("landlord_maintenance", "A landlord or property manager asking the user to do or allow something: test the heater, filter changes, entry for repairs"),
+        notice("building_notice", "A building or HOA notice: water shutoff, elevator work, pest control, parking changes"),
+        notice("rent_or_dues_due", "Rent, HOA dues or tuition coming due, from the landlord, school or association itself (not a bill alert from a payment app)"),
+        notice("school_notice", "A school or daycare notice: closure, early pickup, picture day, forms to return, lunch money"),
+        notice("team_or_club", "A coach, team, club, church or class organizer with a schedule change, practice or event logistics"),
+        notice("utility_outage", "A utility or city warning of a planned outage, boil notice, street sweeping or trash schedule change"),
+        notice("employer_notice", "An employer or manager with shift, schedule or workplace logistics"),
+        notice("doctor_office_notice", "A doctor's or dentist's office with something to do that the user didn't just book: overdue checkup, forms, office closure"),
+        notice("pickup_ready", "Something the user left or ordered in person is ready, from the person or place holding it (dry cleaning, repair shop, library hold)"),
+        notice("community_notice", "A community, library, neighborhood or volunteer group notice with no sale or donation ask"),
+        notice("seasonal_reminder", "A reminder to do something seasonal or periodic: winterize, renew a permit, change smoke detector batteries"),
 
         transactional("verification_code", "A login, sign-up or verification code the user requested"),
         transactional("order_confirmed", "Confirmation of an order or purchase the user made"),
@@ -112,8 +113,8 @@ object Subcategories {
     fun of(key: String): Subcategory? = byKey[key]
 
     /**
-     * A provider's probabilities over subcategories (or, from one that answers with the six
-     * directly, over categories) added up into the six. Keys it doesn't know are left out.
+     * A provider's probabilities over subcategories (or, from one that answers with the categories
+     * directly, over those) added up into the categories. Keys it doesn't know are left out.
      */
     fun aggregate(probabilities: Map<String, Double>): Map<Category, Double> {
         val out = HashMap<Category, Double>()

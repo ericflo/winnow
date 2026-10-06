@@ -106,7 +106,7 @@ class MessageClassifier(
                 failures += if (response == null) "$id: timed out" else "$id: no category answer"
                 continue
             }
-            // The provider picks a fine-grained kind; its probabilities add up into the six.
+            // The provider picks a fine-grained kind; its probabilities add up into the categories.
             val distribution = Subcategories.aggregate(answer.probabilities)
             val category = distribution.maxByOrNull { it.value }?.key
                 ?: Subcategories.of(answer.top)?.parent ?: Category.fromKey(answer.top) ?: Category.SPAM
@@ -175,13 +175,13 @@ class MessageClassifier(
 
         const val QUESTION_KEY = "category"
 
-        /** The six categories, as the question explains them: each option counts as one of these. */
+        /** The categories, as the question explains them: each option counts as one of these. */
         private val CATEGORIES = Category.entries.joinToString(" ") { "${it.label}: ${it.rubric}" }
 
         val QUESTION = Choice(
             instructions = "This text message just arrived on the user's phone. What kind of message is it? " +
                 "Judge by its content and sender. Scams often imitate legitimate transactional messages. Pick the most " +
-                "specific option; each counts as one of six categories, which are: $CATEGORIES",
+                "specific option; each counts as one of these categories: $CATEGORIES",
             options = Subcategories.options(),
         )
 

@@ -11,26 +11,22 @@ enum class Category(val key: String, val label: String, val rubric: String, val 
             "are coordinating with. Not a stranger opening a conversation out of nowhere.",
         Action.ALLOW,
     ),
-    REMINDER(
-        "reminder", "Reminder",
-        "Someone the user already deals with (a landlord or building, school, daycare, coach, doctor's office, " +
-            "HOA, employer, utility, club) telling them something to do or know, not set off by anything they just " +
-            "did and not selling anything: maintenance and inspection notices, rent or dues coming up, closures and " +
-            "schedule changes, outages, pickups, forms to return, 'please test your heater before winter'.",
-        Action.ALLOW,
-    ),
     TRANSACTIONAL(
         "transactional", "Transactional",
         "An automated message set off by something the user did: verification codes, real order or delivery " +
             "updates, confirmations and reminders of appointments they booked, bills, payments and account alerts " +
-            "from a bank, carrier or service they use. No pressure to click an unfamiliar link or to pay.",
+            "from a bank, carrier or service they use. Also notices from someone they already deal with (a " +
+            "landlord or building, school, daycare, coach, doctor's office, HOA, employer, utility, club) telling " +
+            "them something to do or know and selling nothing: maintenance and inspection notices, rent or dues " +
+            "coming up, closures and schedule changes, outages, pickups, forms to return. No pressure to click an " +
+            "unfamiliar link or to pay.",
         Action.ALLOW,
     ),
     MARKETING(
         "marketing", "Marketing",
         "A business the user may know wanting them to buy, spend or come back: sales, coupons, offers, member " +
             "days, rewards and points, newsletters, surveys, loyalty programs. Usually offers an opt-out such as " +
-            "'Reply STOP'. If it's telling them something to do or know and wants nothing sold, it's a reminder.",
+            "'Reply STOP'. If it's telling them something to do or know and wants nothing sold, it's transactional.",
         Action.SILENCE,
     ),
     POLITICAL(
@@ -58,6 +54,17 @@ enum class Category(val key: String, val label: String, val rubric: String, val 
         private val FORMER = mapOf("phishing" to "spam", "scam" to "spam")
 
         fun fromKey(key: String): Category? = (FORMER[key] ?: key).let { k -> entries.firstOrNull { it.key == k } }
+
+        /**
+         * Reminder was a category of its own until it was taken out. Winnow's and a classifier
+         * service's answers that said so read as transactional, which those kinds of text count as
+         * now (see Subcategories); the user's own labels of it don't, since some were marketing:
+         * they were cleared, for the user to label again.
+         */
+        const val FORMER_REMINDER = "reminder"
+
+        /** [key] as Winnow's or a classifier service's answer: as [fromKey], with a former reminder as transactional. */
+        fun fromAnswerKey(key: String): Category? = if (key == FORMER_REMINDER) TRANSACTIONAL else fromKey(key)
 
         /** Only a current key: for settings, where a former category's choice mustn't overwrite spam's. */
         fun fromCurrentKey(key: String): Category? = entries.firstOrNull { it.key == key }

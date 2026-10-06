@@ -121,14 +121,14 @@ class MessageClassifierTest {
         val provider = FakeProvider { mapOf("other_junk" to 1.0) }
         val examples = mapOf(
             Category.SPAM to listOf("Win a FREE cruise! Call 8885550123 now", "x".repeat(400)),
-            Category.REMINDER to listOf("please test the heater before winter"),
+            Category.TRANSACTIONAL to listOf("please test the heater before winter"),
         )
         MessageClassifier(listOf(provider), examples = examples).classify(stranger)
         val question = provider.seen.single().questions.getValue(MessageClassifier.QUESTION_KEY)
         val text = question.instructions
         assertTrue("Spam: \u201cWin a FREE cruise! Call ##########" in text && "8885550123" !in text, text)
         assertTrue("x".repeat(MessageClassifier.EXAMPLE_CHARS) in text && "x".repeat(MessageClassifier.EXAMPLE_CHARS + 1) !in text, text)
-        assertTrue("Reminder: \u201cplease test the heater before winter\u201d" in text, text)
+        assertTrue("Transactional: \u201cplease test the heater before winter\u201d" in text, text)
         assertEquals(MessageClassifier.QUESTION.options, question.options)
         // Without examples, the question is exactly the plain one.
         MessageClassifier(listOf(provider)).classify(stranger)
@@ -318,11 +318,11 @@ class MessageClassifierTest {
         // A pharmacy labeled both ways (so its labels don't decide), and never personal.
         val pharmacy = InboundMessage(sender = "+12395550160", body = "Your prescription is ready for pickup at the Main St pharmacy")
         val classes = com.ericflo.winnow.classifier.local.LocalModel.bundled.classes
-        val labels = List(3) { pharmacy.sender to classes.indexOf(Category.TRANSACTIONAL.key) } + listOf(pharmacy.sender to classes.indexOf(Category.REMINDER.key))
+        val labels = List(3) { pharmacy.sender to classes.indexOf(Category.TRANSACTIONAL.key) } + listOf(pharmacy.sender to classes.indexOf(Category.MARKETING.key))
         val memory = com.ericflo.winnow.classifier.local.SenderMemory.of(labels, classes)
         val onDevice = OnDeviceClassifier().withMemory(memory)
         val local = onDevice.classify(pharmacy)
-        assertTrue(local.category in setOf(Category.TRANSACTIONAL, Category.REMINDER), "${local.category}")
+        assertTrue(local.category in setOf(Category.TRANSACTIONAL, Category.MARKETING), "${local.category}")
         // The service calls it personal: asked and paid, but outweighed.
         val outweighed = MessageClassifier(listOf(FakeProvider { mapOf("friend_chat" to 1.0) }), onDevice = onDevice).classify(pharmacy)
         assertEquals(local.category, outweighed.category)
@@ -332,8 +332,8 @@ class MessageClassifierTest {
         assertTrue(outweighed.decidedByYourLabels)
         assertEquals(Category.PERSONAL, outweighed.serviceOpinion?.category)
         // One the user has given them: the service decides, as ever.
-        val theirs = MessageClassifier(listOf(FakeProvider { mapOf("school_notice" to 1.0) }), onDevice = onDevice).classify(pharmacy)
-        assertEquals(Category.REMINDER, theirs.category)
+        val theirs = MessageClassifier(listOf(FakeProvider { mapOf("retail_promo" to 1.0) }), onDevice = onDevice).classify(pharmacy)
+        assertEquals(Category.MARKETING, theirs.category)
         assertIs<VerdictSource.Provider>(theirs.source)
         assertFalse(theirs.decidedByYourLabels)
         // Someone the user texts with can send any kind: the service decides.

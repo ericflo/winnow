@@ -28,9 +28,9 @@ class RunSummaryTest {
         val rows = listOf(
             row(Category.SPAM, before = Category.SPAM, now = Category.SPAM),
             row(Category.SPAM, before = Category.PERSONAL, now = Category.SPAM, mine = Category.SPAM),
-            row(Category.MARKETING, before = Category.PERSONAL, now = Category.PERSONAL, mine = Category.REMINDER),
+            row(Category.MARKETING, before = Category.PERSONAL, now = Category.PERSONAL, mine = Category.TRANSACTIONAL),
             // The model had no opinion (the text's gone), and the user never labeled it.
-            row(Category.REMINDER),
+            row(Category.TRANSACTIONAL),
         )
         val s = RunSummary.of(rows)
         assertEquals(4, s.answered)

@@ -125,7 +125,8 @@ fun VerdictEntity.toBackup() = VerdictBackup(
 /** Null when the backup names an action this version doesn't know, rather than storing garbage. */
 /**
  * [sixCategories]: the backup was made under the six categories. One from before has its labels
- * (but political ones, which stand) marked to recheck, as the database migration does.
+ * (but political ones, which stand) marked to recheck, as the database migration does. A label of
+ * Reminder, since taken out, comes back cleared, to label again (see WinnowDatabase.ReminderTakenOut).
  */
 fun VerdictBackup.toEntity(messageKey: String, threadId: Long, address: String, sixCategories: Boolean = true): VerdictEntity? {
     if (Action.entries.none { it.name == action }) return null
@@ -134,8 +135,9 @@ fun VerdictBackup.toEntity(messageKey: String, threadId: Long, address: String, 
         messageKey = messageKey,
         threadId = threadId,
         address = address,
-        // Under its current name: a backup from before phishing and scam were folded into spam says so.
-        category = category?.let { Category.fromKey(it)?.key },
+        // Under its current name: a backup from before phishing and scam were folded into spam says so,
+        // and one from before Reminder was taken out may say that.
+        category = category?.let { Category.fromAnswerKey(it)?.key },
         confidence = confidence,
         action = action,
         sourceKind = sourceKind,
@@ -146,7 +148,7 @@ fun VerdictBackup.toEntity(messageKey: String, threadId: Long, address: String, 
         userAction = userAction,
         userCategory = userCategory?.let { Category.fromKey(it)?.key },
         atArrival = atArrival,
-        recheck = recheck || (!sixCategories && userCategory != null && userCategory != Category.POLITICAL.key),
+        recheck = recheck || (!sixCategories && userCategory != null && userCategory != Category.POLITICAL.key) || userCategory == Category.FORMER_REMINDER,
         subcategory = subcategory,
     )
 }

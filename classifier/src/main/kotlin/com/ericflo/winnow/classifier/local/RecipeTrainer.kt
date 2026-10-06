@@ -93,6 +93,14 @@ data class Recipe(
      */
     val classBias: List<Double> = emptyList(),
 ) {
+    /**
+     * [classBias] in [classes]' order. Leanings tuned under the six categories, before Reminder
+     * was taken out, are in theirs: each category keeps its own lean, and Reminder's goes.
+     */
+    fun leaningsIn(classes: List<String>): List<Double> =
+        if (classBias.size == SIX_CATEGORIES.size && classes != SIX_CATEGORIES) classes.map { classBias.getOrElse(SIX_CATEGORIES.indexOf(it)) { 0.0 } }
+        else classBias
+
     /** What's wrong with it, if anything, in words; null when it can be trained. */
     fun problem(): String? = when {
         buckets < 1 shl 10 || buckets > 1 shl 18 || buckets and (buckets - 1) != 0 -> "Buckets must be a power of two from 1,024 to 262,144."
@@ -164,6 +172,9 @@ data class Recipe(
         const val MAX_EMBEDDING = 4_194_304L
         const val MAX_MEMBERS = 6
         const val MAX_BAGGED_BUCKETS = 1L shl 20
+
+        /** The categories' keys, in class order, while Reminder was one (see [leaningsIn]). */
+        val SIX_CATEGORIES = listOf("personal", "reminder", "transactional", "marketing", "political", "spam")
 
         // In the order they did on the hand-written corpus with labels that words alone don't
         // separate (`:classifier:labCeilingExperiment`): one layer did as well as more, and deeper worse.
@@ -248,7 +259,7 @@ object RecipeTrainer {
     ): Predictor {
         recipe.problem()?.let { throw IllegalArgumentException(it) }
         // Leanings sit on top of whatever the recipe trains.
-        if (recipe.classBias.isNotEmpty()) return BiasedPredictor(train(recipe.copy(classBias = emptyList()), base, items, onProgress, stopped), recipe.classBias)
+        if (recipe.classBias.isNotEmpty()) return BiasedPredictor(train(recipe.copy(classBias = emptyList()), base, items, onProgress, stopped), recipe.leaningsIn(base.classes))
         if (recipe.kind == RecipeKind.BLEND) {
             val n = recipe.members.size
             val members = recipe.members.mapIndexed { m, member -> train(member, base, items, { e, of -> onProgress(m * of + e, n * of) }, stopped) }

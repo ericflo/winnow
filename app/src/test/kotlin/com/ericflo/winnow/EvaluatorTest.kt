@@ -84,13 +84,13 @@ class EvaluatorTest {
 
     @Test
     fun theModelNowIsScoredWithTheUsersLabelsOfEachSenderAsOnThePhoneAndOnTheirNewestLabels() {
-        // A pharmacy the user calls a reminder sender: other texts of theirs labeled first, then their pickup texts.
-        val reminder = model.classes.indexOf(Category.REMINDER.key)
+        // A pharmacy the user calls a marketing sender: other texts of theirs labeled first, then their pickup texts.
+        val marketing = model.classes.indexOf(Category.MARKETING.key)
         fun bucketsOf(text: String) = model.indices(base.features(InboundMessage("+12395550160", text)))
         val hours = bucketsOf("Main St pharmacy hours this week: Mon-Fri 9-7, Sat 10-4")
         val pickup = bucketsOf("Your prescription is ready for pickup at the Main St pharmacy")
-        val pharmacy = List(4) { i -> EvalData.Labeled("h$i", threadId = 999, buckets = hours, label = reminder, createdAt = 500L + i, sender = "+12395550160") } +
-            List(16) { i -> EvalData.Labeled("p$i", threadId = 999, buckets = pickup, label = reminder, createdAt = 1_000L + i, sender = "+12395550160") }
+        val pharmacy = List(4) { i -> EvalData.Labeled("h$i", threadId = 999, buckets = hours, label = marketing, createdAt = 500L + i, sender = "+12395550160") } +
+            List(16) { i -> EvalData.Labeled("p$i", threadId = 999, buckets = pickup, label = marketing, createdAt = 1_000L + i, sender = "+12395550160") }
         val d = EvalData(labeled(60) + pharmacy, emptyList(), emptyList(), emptyMap())
         val how = Evaluator().evaluate(EvalSubject.Now, d).how
         assertTrue(how, Regex("""On your newest 16 labels, refit on the ones you made before them: 100% with your labels of each sender, \d+% from the words alone\.""").containsMatchIn(how))

@@ -38,9 +38,9 @@ fun main() {
             when (noise) {
                 "random10" -> if (r.nextDouble() < 0.10) (y + 1 + r.nextInt(k - 1)) % k else y
                 "random20" -> if (r.nextDouble() < 0.20) (y + 1 + r.nextInt(k - 1)) % k else y
-                // Your own sense of the categories: some reminders are transactional to you, some marketing spam, some personal transactional.
+                // Your own sense of the categories: some notices are marketing to you, some marketing spam, some personal transactional.
                 "systematic" -> when {
-                    y == c("reminder") && r.nextDouble() < 0.35 -> c("transactional")
+                    y == c("transactional") && r.nextDouble() < 0.15 -> c("marketing")
                     y == c("marketing") && r.nextDouble() < 0.30 -> c("spam")
                     y == c("personal") && r.nextDouble() < 0.10 -> c("transactional")
                     else -> y
@@ -56,7 +56,7 @@ fun main() {
         return service.map { t ->
             val y = idx(t)
             if (!lean) y else when {
-                y == c("transactional") && r.nextDouble() < 0.30 -> c("reminder")
+                y == c("transactional") && r.nextDouble() < 0.15 -> c("marketing")
                 y == c("spam") && r.nextDouble() < 0.20 -> c("marketing")
                 else -> y
             }
@@ -262,7 +262,7 @@ private fun partSender(user: List<LabeledText>, service: List<LabeledText>, corp
     val relabel = conv.distinct().associateWith { g ->
         val y = g / 1000
         when {
-            y == c("reminder") && r.nextDouble() < 0.4 -> c("transactional")
+            y == c("transactional") && r.nextDouble() < 0.2 -> c("marketing")
             y == c("marketing") && r.nextDouble() < 0.3 -> c("spam")
             else -> y
         }

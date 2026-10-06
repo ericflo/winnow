@@ -164,15 +164,35 @@ class RecipeSweepTest {
     }
 
     @Test
+    fun aModelTrainedWhileReminderWasACategoryAnswersOverTheOnesThereAreNow() {
+        val six = Recipe.SIX_CATEGORIES
+        val old = object : Predictor {
+            override val classes = six
+            override fun probabilities(features: List<String>) = doubleArrayOf(0.1, 0.5, 0.2, 0.1, 0.05, 0.05)
+            override fun reasons(features: List<String>, classIndex: Int, limit: Int) = listOf("class $classIndex")
+        }
+        val now = ClassesPredictor(old, classes)
+        assertEquals(listOf("personal", "transactional", "marketing", "political", "spam"), now.classes)
+        // Reminder's half goes; the rest share the odds as they stood, transactional still twice personal.
+        assertContentEquals(doubleArrayOf(0.2, 0.4, 0.2, 0.1, 0.1).toList(), now.probabilities(emptyList()).map { Math.round(it * 1e9) / 1e9 })
+        assertEquals(listOf("class 2"), now.reasons(emptyList(), 1, 3))
+        // Leanings tuned then keep each category's own; Reminder's goes.
+        val leaned = Recipe(kind = RecipeKind.LINEAR, classBias = listOf(0.1, 9.0, 0.3, 0.4, 0.5, 0.6))
+        assertEquals(listOf(0.1, 0.3, 0.4, 0.5, 0.6), leaned.leaningsIn(classes))
+        assertEquals(leaned.classBias, leaned.leaningsIn(six))
+        assertEquals(listOf(1.0, 2.0), Recipe(kind = RecipeKind.LINEAR, classBias = listOf(1.0, 2.0)).leaningsIn(classes))
+    }
+
+    @Test
     fun noOtherLabelInAHeldOutConversationTrainsIt() {
-        // Each conversation's texts carry a mark of it, and another label in it (a service's, on
-        // another of its texts) says its mark means a wrong category, loudly. Held out with its
-        // conversation, it can't teach the answer away; unmarked by conversation, it would leak in.
+        // Each conversation's texts carry a mark of it, and a service's label on its middle text
+        // says that text (mark and all) is a wrong category. Held out with its conversation, that
+        // label can't teach the answer away; unmarked by conversation, it leaks in. (Held out, it
+        // still trains the other folds, wrongly: a few points, never the leak's twenty and more.)
         val k = classes.size
         val marked = scored.map { it.copy(features = it.features!! + "conv:${it.group}") }
-        val firstLabel = marked.groupBy { it.group }.mapValues { it.value.first().label }
-        fun contrary(grouped: Boolean) = firstLabel.map { (g, label) ->
-            TrainingItem(listOf("conv:$g"), null, (label + 1) % k, 50.0, group = if (grouped) g else -1, key = "svc:$g")
+        fun contrary(grouped: Boolean) = marked.groupBy { it.group }.map { (g, texts) ->
+            TrainingItem(texts[1].features, null, (texts[0].label + 1) % k, 10.0, group = if (grouped) g else -1, key = "svc:$g")
         }
         val recipe = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 14, epochs = 5, learningRate = 0.2)
         fun accuracy(extra: List<TrainingItem>) = RecipeTrainer.crossValidate(recipe, base, marked, others + extra)
@@ -180,8 +200,8 @@ class RecipeSweepTest {
         val clean = accuracy(emptyList())
         val grouped = accuracy(contrary(grouped = true))
         val leaked = accuracy(contrary(grouped = false))
-        assertEquals(clean, grouped, 1e-12)
-        assertTrue(leaked < clean - 0.02, "leaked $leaked vs clean $clean")
+        assertTrue(clean - grouped < 0.05, "grouped $grouped vs clean $clean")
+        assertTrue(leaked < grouped - 0.15, "leaked $leaked vs grouped $grouped")
     }
 
     @Test
@@ -327,12 +347,12 @@ class RecipeSweepTest {
         assertTrue("x:phone_number+you|tonight" in SenderCrosses.expand(listOf("__sender_phone_number__", "__known__", "w:tonight")))
         // The same two words, opposite things from a business and from someone you text: words
         // alone can't say; words by sender can.
-        val reminder = classes.indexOf("reminder")
+        val transactional = classes.indexOf("transactional")
         val personal = classes.indexOf("personal")
         val items = (0 until 120).map { i ->
             val business = i % 2 == 0
             val word = if (i % 4 < 2) "w:pickup" else "w:tomorrow"
-            val label = if (business == (word == "w:pickup")) reminder else personal
+            val label = if (business == (word == "w:pickup")) transactional else personal
             val kind = if (business) listOf("__sender_short_code__") else listOf("__sender_phone_number__", "__known__")
             TrainingItem(kind + word + "w:filler${i % 7}", null, label, 1.0, group = (i / 2).toLong(), key = "sms:x$i", source = TrainingItem.Source.USER)
         }

@@ -523,10 +523,21 @@ private fun Reviewing(
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Round ${s.number}", style = MaterialTheme.typography.titleLarge)
                 s.round.focus?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }
-                if (s.round.rechecks > 0) {
+                // Their Reminder labels, cleared when it was taken out (some were marketing), to label again.
+                if (s.round.cleared > 0) {
                     Text(
-                        "${plural(s.round.rechecks, "conversation")} here you labeled before the categories changed " +
-                            "(${s.round.toRecheck} wait in all). Confirm or change each; your political labels stand as they were.",
+                        "${plural(s.round.cleared, "conversation")} here you'd labeled Reminder, which is gone now " +
+                            "(${s.round.toRecheck} wait in all). Label each as you see it: Transactional, Marketing or anything else.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                val earlier = s.round.rechecks - s.round.cleared
+                if (earlier > 0) {
+                    Text(
+                        "${plural(earlier, "conversation")} here you labeled before the categories changed" +
+                            (if (s.round.cleared == 0) " (${s.round.toRecheck} wait in all)" else "") +
+                            ". Confirm or change each; your political labels stand as they were.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -691,9 +702,10 @@ private fun CandidateRow(
                     }
                     // The classifier service's own answer, so its part in the guess is plain to see.
                     // The user's own label from before the six categories: confirm it, or change it.
-                    c.before?.let { was ->
+                    // Or their Reminder label, cleared: nothing to confirm, but where it's from.
+                    (c.before?.let { "You said ${it.label} before" } ?: "You said Reminder before, which is gone".takeIf { c.cleared })?.let { said ->
                         Text(
-                            "You said ${was.label} before",
+                            said,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary,

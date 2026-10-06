@@ -49,13 +49,12 @@ enum class ListMode { INBOX, FILTERED, ARCHIVED }
  * each conversation's newest text: unclassified ones (contacts, texts you started) are personal.
  */
 enum class InboxFilter(val label: String) {
-    ALL("All"), UNREAD("Unread"), PERSONAL("Personal"), REMINDERS("Reminders"), UPDATES("Updates"), OFFERS("Offers");
+    ALL("All"), UNREAD("Unread"), PERSONAL("Personal"), UPDATES("Updates"), OFFERS("Offers");
 }
 
 /** Which kind chip a conversation falls under, if any. */
 fun ConversationSummary.kind(): InboxFilter? = when {
     verdict == null || verdict.category == Category.PERSONAL -> InboxFilter.PERSONAL
-    verdict.category == Category.REMINDER -> InboxFilter.REMINDERS
     verdict.category == Category.TRANSACTIONAL -> InboxFilter.UPDATES
     verdict.category == Category.MARKETING -> InboxFilter.OFFERS
     // Rescued by the user ("Not spam"): someone they want to hear from.
@@ -253,9 +252,9 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
             filter == InboxFilter.UNREAD -> unread
             else -> shown.filter { it.kind() == filter }
         }
-        // Reminders, Updates and Offers only when there are some; Personal only as their counterpart.
+        // Updates and Offers only when there are some; Personal only as their counterpart.
         val present = shown.mapNotNullTo(HashSet()) { it.kind() }
-        val kinds = listOf(InboxFilter.REMINDERS, InboxFilter.UPDATES, InboxFilter.OFFERS).filter { it in present }
+        val kinds = listOf(InboxFilter.UPDATES, InboxFilter.OFFERS).filter { it in present }
             .let { if (it.isEmpty()) it else listOf(InboxFilter.PERSONAL) + it }
         val matching = if (query.isBlank()) filtered else filtered.filter { it.matches(query) }
         // Only in the plain inbox: a search or a chip asked for something else.

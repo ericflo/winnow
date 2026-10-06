@@ -20,7 +20,7 @@ class PersonalModelStoreTest {
 
     @Test
     fun theStampIsTheSameOnlyWhenNothingThatGoesIntoAFitChanged() {
-        val rows = listOf(row(1), row(2, "personal", "4,5"), row(3, "reminder", "6"))
+        val rows = listOf(row(1), row(2, "personal", "4,5"), row(3, "transactional", "6"))
         val stamp = PersonalModelStore.stampOf(rows, install = 100)
         assertEquals("order doesn't matter", stamp, PersonalModelStore.stampOf(rows.reversed(), install = 100))
         assertNotEquals("a label changed", stamp, PersonalModelStore.stampOf(listOf(row(1, "marketing"), rows[1], rows[2]), install = 100))
@@ -33,7 +33,7 @@ class PersonalModelStoreTest {
     @Test
     fun aKeptFitComesBackOnlyUnderItsOwnStamp() {
         val base = OnDeviceClassifier()
-        val fitted = base.learn(listOf(base.correction(InboundMessage("+12065550123", "Landlord: test the heater before Friday"), setOf(Category.REMINDER))!!))
+        val fitted = base.learn(listOf(base.correction(InboundMessage("+12065550123", "Landlord: test the heater before Friday"), setOf(Category.TRANSACTIONAL))!!))
         val store = PersonalModelStore(folder.root.resolve("personal-model.bin"), install = 100)
         assertNull("nothing kept yet", store.load(42))
         store.save(42, fitted.adjustments)
