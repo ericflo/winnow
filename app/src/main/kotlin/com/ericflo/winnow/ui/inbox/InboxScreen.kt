@@ -1141,17 +1141,22 @@ private fun RcsCard(chats: List<ConversationSummary>, onOpen: (ConversationSumma
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                "Google Messages had them over RCS. While Winnow is your SMS app, new messages in them don't arrive: they wait with Google until " +
-                    "Google Messages is your SMS app again. A group chat's don't come as texts instead.",
+                "New messages in them don't arrive while Winnow is your SMS app: they wait with Google until Google Messages is again.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             val ink = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onTertiaryContainer)
-            chats.take(5).forEach { c ->
-                TextButton(onClick = { onOpen(c) }, contentPadding = PaddingValues(0.dp), colors = ink) {
-                    Text(c.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                }
+            // Compact rows, so the card doesn't push the conversations a screen down.
+            chats.take(3).forEach { c ->
+                Text(
+                    c.displayName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().clickable(onClickLabel = "Open") { onOpen(c) }.padding(vertical = 6.dp),
+                )
             }
-            if (chats.size > 5) Text("and ${chats.size - 5} more", style = MaterialTheme.typography.bodySmall)
+            if (chats.size > 3) Text("and ${chats.size - 3} more, each marked in its conversation", style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onWhy) { Text("What to do") }
                 TextButton(onClick = onDismiss, colors = ink) { Text("Got it") }
