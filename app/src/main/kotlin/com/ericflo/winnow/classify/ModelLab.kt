@@ -1,12 +1,19 @@
 package com.ericflo.winnow.classify
 
 import com.ericflo.winnow.classifier.local.ClassifierMetrics
+import com.ericflo.winnow.classifier.DecisionProvider
 import com.ericflo.winnow.classifier.local.Featurizer
-import com.ericflo.winnow.classifier.local.LinearPredictor
+import com.ericflo.winnow.classifier.local.LabModelFile
 import com.ericflo.winnow.classifier.local.LocalModel
 import com.ericflo.winnow.classifier.local.MetricsCalculator
-import com.ericflo.winnow.classifier.local.NeuralModel
+import com.ericflo.winnow.classifier.local.PersonalEvaluation
 import com.ericflo.winnow.classifier.local.Predictor
+import com.ericflo.winnow.classifier.local.RecipeSweep
+import com.ericflo.winnow.classifier.local.ServiceSteerer
+import com.ericflo.winnow.classifier.local.SweepRound
+import com.ericflo.winnow.classifier.local.SweepScorer
+import com.ericflo.winnow.classifier.local.SweepSpace
+import com.ericflo.winnow.classifier.local.SweepTrial
 import com.ericflo.winnow.classifier.local.Recipe
 import com.ericflo.winnow.classifier.local.RecipeKind
 import com.ericflo.winnow.classifier.local.RecipeTrainer
@@ -65,6 +72,8 @@ class ModelLab(
     private val onModelChanged: suspend () -> Unit,
     /** Told as training starts, to keep it going when the user leaves Winnow (see WorkService). */
     private val onRunStarted: () -> Unit = {},
+    /** The classifier service a sweep can be steered by (see ServiceSteerer); null when none is set up. */
+    private val steeringProvider: suspend () -> DecisionProvider? = { null },
 ) {
     /** One recipe and what became of it. */
     @Serializable
@@ -161,7 +170,7 @@ class ModelLab(
     }
 
     fun delete(id: String) {
-        if (id == runningId()) job?.cancel()
+        if (id == runningId() || id == trainingId) job?.cancel()
         scope.launch(Dispatchers.IO) { modelFile(id).delete() }
         save(_entries.value.filterNot { it.id == id })
         scope.launch { if (settings.current().labModel == id) use(null) }
@@ -177,14 +186,32 @@ class ModelLab(
      * Trains [id]'s recipe and scores it on the user's labels: cross-validated by conversation,
      * then once more on everything, kept to put in use. Its scoring goes with every other.
      */
-    fun trainAndScore(id: String) = launch(id) { entry ->
+    fun trainAndScore(id: String) = launch(id) { entry -> trainScore(entry, id) }
+
+    /** [trainAndScore]'s work, its progress said under [progressId] (a sweep keeps its best this way). */
+    private suspend fun trainScore(entry: Entry, progressId: String) {
+        val id = entry.id
+        trainingId = id
+        try {
+            trainScoreOf(entry, progressId)
+        } finally {
+            trainingId = null
+        }
+    }
+
+    /** The entry being trained, whatever the run is called (a sweep trains the best it found). */
+    @Volatile private var trainingId: String? = null
+
+    private suspend fun trainScoreOf(entry: Entry, progressId: String) {
+        val id = entry.id
         val recipe = entry.recipe
-        progress(id, "Reading your labels…", 0f)
-        val data = data(recipe)
+        fun say(what: String, p: Float) = progress(progressId, what, p)
+        say("Reading your labels…", 0f)
+        val data = data()
         val ctx = currentCoroutineContext()
         val started = System.currentTimeMillis()
         val cv = withContext(Dispatchers.Default) {
-            RecipeTrainer.crossValidate(recipe, LocalModel.bundled, data.scored, data.others, onFold = { f, k -> progress(id, "Scoring on your labels: part ${f + 1} of $k", 0.8f * f / k) }, stopped = { !ctx.isActive })
+            RecipeTrainer.crossValidate(recipe, LocalModel.bundled, data.scored, data.others, onFold = { f, k -> say("Scoring on your labels: part ${f + 1} of $k", 0.8f * f / k) }, stopped = { !ctx.isActive })
         }
         // A trained model's odds set to match how often it was right on labels it hadn't seen.
         val temperature = if (recipe.kind == RecipeKind.PERSONAL) LocalModel.bundled.temperature else RecipeTrainer.calibrate(cv.map { (i, s) -> s to data.scored[i].label })
@@ -201,7 +228,7 @@ class ModelLab(
         }
         val evalId = keepScoring(entry, data, answered, started)
         // On their newest labels, by a model trained on their older ones: where who sent it can count.
-        progress(id, "Scoring on your newest labels…", 0.8f)
+        say("Scoring on your newest labels…", 0.8f)
         val newest = withContext(Dispatchers.Default) { RecipeTrainer.scoreNewest(recipe, LocalModel.bundled, data.scored, data.others, stopped = { !ctx.isActive }) }
         val newestSet = newest.mapTo(HashSet()) { it.first }
         val olderMemory = memoryOf(data.scored.indices.filter { it !in newestSet })
@@ -211,13 +238,13 @@ class ModelLab(
             val p = LocalModel.softmax(s, temperature.toDouble())
             (data.scored[i].sender?.let { olderMemory.follow(p, it, data.scored[i].conversing).best } ?: argmax(p)) == data.scored[i].label
         }
-        progress(id, "Training on everything…", 0.85f)
-        val trained = trainFinal(id, recipe, data, temperature)
+        say("Training on everything…", 0.85f)
+        val trained = trainFinal(id, recipe, data, temperature, progressId)
         val m = evalId?.let { evals.get(it) }
         update(id) {
             it.copy(
                 trainedAt = System.currentTimeMillis(), evalId = evalId, accuracy = m?.accuracy, macroF1 = m?.macroF1, scoredOn = m?.examples ?: 0,
-                trainMillis = trained.millis, parameters = trained.parameters, temperature = temperature, learnedFrom = data.scored.size + data.others.size, leftOut = data.leftOut,
+                trainMillis = trained.millis, parameters = trained.parameters, temperature = temperature, learnedFrom = learnedFrom(recipe, data), leftOut = leftOut(recipe, data),
                 bytes = trained.bytes, fitAccuracy = trained.fitAccuracy,
                 newestCount = newest.size,
                 newestAccuracy = newest.takeIf { it.isNotEmpty() }?.let { newestFollowed.toDouble() / it.size },
@@ -227,18 +254,208 @@ class ModelLab(
         if (settings.current().labModel == id) onModelChanged()
     }
 
+    /**
+     * The latest sweep, as it stands: its plan, its tries best first, how each round was
+     * steered and what that cost, and the Lab model its best became, if it beat the user's.
+     */
+    @Serializable
+    data class Sweep(
+        val startedAt: Long,
+        val plan: RecipeSweep.Plan,
+        /** The service steering it (by name), or null when the phone steers. */
+        val steeredBy: String? = null,
+        /** What steering was asked for but couldn't be: no service set up. */
+        val noService: Boolean = false,
+        /** What the user has, which it set out to beat, each as the sweep scored it. */
+        val baselines: List<Mark> = emptyList(),
+        val trials: List<SweepTrial> = emptyList(),
+        val rounds: List<SweepRound> = emptyList(),
+        /** Calls made to the service, and how many failed (the phone steered those rounds, and every one after). */
+        val steeringCalls: Int = 0,
+        val steeringFailed: Int = 0,
+        val costUsd: Double = 0.0,
+        val finishedAt: Long? = null,
+        /** Cut off before it finished: Winnow was closed, or the phone restarted. */
+        val interrupted: Boolean = false,
+        /** The steering said there was little left to gain, and it ended before its last round. */
+        val settled: Boolean = false,
+        /** The user stopped it. */
+        val stopped: Boolean = false,
+        /** The Lab model its best try became. */
+        val keptId: String? = null,
+        val failed: String? = null,
+    ) {
+        val best: SweepTrial? get() = trials.maxByOrNull { it.accuracy }
+        val tried: Int get() = trials.count { it.millis > 0 || it.from == "blend" }
+    }
+
+    /** Something a sweep set out to beat, and how it scored. */
+    @Serializable
+    data class Mark(val name: String, val accuracy: Double)
+
+    /** How the next sweep runs: its rounds, tries a round, and how many times the service may steer (each call is paid). */
+    @Serializable
+    data class SweepPrefs(val rounds: Int = 4, val perRound: Int = 6, val steeringCalls: Int = 4, val steer: Boolean = true)
+
+    private val sweepFile = File(dir, "sweep.json")
+    private val sweepPrefsFile = File(dir, "sweep-prefs.json")
+    private val _sweep = MutableStateFlow(
+        runCatching { json.decodeFromString(Sweep.serializer(), sweepFile.readText()) }.getOrNull()
+            // Never finished, and nothing in this new process runs it: cut off.
+            ?.let { if (it.finishedAt == null) it.copy(interrupted = true) else it },
+    )
+    val sweep: StateFlow<Sweep?> = _sweep.asStateFlow()
+    private val _sweepPrefs = MutableStateFlow(runCatching { json.decodeFromString(SweepPrefs.serializer(), sweepPrefsFile.readText()) }.getOrDefault(SweepPrefs()))
+    val sweepPrefs: StateFlow<SweepPrefs> = _sweepPrefs.asStateFlow()
+
+    fun setSweepPrefs(prefs: SweepPrefs) {
+        _sweepPrefs.value = prefs
+        scope.launch(Dispatchers.IO) { writeFile(sweepPrefsFile, json.encodeToString(SweepPrefs.serializer(), prefs)) }
+    }
+
+    private fun publish(sweep: Sweep) {
+        _sweep.value = sweep
+        scope.launch(Dispatchers.IO) { writes.withLock { _sweep.value?.let { writeFile(sweepFile, json.encodeToString(Sweep.serializer(), it)) } } }
+    }
+
+    private fun writeFile(file: File, text: String) {
+        runCatching {
+            dir.mkdirs()
+            val part = File(dir, file.name + ".part")
+            part.writeText(text)
+            part.renameTo(file)
+        }.onFailure { android.util.Log.w("WinnowLab", "Couldn't save ${file.name}", it) }
+    }
+
+    /**
+     * What the user has, for a sweep to beat: the model sorting their texts now (a Lab model, or
+     * Winnow's own personal layer as their settings fit it), and their best-scoring Lab model if
+     * that's another.
+     */
+    private suspend fun baselines(): List<Pair<String, Recipe>> {
+        val s = settings.current()
+        val inUse = _entries.value.firstOrNull { it.id == s.labModel }
+        val running = inUse?.let { it.name to it.recipe } ?: (
+            "Winnow's own (personal layer)" to Recipe(
+                kind = RecipeKind.PERSONAL, epochs = s.personalEpochs, learningRate = s.personalStep, l2 = s.personalL2,
+                serviceWeight = s.providerWeight, senderMemory = s.senderMemory,
+            )
+        )
+        val best = _entries.value.filter { it.accuracy != null && it.id != inUse?.id }.maxByOrNull { it.accuracy!! }?.let { it.name to it.recipe }
+        return listOfNotNull(running, best?.takeIf { it.second != running.second })
+    }
+
+    /**
+     * Sweeps recipes on the user's labels (see RecipeSweep): rounds of tries, each scored as the
+     * Lab scores a model, steered between rounds by the classifier service when it may be (shown
+     * each try's settings and scores, never a text), by the phone otherwise. If its best beats
+     * everything the user has, it's kept as a Lab model, trained on everything and scored like
+     * any other, for the user to put in use or not.
+     */
+    fun startSweep() = launchJob(SWEEP) {
+        val prefs = _sweepPrefs.value
+        // Said at once, so a sweep stopped while it reads the labels is this one, not the last.
+        var state = Sweep(System.currentTimeMillis(), RecipeSweep.Plan(rounds = prefs.rounds, perRound = prefs.perRound, steeringCalls = 0))
+        publish(state)
+        val ctx = currentCoroutineContext()
+        try {
+            progress(SWEEP, "Reading your labels…", 0f)
+            val data = data()
+            val provider = if (prefs.steer && prefs.steeringCalls > 0) runCatching { steeringProvider() }.getOrNull() else null
+            // Called what the rest of Winnow calls it.
+            val steerer = provider?.let { ServiceSteerer(it, settings.current().provider.label.substringBefore(" (")) }
+            val plan = RecipeSweep.Plan(rounds = prefs.rounds, perRound = prefs.perRound, steeringCalls = if (steerer != null) prefs.steeringCalls else 0)
+            val baselines = baselines()
+            val names = baselines.map { it.first }.toSet()
+            val classes = LocalModel.bundled.classes
+            val unwanted = Category.entries.filter { it.defaultAction == Action.FILTER }.map { classes.indexOf(it.key) }.filter { it >= 0 }.toSet()
+            val scorer = SweepScorer(LocalModel.bundled, data.scored, data.others, unwanted, settings.current().actionPolicy.onDeviceMinConfidence)
+            state = state.copy(plan = plan, steeredBy = steerer?.name, noService = prefs.steer && prefs.steeringCalls > 0 && steerer == null)
+            publish(state)
+            val planned = SweepSpace.STARTS.size + baselines.size + plan.rounds * plan.perRound
+            var done = 0
+            val result = withContext(Dispatchers.Default) {
+                RecipeSweep(scorer, steerer, plan).run(
+                    baselines,
+                    onEvent = { e ->
+                        when (e) {
+                            is RecipeSweep.Event.Trying -> progress(
+                                SWEEP,
+                                (if (e.round == 0) "Starting points" else "Round ${e.round} of ${plan.rounds}") + ": try ${e.n} of ${e.of}" +
+                                    (state.best?.let { " · best so far ${pctOf(it.accuracy)}" } ?: ""),
+                                (done.toFloat() / planned).coerceAtMost(0.95f),
+                            )
+                            is RecipeSweep.Event.Tried -> {
+                                if (e.trial.millis > 0) done++
+                                state = state.copy(
+                                    trials = (state.trials + e.trial).sortedByDescending { it.accuracy },
+                                    baselines = if (e.trial.from in names) state.baselines + Mark(e.trial.from, e.trial.accuracy) else state.baselines,
+                                )
+                                publish(state)
+                            }
+                            is RecipeSweep.Event.Steered -> {
+                                val asked = steerer != null && (e.round.steeredBy == steerer.name || e.round.note != null)
+                                state = state.copy(
+                                    rounds = state.rounds + e.round,
+                                    steeringCalls = state.steeringCalls + (if (asked) 1 else 0),
+                                    steeringFailed = state.steeringFailed + (if (asked && e.round.steeredBy != steerer?.name) 1 else 0),
+                                    costUsd = state.costUsd + e.round.costUsd,
+                                )
+                                publish(state)
+                            }
+                        }
+                    },
+                    stopped = { !ctx.isActive },
+                )
+            }
+            state = state.copy(
+                trials = result.trials, steeringCalls = result.steeringCalls, steeringFailed = result.steeringFailed, costUsd = result.costUsd,
+                settled = result.stoppedEarly, finishedAt = System.currentTimeMillis(),
+            )
+            publish(state)
+            // Its best, if it beats everything the user has, becomes a Lab model like any other.
+            val best = result.trials.firstOrNull()
+            val bar = state.baselines.maxOfOrNull { it.accuracy }
+            if (best != null && best.from !in names && (bar == null || best.accuracy > bar)) {
+                val called = "Best of the ${java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault()).format(java.util.Date(state.startedAt))} sweep"
+                // A second sweep the same day: "(2)", not two models of one name.
+                val name = generateSequence(1) { it + 1 }.map { if (it == 1) called else "$called ($it)" }.first { n -> _entries.value.none { it.name == n } }
+                val entry = create(name, best.recipe)
+                state = state.copy(keptId = entry.id)
+                publish(state)
+                trainScore(entry, SWEEP)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            publish(state.copy(stopped = true, finishedAt = System.currentTimeMillis()))
+            throw e
+        } catch (e: Throwable) {
+            publish(state.copy(failed = "${e::class.simpleName}: ${e.message}", finishedAt = System.currentTimeMillis()))
+            throw e
+        }
+    }
+
+    /** A sweep's try kept as a Lab model of its own, trained and scored like any other; null while something else trains. */
+    fun keepTrial(trial: SweepTrial): Entry? {
+        if (job?.isActive == true) return null
+        val entry = create("From the sweep: ${pctOf(trial.accuracy)}", trial.recipe)
+        trainAndScore(entry.id)
+        return entry
+    }
+
+    private fun pctOf(x: Double) = "${"%.1f".format(x * 100)}%"
+
     /** Trains the model in use again on everything as it stands, without scoring it (the user's "Retrain on device"). */
     fun retrainInUse() {
         scope.launch {
             val id = settings.current().labModel ?: run { onModelChanged(); return@launch }
             launch(id) { entry ->
                 progress(id, "Training on everything…", 0.1f)
-                val data = data(entry.recipe)
+                val data = data()
                 val t = trainFinal(id, entry.recipe, data, entry.temperature)
                 update(id) {
                     it.copy(
-                        trainedAt = System.currentTimeMillis(), trainMillis = t.millis, parameters = t.parameters, learnedFrom = data.scored.size + data.others.size,
-                        leftOut = data.leftOut, bytes = t.bytes, fitAccuracy = t.fitAccuracy,
+                        trainedAt = System.currentTimeMillis(), trainMillis = t.millis, parameters = t.parameters, learnedFrom = learnedFrom(entry.recipe, data),
+                        leftOut = leftOut(entry.recipe, data), bytes = t.bytes, fitAccuracy = t.fitAccuracy,
                     )
                 }
                 onModelChanged()
@@ -273,20 +490,24 @@ class ModelLab(
         val entry = _entries.value.firstOrNull { it.id == id } ?: return@withContext null
         // Asked at every refit of the personal layer (every label): read from disk only when it changed.
         loaded?.takeIf { it.first == id to entry.trainedAt }?.let { return@withContext id to it.second }
-        loadModel(id, entry.recipe.kind)?.also { loaded = (id to entry.trainedAt) to it }?.let { id to it }
+        loadModel(id, entry.recipe)?.also { loaded = (id to entry.trainedAt) to it }?.let { id to it }
     }
 
     @Volatile private var loaded: Pair<Pair<String, Long?>, Predictor>? = null
 
     private fun launch(id: String, block: suspend (Entry) -> Unit) {
-        if (job?.isActive == true) return
         val entry = _entries.value.firstOrNull { it.id == id } ?: return
+        launchJob(id) { block(entry) }
+    }
+
+    private fun launchJob(id: String, block: suspend () -> Unit) {
+        if (job?.isActive == true) return
         // Running before anything watches for it: the service keeping it going stops at Idle.
         progress(id, "Starting…", 0f)
         onRunStarted()
         job = scope.launch {
             try {
-                block(entry)
+                block()
                 _status.value = Status.Idle
             } catch (e: kotlinx.coroutines.CancellationException) {
                 _status.value = Status.Idle
@@ -302,10 +523,30 @@ class ModelLab(
         _status.value = Status.Running(id, what, p)
     }
 
-    /** What a recipe learns from: the user's labels (scored), and the rest as it says. */
-    private class Data(val scored: List<TrainingItem>, val scoredKeys: List<Pair<String, Long>>, val others: List<TrainingItem>, val leftOut: Int)
+    /**
+     * What every recipe learns from: the user's labels (scored), and the rest, each marked with
+     * where it came from so a recipe says how much it counts (see TrainingItem.weightUnder).
+     * [gone]: the user's labels whose text is gone, which only a model of the shipped size can
+     * still learn from (through their kept buckets).
+     */
+    private class Data(val scored: List<TrainingItem>, val scoredKeys: List<Pair<String, Long>>, val others: List<TrainingItem>, val gone: Int)
 
-    private suspend fun data(recipe: Recipe): Data = withContext(Dispatchers.IO) {
+    /** Whether [recipe] can learn from a text through its kept buckets alone (see [Data.gone]). */
+    private fun keepsBuckets(recipe: Recipe): Boolean = when (recipe.kind) {
+        RecipeKind.PERSONAL -> true
+        RecipeKind.BLEND -> recipe.members.all { keepsBuckets(it) }
+        // Pieces of words or not: a text that's gone teaches it its words through their kept buckets.
+        else -> recipe.buckets == LocalModel.bundled.buckets
+    }
+
+    private fun leftOut(recipe: Recipe, data: Data) = if (keepsBuckets(recipe)) 0 else data.gone
+
+    /** The texts [recipe] learns from: those it counts at all, and can read. */
+    private fun learnedFrom(recipe: Recipe, data: Data): Int =
+        if (recipe.kind == RecipeKind.BLEND) recipe.members.maxOf { learnedFrom(it, data) }
+        else (data.scored + data.others).count { it.weightUnder(recipe) > 0 && (it.features != null || keepsBuckets(recipe)) }
+
+    private suspend fun data(): Data = withContext(Dispatchers.IO) {
         val classes = LocalModel.bundled.classes
         val rows = corrections.all().filter { it.featurizerVersion == Featurizer.VERSION && classes.indexOf(it.label) >= 0 }
         val recheck = verdicts.recheckThreads().toSet()
@@ -317,9 +558,9 @@ class ModelLab(
             val address = t.address ?: return null
             return Featurizer.features(Featurizer.Input(address, t.body, contacts.isContact(address), t.threadId in replied))
         }
-        // A text that's gone can still teach a model of the shipped size through its kept buckets.
-        val fits = { f: List<String>? -> f != null || recipe.kind == RecipeKind.PERSONAL || recipe.buckets == LocalModel.bundled.buckets }
-        var leftOut = 0
+        // A text that's gone can still teach a model of the shipped size through its kept buckets;
+        // others can't read it (RecipeTrainer leaves it out of those).
+        var gone = 0
         val scored = mutableListOf<TrainingItem>()
         val scoredKeys = mutableListOf<Pair<String, Long>>()
         val others = mutableListOf<TrainingItem>()
@@ -327,52 +568,54 @@ class ModelLab(
             val label = classes.indexOf(r.label)
             val f = featuresOf(r.messageKey)
             val t = r.messageKey?.let(found::get)
-            if (!fits(f)) { if (!r.fromProvider) leftOut++; continue }
+            if (f == null && !r.fromProvider) gone++
             val idx = buckets(r.buckets)
             when {
-                r.fromProvider -> if (recipe.serviceWeight > 0) others += TrainingItem(f, idx, label, recipe.serviceWeight, key = r.messageKey)
+                // With its conversation, so it's left out wherever that conversation is held out.
+                r.fromProvider -> others += TrainingItem(f, idx, label, 1.0, group = r.threadId ?: -1, key = r.messageKey, source = TrainingItem.Source.SERVICE)
                 // The user's labels on texts are the answer key, a conversation's labels kept together;
                 // a label still waiting to be rechecked under the six categories trains but isn't scored.
-                r.messageKey != null && r.threadId != null && !r.messageKey.startsWith("restored:") && r.threadId !in recheck -> {
-                    scored += TrainingItem(f, idx, label, recipe.userWeight, group = r.threadId, key = r.messageKey, sender = t?.address, at = r.createdAt, conversing = r.threadId in replied)
+                // Only those whose text is still here, which every recipe can read, so all are scored on
+                // the same labels; one whose text is gone trains whatever can learn from its kept
+                // buckets, never while its conversation is held out.
+                r.messageKey != null && r.threadId != null && !r.messageKey.startsWith("restored:") && r.threadId !in recheck && f != null -> {
+                    scored += TrainingItem(
+                        f, idx, label, 1.0, group = r.threadId, key = r.messageKey, sender = t?.address, at = r.createdAt, conversing = r.threadId in replied,
+                        source = TrainingItem.Source.USER,
+                    )
                     scoredKeys += r.messageKey to r.threadId
                 }
+                r.messageKey != null && r.threadId != null && !r.messageKey.startsWith("restored:") && r.threadId !in recheck -> others += TrainingItem(
+                    null, idx, label, 1.0, group = r.threadId, key = com.ericflo.winnow.classifier.local.PersonalEvaluation.threadKey(r.threadId), source = TrainingItem.Source.USER,
+                )
                 // A conversation's own correction: left out wherever that conversation is held out.
-                else -> others += TrainingItem(f, idx, label, recipe.userWeight, key = r.messageKey ?: r.threadId?.let(com.ericflo.winnow.classifier.local.PersonalEvaluation::threadKey))
+                else -> others += TrainingItem(
+                    f, idx, label, 1.0, key = r.messageKey ?: r.threadId?.let(com.ericflo.winnow.classifier.local.PersonalEvaluation::threadKey),
+                    source = TrainingItem.Source.USER,
+                )
             }
         }
-        if (recipe.kind != RecipeKind.PERSONAL && recipe.includeCorpus && recipe.corpusWeight > 0) {
-            ShippedCorpus.texts.forEach { t ->
-                others += TrainingItem(Featurizer.features(Featurizer.Input(t.sender, t.body)), null, classes.indexOf(t.category.key), recipe.corpusWeight)
-            }
+        ShippedCorpus.texts.forEach { t ->
+            others += TrainingItem(Featurizer.features(Featurizer.Input(t.sender, t.body)), null, classes.indexOf(t.category.key), 1.0, source = TrainingItem.Source.CORPUS)
         }
-        Data(scored, scoredKeys, others, leftOut)
+        Data(scored, scoredKeys, others, gone)
     }
 
     /** Trains on everything and keeps the model; its training time and size. */
-    private suspend fun trainFinal(id: String, recipe: Recipe, data: Data, temperature: Float): Trained {
+    private suspend fun trainFinal(id: String, recipe: Recipe, data: Data, temperature: Float, progressId: String = id): Trained {
         val ctx = currentCoroutineContext()
         val started = System.nanoTime()
         val model = withContext(Dispatchers.Default) {
-            RecipeTrainer.train(recipe, LocalModel.bundled, data.scored + data.others, onProgress = { e, n -> progress(id, "Training on everything: pass ${e + 1} of $n", 0.85f + 0.15f * e / n) }, stopped = { !ctx.isActive })
+            RecipeTrainer.train(recipe, LocalModel.bundled, data.scored + data.others, onProgress = { e, n -> progress(progressId, "Training on everything: pass ${e + 1} of $n", 0.85f + 0.15f * e / n) }, stopped = { !ctx.isActive })
         }
         val millis = (System.nanoTime() - started) / 1_000_000
-        val parameters = when (model) {
-            is NeuralModel -> model.also { it.temperature = temperature }.parameters
-            is LinearPredictor -> model.model.buckets.toLong() * model.model.classes.size + (model.adjustments.size.toLong() * model.model.classes.size)
-            else -> 0
-        }
+        val parameters = LabModelFile.parameters(model)
         withContext(Dispatchers.IO) {
             dir.mkdirs()
             val part = File(dir, "$id.model.part")
-            DeflaterOutputStream(part.outputStream().buffered()).use { out ->
-                when (model) {
-                    is NeuralModel -> model.write(out)
-                    // A personal layer needs no file: Winnow fits it its own way when it's put in use.
-                    is LinearPredictor -> if (recipe.kind == RecipeKind.LINEAR) model.model.withTemperature(temperature).write(out)
-                }
-            }
-            if (recipe.kind == RecipeKind.PERSONAL) part.delete() else part.renameTo(modelFile(id))
+            // A personal layer needs no file: Winnow fits it its own way when it's put in use.
+            val kept = DeflaterOutputStream(part.outputStream().buffered()).use { out -> LabModelFile.write(recipe, model, temperature, out) }
+            if (kept) part.renameTo(modelFile(id)) else part.delete()
         }
         val bytes = withContext(Dispatchers.IO) { modelFile(id).takeIf { recipe.kind != RecipeKind.PERSONAL && it.exists() }?.length() ?: 0 }
         // The labels it learned from, scored by it: what it can fit at all.
@@ -385,15 +628,9 @@ class ModelLab(
 
     private fun modelFile(id: String) = File(dir, "$id.model")
 
-    private fun loadModel(id: String, kind: RecipeKind): Predictor? = runCatching {
-        InflaterInputStream(modelFile(id).inputStream().buffered()).use { input ->
-            when (kind) {
-                RecipeKind.NEURAL -> NeuralModel.read(input)
-                RecipeKind.LINEAR -> LinearPredictor(LocalModel.read(input))
-                RecipeKind.PERSONAL -> null
-            }
-        }
-    }.getOrNull()
+    private fun loadModel(id: String, recipe: Recipe): Predictor? = runCatching {
+        InflaterInputStream(modelFile(id).inputStream().buffered()).use { input -> LabModelFile.read(recipe, input) }
+    }.onFailure { android.util.Log.w("WinnowLab", "Couldn't read the model of $id", it) }.getOrNull()
 
     /** The cross-validated scores kept as an evaluation of this recipe, beside every other. */
     private suspend fun keepScoring(entry: Entry, data: Data, cv: List<Pair<Int, DoubleArray>>, at: Long): Long? = withContext(Dispatchers.IO) {
@@ -425,6 +662,9 @@ class ModelLab(
     private fun Double.finite() = if (isFinite()) this else 0.0
 
     companion object {
+        /** A sweep's id where a model's would be, in [Status]. */
+        const val SWEEP = "sweep"
+
         /** What a recipe's numbers mean, in a line each, for the editor. */
         val HELP = mapOf(
             "kind" to "Personal layer: the shipped model with a light layer of what you taught on top (what Winnow does now). Linear: one weight per word and category, trained from scratch here. Neural: a small network that can learn combinations words alone can't say.",
@@ -436,6 +676,8 @@ class ModelLab(
             "l2" to "How hard every weight is pulled toward zero: more is plainer and steadier, less fits closer.",
             "dropout" to "The share of the network left out at each step, so it can't lean on any one part.",
             "bags" to "Train this many on resampled texts and average them: steadier, slower.",
+            "inputDropout" to "The share of a text's words left out of each training step, a different few each time. No one word can carry a text, so the model learns from the rest of it too: it memorizes your labels less and carries them over to new texts better.",
+            "pieces" to "Also learn from pieces of words, four letters at a time, so words that share a stem (redeliver, redelivery) or a misspelling share what's learned.",
             "corpus" to "Also learn from the 1,493 hand-written texts the shipped model learned from.",
             "userWeight" to "How much each of your labels counts against one shipped text.",
             "serviceWeight" to "How much each of the classifier service's labels counts; 0 leaves them out. Your labels always count more: where the service sees texts differently from you, less here lets yours set the model.",

@@ -217,6 +217,9 @@ class AppContainer(private val context: Context) {
             dir = java.io.File(context.filesDir, "lab"),
             onModelChanged = { learner.reload() },
             onRunStarted = { com.ericflo.winnow.classify.WorkService.start(context) },
+            // Steers sweeps when the user has one set up: shown settings and scores, never a text.
+            // One try a call: each is one the user pays for and counts.
+            steeringProvider = { classifiers.provider(settings.current(), attempts = 1) },
         )
     }
 

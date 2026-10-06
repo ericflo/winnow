@@ -95,6 +95,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -193,6 +194,11 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
 
     /** Models the user designs and trains here (see ModelLab and the Lab tab). */
     val lab = container.modelLab
+
+    /** The classifier service that would steer a sweep, by name; null when none is set up. */
+    val steeringService: StateFlow<String?> = container.settings.settings
+        .map { s -> runCatching { container.classifiers.provider(s)?.let { s.provider.label.substringBefore(" (") } }.getOrNull() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _draft = MutableStateFlow(com.ericflo.winnow.classifier.local.Recipe.PRESETS[2].second)
     /** The model being designed. */

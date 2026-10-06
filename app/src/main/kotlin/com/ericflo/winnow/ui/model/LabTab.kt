@@ -40,7 +40,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ericflo.winnow.classifier.local.Recipe
+import com.ericflo.winnow.classifier.local.Knob
 import com.ericflo.winnow.classifier.local.RecipeKind
+import com.ericflo.winnow.classifier.local.SweepTrial
 import com.ericflo.winnow.classify.ModelLab
 import com.ericflo.winnow.ui.insight.InsightCard
 import com.ericflo.winnow.ui.insight.Note
@@ -60,6 +62,7 @@ internal fun LazyListScope.lab(viewModel: ModelViewModel, onOpenThread: (Long, L
     item("status") { StatusCard(viewModel) }
     // What holds the models back from following the user's labels, and what would help.
     item("follow") { FollowYourLabelsCard(viewModel, onOpenThread) }
+    item("sweep") { SweepCard(viewModel) }
     item("design") { DesignCard(viewModel) }
     item("models-head") { ModelsHeader(viewModel) }
     item("models") { Models(viewModel) }
@@ -118,10 +121,14 @@ private fun StatusCard(viewModel: ModelViewModel) {
     val status by viewModel.lab.status.collectAsStateWithLifecycle()
     val entries by viewModel.lab.entries.collectAsStateWithLifecycle()
     when (val s = status) {
-        is ModelLab.Status.Running -> InsightCard("Training ${entries.firstOrNull { it.id == s.id }?.name ?: ""}") {
+        is ModelLab.Status.Running -> InsightCard(if (s.id == ModelLab.SWEEP) "Sweeping recipes on your labels" else "Training ${entries.firstOrNull { it.id == s.id }?.name ?: ""}") {
             LinearProgressIndicator(progress = { s.progress }, modifier = Modifier.fillMaxWidth())
             Text(s.what, style = MaterialTheme.typography.bodyMedium)
-            Note("On this phone, with nothing sent anywhere. It keeps going if you leave Winnow, with its progress and a Stop button in a notification.")
+            val steeredBy = viewModel.lab.sweep.collectAsStateWithLifecycle().value?.steeredBy?.takeIf { s.id == ModelLab.SWEEP }
+            Note(
+                (if (steeredBy != null) "Trained on this phone. Between rounds, $steeredBy is shown the tries' settings and scores, never a text."
+                else "On this phone, with nothing sent anywhere.") + " It keeps going if you leave Winnow, with its progress and a Stop button in a notification.",
+            )
             TextButton(onClick = viewModel.lab::cancel, contentPadding = PaddingValues(0.dp)) { Text("Stop") }
         }
         is ModelLab.Status.Failed -> InsightCard("Training stopped") {
@@ -147,10 +154,12 @@ private fun DesignCard(viewModel: ModelViewModel) {
             }
         }
         OutlinedTextField(value = name, onValueChange = viewModel::setDraftName, label = { Text("Its name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        // Blends come from sweeps, of recipes designed here.
+        val kinds = RecipeKind.entries.filter { it != RecipeKind.BLEND }
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            RecipeKind.entries.forEachIndexed { i, k ->
-                SegmentedButton(selected = r.kind == k, onClick = { viewModel.editDraft { it.copy(kind = k) } }, shape = SegmentedButtonDefaults.itemShape(i, RecipeKind.entries.size)) {
-                    Text(when (k) { RecipeKind.PERSONAL -> "Personal"; RecipeKind.LINEAR -> "Linear"; RecipeKind.NEURAL -> "Neural" })
+            kinds.forEachIndexed { i, k ->
+                SegmentedButton(selected = r.kind == k, onClick = { viewModel.editDraft { it.copy(kind = k) } }, shape = SegmentedButtonDefaults.itemShape(i, kinds.size)) {
+                    Text(when (k) { RecipeKind.PERSONAL -> "Personal"; RecipeKind.LINEAR -> "Linear"; else -> "Neural" })
                 }
             }
         }
@@ -172,6 +181,10 @@ private fun DesignCard(viewModel: ModelViewModel) {
             Step("Dropout", ModelLab.HELP.getValue("dropout"), DROPOUTS, r.dropout, { pct(it) }) { v -> viewModel.editDraft { it.copy(dropout = v) } }
         }
         if (r.kind == RecipeKind.LINEAR) Step("Bags", ModelLab.HELP.getValue("bags"), (1..10).toList(), r.bags, { "$it" }) { v -> viewModel.editDraft { it.copy(bags = v) } }
+        if (r.kind == RecipeKind.LINEAR || r.kind == RecipeKind.NEURAL) {
+            Step("Words left out", ModelLab.HELP.getValue("inputDropout"), WORDS_OUT, r.inputDropout, { pct(it) }) { v -> viewModel.editDraft { it.copy(inputDropout = v) } }
+            Toggle("Pieces of words", ModelLab.HELP.getValue("pieces"), r.pieces) { v -> viewModel.editDraft { it.copy(pieces = v) } }
+        }
         Step("Passes", ModelLab.HELP.getValue("epochs"), EPOCHS, r.epochs, { "$it" }) { v -> viewModel.editDraft { it.copy(epochs = v) } }
         Step("Step size", ModelLab.HELP.getValue("learningRate"), STEPS, r.learningRate, { "$it" }) { v -> viewModel.editDraft { it.copy(learningRate = v) } }
         Step("L2", ModelLab.HELP.getValue("l2"), L2S, r.l2, { if (it == 0.0) "0" else "%.0e".format(it) }) { v -> viewModel.editDraft { it.copy(l2 = v) } }
@@ -245,6 +258,7 @@ private fun Models(viewModel: ModelViewModel) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(e.name + if (inUse) " · in use" else "", style = MaterialTheme.typography.titleSmall)
                     Text(e.recipe.describe(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(e.recipe.details(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (e.accuracy != null) Scores(e)
                     Text(
                         if (e.trainedAt == null) "Not trained yet."
@@ -264,7 +278,10 @@ private fun Models(viewModel: ModelViewModel) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (!inUse && e.trainedAt != null) TextButton(onClick = { viewModel.useLab(e.id) }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Use it") }
                         TextButton(onClick = { viewModel.trainEntry(e.id) }, enabled = !busy, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(if (e.trainedAt == null) "Train" else "Retrain & rescore") }
-                        TextButton(onClick = { viewModel.setDraft(e.recipe, "${e.name} (copy)") }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Edit a copy") }
+                        // A blend is made of recipes a sweep tried; it's edited by sweeping again.
+                        if (e.recipe.kind != RecipeKind.BLEND) {
+                            TextButton(onClick = { viewModel.setDraft(e.recipe, "${e.name} (copy)") }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Edit a copy") }
+                        }
                         TextButton(onClick = { deleting = true }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Delete") }
                     }
                 }
@@ -272,6 +289,165 @@ private fun Models(viewModel: ModelViewModel) {
         }
     }
 }
+
+/**
+ * Sweeps: Winnow trying recipes on the user's labels by itself, round after round, steered by
+ * the classifier service when the user lets it (each steer one paid call), and keeping the best.
+ * Everything it tried is listed, with how each round was steered, what the steering leaned
+ * toward and what it cost.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SweepCard(viewModel: ModelViewModel) {
+    val sweep by viewModel.lab.sweep.collectAsStateWithLifecycle()
+    val prefs by viewModel.lab.sweepPrefs.collectAsStateWithLifecycle()
+    val status by viewModel.lab.status.collectAsStateWithLifecycle()
+    val service by viewModel.steeringService.collectAsStateWithLifecycle()
+    val entries by viewModel.lab.entries.collectAsStateWithLifecycle()
+    val running = (status as? ModelLab.Status.Running)?.id == ModelLab.SWEEP
+    val busy = status is ModelLab.Status.Running
+    InsightCard("Sweep for a better recipe", subtitle = "Winnow tries recipes on your labels by itself, round after round, and keeps the best") {
+        Note(
+            "Each try is trained on this phone and scored the way your models are: on conversations it hadn't seen, with your labels of each sender. " +
+                "It starts from your best so far and a few different ways to keep a model from memorizing your labels. When its best beats yours, " +
+                "it's kept below as a model of its own, trained on everything and scored on your newest labels too, for you to use or not.",
+        )
+        val s = service
+        if (s != null) {
+            Toggle("Let $s steer between rounds", "It's shown each try's settings and scores, and how many labels you have in each category: never a text, a sender or a word. It answers which settings to try next, and whether another round is worth it. Each round it steers is one paid call.", prefs.steer) { v ->
+                viewModel.lab.setSweepPrefs(prefs.copy(steer = v))
+            }
+            if (prefs.steer) {
+                Step("Calls to $s a sweep, at most", "One a round at most. Past that, or if it can't be reached, the phone steers.", (1..8).toList(), prefs.steeringCalls, { "$it" }) { v ->
+                    viewModel.lab.setSweepPrefs(prefs.copy(steeringCalls = v))
+                }
+            }
+        } else {
+            Note("No classifier service is set up, so the phone steers: each round leans toward the settings that have done best so far.")
+        }
+        Step("Rounds", null, (1..8).toList(), prefs.rounds, { "$it" }) { v -> viewModel.lab.setSweepPrefs(prefs.copy(rounds = v)) }
+        Step("Tries a round", null, (2..10).toList(), prefs.perRound, { "$it" }) { v -> viewModel.lab.setSweepPrefs(prefs.copy(perRound = v)) }
+        Note("About ${prefs.rounds * prefs.perRound + 7} tries. Each takes seconds to a minute on a phone; it keeps going if you leave Winnow, with a Stop button in its notification.")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = viewModel.lab::startSweep, enabled = !busy) { Text(if (running) "Sweeping…" else if (sweep == null) "Start a sweep" else "Sweep again") }
+            if (running) OutlinedButton(onClick = viewModel.lab::cancel) { Text("Stop") }
+        }
+        sweep?.let { SweepResults(it, running, busy, entries, viewModel) }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SweepResults(sw: ModelLab.Sweep, running: Boolean, busy: Boolean, entries: List<ModelLab.Entry>, viewModel: ModelViewModel) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Text(if (running) "This sweep so far" else "The last sweep", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+    Text(
+        listOfNotNull(
+            "started ${ago(sw.startedAt)}",
+            "${count(sw.tried)} tries",
+            sw.rounds.size.takeIf { it > 0 }?.let { "$it round${if (it == 1) "" else "s"} after the starting points" },
+            when {
+                sw.stopped -> "stopped by you"
+                sw.failed != null -> "stopped: ${sw.failed}"
+                sw.interrupted -> "cut off before it finished (Winnow was closed)"
+                sw.settled -> "ended early: the steering saw little left to gain"
+                else -> null
+            },
+            sw.steeredBy?.let { name ->
+                "$name was asked to steer ${sw.steeringCalls} time${if (sw.steeringCalls == 1) "" else "s"}" +
+                    (if (sw.steeringFailed > 0) " (${sw.steeringFailed} failed; the phone steered from there)" else "") + when {
+                        sw.steeringCalls == 0 -> ""
+                        sw.costUsd > 0 -> ", about ${usd(sw.costUsd)} in all"
+                        else -> "; its cost isn't reported"
+                    }
+            } ?: if (sw.noService) "no service was set up, so the phone steered" else "the phone steered",
+        ).joinToString(" · "),
+        style = MaterialTheme.typography.bodySmall,
+    )
+    val best = sw.best
+    if (best != null) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column {
+                Text(pct(best.accuracy), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                Text("its best, on conversations it hadn't seen", style = MaterialTheme.typography.labelSmall, color = muted)
+            }
+            sw.baselines.forEach { b ->
+                Column {
+                    Text(pct(b.accuracy), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                    Text("${b.name}, scored the same way", style = MaterialTheme.typography.labelSmall, color = muted)
+                }
+            }
+        }
+    }
+    sw.keptId?.let { id -> entries.firstOrNull { it.id == id } }?.let { kept ->
+        Text(
+            "Kept below as “${kept.name}”" + (kept.newestAccuracy?.let { ": ${pct(it)} on your newest ${count(kept.newestCount)} labels by a model trained only on the ones before them" } ?: "") + ". Use it from there.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+    val bar = sw.baselines.maxByOrNull { it.accuracy }
+    if (!running && best != null && sw.keptId == null && bar != null && best.accuracy <= bar.accuracy) {
+        Text("Nothing it tried beat ${bar.name}, so nothing was kept.", style = MaterialTheme.typography.bodyMedium)
+    }
+    if (sw.trials.isNotEmpty()) {
+        Note(
+            "The best of many tries is a little lucky: it was picked by the very scores shown, so one that wins by under a point may not hold up on new texts. " +
+                "A kept model is also scored on your newest labels by a model trained only on the ones before them: a second look, though the tries were scored on those labels too.",
+        )
+        sw.trials.take(8).forEach { t -> TrialRow(t, sw, busy, viewModel) }
+        if (sw.trials.size > 8) Note("And ${sw.trials.size - 8} more, each scored below these.")
+    }
+    sw.rounds.forEach { r ->
+        Column {
+            Text("Round ${r.round}: steered by ${r.steeredBy}" + (r.costUsd.takeIf { it > 0 }?.let { " (${usd(it)})" } ?: ""), style = MaterialTheme.typography.labelLarge)
+            // A lean is how far its odds are above even ones: 50% of two values is none at all.
+            val leans = r.leaning.map { it to it.odds * (Knob.byKey(it.knob)?.values?.size ?: 1) }.filter { it.second >= 1.25 }.sortedByDescending { it.second }.take(5)
+            Text(
+                (if (leans.isEmpty()) "Leaned no way in particular" else "Leaned toward " + leans.joinToString(", ") { (l, _) -> "${l.knob.replace('_', ' ')} ${l.value} (${pct(l.odds)})" }) +
+                    (r.more?.let { " · another round worth it: ${pct(it)}" } ?: ""),
+                style = MaterialTheme.typography.bodySmall, color = muted,
+            )
+            r.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+        }
+    }
+}
+
+@Composable
+private fun TrialRow(t: SweepTrial, sw: ModelLab.Sweep, busy: Boolean, viewModel: ModelViewModel) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${pct(t.accuracy)} · macro F1 ${f2(t.macroF1)}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                // The user's own is theirs already; the kept one is below.
+                val kept = sw.keptId != null && t == sw.best
+                if (sw.baselines.none { it.name == t.from } && !kept) {
+                    TextButton(onClick = { viewModel.lab.keepTrial(t) }, enabled = !busy, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Keep it") }
+                }
+            }
+            val yours = sw.baselines.firstOrNull { t.from == it.name || t.from.startsWith("${it.name}, ") }
+            Text(
+                when {
+                    yours != null && t.from == yours.name -> "${yours.name}, as you have it"
+                    yours != null -> "${yours.name}, " + t.from.removePrefix("${yours.name}, ")
+                    t.from == "start" -> "a starting point"
+                    t.from == "blend" -> "a blend of tries above, averaged"
+                    else -> "round ${t.round}, steered by ${t.from}"
+                } + " · ${pct(t.wordsAccuracy)} from the words alone" + when {
+                    t.millis >= 1000 -> " · ${com.ericflo.winnow.ui.insight.duration(t.millis)}"
+                    t.millis > 0 -> " · under a second"
+                    else -> ""
+                },
+                style = MaterialTheme.typography.labelSmall, color = muted,
+            )
+            Text(t.recipe.describe(), style = MaterialTheme.typography.bodySmall)
+            Text(t.recipe.details(), style = MaterialTheme.typography.labelSmall, color = muted)
+        }
+    }
+}
+
+/** "$0.0008", "$0.12": what steering cost, in dollars. */
+private fun usd(x: Double) = if (x >= 0.01) "$" + "%.2f".format(x) else "$" + "%.4f".format(x)
 
 /** One setting stepped through [options] with − and +, its value between, and what it does under. */
 @Composable
@@ -309,13 +485,14 @@ private fun Toggle(label: String, help: String, value: Boolean, onChange: (Boole
 private val BUCKETS = (10..18).map { 1 shl it }
 private val WIDTHS = listOf(2, 4, 8, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512)
 private val DROPOUTS = (0..16).map { it * 0.05 }.map { Math.round(it * 100) / 100.0 }
+private val WORDS_OUT = (0..12).map { it * 0.05 }.map { Math.round(it * 100) / 100.0 }
 private val EPOCHS = listOf(1, 2, 3, 5, 8, 10, 12, 15, 20, 25, 30, 40, 50, 60, 80, 100, 150, 200, 300, 500)
 private val STEPS = listOf(0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0)
 private val L2S = listOf(0.0, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1)
 private val WEIGHTS = listOf(0.0, 0.1, 0.25, 0.5, 1.0, 2.0, 3.0, 5.0)
 private val USER_WEIGHTS = listOf(0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0)
 private val SERVICE_WEIGHTS = listOf(0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0, 1.5, 2.0)
-private val SENDER_STRENGTHS = listOf(0.0, 0.5, 1.0, 2.0)
+private val SENDER_STRENGTHS = listOf(0.0, 0.5, 1.0, 2.0, 3.0, 4.0)
 
 /** "8.0 MB", "640 KB": what a trained model takes up on the phone. */
 private fun sizeOf(bytes: Long): String =

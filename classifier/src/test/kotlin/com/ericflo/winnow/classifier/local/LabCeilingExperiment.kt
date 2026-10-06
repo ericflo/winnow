@@ -110,6 +110,56 @@ fun main() {
         String.format(Locale.US, "%-26s %-11s %-7s %5.1f%% %6.2f %5.1f%%   %s", name, noise, if (lean) "leans" else "agrees", r.acc * 100, r.macroF1, r.trainAcc * 100,
             r.recall.joinToString(" ") { if (it.isNaN()) "    -" else String.format(Locale.US, "%4.0f%%", it * 100) }),
     )
+    if (System.getProperty("part") == "levers") {
+        // What the sweep can turn: fewer passes, words left out, pieces of words, blends.
+        val deeper = Recipe.PRESETS.first { it.first == "Neural, deeper" }.second
+        val wider = Recipe.PRESETS.first { it.first == "Neural, wider" }.second
+        val linear = Recipe.PRESETS[1].second
+        val levers = listOf(
+            "deeper (preset)" to deeper,
+            "deeper, 8 passes" to deeper.copy(epochs = 8),
+            "deeper, 4 passes" to deeper.copy(epochs = 4),
+            "deeper, words out 30%" to deeper.copy(inputDropout = 0.3),
+            "deeper, pieces" to deeper.copy(pieces = true),
+            "deeper, l2 1e-4" to deeper.copy(l2 = 1e-4),
+            "wider 8p, out 30%, pieces" to wider.copy(epochs = 8, inputDropout = 0.3, pieces = true),
+            "linear (preset)" to linear,
+            "linear, pieces" to linear.copy(pieces = true),
+            "linear, out 30%" to linear.copy(inputDropout = 0.3),
+            "linear 20p, pieces" to linear.copy(epochs = 20, pieces = true),
+            "blend deeper+linear" to Recipe(kind = RecipeKind.BLEND, members = listOf(deeper, linear)),
+            "blend 3" to Recipe(kind = RecipeKind.BLEND, members = listOf(deeper.copy(inputDropout = 0.3), linear.copy(pieces = true), wider.copy(epochs = 8, pieces = true))),
+        )
+        for (noise in listOf("clean", "systematic")) for ((name, recipe) in levers) {
+            val t0 = System.nanoTime()
+            val r = run(recipe, noise, false)
+            line(name, noise, false, r)
+            System.err.println("  ${(System.nanoTime() - t0) / 1_000_000} ms")
+        }
+        return
+    }
+    if (System.getProperty("part") == "sweep") {
+        // A whole sweep, steered on the phone, against the "Neural, deeper" preset as the best so far.
+        for (noise in listOf("systematic", "clean")) {
+            val yu = userLabels(noise)
+            val byCat = user.indices.groupBy { idx(user[it]) }
+            val group = IntArray(user.size).also { g -> byCat.values.forEach { ids -> ids.forEachIndexed { n, i -> g[i] = idx(user[i]) * 1000 + n / 3 } } }
+            val scored = user.indices.map { TrainingItem(f(user[it]), null, yu[it], 1.0, group[it].toLong(), key = "u$it", source = TrainingItem.Source.USER) }
+            val others = service.map { TrainingItem(f(it), null, idx(it), 1.0, source = TrainingItem.Source.SERVICE) } + corpus.map { TrainingItem(f(it), null, idx(it), 1.0, source = TrainingItem.Source.CORPUS) }
+            val scorer = SweepScorer(base, scored, others, emptySet(), 0.9)
+            val t0 = System.nanoTime()
+            val result = kotlinx.coroutines.runBlocking {
+                RecipeSweep(scorer, null).run(listOf("Neural, deeper" to Recipe.PRESETS.first { it.first == "Neural, deeper" }.second), onEvent = { e ->
+                    if (e is RecipeSweep.Event.Tried) System.err.println(String.format(Locale.US, "  r%d %5.1f%% %5dms %-22s %s", e.trial.round, e.trial.accuracy * 100, e.trial.millis, e.trial.from.take(22), e.trial.recipe.describe()))
+                })
+            }
+            val mine = result.trials.first { it.from == "Neural, deeper" }
+            println(String.format(Locale.US, "%-10s baseline %.1f%%, best %.1f%% (%s), blend %s; %d tries in %ds",
+                noise, mine.accuracy * 100, result.trials.first().accuracy * 100, result.trials.first().recipe.describe(),
+                result.blend?.let { String.format(Locale.US, "%.1f%%", it.accuracy * 100) } ?: "none", result.trials.size, (System.nanoTime() - t0) / 1_000_000_000))
+        }
+        return
+    }
     if (System.getProperty("part") == "two") { partTwo(user, service, corpus, base, ::f, ::idx, ::userLabels); return }
     if (System.getProperty("part") == "sender") { partSender(user, service, corpus, base, ::f, ::idx); return }
     val only = System.getProperty("only")

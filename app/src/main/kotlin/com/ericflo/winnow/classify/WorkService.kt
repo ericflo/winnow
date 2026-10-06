@@ -80,6 +80,19 @@ class WorkService : Service() {
                     clearFinished(this@WorkService, LAB)
                     training = l.id
                     trainedBefore = lab.entries.value.firstOrNull { it.id == l.id }?.trainedAt
+                } else if (l !is ModelLab.Status.Running && training == ModelLab.SWEEP) {
+                    // A sweep: what it found, unless the user stopped it (and saw it stop).
+                    val sweep = lab.sweep.value
+                    if (!visible() && sweep != null && !sweep.stopped) {
+                        val best = sweep.best
+                        val title = if (sweep.failed != null || l is ModelLab.Status.Failed) "The sweep stopped" else "The sweep is done"
+                        val text = sweep.failed ?: best?.let { b ->
+                            "Best: ${(b.accuracy * 100).roundToInt()}% on conversations it hadn't seen" +
+                                (sweep.baselines.maxByOrNull { it.accuracy }?.let { " (${it.name}: ${(it.accuracy * 100).roundToInt()}%)" } ?: "") + ", of ${sweep.tried} tries."
+                        } ?: "Nothing could be tried."
+                        notify(NOTIFICATION_LAB_DONE, finished(title, text, LAB))
+                    }
+                    training = null
                 } else if (l !is ModelLab.Status.Running && training != null) {
                     val entry = lab.entries.value.firstOrNull { it.id == training }
                     if (!visible()) when {
@@ -126,7 +139,7 @@ class WorkService : Service() {
                     reviewing = false
                 }
                 when {
-                    l is ModelLab.Status.Running -> notify(NOTIFICATION_RUNNING, progress("Training ${nameOf(l.id) ?: "a model"}", l.what, l.progress, LAB))
+                    l is ModelLab.Status.Running -> notify(NOTIFICATION_RUNNING, progress(if (l.id == ModelLab.SWEEP) "Sweeping recipes on your labels" else "Training ${nameOf(l.id) ?: "a model"}", l.what, l.progress, LAB))
                     e is ExperimentStatus.Running -> notify(
                         NOTIFICATION_RUNNING,
                         progress(

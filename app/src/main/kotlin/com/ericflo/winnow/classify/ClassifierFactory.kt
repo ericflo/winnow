@@ -52,8 +52,11 @@ class ClassifierFactory(
             keepOnPhone = if (sample) null else keepOnPhone(),
         )
 
-    /** Null when the choice is on-device only or the chosen provider isn't configured yet. */
-    fun provider(settings: WinnowSettings): DecisionProvider? {
+    /**
+     * Null when the choice is on-device only or the chosen provider isn't configured yet.
+     * [attempts]: tries per question before giving up (1 where each try is a paid call the user counts).
+     */
+    fun provider(settings: WinnowSettings, attempts: Int = 2): DecisionProvider? {
         val kind = settings.provider
         val p = settings.settingsFor(kind)
         val handling = if (p.zeroRetention) DataHandling.REMOTE_ZERO_RETENTION else DataHandling.REMOTE
@@ -63,14 +66,14 @@ class ClassifierFactory(
         return when (kind) {
             ProviderKind.ON_DEVICE -> null
             ProviderKind.TYPESAFE_JEV -> key?.let {
-                SystemOneProvider(SystemOneConfig.typeSafe(it, model).copy(dataHandling = handling), http)
+                SystemOneProvider(SystemOneConfig.typeSafe(it, model).copy(dataHandling = handling, maxAttempts = attempts), http)
             }
             ProviderKind.OPENROUTER_JEV -> key?.let {
                 // OpenRouter is told, not just trusted: zero retention routes to ZDR endpoints only.
-                SystemOneProvider(SystemOneConfig.openRouter(it, model).copy(dataHandling = handling, zeroRetentionRouting = p.zeroRetention), http)
+                SystemOneProvider(SystemOneConfig.openRouter(it, model).copy(dataHandling = handling, zeroRetentionRouting = p.zeroRetention, maxAttempts = attempts), http)
             }
             ProviderKind.SYSTEM_ONE -> baseUrl?.let {
-                SystemOneProvider(SystemOneConfig.custom(it, model, key, handling), http)
+                SystemOneProvider(SystemOneConfig.custom(it, model, key, handling).copy(maxAttempts = attempts), http)
             }
             ProviderKind.CHAT_COMPLETIONS -> baseUrl?.takeIf { model.isNotBlank() }?.let {
                 // The same routing request where the endpoint is OpenRouter's; other servers might reject it.
@@ -79,7 +82,7 @@ class ClassifierFactory(
                 } else {
                     JsonObject(emptyMap())
                 }
-                ChatCompletionsProvider(ChatCompletionsConfig(baseUrl = it, model = model, apiKey = key, dataHandling = handling, extraBody = extra), http)
+                ChatCompletionsProvider(ChatCompletionsConfig(baseUrl = it, model = model, apiKey = key, dataHandling = handling, extraBody = extra, maxAttempts = attempts), http)
             }
         }
     }

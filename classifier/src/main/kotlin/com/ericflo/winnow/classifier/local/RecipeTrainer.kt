@@ -15,6 +15,9 @@ enum class RecipeKind(val label: String) {
 
     /** A neural network trained from scratch on the phone (see [NeuralModel]). */
     NEURAL("Neural network"),
+
+    /** Several linear and neural recipes trained alike, their answers averaged (see [BlendPredictor]). */
+    BLEND("Blend"),
 }
 
 /**
@@ -39,6 +42,13 @@ data class Recipe(
     val l2: Double = Personalizer.L2,
     /** Neural only: the share of hidden units left out of each step, against memorizing. */
     val dropout: Double = 0.0,
+    /**
+     * Retrained kinds: the share of a text's words left out of each step, a different few every
+     * time, so no one word can carry a text and the model learns from the rest of it too.
+     */
+    val inputDropout: Double = 0.0,
+    /** Retrained kinds: learn from pieces of words too, four letters at a time, so "redeliver" and "redelivery" share (see [WordPieces]). */
+    val pieces: Boolean = false,
     /** Linear only: models trained on resamples and averaged. */
     val bags: Int = 1,
     /** Retrained kinds: learn from the texts the shipped model learned from too, and how much each counts. */
@@ -56,6 +66,9 @@ data class Recipe(
      */
     val senderMemory: Double = SenderMemory.DEFAULT_STRENGTH,
     val seed: Int = 42,
+    /** Blend only: the recipes blended (linear and neural), and how much each counts (equally when empty). */
+    val members: List<Recipe> = emptyList(),
+    val memberWeights: List<Double> = emptyList(),
 ) {
     /** What's wrong with it, if anything, in words; null when it can be trained. */
     fun problem(): String? = when {
@@ -72,18 +85,49 @@ data class Recipe(
         bags !in 1..10 -> "Bags must be 1 to 10."
         userWeight <= 0 || userWeight > 100 || serviceWeight < 0 || serviceWeight > 100 || corpusWeight < 0 || corpusWeight > 100 -> "Weights must be 0 to 100 (yours above 0)."
         senderMemory < 0 || senderMemory > 4 -> "Who sent it must count 0 to 4."
+        inputDropout < 0 || inputDropout >= 0.9 -> "Words left out must be 0 to 0.9."
+        kind == RecipeKind.PERSONAL && pieces -> "Pieces of words need a retrained model: the personal layer reads the shipped model's features."
+        kind == RecipeKind.BLEND && members.size !in 2..MAX_MEMBERS -> "A blend needs 2 to $MAX_MEMBERS recipes."
+        kind == RecipeKind.BLEND && members.any { it.kind != RecipeKind.LINEAR && it.kind != RecipeKind.NEURAL } -> "A blend can hold linear and neural recipes only."
+        kind == RecipeKind.BLEND && memberWeights.isNotEmpty() && (memberWeights.size != members.size || memberWeights.any { it < 0 || !it.isFinite() } || memberWeights.sum() <= 0) ->
+            "A blend's weights need one per recipe, none below 0."
+        kind == RecipeKind.BLEND -> members.firstNotNullOfOrNull { it.problem() }
         else -> null
     }
 
     /** A short name for what it is: "Neural 64→32, 65,536 buckets". */
     fun describe(): String = when (kind) {
         RecipeKind.PERSONAL -> "Personal layer, $epochs passes, step $learningRate, L2 $l2"
-        RecipeKind.LINEAR -> "Linear, ${"%,d".format(buckets)} buckets, $epochs passes" + (if (bags > 1) ", $bags bags" else "")
-        RecipeKind.NEURAL -> "Neural ${layers.joinToString("→")}" + (if (wide) " + wide" else "") + ", ${"%,d".format(buckets)} buckets, $epochs passes"
+        RecipeKind.LINEAR -> "Linear, ${"%,d".format(buckets)} buckets, $epochs passes" + (if (bags > 1) ", $bags bags" else "") + extras()
+        RecipeKind.NEURAL -> "Neural ${layers.joinToString("→")}" + (if (wide) " + wide" else "") + ", ${"%,d".format(buckets)} buckets, $epochs passes" + extras()
+        RecipeKind.BLEND -> "Blend of ${members.size}: " + members.withIndex().joinToString(" · ") { (i, m) ->
+            m.describe() + (memberWeights.getOrNull(i)?.takeIf { memberWeights.toSet().size > 1 }?.let { w -> " (×${"%.2f".format(w / memberWeights.sum())})" } ?: "")
+        }
     }
+
+    /** The rest of what it says, for telling apart recipes [describe] calls the same: how it's fitted and what it learns from. */
+    fun details(): String = fitting() + " · who sent it ×${num(senderMemory)}"
+
+    private fun fitting(): String = when (kind) {
+        RecipeKind.BLEND -> members.joinToString(" | ") { it.fitting() }
+        else -> listOfNotNull(
+            "step $learningRate",
+            "L2 " + if (l2 == 0.0) "0" else "%.0e".format(l2),
+            if (kind == RecipeKind.NEURAL && dropout > 0) "dropout ${(dropout * 100).toInt()}%" else null,
+            if (kind != RecipeKind.PERSONAL) "your labels ×${num(userWeight)}" else null,
+            "service ×${num(serviceWeight)}",
+            if (kind != RecipeKind.PERSONAL) (if (includeCorpus) "shipped ×${num(corpusWeight)}" else "no shipped examples") else null,
+            if (kind != RecipeKind.PERSONAL && !balance) "categories as they come" else null,
+        ).joinToString(" · ")
+    }
+
+    private fun num(x: Double) = if (x % 1.0 == 0.0) x.toInt().toString() else x.toString()
+
+    private fun extras(): String = (if (pieces) ", word pieces" else "") + (if (inputDropout > 0) ", ${(inputDropout * 100).toInt()}% of words left out" else "")
 
     companion object {
         const val MAX_EMBEDDING = 4_194_304L
+        const val MAX_MEMBERS = 6
 
         // In the order they did on the hand-written corpus with labels that words alone don't
         // separate (`:classifier:labCeilingExperiment`): one layer did as well as more, and deeper worse.
@@ -114,7 +158,26 @@ class TrainingItem(
     val sender: String? = null,
     val at: Long = 0,
     val conversing: Boolean = false,
-)
+    /** Where its label came from: by that, a recipe says how much it counts ([FIXED]: [weight], whatever the recipe). */
+    val source: Source = Source.FIXED,
+) {
+    enum class Source { FIXED, USER, SERVICE, CORPUS }
+
+    /** How much it counts under [recipe]; 0 leaves it out. */
+    fun weightUnder(recipe: Recipe): Double = when (source) {
+        Source.FIXED -> weight
+        Source.USER -> recipe.userWeight
+        Source.SERVICE -> recipe.serviceWeight
+        // The personal layer sits on a model that learned from these already.
+        Source.CORPUS -> if (recipe.includeCorpus && recipe.kind != RecipeKind.PERSONAL) recipe.corpusWeight else 0.0
+    }
+
+    fun copy(features: List<String>? = this.features, weight: Double = this.weight) =
+        TrainingItem(features, baseIndices, label, weight, group, key, sender, at, conversing, source)
+
+    /** With [WordPieces] among its features. */
+    fun withPieces(): TrainingItem = if (features == null) this else copy(features = WordPieces.expand(features))
+}
 
 /** Trains, scores and calibrates models from [Recipe]s. Pure and deterministic. */
 object RecipeTrainer {
@@ -131,21 +194,34 @@ object RecipeTrainer {
         stopped: () -> Boolean = { false },
     ): Predictor {
         recipe.problem()?.let { throw IllegalArgumentException(it) }
-        return when (recipe.kind) {
+        if (recipe.kind == RecipeKind.BLEND) {
+            val n = recipe.members.size
+            val members = recipe.members.mapIndexed { m, member -> train(member, base, items, { e, of -> onProgress(m * of + e, n * of) }, stopped) }
+            return BlendPredictor(members, recipe.memberWeights.ifEmpty { List(n) { 1.0 } })
+        }
+        // Each text counts as the recipe says for where its label came from.
+        val weighted = items.mapNotNull { item -> item.weightUnder(recipe).takeIf { it > 0 }?.let { w -> if (w == item.weight) item else item.copy(weight = w) } }
+        val ready = if (recipe.pieces) weighted.map { it.withPieces() } else weighted
+        val model = when (recipe.kind) {
             RecipeKind.PERSONAL -> {
-                val corrections = items.mapNotNull { it.indicesIn(base.buckets)?.let { idx -> Correction(idx, it.label, it.weight.coerceAtMost(1.0)) } }
+                val corrections = ready.mapNotNull { it.indicesIn(base.buckets)?.let { idx -> Correction(idx, it.label, it.weight.coerceAtMost(1.0)) } }
                 onProgress(0, 1)
                 LinearPredictor(base, Personalizer.train(base, corrections, recipe.epochs, recipe.learningRate, recipe.l2, stopped))
             }
-            RecipeKind.LINEAR -> LinearPredictor(trainLinear(recipe, base.classes, items, onProgress, stopped))
-            RecipeKind.NEURAL -> trainNeural(recipe, base.classes, items, onProgress, stopped)
+            RecipeKind.LINEAR -> LinearPredictor(trainLinear(recipe, base.classes, ready, onProgress, stopped))
+            RecipeKind.NEURAL -> trainNeural(recipe, base.classes, ready, onProgress, stopped)
+            RecipeKind.BLEND -> error("blends are trained above")
         }
+        return if (recipe.pieces) PiecesPredictor(model) else model
     }
 
     /** The class scores [predictor] gives one item, before the softmax (with [Predictor]'s own temperature undone where it has one). */
     fun logits(predictor: Predictor, item: TrainingItem): DoubleArray? = when (predictor) {
         is LinearPredictor -> item.indicesIn(predictor.model.buckets)?.let { predictor.model.scoresOf(it, predictor.adjustments) }
         is NeuralModel -> item.indicesIn(predictor.buckets)?.let { predictor.scores(it) }
+        is PiecesPredictor -> logits(predictor.inner, item.withPieces())
+        // The log of the members' averaged odds: a softmax of it gives the blend's answer back.
+        is BlendPredictor -> predictor.members.map { logits(it, item) ?: return null }.let { predictor.blendLogits(it) }
         else -> null
     }
 
@@ -177,7 +253,9 @@ object RecipeTrainer {
             if (held.isEmpty()) return@flatMap emptyList()
             // Not a service's label on a text being held out either: that would be training on the answer.
             val heldKeys = held.mapNotNullTo(HashSet()) { scoredItems[it].key } + held.map { PersonalEvaluation.threadKey(scoredItems[it].group) }
-            val train = scoredItems.filterIndexed { i, _ -> foldOf[i] != fold } + others.filter { it.key == null || it.key !in heldKeys }
+            // Nor any other label in a conversation held out (a service's, on another of its texts): it's to be one never seen.
+            val heldGroups = held.mapTo(HashSet()) { scoredItems[it].group }
+            val train = scoredItems.filterIndexed { i, _ -> foldOf[i] != fold } + others.filter { (it.key == null || it.key !in heldKeys) && (it.group < 0 || it.group !in heldGroups) }
             val model = train(recipe, base, train, stopped = stopped)
             held.mapNotNull { i -> logits(model, scoredItems[i])?.let { i to it } }
         }
@@ -228,6 +306,13 @@ object RecipeTrainer {
         else -> null
     }
 
+    /** [indices] with each left out at [share], a different few each time (at least one kept): the model sees the text as if those words weren't there. */
+    private fun leaveOut(indices: IntArray, share: Double, random: Random): IntArray {
+        if (share <= 0 || indices.size < 2) return indices
+        val kept = indices.filter { random.nextDouble() >= share }
+        return if (kept.isEmpty()) intArrayOf(indices[random.nextInt(indices.size)]) else kept.toIntArray()
+    }
+
     private fun classWeights(items: List<Pair<IntArray, TrainingItem>>, k: Int, balance: Boolean): DoubleArray {
         if (!balance) return DoubleArray(k) { 1.0 }
         val total = DoubleArray(k).also { w -> items.forEach { w[it.second.label] += it.second.weight } }
@@ -252,7 +337,8 @@ object RecipeTrainer {
                 onProgress(bag * recipe.epochs + epoch, recipe.bags * recipe.epochs)
                 order.shuffle(random)
                 for (n in order) {
-                    val (indices, item) = sample[n]
+                    val (all, item) = sample[n]
+                    val indices = leaveOut(all, recipe.inputDropout, random)
                     val value = LocalModel.featureValue(indices.size)
                     val scores = DoubleArray(k) { bias[it] }
                     for (i in indices) for (c in 0 until k) scores[c] += w[i * k + c] * value
@@ -307,7 +393,8 @@ object RecipeTrainer {
             onProgress(epoch, recipe.epochs)
             order.shuffle(random)
             for (n in order) {
-                val (idx, item) = encoded[n]
+                val (all, item) = encoded[n]
+                val idx = leaveOut(all, recipe.inputDropout, random)
                 val v = LocalModel.featureValue(idx.size)
                 val acts = m.forward(idx).map { it.copyOf() }
                 // Dropout on every hidden layer, inverted so nothing changes when it's off.
