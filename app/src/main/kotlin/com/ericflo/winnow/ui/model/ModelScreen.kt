@@ -663,8 +663,9 @@ private fun SendersCard(s: ModelViewModel.Senders?, onStrength: (Double) -> Unit
                 "For ${plural(s.senders.size - deciding, "other sender")}, they lean the model's answer and the words decide between your categories. Label one of a sender's texts another way and their labels only lean from then on.",
             style = MaterialTheme.typography.bodyMedium,
         )
-        var all by remember { mutableStateOf(false) }
-        val shown = if (all) s.senders else s.senders.take(SENDERS_SHOWN)
+        // A page at a time: someone who's labeled hundreds of senders shouldn't get them all at once.
+        var limit by remember { androidx.compose.runtime.mutableIntStateOf(SENDERS_SHOWN) }
+        val shown = s.senders.take(limit)
         shown.forEach { x ->
             Column(Modifier.fillMaxWidth().clickable { onOpenThread(x.threadId, listOf(x.address)) }.padding(vertical = 6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -694,11 +695,15 @@ private fun SendersCard(s: ModelViewModel.Senders?, onStrength: (Double) -> Unit
                 )
             }
         }
-        if (!all && s.senders.size > SENDERS_SHOWN) TextButton(onClick = { all = true }, contentPadding = PaddingValues(0.dp)) { Text("Show all ${count(s.senders.size)}") }
+        if (s.senders.size > limit) {
+            val more = minOf(SENDERS_PAGE, s.senders.size - limit)
+            TextButton(onClick = { limit += more }, contentPadding = PaddingValues(0.dp)) { Text("Show ${count(more)} more of ${count(s.senders.size - limit)}") }
+        }
     }
 }
 
 private const val SENDERS_SHOWN = 15
+private const val SENDERS_PAGE = 50
 
 @Composable
 private fun BuiltCard(weight: Double) {
