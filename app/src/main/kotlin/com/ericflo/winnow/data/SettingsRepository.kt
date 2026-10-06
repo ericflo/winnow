@@ -60,6 +60,12 @@ enum class ProviderKind(
     ),
     ;
 
+    /**
+     * What a sentence calls it: its short name ("Jev", not "Jev (TypeSafe)"), or "a classifier
+     * service" for On this phone only, which isn't one (never "On this phone only's labels").
+     */
+    val serviceName: String get() = if (this == ON_DEVICE) "a classifier service" else label.substringBefore(" (")
+
     companion object {
         fun labelFor(providerId: String): String = entries.firstOrNull { it.providerId == providerId }?.label ?: providerId
     }

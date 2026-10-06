@@ -196,7 +196,7 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
             val plan = runCatching { container.bootstrap.plan(redo) }.getOrNull() ?: return@launch
             val taught = container.bootstrap.taught.first()
             _offer.value = BootstrapOffer(
-                provider = current.provider.label,
+                provider = if (current.provider == com.ericflo.winnow.data.ProviderKind.ON_DEVICE) current.provider.serviceName else current.provider.label,
                 unavailable = container.bootstrap.unavailable(current),
                 plan = plan,
                 taught = taught,

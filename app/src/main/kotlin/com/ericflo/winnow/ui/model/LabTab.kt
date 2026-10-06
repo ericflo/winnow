@@ -85,7 +85,8 @@ private fun InUseCard(viewModel: ModelViewModel) {
                 Text("Winnow's own: the shipped model with your personal layer", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
                     "Fitted on every label as it comes: ${o.personalEpochs} passes, step ${o.personalStep}, L2 ${o.personalL2}, " +
-                        "${o.provider}'s labels at ${pct(o.weight)}; ${whoSentIt(o.senderMemory)}. It learns as you label; nothing to retrain by hand, but you can.",
+                        (if (o.serviceOn) "${o.provider}'s labels at ${pct(o.weight)}; " else "") +
+                        "${whoSentIt(o.senderMemory)}. It learns as you label; nothing to retrain by hand, but you can.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             } else {

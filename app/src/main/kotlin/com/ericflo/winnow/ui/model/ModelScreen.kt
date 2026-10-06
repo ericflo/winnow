@@ -153,7 +153,7 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
                 agreement = ModelInsight.agreement(verdicts, answers),
                 weekly = ModelInsight.weekly(verdicts),
                 deciders = ModelInsight.deciders(verdicts, ModelInsight.windowStart(WINDOW_DAYS)),
-                provider = settings.provider.label.substringBefore(" ("),
+                provider = settings.provider.serviceName,
                 serviceOn = settings.provider != ProviderKind.ON_DEVICE && container.classifiers.provider(settings) != null,
                 learnLive = settings.learnFromProvider,
                 weight = settings.providerWeight,
@@ -477,7 +477,8 @@ private fun LazyListScope.overview(viewModel: ModelViewModel, onOpenMetrics: () 
     }
     item("jev") {
         val o by viewModel.overview.collectAsStateWithLifecycle()
-        o?.let { LabelsAndServiceCard(it, onOpenRuns) }
+        // Only with a service, or runs from when there was one: otherwise there's nothing it could be about.
+        o?.takeIf { it.serviceOn || it.runs > 0 }?.let { LabelsAndServiceCard(it, onOpenRuns) }
     }
 }
 
@@ -491,7 +492,7 @@ private fun FitCard(o: Overview) {
             Text(o.version, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             val f = o.fit
             if (f == null) {
-                Text("As it ships: nothing taught yet. Every label you give, and every answer ${o.provider} gives, teaches it.", style = MaterialTheme.typography.bodyMedium)
+                Text("As it ships: nothing taught yet. Every label you give" + (if (o.serviceOn) ", and every answer ${o.provider} gives," else "") + " teaches it.", style = MaterialTheme.typography.bodyMedium)
             } else {
                 Text(
                     "Fitted ${ago(f.fittedAt)}" + (if (f.millis > 0) " in ${f.millis} ms" else "") + " on this phone, from:",
@@ -576,10 +577,15 @@ private fun MineCard(mine: Mine?, onOpenMetrics: () -> Unit, onOpenTrain: () -> 
 private fun AgreementCard(o: Overview) {
     val a = o.agreement
     val c = MaterialTheme.colorScheme
-    InsightCard("Who agrees with whom", subtitle = "Each pair only on texts both of them judged. Your labels are the answer key; ${o.provider} and the model can each be wrong.") {
-        RateBar("You and ${o.provider}", a.youService.agreed, a.youService.compared, detail = "its answers on texts you've labeled")
+    // A service's rows only with one set up, or answers from when there was one.
+    val service = o.serviceOn || a.youService.compared > 0 || a.modelService.compared > 0
+    InsightCard(
+        "Who agrees with whom",
+        subtitle = "Each pair only on texts both of them judged. Your labels are the answer key; " + (if (service) "${o.provider} and the model can each be wrong." else "the model can be wrong."),
+    ) {
+        if (service) RateBar("You and ${o.provider}", a.youService.agreed, a.youService.compared, detail = "its answers on texts you've labeled")
         RateBar("You and the on-device model", a.youModel.agreed, a.youModel.compared, color = c.tertiary, detail = "its own opinion when it judged them, before learning from you")
-        RateBar("The on-device model and ${o.provider}", a.modelService.agreed, a.modelService.compared, color = c.secondary, detail = "its opinion beside ${o.provider}'s answer, before learning from it")
+        if (service) RateBar("The on-device model and ${o.provider}", a.modelService.agreed, a.modelService.compared, color = c.secondary, detail = "its opinion beside ${o.provider}'s answer, before learning from it")
         if (a.modelWithYouAgainstService + a.modelWithServiceAgainstYou > 0) {
             Text(
                 "Where all three judged a text and disagreed: the model sided with you against ${o.provider} ${count(a.modelWithYouAgainstService)} times, " +
@@ -623,7 +629,7 @@ private fun DecidersCard(o: Overview) {
             "Model, no service set up" to d.modelOnly,
             ("Model, decided before Winnow kept why" to d.modelUnknown).takeIf { d.modelUnknown > 0 },
             ("Keyword fallback" to d.keywords).takeIf { d.keywords > 0 },
-        ).filter { it.second > 0 || it.first == "${o.provider}" }
+        ).filter { it.second > 0 || (o.serviceOn && it.first == o.provider) }
         val max = rows.maxOf { it.second }
         rows.forEach { (label, n) -> com.ericflo.winnow.ui.insight.StackedBar(label, n, max, d.total) }
         Note(

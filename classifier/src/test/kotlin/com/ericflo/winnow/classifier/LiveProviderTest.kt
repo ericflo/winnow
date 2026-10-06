@@ -32,7 +32,7 @@ class LiveProviderTest {
         InboundMessage("+13305550144", "DANA, I have some tough news, and I wanted you to hear it from me first."),
         InboundMessage("+17375550145", "Are you free to talk?"),
         InboundMessage("+12025550146", "Tax-free Social Security payments start next month. Confirm your eligibility now"),
-        InboundMessage("64276", "Micro Mart: Hurry - Member Days end tonight! Up to 40% off. Reply STOP to opt out"),
+        InboundMessage("71523", "Micro Mart: Hurry - Member Days end tonight! Up to 40% off. Reply STOP to opt out"),
     )
 
     @Test

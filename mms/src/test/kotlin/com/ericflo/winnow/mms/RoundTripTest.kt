@@ -32,7 +32,7 @@ class RoundTripTest {
         val req = SendReq(
             transactionId = "T7d3673e01",
             to = listOf("+15551230001", "+15551230002", "friend@example.com"),
-            cc = listOf("+442071234567"),
+            cc = listOf("+447700900123"),
             bcc = listOf("hidden@example.org"),
             subject = "Ünïcödé subject that is longer than thirty octets 🎉",
             dateSeconds = 1_759_500_000,
