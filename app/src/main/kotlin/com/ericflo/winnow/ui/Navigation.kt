@@ -199,6 +199,8 @@ fun WinnowNavHost(
             when {
                 twoPane && it is ThreadRoute && openInPane(it, nav, pane, container) -> Unit
                 it is ThreadRoute -> openThreadRoute(it, nav, threadEntries)
+                // The inbox is always at the bottom: back down to it, not a second one on top.
+                it is InboxRoute -> nav.popBackStack<InboxRoute>(inclusive = false)
                 else -> nav.navigate(it) { launchSingleTop = true }
             }
             onRouteConsumed()

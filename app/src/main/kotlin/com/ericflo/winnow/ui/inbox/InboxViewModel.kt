@@ -224,7 +224,8 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     private val hits = query.debounce(250).distinctUntilChanged().mapLatest { q -> if (q.length < 2) emptyList() else repo.search(q) }
 
     private val review = combine(container.historyReviewer.status, container.settings.settings) { status, s ->
-        if (s.reviewPromptDismissed) ReviewStatus.Unknown else status
+        // "Not now" hides the offer; a review the user started (here or in Settings) still shows how it's going and went.
+        if (s.reviewPromptDismissed && status is ReviewStatus.Ready) ReviewStatus.Unknown else status
     }
 
     // Contacts changing (a birthday added) reads birthdays again.
@@ -346,7 +347,11 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
 
     fun startReview() = container.historyReviewer.start()
 
-    fun dismissReview() = launch { container.settings.update { it.copy(reviewPromptDismissed = true) } }
+    fun dismissReview() = launch {
+        // "Done" on how a review went: that's been read, so it goes (counted afresh, as an offer).
+        if (container.historyReviewer.status.value is ReviewStatus.Finished) container.historyReviewer.refresh(dismissed = true)
+        container.settings.update { it.copy(reviewPromptDismissed = true) }
+    }
 
     fun setFilter(value: InboxFilter) {
         filter.value = value

@@ -23,17 +23,20 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
- * Keeps work on Winnow's model going when the user leaves Winnow or the screen goes off:
- * training a Lab model on their labels (see [ModelLab]), the examples test, asking the
- * classifier service about their labeled texts (see [ExamplesExperiment]), and scoring models
- * on their labels (see Evaluations). Each can take minutes, and Android freezes an app in the background within about a minute, and may end it,
+ * Keeps work the user started going when they leave Winnow or the screen goes off: training a
+ * Lab model on their labels (see [ModelLab]), the examples test, asking the classifier service
+ * about their labeled texts (see [ExamplesExperiment]), scoring models on their labels (see
+ * Evaluations), and checking older conversations (see [HistoryReviewer]). Each can take minutes, and Android freezes an app in the background within about a minute, and may end it,
  * losing the run (and, for the test, requests already paid for). A foreground service of the
  * data-sync kind (local processing, and requests to the service), with the work's progress
  * and a Stop button in a notification, and a partial wake lock so it keeps going with the
  * screen off. It stops itself when the work ends; if Winnow isn't showing then, a notification
  * says how it went, and goes once the Model screen's tab for it is seen.
  */
-class ModelWorkService : Service() {
+class WorkService : Service() {
+    /** Everything this keeps going, as it stands. */
+    private data class Work(val lab: ModelLab.Status, val test: ExperimentStatus, val scoring: String?, val review: ReviewStatus)
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var wakeLock: PowerManager.WakeLock? = null
     /** Watching the work: once, however many times the service is started (training and a test both). */
@@ -42,6 +45,7 @@ class ModelWorkService : Service() {
     private val lab get() = container.modelLab
     private val experiment get() = container.examplesExperiment
     private val evaluations get() = container.evaluations
+    private val reviewer get() = container.historyReviewer
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -50,6 +54,7 @@ class ModelWorkService : Service() {
             lab.cancel()
             experiment.stop()
             evaluations.cancel()
+            reviewer.stop()
             return START_NOT_STICKY
         }
         BootstrapService.createChannel(this)
@@ -68,10 +73,11 @@ class ModelWorkService : Service() {
             var testing = false
             var scoring = false
             var scoringFinishedBefore: Long? = null
-            combine(lab.status, experiment.status, evaluations.progress, ::Triple).collectLatest { (l, e, scored) ->
+            var reviewing = false
+            combine(lab.status, experiment.status, evaluations.progress, reviewer.status, ::Work).collectLatest { (l, e, scored, r) ->
                 // Training: how it ended, when it has.
                 if (l is ModelLab.Status.Running && training == null) {
-                    clearFinished(this@ModelWorkService, LAB)
+                    clearFinished(this@WorkService, LAB)
                     training = l.id
                     trainedBefore = lab.entries.value.firstOrNull { it.id == l.id }?.trainedAt
                 } else if (l !is ModelLab.Status.Running && training != null) {
@@ -88,7 +94,7 @@ class ModelWorkService : Service() {
                 }
                 // The examples test: how it ended, when it has.
                 if (e is ExperimentStatus.Running && !testing) {
-                    clearFinished(this@ModelWorkService, EVALUATE)
+                    clearFinished(this@WorkService, EVALUATE)
                     testing = true
                 } else if (e !is ExperimentStatus.Running && testing) {
                     if (e is ExperimentStatus.Finished && !e.stopped && !visible()) notify(NOTIFICATION_TEST_DONE, tested(e))
@@ -96,7 +102,7 @@ class ModelWorkService : Service() {
                 }
                 // Scoring on the Evaluate tab: how it ended, when it has.
                 if (scored != null && !scoring) {
-                    clearFinished(this@ModelWorkService, EVALUATE)
+                    clearFinished(this@WorkService, EVALUATE)
                     scoring = true
                     scoringFinishedBefore = evaluations.finishedAt.value
                 } else if (scored == null && scoring) {
@@ -106,6 +112,18 @@ class ModelWorkService : Service() {
                         notify(NOTIFICATION_TEST_DONE, finished(if (error != null) "Scoring stopped" else "Your models are scored", error ?: "On your labels: see how each did.", EVALUATE))
                     }
                     scoring = false
+                }
+                // Checking older conversations: how it ended, when it has.
+                if (r is ReviewStatus.Running && !reviewing) {
+                    clearFinished(this@WorkService, INBOX)
+                    reviewing = true
+                } else if (r !is ReviewStatus.Running && reviewing) {
+                    if (r is ReviewStatus.Finished && !visible()) {
+                        val text = "Checked ${r.reviewed}: ${r.filtered} filtered, ${r.silenced} silenced." +
+                            if (r.unreached > 0) " ${r.unreached} couldn't be checked; they wait for next time." else ""
+                        notify(NOTIFICATION_REVIEW_DONE, finished("Older conversations checked", text, INBOX))
+                    }
+                    reviewing = false
                 }
                 when {
                     l is ModelLab.Status.Running -> notify(NOTIFICATION_RUNNING, progress("Training ${nameOf(l.id) ?: "a model"}", l.what, l.progress, LAB))
@@ -119,6 +137,15 @@ class ModelWorkService : Service() {
                         ),
                     )
                     scored != null -> notify(NOTIFICATION_RUNNING, progress("Scoring on your labels", scored, 0f, EVALUATE))
+                    r is ReviewStatus.Running -> notify(
+                        NOTIFICATION_RUNNING,
+                        progress(
+                            "Checking older conversations",
+                            if (r.total == 0) "Starting…" else "${r.done} of ${r.total}",
+                            if (r.total == 0) 0f else r.done / r.total.toFloat(),
+                            INBOX,
+                        ),
+                    )
                     else -> stop()
                 }
             }
@@ -132,6 +159,7 @@ class ModelWorkService : Service() {
         lab.cancel()
         experiment.stop()
         evaluations.cancel()
+        reviewer.stop()
         stop()
     }
 
@@ -162,18 +190,18 @@ class ModelWorkService : Service() {
         }
     }
 
-    /** The Model screen, on [tab]. */
+    /** The Model screen, on [tab]; or the inbox, where checking older conversations says how it went. */
     private fun open(tab: String): PendingIntent = PendingIntent.getActivity(
-        this, if (tab == LAB) 2 else 4,
+        this, when (tab) { LAB -> 2; INBOX -> 5; else -> 4 },
         Intent(this, MainActivity::class.java)
-            .setAction(MainActivity.ACTION_OPEN_MODEL)
+            .setAction(if (tab == INBOX) MainActivity.ACTION_OPEN_INBOX else MainActivity.ACTION_OPEN_MODEL)
             .putExtra(MainActivity.EXTRA_MODEL_TAB, tab)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
     private fun progress(title: String, what: String, progress: Float, tab: String): Notification {
-        val stop = PendingIntent.getService(this, 3, Intent(this, ModelWorkService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
+        val stop = PendingIntent.getService(this, 3, Intent(this, WorkService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, BootstrapService.QUIET_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
@@ -191,7 +219,7 @@ class ModelWorkService : Service() {
         .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle(title)
         .setContentText(text)
-        .setStyle(Notification.BigTextStyle().bigText("$text\nTap to see it${if (tab == LAB) " in the Lab" else ""}."))
+        .setStyle(Notification.BigTextStyle().bigText("$text\nTap to see it${when (tab) { LAB -> " in the Lab"; INBOX -> " in your inbox"; else -> "" }}."))
         .setAutoCancel(true)
         .setContentIntent(open(tab))
         .build()
@@ -207,9 +235,12 @@ class ModelWorkService : Service() {
         /** Model screen tabs the notifications open (see ModelRoute). */
         const val LAB = "lab"
         const val EVALUATE = "evaluate"
+        /** Not a tab: the inbox, where checking older conversations shows how it went. */
+        const val INBOX = "inbox"
         private const val NOTIFICATION_RUNNING = 7003
         private const val NOTIFICATION_LAB_DONE = 7004
         private const val NOTIFICATION_TEST_DONE = 7005
+        private const val NOTIFICATION_REVIEW_DONE = 7006
         private const val ACTION_STOP = "com.ericflo.winnow.STOP_MODEL_WORK"
         /** A wake lock is never held longer than this, whatever happens. */
         private const val MAX_RUN_MILLIS = 60 * 60_000L
@@ -219,7 +250,7 @@ class ModelWorkService : Service() {
          * (a retrain after a backlog run, say): it goes ahead anyway, as long as Android lets it.
          */
         fun start(context: Context) {
-            runCatching { context.startForegroundService(Intent(context, ModelWorkService::class.java)) }
+            runCatching { context.startForegroundService(Intent(context, WorkService::class.java)) }
         }
 
         /** Takes down the notification saying how the work shown on [tab] went, once that tab has been seen. */
@@ -227,6 +258,7 @@ class ModelWorkService : Service() {
             val id = when (tab) {
                 LAB -> NOTIFICATION_LAB_DONE
                 EVALUATE -> NOTIFICATION_TEST_DONE
+                INBOX -> NOTIFICATION_REVIEW_DONE
                 else -> return
             }
             runCatching { context.getSystemService(NotificationManager::class.java).cancel(id) }

@@ -327,7 +327,7 @@ fun ModelScreen(
     }
     val context = androidx.compose.ui.platform.LocalContext.current
     // The tab shows how the work on it went: a notification saying so has done its job.
-    androidx.compose.runtime.LaunchedEffect(tab) { com.ericflo.winnow.classify.ModelWorkService.clearFinished(context, ModelTab.entries[tab].name.lowercase()) }
+    androidx.compose.runtime.LaunchedEffect(tab) { com.ericflo.winnow.classify.WorkService.clearFinished(context, ModelTab.entries[tab].name.lowercase()) }
     Scaffold(
         topBar = {
             Column {

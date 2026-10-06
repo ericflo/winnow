@@ -59,9 +59,14 @@ class HistoryReviewer(
     val status: StateFlow<ReviewStatus> = _status.asStateFlow()
     private var job: Job? = null
 
-    /** Recounts what's pending, unless a review is running. Without SMS access there's nothing to count. */
-    fun refresh() {
+    /**
+     * Recounts what's pending, unless a review is running, or one finished and the user hasn't
+     * said they've seen how it went ([dismissed]: they have). Without SMS access there's nothing
+     * to count.
+     */
+    fun refresh(dismissed: Boolean = false) {
         if (job?.isActive == true) return
+        if (_status.value is ReviewStatus.Finished && !dismissed) return
         if (!canReadSms()) {
             _status.value = ReviewStatus.Unknown
             return
@@ -71,43 +76,60 @@ class HistoryReviewer(
 
     fun start() {
         if (job?.isActive == true || !canReadSms()) return
+        // Under way before anything watches for it: the service keeping it going (screen off,
+        // Winnow left) stops when it isn't.
+        _status.value = ReviewStatus.Running(0, 0)
+        WorkService.start(context)
         job = scope.launch {
-            val pending = candidates()
-            val classifier = classifiers.create(settings.current())
-            val replied = threadsWithOutgoing()
-            val filtered = AtomicInteger()
-            val silenced = AtomicInteger()
-            val done = AtomicInteger()
-            val decided = AtomicInteger()
-            // The service asked and not answering, again and again (no signal, say): the rest wait
-            // for a review that can reach it, rather than each waiting out a timeout and being
-            // settled on the phone for good.
-            val failedInARow = AtomicInteger()
-            // Left for next time: the service didn't answer, or the review had stopped by then.
-            val unreached = AtomicInteger()
-            // A few at once, as a backlog run asks: one at a time, a thousand conversations sent to
-            // a classifier service take many minutes. Each is saved as it's decided, so one stopped
-            // partway (Winnow closed) goes on from there next time.
-            val gate = Semaphore(CONCURRENCY)
-            _status.value = ReviewStatus.Running(0, pending.size)
-            pending.map { c ->
-                async {
-                    gate.withPermit {
-                        if (failedInARow.get() >= GIVE_UP_AFTER) {
-                            unreached.incrementAndGet()
-                            return@withPermit
+            try {
+                val pending = candidates()
+                val classifier = classifiers.create(settings.current())
+                val replied = threadsWithOutgoing()
+                val filtered = AtomicInteger()
+                val silenced = AtomicInteger()
+                val done = AtomicInteger()
+                val decided = AtomicInteger()
+                // The service asked and not answering, again and again (no signal, say): the rest wait
+                // for a review that can reach it, rather than each waiting out a timeout and being
+                // settled on the phone for good.
+                val failedInARow = AtomicInteger()
+                // Left for next time: the service didn't answer, or the review had stopped by then.
+                val unreached = AtomicInteger()
+                // A few at once, as a backlog run asks: one at a time, a thousand conversations sent to
+                // a classifier service take many minutes. Each is saved as it's decided, so one stopped
+                // partway (Winnow closed) goes on from there next time.
+                val gate = Semaphore(CONCURRENCY)
+                _status.value = ReviewStatus.Running(0, pending.size)
+                pending.map { c ->
+                    async {
+                        gate.withPermit {
+                            if (failedInARow.get() >= GIVE_UP_AFTER) {
+                                unreached.incrementAndGet()
+                                return@withPermit
+                            }
+                            when (review(c, classifier, replied, filtered, silenced)) {
+                                true -> { decided.incrementAndGet(); failedInARow.set(0) }
+                                false -> { unreached.incrementAndGet(); failedInARow.incrementAndGet() }
+                                null -> Unit
+                            }
                         }
-                        when (review(c, classifier, replied, filtered, silenced)) {
-                            true -> { decided.incrementAndGet(); failedInARow.set(0) }
-                            false -> { unreached.incrementAndGet(); failedInARow.incrementAndGet() }
-                            null -> Unit
-                        }
+                        _status.value = ReviewStatus.Running(done.incrementAndGet(), pending.size)
                     }
-                    _status.value = ReviewStatus.Running(done.incrementAndGet(), pending.size)
+                }.awaitAll()
+                _status.value = ReviewStatus.Finished(decided.get(), filtered.get(), silenced.get(), unreached.get())
+            } finally {
+                // Stopped or failed partway: what's left is counted again, to check another time.
+                if (_status.value is ReviewStatus.Running) {
+                    _status.value = ReviewStatus.Unknown
+                    withContext(kotlinx.coroutines.NonCancellable) { runCatching { _status.value = ReviewStatus.Ready(candidates().size) } }
                 }
-            }.awaitAll()
-            _status.value = ReviewStatus.Finished(decided.get(), filtered.get(), silenced.get(), unreached.get())
+            }
         }
+    }
+
+    /** Stops a review partway; each conversation decided so far stays decided. */
+    fun stop() {
+        job?.cancel()
     }
 
     /**

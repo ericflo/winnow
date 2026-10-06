@@ -74,13 +74,13 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
 
     /**
      * Scores [picks] on the user's labels, one after another, keeping each as it's done. It keeps
-     * going when the user leaves the screen or Winnow (see ModelWorkService).
+     * going when the user leaves the screen or Winnow (see WorkService).
      */
     fun run(picks: List<Pick>, serviceName: String) {
         if (job?.isActive == true || picks.isEmpty()) return
         // Under way before anything watches for it: the service keeping it going stops when it isn't.
         _progress.value = "Reading your labels…"
-        com.ericflo.winnow.classify.ModelWorkService.start(container.appContext)
+        com.ericflo.winnow.classify.WorkService.start(container.appContext)
         job = scope.launch {
             val at = System.currentTimeMillis()
             _error.value = null

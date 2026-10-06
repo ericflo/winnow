@@ -97,7 +97,7 @@ class ExamplesExperiment(
     private val classifiers: ClassifierFactory,
     private val bootstrap: Bootstrap,
     private val evals: EvalDao,
-    /** Told as a test starts, to keep it going when the user leaves Winnow (see ModelWorkService). */
+    /** Told as a test starts, to keep it going when the user leaves Winnow (see WorkService). */
     private val onRunStarted: () -> Unit = {},
 ) {
     private val _status = MutableStateFlow<ExperimentStatus>(ExperimentStatus.Idle)

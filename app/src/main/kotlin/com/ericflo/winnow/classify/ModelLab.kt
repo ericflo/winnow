@@ -61,7 +61,7 @@ class ModelLab(
     private val dir: File,
     /** Told when the model in use changed or was trained again (Learner.reload). */
     private val onModelChanged: suspend () -> Unit,
-    /** Told as training starts, to keep it going when the user leaves Winnow (see ModelWorkService). */
+    /** Told as training starts, to keep it going when the user leaves Winnow (see WorkService). */
     private val onRunStarted: () -> Unit = {},
 ) {
     /** One recipe and what became of it. */

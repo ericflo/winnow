@@ -173,7 +173,7 @@ class AppContainer(private val context: Context) {
     val examplesExperiment by lazy {
         com.ericflo.winnow.classify.ExamplesExperiment(
             context, appScope, verdictDao, correctionDao, contacts, settings, classifiers, bootstrap, evalDao,
-            onRunStarted = { com.ericflo.winnow.classify.ModelWorkService.start(context) },
+            onRunStarted = { com.ericflo.winnow.classify.WorkService.start(context) },
         )
     }
     /** Models the user designs, trains on the phone, scores and puts in use (see ModelLab). */
@@ -183,7 +183,7 @@ class AppContainer(private val context: Context) {
             repliedThreads = { bootstrap.threadsWithOutgoing() },
             dir = java.io.File(context.filesDir, "lab"),
             onModelChanged = { learner.reload() },
-            onRunStarted = { com.ericflo.winnow.classify.ModelWorkService.start(context) },
+            onRunStarted = { com.ericflo.winnow.classify.WorkService.start(context) },
         )
     }
 

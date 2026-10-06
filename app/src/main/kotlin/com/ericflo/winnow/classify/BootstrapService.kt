@@ -135,7 +135,7 @@ class BootstrapService : Service() {
     companion object {
         // A run's progress and how it went are no reason for a badge on the app icon (see createChannel).
         private const val CHANNEL = "background_quiet"
-        /** Where work going on in the background shows its progress, without a badge (ModelWorkService's too). */
+        /** Where work going on in the background shows its progress, without a badge (WorkService's too). */
         const val QUIET_CHANNEL = CHANNEL
         private const val OLD_CHANNEL = "background"
         private const val NOTIFICATION_RUNNING = 7001

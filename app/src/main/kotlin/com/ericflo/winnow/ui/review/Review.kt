@@ -52,9 +52,14 @@ fun ReviewInboxCard(status: ReviewStatus, classifier: String, onStart: () -> Uni
         is ReviewStatus.Ready -> if (status.pending == 0) return else
             "Check older conversations for spam?" to
                 if (status.pending == 1) "1 conversation arrived before Winnow could look at it." else "${status.pending} conversations arrived before Winnow could look at them."
-        is ReviewStatus.Running -> "Checking older conversations…" to "${status.done} of ${status.total}"
+        is ReviewStatus.Running -> "Checking older conversations…" to if (status.total == 0) "Starting…" else "${status.done} of ${status.total}"
         is ReviewStatus.Finished -> "Older conversations checked" to summary(status, classifier)
         ReviewStatus.Unknown -> return
+    }
+    if (status is ReviewStatus.Finished) {
+        // Its summary is showing: a notification saying the same (see WorkService) has done its job.
+        val context = androidx.compose.ui.platform.LocalContext.current
+        androidx.compose.runtime.LaunchedEffect(status) { com.ericflo.winnow.classify.WorkService.clearFinished(context, com.ericflo.winnow.classify.WorkService.INBOX) }
     }
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
@@ -95,7 +100,7 @@ fun ReviewSettingsRow(status: ReviewStatus, classifier: String, onStart: () -> U
                     when (status) {
                         ReviewStatus.Unknown -> "Counting…"
                         is ReviewStatus.Ready -> if (status.pending == 0) "Every conversation has been checked" else "${status.pending} not checked yet"
-                        is ReviewStatus.Running -> "Checking ${status.done} of ${status.total}…"
+                        is ReviewStatus.Running -> if (status.total == 0) "Starting…" else "Checking ${status.done} of ${status.total}…"
                         is ReviewStatus.Finished -> summary(status, classifier)
                     },
                 )

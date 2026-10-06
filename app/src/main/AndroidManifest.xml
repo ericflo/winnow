@@ -145,7 +145,7 @@
 
         <!-- Keeps Lab training and the examples test going when the user leaves Winnow. -->
         <service
-            android:name=".classify.ModelWorkService"
+            android:name=".classify.WorkService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
