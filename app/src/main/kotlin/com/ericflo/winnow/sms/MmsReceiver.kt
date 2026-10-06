@@ -16,6 +16,7 @@ import com.ericflo.winnow.WinnowApp
 import com.ericflo.winnow.classify.IncomingMessageHandler
 import com.ericflo.winnow.data.OwnNumbers
 import com.ericflo.winnow.data.normalizeAddress
+import com.ericflo.winnow.data.threadRecipients
 import com.ericflo.winnow.mms.ContentTypes
 import com.ericflo.winnow.mms.MmsPduException
 import com.ericflo.winnow.mms.DeliveryInd
@@ -177,14 +178,35 @@ class MmsReceiver(
      * (one To, no Cc) is still recognized; for groups we may include ourselves.
      */
     private fun participants(conf: RetrieveConf): List<String> {
+        // Sent to this phone alone: the one it was sent to is this phone (see OwnNumbers.learn).
+        val from = conf.from
+        if (conf.to.size == 1 && conf.cc.isEmpty() && from != null && normalizeAddress(from) != normalizeAddress(conf.to.single())) {
+            ownNumbers.learn(conf.to.single())
+        }
         val me = ownNumbers.all()
         val everyone = (listOfNotNull(conf.from) + conf.to + conf.cc).filter { it.isNotBlank() }.distinctBy(::normalizeAddress)
         val others = when {
             me.isNotEmpty() -> everyone.filterNot { normalizeAddress(it) in me }
             conf.to.size == 1 && conf.cc.isEmpty() -> listOfNotNull(conf.from)
-            else -> everyone
+            else -> withoutThisPhone(conf, everyone) ?: everyone
         }
         return others.ifEmpty { listOfNotNull(conf.from).ifEmpty { listOf(UNKNOWN_SENDER) } }
+    }
+
+    /**
+     * A group message, with this phone's number unknown: if leaving out exactly one of its
+     * recipients gives a conversation the phone already has, that recipient is this phone, and the
+     * message goes in that conversation rather than a new one that counts the user among its people.
+     */
+    private fun withoutThisPhone(conf: RetrieveConf, everyone: List<String>): List<String>? {
+        val known = runCatching { context.contentResolver.threadRecipients() }.getOrNull()?.values
+            ?.mapTo(HashSet()) { people -> people.mapTo(HashSet(), ::normalizeAddress) } ?: return null
+        val sender = conf.from?.let(::normalizeAddress)
+        val fits = (conf.to + conf.cc).map(::normalizeAddress).distinct().filter { it != sender }.filter { candidate ->
+            everyone.map(::normalizeAddress).filter { it != candidate }.toHashSet() in known
+        }
+        val me = fits.singleOrNull() ?: return null
+        return everyone.filterNot { normalizeAddress(it) == me }
     }
 
     private fun acknowledge(pdu: MmsPdu, subscriptionId: Int) {
