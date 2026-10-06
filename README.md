@@ -341,7 +341,7 @@ payload for any message.
 
 ```
 incoming text → local rules (contacts, codes, sender rules), then your filtered words
-              → on-phone model, if you let it decide when it's sure
+              → on-phone model, if your labels of the sender decide it, or you let it decide when it's sure
               → privacy gate + redaction
               → DecisionProvider: Jev (TypeSafe / OpenRouter) · any System One server
                                   · any OpenAI-compatible LLM
@@ -429,6 +429,17 @@ It also **learns from your labels and corrections**. A label, "Not spam" or "Fil
 teaches it about that message's content, so similar texts from other senders follow; a sender
 rule only covers the one sender. Only hashed word fingerprints are kept, never the message, and
 Settings → **Forget** undoes all of it.
+
+And it **follows your labels of each sender**, because texts that read alike can be different
+things to you depending on who sent them. Three or more of a sender's texts labeled, all one way,
+decide their next texts, before any classifier service is asked, unless you text with them
+(people send every kind). Otherwise your labels of them lean the model's answer, and a service
+answer you've never given a sender you've labeled is outweighed. Label one of their texts another
+way and the words get their say again. Winnow's model → Inside lists every sender you've labeled
+and what your labels do, and sets how much they count. On the hand-written corpus, simulated with
+each conversation's newest text after its earlier ones are labeled, this took the model from
+86.9% to 100% where each sender sends one kind of text, and to 97% where senders send two
+(`./gradlew :classifier:labCeilingExperiment -Ppart=sender`).
 
 ## Install on a phone
 

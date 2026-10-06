@@ -141,19 +141,37 @@ reads the unredacted message: nothing leaves the phone, so there's nothing to re
   this", the Activity log and the model screen's agreement figures are built from these alone.
 - **Live learning:** with a provider deciding, its answers at 70% or surer teach the
   personal layer as texts arrive, at the provider weight; a burst refits once, after 20 s.
+- **The user's labels of each sender** (`SenderMemory`, app `Learner`, `SenderInsight`): the
+  user's labels counted per sender (a number by its last ten digits, a short code, a named
+  sender), only theirs, never a service's. Three or more, all one way, from a sender they
+  haven't written to, decide the sender's next text (`LocalPrediction.yourLabelsDecide`), and
+  `MessageClassifier` doesn't ask a provider (`VerdictSource.OnDevice.YOUR_LABELS`). Otherwise
+  they multiply the model's chances by a smoothed prior to the power of the setting ("Who sent
+  it", 0–4). One label the other way is never outvoted, and someone the user texts with only
+  leans. When a provider answers with a category the user has never given a sender they've
+  labeled three or more texts of, and the model's leaned answer is one of theirs, the model's
+  stands (`OVER_SERVICE`), with the provider's answer kept (`serviceCategory`,
+  `serviceConfidence`). Loops that need the provider's own answers (`ExamplesExperiment`) ask
+  it without the on-device model; a backlog run counts texts the user's labels decided as kept.
 - **Evaluations** (app `Evaluator`, `ExamplesExperiment`): scoring on the user's own labels,
   each subject in the only fair way for it: cross-validated by conversation for whatever
   learns from them, all labels for the shipped model, labels made after a kept fit
   (`ModelSnapshots`) for that fit, recorded answers for the provider. Results and their items
   are kept (`evals`, `eval_items`). The examples experiment asks the provider about labeled
   texts twice, plainly and with the user's examples (never from the text's own conversation).
+  Whatever learns from the labels is refit as the phone fits it, a service's label of a text
+  being scored is left out of its refit, and the user's labels of each sender count as on the
+  phone, from the other folds only. A sender's texts are mostly one conversation, held out
+  together, so it's also scored on the newest 20% of labels by a refit on the older ones, with
+  and without the user's labels of each sender (`PersonalEvaluation.scoreNewest`).
 - **The Lab** (`Recipe`, `RecipeTrainer`, `NeuralModel`, app `ModelLab`): models the user
   designs and trains on the phone: the personal layer with its fitting changed, a linear model
   retrained from scratch on the bundled corpus (`ShippedCorpus`, bundled from
   `training/corpus` at build time) and the user's labels, or a neural network (a summed
   embedding per bucket, up to three ReLU hidden layers, an optional linear "wide" part,
   AdaGrad, L2, inverted dropout), each scored by conversation-wise cross-validation with its
-  temperature fitted on those held-out scores, then trained on everything. A trained model
+  temperature fitted on those held-out scores, and on the newest labels after the older ones
+  (`RecipeTrainer.scoreNewest`), then trained on everything. A trained model
   put in use answers in the personal layer's place (`OnDeviceClassifier.custom`).
 - **Dev tasks:** `./gradlew :classifier:tuneLocalModel` grid-searches the trainer settings
   by cross-validated macro F1, and `:classifier:evalMistakes` lists the evaluation set's
