@@ -81,6 +81,41 @@ class EvaluatorTest {
         // Too few labels for the steps asked: nothing to draw.
         assertTrue(Evaluator().learningCurve(data(6), steps = 4).isEmpty())
     }
+
+    @Test
+    fun theModelNowIsScoredWithTheUsersLabelsOfEachSenderAsOnThePhoneAndOnTheirNewestLabels() {
+        // A pharmacy the user calls a reminder sender: other texts of theirs labeled first, then their pickup texts.
+        val reminder = model.classes.indexOf(Category.REMINDER.key)
+        fun bucketsOf(text: String) = model.indices(base.features(InboundMessage("+12395550160", text)))
+        val hours = bucketsOf("Main St pharmacy hours this week: Mon-Fri 9-7, Sat 10-4")
+        val pickup = bucketsOf("Your prescription is ready for pickup at the Main St pharmacy")
+        val pharmacy = List(4) { i -> EvalData.Labeled("h$i", threadId = 999, buckets = hours, label = reminder, createdAt = 500L + i, sender = "+12395550160") } +
+            List(16) { i -> EvalData.Labeled("p$i", threadId = 999, buckets = pickup, label = reminder, createdAt = 1_000L + i, sender = "+12395550160") }
+        val d = EvalData(labeled(60) + pharmacy, emptyList(), emptyList(), emptyMap())
+        val how = Evaluator().evaluate(EvalSubject.Now, d).how
+        assertTrue(how, Regex("""On your newest 16 labels, refit on the ones you made before them: 100% with your labels of each sender, \d+% from the words alone\.""").containsMatchIn(how))
+        // Someone the user texts with: their labels only lean, so the words have it.
+        val texted = EvalData(labeled(60) + pharmacy.map { EvalData.Labeled(it.key, it.threadId, it.buckets, it.label, it.createdAt, it.sender, conversing = true) }, emptyList(), emptyList(), emptyMap())
+        assertTrue(Evaluator().evaluate(EvalSubject.Now, texted).how.contains("the same with or without your labels of each sender"))
+        // Off, the words alone, said once.
+        val off = Evaluator(senderMemory = 0.0).evaluate(EvalSubject.Now, d).how
+        assertTrue(off, Regex("""On your newest 16 labels, refit on the ones you made before them: \d+%\.""").containsMatchIn(off))
+    }
+
+    @Test
+    fun aServicesLabelOfATextBeingScoredIsLeftOutOfItsRefit() {
+        val labels = labeled(30)
+        // The service, sure and wrong about one toll text, counting fifty times over.
+        val toll = labels[1]
+        val wrong = EvalData.Dated(toll.buckets, model.classes.indexOf(Category.PERSONAL.key), 0, key = toll.key)
+        val r = Evaluator(providerWeight = 50.0).evaluate(EvalSubject.Now, EvalData(labels, emptyList(), listOf(wrong), emptyMap()))
+        assertTrue(r.how, r.how.contains("The service's labels of the texts being scored are left out of their refit."))
+        assertEquals(Category.SPAM, r.items.single { it.key == toll.key }.predicted)
+        // Trained on, it would have decided.
+        val unkeyed = EvalData.Dated(wrong.buckets, wrong.label, 0)
+        val leaked = Evaluator(providerWeight = 50.0).evaluate(EvalSubject.Now, EvalData(labels, emptyList(), listOf(unkeyed), emptyMap()))
+        assertEquals(Category.PERSONAL, leaked.items.single { it.key == toll.key }.predicted)
+    }
 }
 
 class RebuildWeightTest {

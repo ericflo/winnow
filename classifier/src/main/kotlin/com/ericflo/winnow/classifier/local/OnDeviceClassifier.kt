@@ -16,13 +16,12 @@ data class LocalPrediction(
     /** Of the user's labels of this sender, how many are [category], and how many in all (see SenderMemory). */
     val senderLabels: Int = 0,
     val senderLabelsTotal: Int = 0,
-) {
     /**
      * The user has labeled enough of this sender's texts, nearly all one way, and this is that
-     * way: their labels decide, before any classifier service is asked.
+     * way (see SenderMemory.decisive): their labels decide, before any classifier service is asked.
      */
-    val yourLabelsDecide: Boolean get() = senderLabels >= SenderMemory.DECISIVE_AT_LEAST && senderLabels >= senderLabelsTotal * SenderMemory.DECISIVE_SHARE
-}
+    val yourLabelsDecide: Boolean = false,
+)
 
 /**
  * Classifies on the phone with [LocalModel]. It sees the whole message, unredacted, because
@@ -60,7 +59,7 @@ class OnDeviceClassifier(
         val words = custom?.probabilities(features) ?: model.predict(features, adjustments)
         // The user's labels of this sender, where they've given any: enough of them, one way,
         // decide; fewer nudge.
-        val followed = if (memory.classes == classes) memory.follow(words, message.sender) else null
+        val followed = if (memory.classes == classes) memory.follow(words, message.sender, conversing = message.userHasMessagedSender) else null
         val p = followed?.p ?: words
         val best = followed?.best ?: p.indices.maxBy { p[it] }
         val fromWords = words.indices.maxBy { words[it] }
@@ -85,6 +84,7 @@ class OnDeviceClassifier(
             hasHook = Featurizer.hasHook(features),
             senderLabels = said?.getOrElse(best) { 0 } ?: 0,
             senderLabelsTotal = said?.sum() ?: 0,
+            yourLabelsDecide = followed?.decided == true,
         )
     }
 

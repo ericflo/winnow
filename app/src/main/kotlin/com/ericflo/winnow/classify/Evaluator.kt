@@ -9,6 +9,7 @@ import com.ericflo.winnow.classifier.local.MetricsCalculator
 import com.ericflo.winnow.classifier.local.PersonalEvaluation
 import com.ericflo.winnow.classifier.local.Personalizer
 import com.ericflo.winnow.classifier.local.Scored
+import com.ericflo.winnow.classifier.local.SenderMemory
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.ActionPolicy
 import com.ericflo.winnow.classifier.message.Category
@@ -90,22 +91,32 @@ class EvalData(
     /** The service's newest recorded answer per text: its category and how sure. */
     val service: Map<String, Pair<Category, Double>>,
 ) {
-    class Labeled(val key: String, val threadId: Long, val buckets: IntArray, val label: Int, val createdAt: Long)
-    class Dated(val buckets: IntArray, val label: Int, val createdAt: Long)
+    /** One of the user's labels; [sender] is who sent the text, when Winnow has it, and [conversing] whether the user texts with them. */
+    class Labeled(val key: String, val threadId: Long, val buckets: IntArray, val label: Int, val createdAt: Long, val sender: String? = null, val conversing: Boolean = false)
+    /** [key] is the message it labels, when it's one message's. */
+    class Dated(val buckets: IntArray, val label: Int, val createdAt: Long, val key: String? = null)
 
     companion object {
         /** From what's stored; labels made by an older featurizer mean nothing to this model and are left out. */
-        fun of(rows: List<CorrectionEntity>, verdicts: List<VerdictEntity>, answers: List<RunAnswerEntity>, model: LocalModel = LocalModel.bundled): EvalData {
+        fun of(
+            rows: List<CorrectionEntity>,
+            verdicts: List<VerdictEntity>,
+            answers: List<RunAnswerEntity>,
+            model: LocalModel = LocalModel.bundled,
+            /** Conversations the user has written in. */
+            conversing: Set<Long> = emptySet(),
+        ): EvalData {
             fun buckets(e: CorrectionEntity) = e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray()
             val current = rows.filter { it.featurizerVersion == Featurizer.VERSION && model.classes.indexOf(it.label) >= 0 }
             val (labels, rest) = current.partition { !it.fromProvider && it.messageKey != null && it.threadId != null && !it.messageKey.startsWith(BackupLabelPrefix) }
             val service = HashMap<String, Pair<Category, Double>>()
             answers.sortedBy { it.answeredAt }.forEach { a -> Category.fromKey(a.category)?.let { service[a.messageKey] = it to a.confidence } }
             verdicts.filter { it.sourceKind == VerdictEntity.KIND_PROVIDER }.forEach { v -> v.category?.let(Category::fromKey)?.let { service[v.messageKey] = it to v.confidence } }
+            val senders = verdicts.filter { it.address.isNotBlank() }.associate { it.messageKey to it.address }
             return EvalData(
-                labels = labels.map { Labeled(it.messageKey!!, it.threadId!!, buckets(it), model.classes.indexOf(it.label), it.createdAt) },
+                labels = labels.map { Labeled(it.messageKey!!, it.threadId!!, buckets(it), model.classes.indexOf(it.label), it.createdAt, senders[it.messageKey], it.threadId in conversing) },
                 corrections = rest.filter { !it.fromProvider }.map { Dated(buckets(it), model.classes.indexOf(it.label), it.createdAt) },
-                provider = rest.filter { it.fromProvider }.map { Dated(buckets(it), model.classes.indexOf(it.label), it.createdAt) },
+                provider = rest.filter { it.fromProvider }.map { Dated(buckets(it), model.classes.indexOf(it.label), it.createdAt, it.messageKey) },
                 service = service,
             )
         }
@@ -125,17 +136,38 @@ class Evaluator(
     private val policy: ActionPolicy = ActionPolicy(),
     /** How much one of the service's labels counts as the model is fitted now (see WinnowSettings.providerWeight). */
     private val providerWeight: Double = Learner.PROVIDER_WEIGHT,
+    /** How much the user's labels of each sender count with the model's answer (see WinnowSettings.senderMemory); 0 for not at all. */
+    private val senderMemory: Double = SenderMemory.DEFAULT_STRENGTH,
 ) {
     private val classes = model.classes
     private val unwanted = Category.entries.filter { it.defaultAction == Action.FILTER }.map { classes.indexOf(it.key) }.filter { it >= 0 }.toSet()
 
     fun evaluate(subject: EvalSubject, data: EvalData, onProgress: (String) -> Unit = {}, stopped: () -> Boolean = { false }): EvalResult {
-        val labels = data.labels.map { PersonalEvaluation.Label(it.buckets, it.label, it.threadId) }
+        val labels = data.labels.map { PersonalEvaluation.Label(it.buckets, it.label, it.threadId, it.key, it.sender, it.createdAt, it.conversing) }
+        val provider = { weight: Double -> if (weight <= 0) emptyList() else data.provider }
         fun others(weight: Double): List<Correction> =
-            data.corrections.map { Correction(it.buckets, it.label) } + if (weight <= 0) emptyList() else data.provider.map { Correction(it.buckets, it.label, weight) }
+            data.corrections.map { Correction(it.buckets, it.label) } + provider(weight).map { Correction(it.buckets, it.label, weight) }
         fun crossValidated(weight: Double, how: String): EvalResult {
-            val scored = PersonalEvaluation.crossValidateIndexed(model, labels, others(weight), onFold = { f, k -> onProgress("${subject.label}: part ${f + 1} of $k") }, stopped = stopped)
-            return result(subject, EvalEntity.METHOD_CROSS_VALIDATED, how, scored.map { (i, s) -> data.labels[i] to s })
+            val keys = data.corrections.map { null } + provider(weight).map { it.key }
+            val words = PersonalEvaluation.crossValidateIndexed(model, labels, others(weight), onFold = { f, k -> onProgress("${subject.label}: part ${f + 1} of $k") }, stopped = stopped, othersKeys = keys)
+            // Scored as the phone answers: with the user's labels of each sender, from the other conversations.
+            val scored = PersonalEvaluation.withSenders(classes, labels, words, senderMemory)
+            val leftOut = if (keys.any { it != null }) " The service's labels of the texts being scored are left out of their refit." else ""
+            val changed = scored.zip(words).count { (a, b) -> a.second.predicted != b.second.predicted }
+            val withSenders = if (senderMemory <= 0 || changed == 0) "" else
+                " Your labels of each sender, from the other conversations, changed $changed of its answers, as they would on the phone."
+            // Where who sent it counts most: a sender's texts are mostly one conversation, all held out together above.
+            onProgress("${subject.label}: your newest labels")
+            val newest = PersonalEvaluation.scoreNewest(model, labels, others(weight), keys, senderMemory, stopped = stopped)?.let { n ->
+                fun pct(right: Int) = "${Math.round(100.0 * right / n.count)}%"
+                " On your newest ${n.count} labels, refit on the ones you made before them: " +
+                    when {
+                        senderMemory <= 0 -> "${pct(n.words)}."
+                        n.withSenders == n.words -> "${pct(n.words)}, the same with or without your labels of each sender."
+                        else -> "${pct(n.withSenders)} with your labels of each sender, ${pct(n.words)} from the words alone."
+                    }
+            }.orEmpty()
+            return result(subject, EvalEntity.METHOD_CROSS_VALIDATED, how + leftOut + withSenders + newest, scored.map { (i, s) -> data.labels[i] to s })
         }
         return when (subject) {
             EvalSubject.Now -> crossValidated(

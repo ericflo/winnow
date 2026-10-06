@@ -116,6 +116,8 @@ data class Overview(
     val personalL2: Double = com.ericflo.winnow.classifier.local.Personalizer.L2,
     val labModel: String? = null,
     val labAutoRetrain: Boolean = true,
+    /** How much the user's labels of each sender count with the model's answer (see SenderMemory); 0 for not at all. */
+    val senderMemory: Double = com.ericflo.winnow.classifier.local.SenderMemory.DEFAULT_STRENGTH,
     /** Backlog runs, how many carried the user's labels as examples, and their answers on texts asked about again. */
     val runs: Int,
     val runsWithExamples: Int,
@@ -155,6 +157,7 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
                 personalL2 = settings.personalL2,
                 labModel = settings.labModel,
                 labAutoRetrain = settings.labAutoRetrain,
+                senderMemory = settings.senderMemory,
                 runs = runs.size,
                 runsWithExamples = runs.count { it.examples > 0 },
                 maxExamples = runs.maxOfOrNull { it.examples } ?: 0,
@@ -170,7 +173,9 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
         .debounce(SETTLE_MILLIS)
         .mapLatest { rows ->
             val job = kotlinx.coroutines.currentCoroutineContext()
-            computeMine(rows, container.settings.current().providerWeight) { !job.isActive }
+            val senders = container.verdictDao.labeledSenders().associate { it.messageKey to it.address }
+            val settings = container.settings.current()
+            computeMine(rows, settings.providerWeight, senders, settings.senderMemory, container.bootstrap.threadsWithOutgoing()) { !job.isActive }
         }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -468,6 +473,14 @@ private fun MineCard(mine: Mine?, onOpenMetrics: () -> Unit, onOpenTrain: () -> 
                         Text(pct(m.unwanted.operatingPoint.falsePositiveRate), style = MaterialTheme.typography.titleLarge)
                         Text("wanted ones filtered", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                }
+                mine.newest?.let { n ->
+                    fun pctOf(right: Int) = pct(right.toDouble() / n.count)
+                    Text(
+                        "On your newest ${count(n.count)} labels, by the model refit on the ones you made before them: ${pctOf(n.withSenders)} " +
+                            if (n.withSenders != n.words) "with your labels of each sender, ${pctOf(n.words)} from the words alone." else "in the category you gave.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                 }
                 Note("From ${count(m.examples)} labeled texts. Every chart (ROC, precision and recall, calibration, each category, the confusion matrix) is under How accurate is Winnow.")
                 TextButton(onClick = onOpenMetrics, contentPadding = PaddingValues(0.dp)) { Text("All the charts") }

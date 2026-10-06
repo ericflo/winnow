@@ -77,12 +77,12 @@ private fun InUseCard(viewModel: ModelViewModel) {
                 Text("Winnow's own: the shipped model with your personal layer", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
                     "Fitted on every label as it comes: ${o.personalEpochs} passes, step ${o.personalStep}, L2 ${o.personalL2}, " +
-                        "${o.provider}'s labels at ${pct(o.weight)}. It learns as you label; nothing to retrain by hand, but you can.",
+                        "${o.provider}'s labels at ${pct(o.weight)}; ${whoSentIt(o.senderMemory)}. It learns as you label; nothing to retrain by hand, but you can.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             } else {
                 Text(inUse.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Text(inUse.recipe.describe(), style = MaterialTheme.typography.bodyMedium)
+                Text("${inUse.recipe.describe()}; ${whoSentIt(o.senderMemory)}", style = MaterialTheme.typography.bodyMedium)
                 Text(
                     listOfNotNull(
                         inUse.trainedAt?.let { "trained ${ago(it)}" } ?: "not trained yet",
@@ -175,7 +175,7 @@ private fun DesignCard(viewModel: ModelViewModel) {
             Step("Each of your labels counts", ModelLab.HELP.getValue("userWeight"), USER_WEIGHTS, r.userWeight, { "×$it" }) { v -> viewModel.editDraft { it.copy(userWeight = v) } }
         }
         Step("Each of $service's labels counts", ModelLab.HELP.getValue("serviceWeight"), SERVICE_WEIGHTS, r.serviceWeight, { if (it == 0.0) "left out" else "×$it" }) { v -> viewModel.editDraft { it.copy(serviceWeight = v) } }
-        Step("Who sent it: your labels of each sender count", ModelLab.HELP.getValue("senderMemory"), SENDER_STRENGTHS, r.senderMemory, { if (it == 0.0) "not at all" else "×$it" }) { v -> viewModel.editDraft { it.copy(senderMemory = v) } }
+        Step("Who sent it: your labels of each sender count", ModelLab.HELP.getValue("senderMemory"), SENDER_STRENGTHS, r.senderMemory, { if (it == 0.0) "not at all" else times(it) }) { v -> viewModel.editDraft { it.copy(senderMemory = v) } }
         if (r.kind != RecipeKind.PERSONAL) Toggle("Balance the categories", ModelLab.HELP.getValue("balance"), r.balance) { v -> viewModel.editDraft { it.copy(balance = v) } }
         Step("Seed", "The same seed trains the same model from the same texts.", (1..100).toList(), r.seed, { "$it" }) { v -> viewModel.editDraft { it.copy(seed = v) } }
         val problem = r.problem()
@@ -314,3 +314,9 @@ private val SENDER_STRENGTHS = listOf(0.0, 0.5, 1.0, 2.0)
 /** "8.0 MB", "640 KB": what a trained model takes up on the phone. */
 private fun sizeOf(bytes: Long): String =
     if (bytes >= 1_000_000) "%.1f MB".format(bytes / 1_000_000.0) else "${(bytes / 1000).coerceAtLeast(1)} KB"
+
+/** How the user's labels of each sender count, in a few words (see SenderMemory). */
+private fun whoSentIt(strength: Double) = if (strength <= 0.0) "your labels of each sender left out" else "your labels of each sender count ${times(strength)}"
+
+/** "×1", "×0.5". */
+private fun times(x: Double) = "×" + if (x % 1.0 == 0.0) x.toInt().toString() else x.toString()

@@ -101,7 +101,8 @@ data class Recipe(
  * model's space), its class, how much it counts, and its conversation (-1 for the shipped
  * examples), so cross-validation keeps a conversation's texts together. [key] is its message (so
  * a classifier service's label on a text held out isn't trained on), [sender] who sent it (for
- * the user's labels of each sender, see SenderMemory), and [at] when it came.
+ * the user's labels of each sender, see SenderMemory, [conversing] when the user texts with
+ * them), and [at] when it came.
  */
 class TrainingItem(
     val features: List<String>?,
@@ -112,6 +113,7 @@ class TrainingItem(
     val key: String? = null,
     val sender: String? = null,
     val at: Long = 0,
+    val conversing: Boolean = false,
 )
 
 /** Trains, scores and calibrates models from [Recipe]s. Pure and deterministic. */

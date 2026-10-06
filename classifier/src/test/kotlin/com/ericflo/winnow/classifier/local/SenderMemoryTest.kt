@@ -67,6 +67,25 @@ class SenderMemoryTest {
     }
 
     @Test
+    fun `someone the user texts with is leaned toward their labels, never decided by them`() {
+        // A friend: four texts labeled reminder ("can you grab milk?"), and now dinner plans.
+        val dinner = InboundMessage("+14155550198", "Dinner Friday? We could try the new thai place", userHasMessagedSender = true)
+        val memory = SenderMemory.of(List(4) { "+14155550198" to c(Category.REMINDER) }, classes)
+        val p = DoubleArray(classes.size) { 0.02 }.also { it[c(Category.PERSONAL)] = 0.9 }
+        assertNull(memory.decisive("+14155550198", conversing = true))
+        assertEquals(c(Category.REMINDER), memory.decisive("+14155550198"))
+        val leaned = memory.follow(p, "+14155550198", conversing = true)
+        assertFalse(leaned.decided)
+        assertTrue("nudged toward their labels", leaned.p[c(Category.REMINDER)] > p[c(Category.REMINDER)])
+        val said = OnDeviceClassifier().withMemory(memory).classify(dinner)
+        assertFalse(said.yourLabelsDecide)
+        assertEquals(Category.PERSONAL, OnDeviceClassifier().classify(dinner).category)
+        assertEquals("their dinner plans stay personal", Category.PERSONAL, said.category)
+        // The same labels of a sender they don't text with would decide.
+        assertTrue(OnDeviceClassifier().withMemory(memory).classify(dinner.copy(userHasMessagedSender = false)).yourLabelsDecide)
+    }
+
+    @Test
     fun `counts are kept per class in model order`() {
         val memory = SenderMemory.of(listOf("72166" to c(Category.SPAM), "72166" to c(Category.SPAM), "72166" to c(Category.MARKETING)), classes)
         val counts = memory.countsFor("72166")!!

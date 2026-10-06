@@ -1,5 +1,6 @@
 package com.ericflo.winnow.classify
 
+import com.ericflo.winnow.classifier.local.SenderMemory
 import com.ericflo.winnow.classifier.message.Category
 
 /**
@@ -95,7 +96,8 @@ object LabDiagnosis {
      * What would help the model follow the user's labels, from a scoring's [items]: [toReview] are
      * texts labeled apart that the user hasn't looked at yet, [keptApart] how many such pairs they
      * chose to keep, [fitAccuracy] how well the model fits the labels it learns from (null if not
-     * known), and the classifier service's weight in it and agreement with the user's labels.
+     * known), the classifier service's weight in it and agreement with the user's labels, and how
+     * much it counts the user's labels of each sender.
      */
     fun suggestions(
         items: List<Scored>,
@@ -104,6 +106,8 @@ object LabDiagnosis {
         fitAccuracy: Double?,
         serviceWeight: Double? = null,
         serviceAgreement: Double? = null,
+        /** How much the model counts the user's labels of each sender (see SenderMemory); null if not known. */
+        senderMemory: Double? = null,
     ): List<Suggestion> {
         if (items.isEmpty()) return emptyList()
         val accuracy = items.count { it.label == it.predicted }.toDouble() / items.size
@@ -118,12 +122,21 @@ object LabDiagnosis {
         // The worst pair of categories it can't tell apart: a limit of what it reads.
         val apart = confusions(items).firstOrNull { it.count >= 3 && it.count.toDouble() / it.ofLabel >= 0.15 }
         if (apart != null) {
+            val a = apart.label.label.lowercase()
+            val b = apart.predicted.label.lowercase()
+            val senders = if (senderMemory != null && senderMemory <= 0.0) {
+                "With \"Who sent it\" off, your labels of each sender don't count here: turned on, they can settle what a text's words don't."
+            } else {
+                "What helps most is labeling texts from the senders behind them: once you've labeled ${SenderMemory.DECISIVE_AT_LEAST} or more of a sender's texts, " +
+                    "at least ${Math.round(SenderMemory.DECISIVE_SHARE * 100)}% of them one way, that sender's next texts follow your label. " +
+                    "For someone you text with, who sends every kind, your labels of them lean its answer instead."
+            }
             out += Suggestion(
-                "It can't yet tell your ${apart.label.label.lowercase()} from ${apart.predicted.label.lowercase()}",
-                "Of your ${apart.ofLabel} ${apart.label.label.lowercase()} texts it called ${apart.count} ${apart.predicted.label.lowercase()}. " +
-                    "It reads a text's words and a few signals (links, money, the kind of sender, whether you've written back), and with \"Who sent it\" your labels of each sender, " +
-                    "for senders you've labeled; where your ${apart.label.label.lowercase()} and ${apart.predicted.label.lowercase()} texts use similar words, what else makes them different to you " +
-                    "(when they came, what came before) is something it doesn't see yet. Labeling a few texts from each sender you see both ways helps it most there." +
+                "It can't yet tell your $a from $b",
+                "Of your ${apart.ofLabel} $a texts it called ${apart.count} $b. " +
+                    "It goes by a text's words, a few signals (links, money, the kind of sender, whether you've written back) and your labels of each sender. " +
+                    "Where your $a and $b texts read alike, what else makes them different to you (when they came, what came before) is something it doesn't see yet. " +
+                    senders +
                     if (keptApart > 0) " You kept $keptApart ${if (keptApart == 1) "pair" else "pairs"} of alike texts apart: those it can't separate from the words at all." else "",
             )
         }

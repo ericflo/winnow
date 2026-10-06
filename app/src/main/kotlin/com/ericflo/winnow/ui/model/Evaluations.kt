@@ -89,10 +89,10 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
             try {
                 _progress.value = "Reading your labels…"
                 val data = withContext(Dispatchers.IO) {
-                    EvalData.of(container.correctionDao.all(), container.verdictDao.all(), container.runDao.allAnswers())
+                    EvalData.of(container.correctionDao.all(), container.verdictDao.all(), container.runDao.allAnswers(), conversing = container.bootstrap.threadsWithOutgoing())
                 }
                 val settings = container.settings.current()
-                val evaluator = Evaluator(policy = settings.actionPolicy, providerWeight = settings.providerWeight)
+                val evaluator = Evaluator(policy = settings.actionPolicy, providerWeight = settings.providerWeight, senderMemory = settings.senderMemory)
                 for (pick in picks) {
                     val subject = subjectOf(pick, serviceName) ?: continue
                     _progress.value = "Scoring ${subject.label}…"
@@ -193,7 +193,7 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
      * [fitAccuracy] is how well it fits the labels it learned from, if known, and [serviceWeight]
      * how much the service's labels counted in it.
      */
-    suspend fun diagnosis(eval: EvalEntity, fitAccuracy: Double? = null, serviceWeight: Double? = null): Diagnosis? = withContext(Dispatchers.IO) {
+    suspend fun diagnosis(eval: EvalEntity, fitAccuracy: Double? = null, serviceWeight: Double? = null, senderMemory: Double? = null): Diagnosis? = withContext(Dispatchers.IO) {
         val items = container.evalDao.items(eval.id)
         val scored = items.mapNotNull { i -> LabDiagnosis.Scored(i.messageKey, Category.fromKey(i.label) ?: return@mapNotNull null, Category.fromKey(i.predicted) ?: return@mapNotNull null, i.confidence) }
         if (scored.isEmpty()) return@withContext null
@@ -223,7 +223,7 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
             mistakes = LabDiagnosis.surestMistakes(scored).map { shown(it.key, it.label, it.predicted, it.confidence) },
             toReview = toReview.map { Review(it.id, shown(it.a.key, it.a.label), shown(it.b.key, it.b.label)) },
             keptApart = apart.count { it.id in kept },
-            suggestions = LabDiagnosis.suggestions(scored, toReview.size, apart.count { it.id in kept }, fitAccuracy, serviceWeight, agreement),
+            suggestions = LabDiagnosis.suggestions(scored, toReview.size, apart.count { it.id in kept }, fitAccuracy, serviceWeight, agreement, senderMemory),
         )
     }
 

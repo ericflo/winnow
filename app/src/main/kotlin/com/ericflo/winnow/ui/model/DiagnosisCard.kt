@@ -57,16 +57,24 @@ fun FollowYourLabelsCard(viewModel: ModelViewModel, onOpenThread: (Long, List<St
     val own = all.firstOrNull { it.model == "now" && it.dataset == EvalEntity.DATASET_MINE && it.examples > 0 }
     val (eval, entry) = (lab + listOfNotNull(own?.let { it to null })).maxByOrNull { it.first.accuracy } ?: return
     InsightCard("What would help it follow your labels", subtitle = "Based on ${eval.label}: the best of the latest scorings on your labels") {
-        DiagnosisFor(viewModel, eval, entry?.fitAccuracy, entry?.recipe?.serviceWeight ?: overview?.weight, onOpenThread)
+        DiagnosisFor(viewModel, eval, entry?.fitAccuracy, entry?.recipe?.serviceWeight ?: overview?.weight, onOpenThread, senderMemory = entry?.recipe?.senderMemory ?: overview?.senderMemory)
     }
 }
 
 /** [eval]'s diagnosis, loaded, and loaded again after the user answers a review. */
 @Composable
-fun DiagnosisFor(viewModel: ModelViewModel, eval: EvalEntity, fitAccuracy: Double?, serviceWeight: Double?, onOpenThread: (Long, List<String>) -> Unit, showSuggestions: Boolean = true) {
+fun DiagnosisFor(
+    viewModel: ModelViewModel,
+    eval: EvalEntity,
+    fitAccuracy: Double?,
+    serviceWeight: Double?,
+    onOpenThread: (Long, List<String>) -> Unit,
+    showSuggestions: Boolean = true,
+    senderMemory: Double? = null,
+) {
     var version by remember { mutableIntStateOf(0) }
     var diagnosis by remember(eval.id) { mutableStateOf<Evaluations.Diagnosis?>(null) }
-    LaunchedEffect(eval.id, fitAccuracy, version) { diagnosis = viewModel.evals.diagnosis(eval, fitAccuracy, serviceWeight) }
+    LaunchedEffect(eval.id, fitAccuracy, senderMemory, version) { diagnosis = viewModel.evals.diagnosis(eval, fitAccuracy, serviceWeight, senderMemory) }
     val d = diagnosis
     if (d == null) CircularProgressIndicator() else DiagnosisSections(viewModel, d, onOpenThread, onChanged = { version++ }, showSuggestions = showSuggestions)
 }

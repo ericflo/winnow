@@ -494,11 +494,18 @@ data class SenderRuleEntity(
 /** One of the user's labels and who sent the message it's on (see VerdictDao.senderLabels). */
 data class SenderLabel(val address: String, val userCategory: String)
 
+/** A labeled message and who sent it. */
+data class LabeledSender(val messageKey: String, val address: String)
+
 @Dao
 interface VerdictDao {
     /** The user's labels with who sent each labeled message, for remembering what they say about senders (see SenderMemory). */
     @Query("SELECT address, userCategory FROM verdicts WHERE userCategory IS NOT NULL AND address != ''")
     suspend fun senderLabels(): List<SenderLabel>
+
+    /** Who sent each message the user labeled, for scoring with their labels of each sender. */
+    @Query("SELECT messageKey, address FROM verdicts WHERE userCategory IS NOT NULL AND address != ''")
+    suspend fun labeledSenders(): List<LabeledSender>
 
     @Query("SELECT * FROM verdicts")
     fun observeAll(): Flow<List<VerdictEntity>>

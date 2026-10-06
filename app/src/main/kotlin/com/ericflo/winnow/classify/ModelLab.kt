@@ -184,7 +184,7 @@ class ModelLab(
         val answered = cv.map { (i, s) ->
             val p = LocalModel.softmax(s, temperature.toDouble())
             val memory = folds?.let { memories[it[i]] }
-            i to (data.scored[i].sender?.let { sender -> memory?.follow(p, sender) }?.let(::distributionOf) ?: p)
+            i to (data.scored[i].sender?.let { sender -> memory?.follow(p, sender, data.scored[i].conversing) }?.distribution ?: p)
         }
         val evalId = keepScoring(entry, data, answered, started)
         // On their newest labels, by a model trained on their older ones: where who sent it can count.
@@ -196,7 +196,7 @@ class ModelLab(
         val newestWords = newest.count { (i, s) -> argmax(s) == data.scored[i].label }
         val newestFollowed = newest.count { (i, s) ->
             val p = LocalModel.softmax(s, temperature.toDouble())
-            (data.scored[i].sender?.let { olderMemory.follow(p, it).best } ?: argmax(p)) == data.scored[i].label
+            (data.scored[i].sender?.let { olderMemory.follow(p, it, data.scored[i].conversing).best } ?: argmax(p)) == data.scored[i].label
         }
         progress(id, "Training on everything…", 0.85f)
         val trained = trainFinal(id, recipe, data, temperature)
@@ -212,16 +212,6 @@ class ModelLab(
             )
         }
         if (settings.current().labModel == id) onModelChanged()
-    }
-
-    /**
-     * A distribution with what the user's labels settled on top: decided, their category at its
-     * confidence and the rest shared out as the model had them; nudged, as nudged.
-     */
-    private fun distributionOf(f: SenderMemory.Followed): DoubleArray {
-        if (!f.decided) return f.p
-        val rest = f.p.indices.filter { it != f.best }.sumOf { f.p[it] }
-        return DoubleArray(f.p.size) { i -> if (i == f.best) f.confidence else if (rest <= 0) 0.0 else f.p[i] / rest * (1 - f.confidence) }
     }
 
     /** Trains the model in use again on everything as it stands, without scoring it (the user's "Retrain on device"). */
@@ -331,7 +321,7 @@ class ModelLab(
                 // The user's labels on texts are the answer key, a conversation's labels kept together;
                 // a label still waiting to be rechecked under the six categories trains but isn't scored.
                 r.messageKey != null && r.threadId != null && !r.messageKey.startsWith("restored:") && r.threadId !in recheck -> {
-                    scored += TrainingItem(f, idx, label, recipe.userWeight, group = r.threadId, key = r.messageKey, sender = t?.address, at = t?.date ?: r.createdAt)
+                    scored += TrainingItem(f, idx, label, recipe.userWeight, group = r.threadId, key = r.messageKey, sender = t?.address, at = t?.date ?: r.createdAt, conversing = r.threadId in replied)
                     scoredKeys += r.messageKey to r.threadId
                 }
                 else -> others += TrainingItem(f, idx, label, recipe.userWeight)
@@ -437,7 +427,8 @@ class ModelLab(
             "serviceWeight" to "How much each of the classifier service's labels counts; 0 leaves them out. Your labels always count more: where the service sees texts differently from you, less here lets yours set the model.",
             "balance" to "Count each category equally, however many texts it has: it helps the model follow you on the categories you've labeled few of.",
             "senderMemory" to "Texts that read alike can be different things to you because of who sent them. This makes your labels of each sender count with the model's answer for their next texts: " +
-                "three or more labels of a sender, nearly all one way, decide; fewer nudge, by this much. 0 leaves who sent it out. Your newest labels, scored by a model trained on the older ones, show what it adds.",
+                "three or more labels of a sender you don't text with (a pharmacy, a short code), nearly all one way, decide; fewer, or of someone you text with, who sends every kind, nudge, by this much. " +
+                "0 leaves who sent it out. Your newest labels, scored by a model trained on the older ones, show what it adds.",
         )
     }
 }

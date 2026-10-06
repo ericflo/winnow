@@ -97,4 +97,13 @@ class LabDiagnosisTest {
         val out = LabDiagnosis.suggestions(items, toReview = 0, keptApart = 0, fitAccuracy = 0.8)
         assertTrue(out.any { it.title == "It can't follow all of your labels even while learning them" })
     }
+
+    @Test
+    fun `where it can't tell two categories apart, it says when the user's labels of a sender take over`() {
+        fun apart(senderMemory: Double?) = LabDiagnosis.suggestions(items, toReview = 0, keptApart = 0, fitAccuracy = null, senderMemory = senderMemory)
+            .single { it.title.startsWith("It can't yet tell") }.detail
+        assertTrue(apart(1.0).contains("once you've labeled 3 or more of a sender's texts, at least 80% of them one way, that sender's next texts follow your label"))
+        assertTrue(apart(null).contains("that sender's next texts follow your label"))
+        assertTrue(apart(0.0).contains("With \"Who sent it\" off"))
+    }
 }

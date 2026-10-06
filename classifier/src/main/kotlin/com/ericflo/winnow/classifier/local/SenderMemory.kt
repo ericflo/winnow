@@ -16,6 +16,10 @@ import kotlin.math.pow
  * to the power [strength], then normalized. A sender with no labels changes nothing, and neither
  * does strength 0. Only the user's labels count, never a classifier service's. Pure, so it's
  * unit-tested.
+ *
+ * Deciding is for senders the user doesn't text with: a pharmacy, a short code, a spammer, whose
+ * texts are one kind because of who sends them. Someone they text with sends every kind (a
+ * reminder to grab milk, then dinner plans), so their labels of that person only nudge.
  */
 class SenderMemory(
     /** Sender key (see [keyOf]) → labels per class, in [classes] order. */
@@ -46,10 +50,11 @@ class SenderMemory(
 
     /**
      * The category the user's labels of [sender] settle, by index: enough of them, nearly all
-     * one way. Null when they don't (or strength is 0).
+     * one way. Null when they don't, when strength is 0, or when the user texts with them
+     * ([conversing]: their labels of a person only nudge).
      */
-    fun decisive(sender: String): Int? {
-        if (strength <= 0.0) return null
+    fun decisive(sender: String, conversing: Boolean = false): Int? {
+        if (strength <= 0.0 || conversing) return null
         val c = countsFor(sender) ?: return null
         val n = c.sum()
         val top = c.indices.maxByOrNull { c[it] } ?: return null
@@ -63,15 +68,26 @@ class SenderMemory(
     }
 
     /** What the user's labels make of a model's answer [p] for a text from [sender] (see [follow]). */
-    data class Followed(val p: DoubleArray, val best: Int, val confidence: Double, val decided: Boolean)
+    data class Followed(val p: DoubleArray, val best: Int, val confidence: Double, val decided: Boolean) {
+        /**
+         * As class chances, for scoring: decided, the user's category at its confidence and the
+         * rest shared out as the model had them; nudged, as nudged.
+         */
+        val distribution: DoubleArray get() {
+            if (!decided) return p
+            val rest = p.indices.filter { it != best }.sumOf { p[it] }
+            return DoubleArray(p.size) { i -> if (i == best) confidence else if (rest <= 0) 0.0 else p[i] / rest * (1 - confidence) }
+        }
+    }
 
     /**
      * A model's answer [p] with the user's labels of [sender]: decided by them when [decisive],
-     * nudged otherwise. Used the same way on the phone and in the Lab's scoring.
+     * nudged otherwise; [conversing] when the user has texted them. Used the same way on the
+     * phone and in the Lab's scoring.
      */
-    fun follow(p: DoubleArray, sender: String): Followed {
+    fun follow(p: DoubleArray, sender: String, conversing: Boolean = false): Followed {
         val nudged = apply(p, sender)
-        val decided = decisive(sender)
+        val decided = decisive(sender, conversing)
         val best = decided ?: nudged.indices.maxBy { nudged[it] }
         val confidence = if (decided != null) maxOf(nudged[best], decisiveConfidence(sender, best)) else nudged[best]
         return Followed(nudged, best, confidence, decided != null)

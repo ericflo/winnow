@@ -103,7 +103,8 @@ data class Agreement(
 }
 
 /** The charts' numbers, from the user's labels; [labels] counts them, and [metrics] is null until there are enough. */
-data class Mine(val metrics: ClassifierMetrics?, val labels: Int, val categories: Int)
+/** [newest]: the user's newest labels scored by a refit on the ones before them (see PersonalEvaluation.scoreNewest). */
+data class Mine(val metrics: ClassifierMetrics?, val labels: Int, val categories: Int, val newest: com.ericflo.winnow.classifier.local.PersonalEvaluation.Newest? = null)
 
 data class MetricsUiState(
     /** Null while the first computation runs. */
@@ -122,7 +123,9 @@ class MetricsViewModel(private val container: AppContainer) : ViewModel() {
         .debounce(MINE_SETTLE_MILLIS)
         .mapLatest { rows ->
             val job = kotlinx.coroutines.currentCoroutineContext()
-            computeMine(rows, container.settings.current().providerWeight) { !job.isActive }
+            val senders = container.verdictDao.labeledSenders().associate { it.messageKey to it.address }
+            val settings = container.settings.current()
+            computeMine(rows, settings.providerWeight, senders, settings.senderMemory, container.bootstrap.threadsWithOutgoing()) { !job.isActive }
         }
         .flowOn(Dispatchers.Default)
 
@@ -162,7 +165,17 @@ class MetricsViewModel(private val container: AppContainer) : ViewModel() {
  * corrections, and labels whose message a restore hasn't found yet, go into every refit
  * unscored. Ones made by an older featurizer mean nothing to this model and are left out.
  */
-internal fun computeMine(rows: List<com.ericflo.winnow.data.db.CorrectionEntity>, providerWeight: Double, stopped: () -> Boolean): Mine {
+internal fun computeMine(
+    rows: List<com.ericflo.winnow.data.db.CorrectionEntity>,
+    providerWeight: Double,
+    /** Who sent each labeled message (its key to the address), for the user's labels of each sender. */
+    senders: Map<String, String>,
+    /** How much those count (see SenderMemory); 0 for the words alone. */
+    senderMemory: Double,
+    /** Conversations the user has written in: their labels of those senders only nudge. */
+    conversing: Set<Long>,
+    stopped: () -> Boolean,
+): Mine {
     val model = com.ericflo.winnow.classifier.local.LocalModel.bundled
     val current = rows.filter { it.featurizerVersion == com.ericflo.winnow.classifier.local.Featurizer.VERSION }
     fun buckets(e: com.ericflo.winnow.data.db.CorrectionEntity) = e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray()
@@ -170,22 +183,28 @@ internal fun computeMine(rows: List<com.ericflo.winnow.data.db.CorrectionEntity>
     val (labeled, rest) = current.partition { !it.fromProvider && it.messageKey != null && it.threadId != null && !it.messageKey.startsWith("restored:") }
     val labels = labeled.mapNotNull { e ->
         val label = model.classes.indexOf(e.label).takeIf { it >= 0 } ?: return@mapNotNull null
-        com.ericflo.winnow.classifier.local.PersonalEvaluation.Label(buckets(e), label, e.threadId!!)
+        com.ericflo.winnow.classifier.local.PersonalEvaluation.Label(buckets(e), label, e.threadId!!, e.messageKey, senders[e.messageKey], e.createdAt, e.threadId in conversing)
     }
     val others = rest.mapNotNull { e ->
         val label = model.classes.indexOf(e.label).takeIf { it >= 0 } ?: return@mapNotNull null
         // As the model is fitted: at 0 the service's labels are left out.
         if (e.fromProvider && providerWeight <= 0) return@mapNotNull null
-        com.ericflo.winnow.classifier.local.Correction(buckets(e), label, if (e.fromProvider) providerWeight else 1.0)
+        e.messageKey to com.ericflo.winnow.classifier.local.Correction(buckets(e), label, if (e.fromProvider) providerWeight else 1.0)
     }
-    val metrics = try {
-        com.ericflo.winnow.classifier.local.PersonalEvaluation.metrics(model, labels, others, ActionPolicy().onDeviceMinConfidence, stopped)
+    val evaluation = com.ericflo.winnow.classifier.local.PersonalEvaluation
+    // A failed scoring shows as none, never a crash.
+    fun <T> orNull(block: () -> T): T? = try {
+        block()
     } catch (e: java.util.concurrent.CancellationException) {
         throw e
     } catch (e: Exception) {
         null
     }
-    return Mine(metrics, labels.size, labels.map { it.label }.distinct().size)
+    val metrics = orNull {
+        evaluation.metrics(model, labels, others.map { it.second }, ActionPolicy().onDeviceMinConfidence, stopped, others.map { it.first }, senderMemory)
+    }
+    val newest = if (metrics == null) null else orNull { evaluation.scoreNewest(model, labels, others.map { it.second }, others.map { it.first }, senderMemory, stopped = stopped) }
+    return Mine(metrics, labels.size, labels.map { it.label }.distinct().size, newest)
 }
 
 /**
