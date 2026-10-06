@@ -1100,7 +1100,7 @@ private fun SmartLinkSheet(
             link.isDate -> Icons.Filled.DateRange
             else -> Icons.Filled.Info
         }
-        Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
+        Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 12.dp)) {
             Text(
                 text.substring(link.start, link.end),
                 style = MaterialTheme.typography.titleMedium,
@@ -1174,7 +1174,7 @@ private fun NumberSheet(
         val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         fun act(action: () -> Unit) = { onDismiss(); action() }
         val formatted = ContactLookup.formatAddress(number)
-        Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
+        Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 12.dp)) {
             Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
                 Text(name ?: formatted, style = MaterialTheme.typography.titleMedium)
                 if (name != null) Text(formatted, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -2054,7 +2054,8 @@ private fun MessageActionsSheet(
     ModalBottomSheet(onDismissRequest = onDismiss) {
         val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         fun act(action: () -> Unit) = { onDismiss(); action() }
-        Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
+        // Scrolls: with everything a message can offer, the last items (Delete) went off the bottom.
+        Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 12.dp)) {
             // Reactions go out as text ("Loved “…”"), so they only make sense on messages they've seen.
             if (message.canReactTo) {
                 Row(
