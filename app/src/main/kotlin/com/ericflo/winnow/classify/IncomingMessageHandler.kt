@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import com.ericflo.winnow.data.threadRecipients
 import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.cancellation.CancellationException
 import com.ericflo.winnow.data.attachmentSummary
@@ -67,7 +68,7 @@ class IncomingMessageHandler(
      * it arrived anyway.
      */
     suspend fun storeSms(address: String, body: String, sentAt: Long, subscriptionId: Int): StoredSms? {
-        val stored = withContext(Dispatchers.IO) { store(address, body, sentAt, subscriptionId) }
+        val stored = withContext(Dispatchers.IO) { store(address, body, sentAt, subscriptionId)?.also { markUnfinished(it.first) } }
         if (stored == null) {
             Log.e(TAG, "Could not store incoming SMS; is Winnow the default SMS app?")
             notifier.showMessage(
@@ -85,8 +86,77 @@ class IncomingMessageHandler(
      * a conversation's notification shows its texts in the order they came.
      */
     suspend fun handleStored(sms: StoredSms) {
-        inLine(sms.threadId) { beforeActing ->
-            route(sms.uri, ChatMessage.Kind.SMS, sms.threadId, sms.address, listOf(sms.address), sms.body, Tapback.summarize(sms.body), beforeActing = beforeActing)
+        try {
+            inLine(sms.threadId) { beforeActing ->
+                route(sms.uri, ChatMessage.Kind.SMS, sms.threadId, sms.address, listOf(sms.address), sms.body, Tapback.summarize(sms.body), beforeActing = beforeActing)
+            }
+        } finally {
+            markFinished(sms.uri)
+        }
+    }
+
+    /**
+     * Messages stored but not yet classified and said, kept on disk from the moment they're
+     * stored: if Winnow is ended between the two (Android reclaiming memory, say), the message
+     * is in the store but no one was told. [recoverUnfinished] finishes them at the next start.
+     */
+    private val unfinished by lazy { context.getSharedPreferences("incoming_unfinished", Context.MODE_PRIVATE) }
+    /** When this run began: messages marked before it were left by an earlier one. */
+    private val startedAt = System.currentTimeMillis()
+
+    /** [uri] is stored; what's left is classifying it and saying so. Written through at once, off the main thread. */
+    fun markUnfinished(uri: Uri) {
+        runCatching { unfinished.edit().putLong(uri.toString(), System.currentTimeMillis()).commit() }
+    }
+
+    private fun markFinished(uri: Uri) {
+        runCatching { unfinished.edit().remove(uri.toString()).apply() }
+    }
+
+    /** What [recoverUnfinished] needs of a stored MMS. */
+    data class StoredMms(val sender: String, val text: String, val mediaTypes: List<String>, val subject: String?)
+
+    /**
+     * Classifies and tells the user about messages an earlier run stored and didn't finish (see
+     * [markUnfinished]): still unread, still undecided, and from the last day. Any read or decided
+     * meanwhile, gone, or older only come off the list. [mms] reads a stored MMS back.
+     */
+    suspend fun recoverUnfinished(mms: (Long) -> StoredMms?) {
+        val left = withContext(Dispatchers.IO) { runCatching { unfinished.all }.getOrDefault(emptyMap()) }
+            .mapNotNull { (key, at) -> (at as? Long)?.takeIf { it < startedAt }?.let { key to it } }
+        if (left.isEmpty()) return
+        val participants by lazy { context.contentResolver.threadRecipients() }
+        for ((key, at) in left.sortedBy { it.second }) {
+            val uri = Uri.parse(key)
+            val id = runCatching { ContentUris.parseId(uri) }.getOrNull()
+            val isMms = uri.authority == "mms"
+            val row = id?.let { withContext(Dispatchers.IO) { unreadRow(uri, isMms) } }
+            val messageKey = id?.let { ChatMessage.messageKey(if (isMms) ChatMessage.Kind.MMS else ChatMessage.Kind.SMS, it) }
+            if (row == null || messageKey == null || System.currentTimeMillis() - at > RECOVER_WITHIN_MILLIS || dao.forKey(messageKey) != null) {
+                markFinished(uri)
+                continue
+            }
+            Log.i(TAG, "Finishing a message an earlier run stored but didn't tell anyone about")
+            runCatching {
+                if (!isMms) {
+                    handleStored(StoredSms(uri, row.threadId, row.sms!!.first, row.sms.second))
+                } else {
+                    val m = withContext(Dispatchers.IO) { mms(id) }
+                    val people = withContext(Dispatchers.IO) { participants[row.threadId] }.orEmpty().ifEmpty { listOfNotNull(m?.sender) }
+                    if (m == null) markFinished(uri) else onMmsStored(uri, row.threadId, m.sender, people, m.text, m.mediaTypes, m.subject)
+                }
+            }.onFailure { Log.w(TAG, "Couldn't finish an earlier message", it); markFinished(uri) }
+        }
+    }
+
+    /** A stored message's thread, and for an SMS its sender and text; null once it's read or gone. */
+    private class UnreadRow(val threadId: Long, val sms: Pair<String, String>?)
+
+    private fun unreadRow(uri: Uri, isMms: Boolean): UnreadRow? {
+        val columns = if (isMms) arrayOf(Telephony.Mms.THREAD_ID, Telephony.Mms.READ) else arrayOf(Telephony.Sms.THREAD_ID, Telephony.Sms.READ, Telephony.Sms.ADDRESS, Telephony.Sms.BODY)
+        return context.contentResolver.query(uri, columns, null, null, null)?.use { c ->
+            if (!c.moveToFirst() || c.getInt(1) != 0) null
+            else UnreadRow(c.getLong(0), if (isMms) null else (c.getString(2).orEmpty() to c.getString(3).orEmpty()))
         }
     }
 
@@ -113,24 +183,28 @@ class IncomingMessageHandler(
 
     /** A downloaded MMS, already stored by [com.ericflo.winnow.sms.MmsReceiver]. */
     suspend fun onMmsStored(uri: Uri, threadId: Long, sender: String, recipients: List<String>, text: String, mediaTypes: List<String>, subject: String? = null) {
-        // Classified and shown with its subject: a message can be carried in the subject line.
-        val words = subjectAndText(subject, text)
-        val preview = words.ifBlank { attachmentSummary(mediaTypes) }
-        // A media-only message still gets classified, on what little it says.
-        // In line with the conversation's other messages (see handleStored): a group gets texts and pictures.
-        val action = inLine(threadId) { beforeActing ->
-            route(
-                uri, ChatMessage.Kind.MMS, threadId, sender, recipients, words.ifBlank { "[photo]" }, preview, caption = words,
-                // A code is looked for in the text before the subject (an order number there isn't it).
-                codeIn = listOfNotNull(text, subject), beforeActing = beforeActing,
-            )
-        }
-        // Into the gallery if the user asked: only what reached the inbox (never a filtered or
-        // silenced one's), and only from people they know. A classifier that timed out lets a
-        // stranger's message through too, and the gallery may back up to the cloud. In a group,
-        // having texted the group doesn't vouch for everyone in it.
-        if (action == Action.ALLOW && settings.current().autoSaveMedia && knows(sender, recipients, threadId)) {
-            withContext(Dispatchers.IO) { saveMedia(uri) }
+        try {
+            // Classified and shown with its subject: a message can be carried in the subject line.
+            val words = subjectAndText(subject, text)
+            val preview = words.ifBlank { attachmentSummary(mediaTypes) }
+            // A media-only message still gets classified, on what little it says.
+            // In line with the conversation's other messages (see handleStored): a group gets texts and pictures.
+            val action = inLine(threadId) { beforeActing ->
+                route(
+                    uri, ChatMessage.Kind.MMS, threadId, sender, recipients, words.ifBlank { "[photo]" }, preview, caption = words,
+                    // A code is looked for in the text before the subject (an order number there isn't it).
+                    codeIn = listOfNotNull(text, subject), beforeActing = beforeActing,
+                )
+            }
+            // Into the gallery if the user asked: only what reached the inbox (never a filtered or
+            // silenced one's), and only from people they know. A classifier that timed out lets a
+            // stranger's message through too, and the gallery may back up to the cloud. In a group,
+            // having texted the group doesn't vouch for everyone in it.
+            if (action == Action.ALLOW && settings.current().autoSaveMedia && knows(sender, recipients, threadId)) {
+                withContext(Dispatchers.IO) { saveMedia(uri) }
+            }
+        } finally {
+            markFinished(uri)
         }
     }
 
@@ -374,6 +448,8 @@ class IncomingMessageHandler(
         const val BUDGET_MILLIS = 7_000L
         /** Texts classified at once in a burst (coming back into signal, say). */
         const val CLASSIFY_AT_ONCE = 4
+        /** An unfinished message older than this is old news: it comes off the list unannounced. */
+        const val RECOVER_WITHIN_MILLIS = 24 * 60 * 60_000L
         const val PROVIDER_TIMEOUT_MILLIS = 5_000L
     }
 }

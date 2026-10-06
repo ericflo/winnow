@@ -159,6 +159,8 @@ class MmsReceiver(
             placeholder?.let(::failed)
             return null
         }
+        // Stored: until it's classified and said, it's on the list a later start finishes (see IncomingMessageHandler).
+        incoming.markUnfinished(message)
         placeholder?.let(store::delete)
         placeholder?.lastPathSegment?.toLongOrNull()?.let { retries?.done(it) }
         if (acknowledge) transactionId?.takeIf { it.isNotBlank() }?.let {
