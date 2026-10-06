@@ -184,34 +184,12 @@ class MmsReceiver(
             ownNumbers.learn(conf.to.single())
         }
         val me = ownNumbers.all()
-        val everyone = (listOfNotNull(conf.from) + conf.to + conf.cc).filter { it.isNotBlank() }.distinctBy(::normalizeAddress)
-        // A message reaches this phone addressed to it: if none of its recipients is a number this
-        // phone knows as its own, that number is wrong or out of date, and no help here.
-        val addressedToMe = (conf.to + conf.cc).any { normalizeAddress(it) in me }
-        val group = conf.to.size + conf.cc.size > 1
-        if (group && me.isNotEmpty() && !addressedToMe) ownNumbers.noteUnaddressed()
-        val others = when {
-            addressedToMe -> everyone.filterNot { normalizeAddress(it) in me }
-            conf.to.size == 1 && conf.cc.isEmpty() -> listOfNotNull(conf.from)
-            else -> withoutThisPhone(conf, everyone) ?: everyone
+        val decided = participantsOf(conf.from, conf.to, conf.cc, me) {
+            runCatching { context.contentResolver.threadRecipients() }.getOrNull()?.values
+                ?.mapTo(HashSet()) { people -> people.mapTo(HashSet(), ::normalizeAddress) }.orEmpty()
         }
-        return others.ifEmpty { listOfNotNull(conf.from).ifEmpty { listOf(UNKNOWN_SENDER) } }
-    }
-
-    /**
-     * A group message, with this phone's number unknown: if leaving out exactly one of its
-     * recipients gives a conversation the phone already has, that recipient is this phone, and the
-     * message goes in that conversation rather than a new one that counts the user among its people.
-     */
-    private fun withoutThisPhone(conf: RetrieveConf, everyone: List<String>): List<String>? {
-        val known = runCatching { context.contentResolver.threadRecipients() }.getOrNull()?.values
-            ?.mapTo(HashSet()) { people -> people.mapTo(HashSet(), ::normalizeAddress) } ?: return null
-        val sender = conf.from?.let(::normalizeAddress)
-        val fits = (conf.to + conf.cc).map(::normalizeAddress).distinct().filter { it != sender }.filter { candidate ->
-            everyone.map(::normalizeAddress).filter { it != candidate }.toHashSet() in known
-        }
-        val me = fits.singleOrNull() ?: return null
-        return everyone.filterNot { normalizeAddress(it) == me }
+        if (decided.unaddressed) ownNumbers.noteUnaddressed()
+        return decided.people
     }
 
     private fun acknowledge(pdu: MmsPdu, subscriptionId: Int) {
@@ -224,6 +202,41 @@ class MmsReceiver(
         context.getSystemService(SmsManager::class.java).let { if (subscriptionId >= 0) it.createForSubscriptionId(subscriptionId) else it }
 
     companion object {
+        /** Who a received MMS is between (see [participantsOf]), and whether this phone's known number wasn't among its recipients. */
+        data class Participants(val people: List<String>, val unaddressed: Boolean)
+
+        /**
+         * Everyone in the conversation except this phone ([me], its known numbers, normalized). A
+         * message reaches this phone addressed to it, so if none of its recipients is in [me], that
+         * number is wrong or out of date ([Participants.unaddressed]) and is no help. Then a 1:1
+         * message is with its sender; a group, if leaving out exactly one of its recipients gives a
+         * conversation the phone already has ([conversations], each a set of normalized numbers,
+         * asked only when needed), is that conversation, the one left out being this phone; failing
+         * that, everyone, this phone perhaps among them. Pure, so it's unit-tested.
+         */
+        fun participantsOf(from: String?, to: List<String>, cc: List<String>, me: Set<String>, conversations: () -> Set<Set<String>>): Participants {
+            val everyone = (listOfNotNull(from) + to + cc).filter { it.isNotBlank() }.distinctBy(::normalizeAddress)
+            val recipients = (to + cc).filter { it.isNotBlank() }
+            val addressedToMe = recipients.any { normalizeAddress(it) in me }
+            val group = recipients.size > 1
+            val others = when {
+                addressedToMe -> everyone.filterNot { normalizeAddress(it) in me }
+                to.size == 1 && cc.isEmpty() -> listOfNotNull(from)
+                else -> {
+                    val sender = from?.let(::normalizeAddress)
+                    val known = conversations()
+                    val fits = recipients.map(::normalizeAddress).distinct().filter { it != sender }.filter { candidate ->
+                        everyone.map(::normalizeAddress).filter { it != candidate }.toHashSet() in known
+                    }
+                    fits.singleOrNull()?.let { mine -> everyone.filterNot { normalizeAddress(it) == mine } } ?: everyone
+                }
+            }
+            return Participants(
+                people = others.ifEmpty { listOfNotNull(from).ifEmpty { listOf(UNKNOWN_SENDER) } },
+                unaddressed = group && me.isNotEmpty() && !addressedToMe,
+            )
+        }
+
         const val EXTRA_FILE = "pdu_file"
         const val EXTRA_TRANSACTION_ID = "transaction_id"
         const val EXTRA_SUBSCRIPTION = "subscription"
