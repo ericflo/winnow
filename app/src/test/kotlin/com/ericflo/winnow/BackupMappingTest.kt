@@ -92,6 +92,15 @@ class BackupMappingTest {
     }
 
     @Test
+    fun `how much your labels of each sender count comes back, in range, and an older backup leaves it be`() {
+        assertEquals(2.0, WinnowSettings().restoring(configured.copy(senderMemory = 2.0).toBackup()).senderMemory, 0.0)
+        assertEquals(0.0, WinnowSettings().restoring(configured.copy(senderMemory = 0.0).toBackup()).senderMemory, 0.0)
+        assertEquals(4.0, WinnowSettings().restoring(configured.toBackup().copy(senderMemory = 99.0)).senderMemory, 0.0)
+        // A backup from before it was kept: this phone's stays.
+        assertEquals(0.5, WinnowSettings(senderMemory = 0.5).restoring(configured.toBackup().copy(senderMemory = null)).senderMemory, 0.0)
+    }
+
+    @Test
     fun `text size from a backup is kept in range, and snaps to the default when close`() {
         assertEquals(TextScale.MAX, WinnowSettings().restoring(configured.toBackup().copy(textScale = 9f)).textScale)
         assertEquals(1f, WinnowSettings().restoring(configured.toBackup().copy(textScale = Float.NaN)).textScale)
