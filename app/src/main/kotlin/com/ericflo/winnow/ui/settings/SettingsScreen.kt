@@ -112,6 +112,21 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
     val learned by viewModel.learned.collectAsStateWithLifecycle()
     val providerLearned by viewModel.providerLearned.collectAsStateWithLifecycle()
     var confirmForget by rememberSaveable { mutableStateOf(false) }
+    var confirmForgetProvider by rememberSaveable { mutableStateOf(false) }
+    if (confirmForgetProvider) {
+        AlertDialog(
+            onDismissRequest = { confirmForgetProvider = false },
+            title = { Text("Forget what the classifier service taught?") },
+            text = {
+                Text(
+                    "The $providerLearned labels a classifier service gave, in backlog runs and as texts arrived, stop teaching the on-phone model; your own labels and corrections stay. " +
+                        "Getting them back means asking the service again, at its usual cost. This can't be undone.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirmForgetProvider = false; viewModel.forgetProviderLabels() }) { Text("Forget") } },
+            dismissButton = { TextButton(onClick = { confirmForgetProvider = false }) { Text("Keep") } },
+        )
+    }
     if (confirmForget) {
         AlertDialog(
             onDismissRequest = { confirmForget = false },
@@ -190,10 +205,10 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                                 )
                                 if (providerLearned > 0) {
                                     Text(
-                                        "Also $providerLearned texts from your backlog labeled by a classifier service (Train Winnow). They count for less than yours.",
+                                        "Also $providerLearned texts labeled by a classifier service, in backlog runs (Train Winnow) and as texts arrived. They count for less than yours.",
                                         modifier = Modifier.padding(top = 4.dp),
                                     )
-                                    TextButton(onClick = viewModel::forgetProviderLabels, contentPadding = PaddingValues(0.dp)) { Text("Forget just those") }
+                                    TextButton(onClick = { confirmForgetProvider = true }, contentPadding = PaddingValues(0.dp)) { Text("Forget just those") }
                                 }
                             }
                         },

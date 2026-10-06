@@ -724,7 +724,19 @@ private fun LazyListScope.history(viewModel: ModelViewModel) {
                                 ).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall,
                             )
-                            if (f.kept) TextButton(onClick = { viewModel.forgetKept(f.fit) }, contentPadding = PaddingValues(0.dp)) { Text("Let it go") }
+                            if (f.kept) {
+                                var letting by androidx.compose.runtime.remember(f.fit) { androidx.compose.runtime.mutableStateOf(false) }
+                                if (letting) {
+                                    androidx.compose.material3.AlertDialog(
+                                        onDismissRequest = { letting = false },
+                                        title = { Text("Let ${f.name ?: "fit ${f.fit}"} go?") },
+                                        text = { Text("Its saved copy goes, so it can't be scored or compared again. Its line here stays, and the model Winnow uses now doesn't change.") },
+                                        confirmButton = { TextButton(onClick = { letting = false; viewModel.forgetKept(f.fit) }) { Text("Let it go") } },
+                                        dismissButton = { TextButton(onClick = { letting = false }) { Text("Keep it") } },
+                                    )
+                                }
+                                TextButton(onClick = { letting = true }, contentPadding = PaddingValues(0.dp)) { Text("Let it go") }
+                            }
                         }
                     }
                 }
