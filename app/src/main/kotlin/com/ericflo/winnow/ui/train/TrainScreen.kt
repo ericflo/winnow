@@ -97,7 +97,7 @@ sealed interface TrainState {
     data object Saving : TrainState
 
     /** One conversation of a finished round: Winnow's guess, and the user's answer (null if skipped). */
-    data class Outcome(val name: String, val text: String, val guess: Category, val answer: Category?)
+    data class Outcome(val name: String, val text: String, val guess: Category, val answer: Category?, val threadId: Long = 0)
 
     data class Finished(
         val result: Training.RoundResult,
@@ -110,6 +110,8 @@ sealed interface TrainState {
         val rulesRemoved: Int = 0,
         /** The round's senders whose labels now decide their next texts (see SenderInsight). */
         val decidedSenders: Int = 0,
+        /** A Lab model sorts texts and doesn't retrain on its own: it learns these when the user retrains it. */
+        val labWaits: Boolean = false,
     ) : TrainState
 
     /** Nothing left to label. */
@@ -145,6 +147,11 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
     val live: StateFlow<Boolean> = container.isLive
     private val _offer = MutableStateFlow<BootstrapOffer?>(null)
     val offer: StateFlow<BootstrapOffer?> = _offer.asStateFlow()
+
+    /** Each backlog run's service, by run: a guess's "said" names the service that said it. */
+    val runServices: StateFlow<Map<Long, String>> = container.runDao.observeAll()
+        .map { runs -> runs.associate { it.id to it.provider } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
      * The last run, if it ended without the user seeing how (Winnow closed, or its notification
@@ -356,7 +363,7 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
                     is Decision.Is -> d.category
                     else -> null
                 }
-                TrainState.Outcome(c.name, c.text, c.guess, answer)
+                TrainState.Outcome(c.name, c.text, c.guess, answer, c.threadId)
             }
             if (labels.isNotEmpty()) training.record(result)
             // Only now: had the save been cut short, the round would come back with what's left.
@@ -369,6 +376,7 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
                 labeled = r.round.labeled + labels.size,
                 rulesRemoved = rulesRemoved,
                 decidedSenders = decidedSenders,
+                labWaits = container.settings.current().let { it.labModel != null && !it.labAutoRetrain },
             )
             // Behind the summary: a refit of every label takes a moment on a phone. The next round
             // waits for it (see nextRound), so it's guessed by what this one taught.
@@ -504,6 +512,7 @@ private fun Reviewing(
     modifier: Modifier,
 ) {
     val offer by viewModel.offer.collectAsStateWithLifecycle()
+    val runServices by viewModel.runServices.collectAsStateWithLifecycle()
     val groups = s.round.candidates.groupBy { it.guess }.toSortedMap(compareBy { it.ordinal })
     LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item("bootstrap") { Box(Modifier.padding(horizontal = 16.dp)) { BootstrapSection(viewModel, onOpenRun, onOpenRuns) } }
@@ -553,7 +562,8 @@ private fun Reviewing(
                 CandidateRow(
                     c,
                     onOpenThread = { onOpenThread(c.threadId, c.recipients) },
-                    providerName = offer?.provider?.let { if ("Jev" in it) "Jev" else it } ?: "Jev",
+                    // The service that said it (its run's); the one set up now, if that isn't known.
+                    providerName = (c.providerRunId?.let(runServices::get) ?: offer?.provider)?.let { if ("Jev" in it) "Jev" else it.substringBefore(" (") } ?: "The service",
                     decision = s.decisions[c.threadId],
                     open = s.open == c.threadId,
                     onToggleRight = { viewModel.toggleRight(c.threadId) },
@@ -746,8 +756,9 @@ private fun Finished(s: TrainState.Finished, onNext: () -> Unit, onDone: () -> U
                     Text(
                         // Rounds are the conversations it's least sure of, so their scores don't climb
                         // the way its accuracy on everything else does; it mustn't sound like they will.
-                        "Winnow learned from your answers: texts like these now get your label. Each round brings the " +
-                            "conversations it's least sure of, so a round's score isn't a measure of how much it has learned.",
+                        (if (s.labWaits) "Winnow kept your answers. The Lab model sorting your texts learns them when you retrain it (Winnow's model → Lab). "
+                        else "Winnow learned from your answers: texts like these now get your label. ") +
+                            "Each round brings the conversations it's least sure of, so a round's score isn't a measure of how much it has learned.",
                         style = MaterialTheme.typography.bodyLarge,
                     )
                     if (s.decidedSenders > 0) {
@@ -778,7 +789,8 @@ private fun Finished(s: TrainState.Finished, onNext: () -> Unit, onDone: () -> U
         val wrong = s.outcomes.filter { it.answer != null && it.answer != it.guess }
         if (wrong.isNotEmpty()) {
             item("wrong-h") { Text("Where Winnow was wrong", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp)) }
-            items(wrong, key = { "wrong-" + it.name + it.text.hashCode() }) { o ->
+            // One per conversation: two can share a name and a newest text (a group thread made twice).
+            items(wrong, key = { "wrong-${it.threadId}" }) { o ->
                 Column {
                     Text(o.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(o.text, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -805,7 +817,7 @@ private fun Finished(s: TrainState.Finished, onNext: () -> Unit, onDone: () -> U
             }
         }
         item("buttons") {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 12.dp, bottom = 32.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 12.dp, bottom = 32.dp)) {
                 if (s.backlog > 0) Button(onClick = onNext) { Text("Next round") }
                 OutlinedButton(onClick = onDone) { Text("Done for now") }
             }
@@ -858,7 +870,7 @@ private fun BootstrapSection(viewModel: TrainViewModel, onOpenRun: (Long) -> Uni
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 TextButton(onClick = viewModel::stopBootstrap, contentPadding = PaddingValues(0.dp)) { Text("Stop") }
                 if (st.runId != 0L) TextButton(onClick = { onOpenRun(st.runId) }, contentPadding = PaddingValues(0.dp)) { Text("See its answers so far") }
             }
@@ -911,7 +923,7 @@ private fun BootstrapSection(viewModel: TrainViewModel, onOpenRun: (Long) -> Uni
                 if (o.unavailable != null) {
                     Text(o.unavailable, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                 } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { confirming = true }, enabled = o.plan.texts > 0) { Text("Review and start") }
                         TextButton(onClick = viewModel::cancelRedo) { Text("Not now") }
                     }

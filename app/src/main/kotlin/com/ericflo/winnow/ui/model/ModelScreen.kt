@@ -226,7 +226,22 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     /** Trains the model in use again, on the phone, with everything taught so far. */
-    fun retrainNow() = lab.retrainInUse()
+    private val _retrainingOwn = MutableStateFlow(false)
+    /** Winnow's own model being refitted at the user's asking (a Lab model's says so in lab.status). */
+    val retrainingOwn: StateFlow<Boolean> = _retrainingOwn.asStateFlow()
+
+    fun retrainNow() {
+        if (overview.value?.labModel != null) return lab.retrainInUse()
+        if (_retrainingOwn.value) return
+        _retrainingOwn.value = true
+        viewModelScope.launch {
+            try {
+                container.learner.reload()
+            } finally {
+                _retrainingOwn.value = false
+            }
+        }
+    }
 
     fun setLabAutoRetrain(on: Boolean) {
         viewModelScope.launch { container.settings.update { it.copy(labAutoRetrain = on) } }
@@ -321,9 +336,12 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
     private val _reading = MutableStateFlow<ModelInspector.Reading?>(null)
     val reading: StateFlow<ModelInspector.Reading?> = _reading.asStateFlow()
 
-    /** How the model reads [text], as if from a stranger (or someone the user has texted, [known]). */
+    private var readJob: kotlinx.coroutines.Job? = null
+
+    /** How the model reads [text], as if from a stranger (or someone the user has texted, [known]); the last one typed wins. */
     fun read(text: String, known: Boolean) {
-        viewModelScope.launch {
+        readJob?.cancel()
+        readJob = viewModelScope.launch {
             _reading.value = if (text.isBlank()) null else withContext(Dispatchers.Default) {
                 ModelInspector.read(container.learner.classifier(), InboundMessage("+15555550100", text, senderInContacts = false, userHasMessagedSender = known))
             }
@@ -452,10 +470,10 @@ private fun FitCard(o: Overview) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AssistChip(onClick = {}, label = { Text(plural(f.userLabels, "label") + " of yours") })
-                    if (f.corrections > 0) AssistChip(onClick = {}, label = { Text(plural(f.corrections, "correction") + " of yours") })
-                    if (f.providerLabels > 0) AssistChip(onClick = {}, label = { Text("${count(f.providerLabels)} ${o.provider} backlog ${if (f.providerLabels == 1) "answer" else "answers"}") })
-                    if (f.providerLive > 0) AssistChip(onClick = {}, label = { Text("${count(f.providerLive)} ${o.provider} ${if (f.providerLive == 1) "answer" else "answers"} as texts arrived") })
+                    Tag(plural(f.userLabels, "label") + " of yours")
+                    if (f.corrections > 0) Tag(plural(f.corrections, "correction") + " of yours")
+                    if (f.providerLabels > 0) Tag("${count(f.providerLabels)} ${o.provider} backlog ${if (f.providerLabels == 1) "answer" else "answers"}")
+                    if (f.providerLive > 0) Tag("${count(f.providerLive)} ${o.provider} ${if (f.providerLive == 1) "answer" else "answers"} as texts arrived")
                 }
                 Text(
                     "Each of your labels counts fully; each of ${o.provider}'s counts for ${pct(f.providerWeight)} of one of yours, and yours replaces it on the same text. " +
@@ -616,7 +634,7 @@ private fun LabelsAndServiceCard(o: Overview, onOpenRuns: () -> Unit) {
 private fun LazyListScope.inside(viewModel: ModelViewModel, onOpenThread: (Long, List<String>) -> Unit) {
     item("built") {
         val o by viewModel.overview.collectAsStateWithLifecycle()
-        BuiltCard(o?.weight ?: Learner.PROVIDER_WEIGHT)
+        BuiltCard(o?.weight ?: Learner.PROVIDER_WEIGHT, o?.personalEpochs ?: Personalizer.EPOCHS, o?.personalStep ?: Personalizer.LEARNING_RATE, o?.personalL2 ?: Personalizer.L2)
     }
     item("learned") {
         androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.loadInside() }
@@ -706,7 +724,7 @@ private const val SENDERS_SHOWN = 15
 private const val SENDERS_PAGE = 50
 
 @Composable
-private fun BuiltCard(weight: Double) {
+private fun BuiltCard(weight: Double, epochs: Int, step: Double, l2: Double) {
     val model = LocalModel.bundled
     // Read from the APK the first time: off the main thread.
     val shipped by androidx.compose.runtime.produceState<ClassifierMetrics?>(null) {
@@ -731,9 +749,12 @@ private fun BuiltCard(weight: Double) {
             "What you teach it",
             "a layer on top",
             "Your labels and the service's answers don't change those weights: they fit a sparse layer of adjustments, only for buckets that taught texts had, added to the shipped weights. " +
-                "Fitted from scratch on every label: ${Personalizer.EPOCHS} passes, step ${Personalizer.LEARNING_RATE} with AdaGrad, a pull of ${Personalizer.L2} toward changing nothing, so texts unlike what you taught barely move. " +
-                if (weight <= 0) "Your labels are pulled all the way to their category; a service's labels are left out (you set their weight to 0)."
-                else "Your labels are pulled all the way to their category; a service's answer, counting ${pct(weight)}, only to ${pct(Personalizer.LIGHT_FLOOR + (1 - Personalizer.LIGHT_FLOOR) * weight.coerceAtMost(1.0))}, so yours win.",
+                "Fitted from scratch on every label: $epochs passes, step $step with AdaGrad, a pull of $l2 toward changing nothing, so texts unlike what you taught barely move. " +
+                when {
+                    weight <= 0 -> "Your labels are pulled all the way to their category; a service's labels are left out (you set their weight to 0)."
+                    weight >= 1 -> "Your labels are pulled all the way to their category, and so is a service's answer (you set its weight to 100%); yours replaces it on the same text."
+                    else -> "Your labels are pulled all the way to their category; a service's answer, counting ${pct(weight)}, only to ${pct(Personalizer.LIGHT_FLOOR + (1 - Personalizer.LIGHT_FLOOR) * weight)}, so yours win."
+                },
         )
         Fact("When it acts alone", ">= ${pct(policy.onDeviceMinConfidence)}", "It filters a text only when it's at least this sure (a service, ${pct(policy.minConfidence)}), and never a spam text with nothing to hook you with. With “decide on this phone when sure” on, it skips the service at 95%.")
         Fact("Fit kept", "between runs", "The last fit is saved, named by what it learned from, and used again until something it learned from changes.")
@@ -878,4 +899,16 @@ private fun LazyListScope.history(viewModel: ModelViewModel) {
 @Composable
 private fun OutlinedButtonRow(label: String, onClick: () -> Unit) {
     androidx.compose.material3.OutlinedButton(onClick = onClick) { Text(label) }
+}
+
+/** A label that looks like a chip but isn't one: nothing to tap, so nothing announced as a button. */
+@Composable
+private fun Tag(text: String) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        color = androidx.compose.ui.graphics.Color.Transparent,
+    ) {
+        Text(text, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+    }
 }

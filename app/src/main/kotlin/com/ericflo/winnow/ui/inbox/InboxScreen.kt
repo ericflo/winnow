@@ -1038,9 +1038,8 @@ private fun ProblemCard(count: Int, earlier: String?, at: Long?, onShare: () -> 
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = onShare) { Text("Share details") }
-                Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onDismiss) { Text("Not now") }
             }
         }
@@ -1065,9 +1064,8 @@ private fun ContactsHiddenCard(service: String?, onAllow: () -> Unit, onDismiss:
                 color = MaterialTheme.colorScheme.onErrorContainer,
             )
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = onAllow) { Text("Open settings") }
-                Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onDismiss) { Text("Not now") }
             }
         }
@@ -1090,9 +1088,8 @@ private fun AlertsOffCard(onTurnOn: () -> Unit, onDismiss: () -> Unit) {
                 color = MaterialTheme.colorScheme.onErrorContainer,
             )
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = onTurnOn) { Text("Turn on") }
-                Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onDismiss) { Text("Not now") }
             }
         }
@@ -1115,7 +1112,7 @@ private fun RestrictedCard(onSettings: () -> Unit, onDismiss: () -> Unit) {
                     "Unrestricted (on a Galaxy, also take it off the sleeping apps list).",
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onSettings) { Text("Open app settings") }
                 TextButton(onClick = onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onErrorContainer)) { Text("Not now") }
             }
@@ -1188,7 +1185,7 @@ private fun RcsCard(chats: List<ConversationSummary>, onOpen: (ConversationSumma
                 )
             }
             if (chats.size > 3) Text("and ${chats.size - 3} more, each marked in its conversation", style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onWhy) { Text("What to do") }
                 TextButton(onClick = onDismiss, colors = ink) { Text("Got it") }
             }
@@ -1241,7 +1238,7 @@ private fun EmptyInboxCard(
             if (why.filtered > 0) add("${plural(why.filtered, "conversation")} ${if (why.filtered == 1) "is" else "are"} in Filtered")
         }.joinToString(", and ").replaceFirstChar { it.uppercase() } + ". Nothing's gone: they're out of the inbox, not deleted."
         is EmptyInbox.NotListed -> "Winnow couldn't list your texts" to
-            "Your phone has ${plural(why.counts.texts, "message")} in ${plural(why.counts.threads.coerceAtLeast(0), "conversation")}, but Winnow couldn't show any of them. " +
+            "Your phone has ${plural(why.counts.texts, "message")}" + (if (why.counts.threads > 0) " in ${plural(why.counts.threads, "conversation")}" else "") + ", but Winnow couldn't show any of them. " +
             "They're safe in your phone's message store." +
             (why.health?.failures?.takeIf { it.isNotEmpty() }?.let { " What went wrong: " + it.joinToString("; ") + "." } ?: "") +
             (if (why.trashed > 0) " ${plural(why.trashed, "conversation")} ${if (why.trashed == 1) "is" else "are"} in Recently deleted, too." else "")
@@ -1297,9 +1294,8 @@ private fun MakeDefaultCard(onMakeDefault: () -> Unit, onDismiss: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = onMakeDefault) { Text("Set as default") }
-                Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onDismiss) { Text("Not now") }
             }
             RestrictedSettingHelp(Modifier.padding(top = 12.dp))

@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.ericflo.winnow.ui.components
 
 import android.content.ActivityNotFoundException
@@ -7,6 +9,7 @@ import android.net.Uri
 import android.provider.ContactsContract
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -80,7 +83,7 @@ fun ContactCardAttachment(uri: String, outgoing: Boolean, onMessage: (String) ->
                         }
                     }
                     HorizontalDivider(color = content.copy(alpha = 0.12f))
-                    Row(Modifier.padding(horizontal = 4.dp)) {
+                    FlowRow(Modifier.padding(horizontal = 4.dp)) {
                         TextButton(onClick = { addContact(context, contact) }) { Text("Add contact") }
                         if (phone != null) TextButton(onClick = { onMessage(phone) }) { Text("Message") }
                     }

@@ -259,7 +259,7 @@ private fun OverTimeCard(viewModel: ModelViewModel) {
         if (nows.size > 1) {
             Text("Winnow's own, each time it was scored", style = MaterialTheme.typography.labelLarge)
             nows.takeLast(12).forEach { e ->
-                RateBar(format.format(Date(e.at)), (e.accuracy * e.examples).toInt(), e.examples, detail = "macro F1 ${f2(e.macroF1)}")
+                RateBar(format.format(Date(e.at)), Math.round(e.accuracy * e.examples).toInt(), e.examples, detail = "macro F1 ${f2(e.macroF1)}")
             }
         }
         Text("Earlier scorings", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))

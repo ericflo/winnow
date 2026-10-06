@@ -30,6 +30,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -263,12 +264,18 @@ fun ThreadScreen(
     onMessageNumber: (String) -> Unit = {},
     /** False in the two-pane layout, where the conversation list stays beside it. */
     showBack: Boolean = true,
-    /** A backlog run's results (see RunScreen), from why a text was sorted as it was. */
-    onOpenRun: (Long) -> Unit = {},
-    /** A new conversation with these people (from an RCS chat, its people with real numbers). */
-    onNewGroup: (List<String>) -> Unit = {},
+    /** A backlog run's results (see RunScreen), from why a text was sorted as it was; null where there's nowhere to open it (a chat bubble). */
+    onOpenRun: ((Long) -> Unit)? = null,
+    /** A new conversation with these people (from an RCS chat, its people with real numbers); null where it can't be started (a chat bubble). */
+    onNewGroup: ((List<String>) -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Deleted from here: left as soon as it's in front again (going back is only allowed then).
+    val gone by viewModel.gone.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(gone) {
+        if (gone) onBack()
+        onPauseOrDispose { }
+    }
     // The message whose "why" is open (see ProvenanceSheet), by key.
     var explaining by rememberSaveable { mutableStateOf<String?>(null) }
     val restricted by viewModel.restricted.collectAsStateWithLifecycle()
@@ -673,7 +680,7 @@ fun ThreadScreen(
             Column {
             pending?.let { UndoBar(it, onUndo = viewModel::undoSend) }
             if (state.cantSend) {
-                RcsCantSend(textable = state.textable, onNewGroup = { onNewGroup(state.textable) }, onWhy = { rcsWhy = true })
+                RcsCantSend(textable = state.textable, onNewGroup = onNewGroup?.let { start -> { start(state.textable) } }, onWhy = { rcsWhy = true })
                 return@Column
             }
             Composer(
@@ -967,7 +974,7 @@ fun ThreadScreen(
             count = 1,
             everything = viewModel.isEverything(listOf(message)),
             onConfirm = {
-                if (viewModel.isEverything(listOf(message))) viewModel.deleteEverything(listOf(message), onBack) else viewModel.delete(message)
+                if (viewModel.isEverything(listOf(message))) viewModel.deleteEverything(listOf(message)) else viewModel.delete(message)
                 confirmDeleteOne = null
             },
             onDismiss = { confirmDeleteOne = null },
@@ -978,7 +985,7 @@ fun ThreadScreen(
             count = selected.size,
             everything = viewModel.isEverything(selectedMessages),
             onConfirm = {
-                if (viewModel.isEverything(selectedMessages)) viewModel.deleteEverything(selectedMessages, onBack) else viewModel.deleteMessages(selectedMessages)
+                if (viewModel.isEverything(selectedMessages)) viewModel.deleteEverything(selectedMessages) else viewModel.deleteMessages(selectedMessages)
                 selected = emptySet()
                 confirmDeleteSelected = false
             },
@@ -1066,7 +1073,7 @@ fun ThreadScreen(
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
-                    viewModel.deleteConversation(onBack)
+                    viewModel.deleteConversation()
                 }) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
@@ -1282,7 +1289,7 @@ private fun UnknownSenderBanner(onAddContact: () -> Unit, onFilter: () -> Unit, 
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(end = 12.dp),
             )
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+            FlowRow(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = onFilter) { Text("Filter sender") }
                 TextButton(onClick = onAddContact) { Text("Add contact") }
             }
@@ -2930,7 +2937,7 @@ private fun DeletingDialog() {
 
 /** In place of the composer, in an RCS chat whose people are RCS ids: why nothing can be sent, and what can. */
 @Composable
-private fun RcsCantSend(textable: List<String>, onNewGroup: () -> Unit, onWhy: () -> Unit) {
+private fun RcsCantSend(textable: List<String>, onNewGroup: (() -> Unit)?, onWhy: () -> Unit) {
     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Winnow can't send to this chat", style = MaterialTheme.typography.titleSmall)
@@ -2941,8 +2948,8 @@ private fun RcsCantSend(textable: List<String>, onNewGroup: () -> Unit, onWhy: (
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (textable.isNotEmpty()) androidx.compose.material3.Button(onClick = onNewGroup) { Text(if (textable.size == 1) "Text them" else "New group with them") }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (textable.isNotEmpty() && onNewGroup != null) androidx.compose.material3.Button(onClick = onNewGroup) { Text(if (textable.size == 1) "Text them" else "New group with them") }
                 TextButton(onClick = onWhy) { Text("About RCS") }
             }
         }

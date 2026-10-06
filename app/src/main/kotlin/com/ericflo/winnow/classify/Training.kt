@@ -53,6 +53,8 @@ class Training(
         val before: Category? = null,
         /** The service's fine-grained answer, if it gave one ("toll_phishing"). */
         val providerDetail: String? = null,
+        /** The backlog run [providerSays] came from, if one did: which service it was is the run's. */
+        val providerRunId: Long? = null,
     ) {
         /** What the model reads to guess: the newest text, as they sent it. */
         fun message() = InboundMessage(sender = recipients.first(), body = text, senderInContacts = false, userHasMessagedSender = repliedTo)
@@ -103,8 +105,9 @@ class Training(
         val details = verdicts.providerDetails().associate { it.threadId to it.subcategory }
         // What the classifier service said of each conversation, from its newest label there.
         // Its label on the conversation's newest text (message ids grow with time), not its latest run's.
-        val provider = corrections.all().filter { it.fromProvider && it.threadId != null }
-            .groupBy { it.threadId!! }.mapValues { (_, rows) -> Category.fromKey(rows.maxBy { r -> r.messageKey?.substringAfter(':')?.toLongOrNull() ?: 0 }.label) }
+        val providerRows = corrections.all().filter { it.fromProvider && it.threadId != null }
+            .groupBy { it.threadId!! }.mapValues { (_, rows) -> rows.maxBy { r -> r.messageKey?.substringAfter(':')?.toLongOrNull() ?: 0 } }
+        val provider = providerRows.mapValues { (_, row) -> Category.fromKey(row.label) }
         // A first, cheap guess from each conversation's latest text, to choose the batch. Where the
         // service and the model disagree comes first: that's where the user's answer counts most.
         // Across the cores: a phone has several, and a backlog can be a thousand and more conversations.
@@ -143,6 +146,7 @@ class Training(
                 earlier = covered.dropLast(1).asReversed().map(Labeler::textOf),
                 repliedTo = messages.any { it.outgoing },
                 providerSays = provider[c.threadId],
+                providerRunId = providerRows[c.threadId]?.runId?.takeIf { it > 0 },
                 before = before[c.threadId],
                 providerDetail = details[c.threadId],
             )

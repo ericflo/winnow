@@ -33,6 +33,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -93,8 +95,12 @@ private fun InUseCard(viewModel: ModelViewModel) {
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = viewModel::retrainNow) { Text("Retrain on device now") }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                // Said while it's under way, and not asked for twice.
+                val status by viewModel.lab.status.collectAsStateWithLifecycle()
+                val own by viewModel.retrainingOwn.collectAsStateWithLifecycle()
+                val busy = own || (inUse != null && (status as? ModelLab.Status.Running)?.id == inUse.id)
+                Button(onClick = viewModel::retrainNow, enabled = !busy) { Text(if (busy) "Retraining…" else "Retrain on device now") }
                 if (inUse != null) OutlinedButton(onClick = { viewModel.useLab(null) }) { Text("Back to Winnow's own") }
             }
             if (inUse != null) {
@@ -158,7 +164,7 @@ private fun DesignCard(viewModel: ModelViewModel) {
             r.layers.forEachIndexed { i, width ->
                 Step(if (i == 0) "Embedding" else "Hidden layer $i", null, WIDTHS, width, { "$it" }) { v -> viewModel.editDraft { it.copy(layers = it.layers.toMutableList().also { l -> l[i] = v }) } }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (r.layers.size < 4) OutlinedButton(onClick = { viewModel.editDraft { it.copy(layers = it.layers + (it.layers.last() / 2).coerceAtLeast(4)) } }) { Text("Add a layer") }
                 if (r.layers.size > 1) OutlinedButton(onClick = { viewModel.editDraft { it.copy(layers = it.layers.dropLast(1)) } }) { Text("Take one off") }
             }
@@ -209,10 +215,10 @@ private fun Models(viewModel: ModelViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (entries.isNotEmpty() && (own != null || shipped != null)) {
             InsightCard("Side by side", subtitle = "Accuracy on your labels, each from its latest scoring") {
-                own?.let { RateBar("Winnow's own (personal layer)", (it.accuracy * it.examples).toInt(), it.examples, color = MaterialTheme.colorScheme.outline, detail = "macro F1 ${f2(it.macroF1)}") }
-                shipped?.let { RateBar("As it ships", (it.accuracy * it.examples).toInt(), it.examples, color = MaterialTheme.colorScheme.outline, detail = "macro F1 ${f2(it.macroF1)}") }
+                own?.let { RateBar("Winnow's own (personal layer)", Math.round(it.accuracy * it.examples).toInt(), it.examples, color = MaterialTheme.colorScheme.outline, detail = "macro F1 ${f2(it.macroF1)}") }
+                shipped?.let { RateBar("As it ships", Math.round(it.accuracy * it.examples).toInt(), it.examples, color = MaterialTheme.colorScheme.outline, detail = "macro F1 ${f2(it.macroF1)}") }
                 entries.filter { it.accuracy != null }.forEach { e ->
-                    RateBar(e.name, ((e.accuracy ?: 0.0) * e.scoredOn).toInt(), e.scoredOn, detail = "macro F1 ${e.macroF1?.let(::f2) ?: "—"}")
+                    RateBar(e.name, Math.round((e.accuracy ?: 0.0) * e.scoredOn).toInt(), e.scoredOn, detail = "macro F1 ${e.macroF1?.let(::f2) ?: "—"}")
                 }
                 if (own == null) Note("Score Winnow's own under Evaluate to see it here too.")
             }
@@ -274,9 +280,16 @@ private fun <T> Step(label: String, help: String?, options: List<T>, value: T, f
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-            FilledTonalIconButton(onClick = { onChange(options[(at - 1).coerceAtLeast(0)]) }, enabled = at > 0) { Text("−") }
+            // Read aloud as what they change: "Less: Passes", not "minus".
+            FilledTonalIconButton(
+                onClick = { onChange(options[(at - 1).coerceAtLeast(0)]) }, enabled = at > 0,
+                modifier = Modifier.semantics { contentDescription = "Less: $label" },
+            ) { Text("−") }
             Text(format(value), style = MaterialTheme.typography.titleSmall, textAlign = TextAlign.Center, modifier = Modifier.width(84.dp))
-            FilledTonalIconButton(onClick = { onChange(options[(at + 1).coerceAtMost(options.lastIndex)]) }, enabled = at < options.lastIndex) { Text("+") }
+            FilledTonalIconButton(
+                onClick = { onChange(options[(at + 1).coerceAtMost(options.lastIndex)]) }, enabled = at < options.lastIndex,
+                modifier = Modifier.semantics { contentDescription = "More: $label" },
+            ) { Text("+") }
         }
         help?.let { Note(it) }
     }

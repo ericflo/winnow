@@ -89,9 +89,11 @@ fun DiagnosisSections(
     onChanged: () -> Unit,
     showSuggestions: Boolean = true,
 ) {
+    // A kept fit with nothing labeled since is scored on what it learned from: said so, not "hadn't seen".
+    val learnedThem = d.eval.method == EvalEntity.METHOD_TRAINED_ON
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            "It follows your label on ${pct(d.accuracy)} of ${count(d.eval.examples)} texts it hadn't seen" +
+            "It follows your label on ${pct(d.accuracy)} of ${count(d.eval.examples)} texts " + (if (learnedThem) "it learned from (not a fair test)" else "it hadn't seen") +
                 (d.fitAccuracy?.let { "; on the ones it learns from, ${pct(it)}" } ?: "") + ".",
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -129,7 +131,10 @@ fun DiagnosisSections(
         if (d.mistakes.isNotEmpty()) {
             var open by remember { mutableStateOf(false) }
             Text("Its surest mistakes: ${count(d.mistakes.size)}", style = MaterialTheme.typography.labelLarge)
-            Note("Trained without these, it was at least ${pct(LabDiagnosis.SURE)} sure of another category, and wrong: where what it learned misleads it most.")
+            Note(
+                (if (learnedThem) "Though it learned from these, it was" else "Trained without these, it was") +
+                    " at least ${pct(LabDiagnosis.SURE)} sure of another category, and wrong: where what it learned misleads it most.",
+            )
             if (!open) TextButton(onClick = { open = true }, contentPadding = PaddingValues(0.dp)) { Text("Show them") }
             else {
                 d.mistakes.take(SHOWN).forEach { ShownRow(it, onOpenThread) }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -199,13 +200,16 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                         supportingContent = {
                             Column {
                                 Text(
-                                    "${if (learned == 1) "1 text you labeled or corrected teaches" else "$learned texts you labeled or corrected teach"} the on-phone model " +
-                                        "about texts like them. It keeps word fingerprints, never the messages. Forget clears what it learned; " +
-                                        "conversations stay where you put them.",
+                                    when (learned) {
+                                        0 -> "None of your own labels or corrections teach the on-phone model yet. "
+                                        1 -> "1 text you labeled or corrected teaches the on-phone model about texts like it. "
+                                        else -> "$learned texts you labeled or corrected teach the on-phone model about texts like them. "
+                                    } + "It keeps word fingerprints, never the messages. Forget clears what it learned; conversations stay where you put them.",
                                 )
                                 if (providerLearned > 0) {
                                     Text(
-                                        "Also $providerLearned texts labeled by a classifier service, in backlog runs (Train Winnow) and as texts arrived. They count for less than yours.",
+                                        "Also $providerLearned texts labeled by a classifier service, in backlog runs (Train Winnow) and as texts arrived. " +
+                                            "Each counts ${(s.providerWeight * 100).toInt()}% of one of yours, and yours replaces it on the same text.",
                                         modifier = Modifier.padding(top = 4.dp),
                                     )
                                     TextButton(onClick = { confirmForgetProvider = true }, contentPadding = PaddingValues(0.dp)) { Text("Forget just those") }
@@ -653,7 +657,7 @@ private fun LazyListScope.privacyItems(s: WinnowSettings, vm: SettingsViewModel)
         item("p-learn") {
             SwitchRow(
                 "Keep teaching the on-device model",
-                "${s.provider.label}'s answers on texts as they arrive teach Winnow's built-in model, counting for less than your own labels, " +
+                "${s.provider.label}'s answers on texts as they arrive teach Winnow's built-in model, each counting ${(s.providerWeight * 100).toInt()}% of one of your own labels, " +
                     "so it goes on learning your texts while ${s.provider.label} decides. Only answers at least 70% sure teach it.",
                 s.learnFromProvider,
                 onChange = vm::setLearnFromProvider,
@@ -935,12 +939,23 @@ private fun ProblemsRow(problems: List<com.ericflo.winnow.diagnostics.ProblemLog
                         .format(java.time.Instant.ofEpochMilli(latest.at).atZone(java.time.ZoneId.systemDefault()))
                     val ranAs = latest.version?.takeIf { it != current }?.let { " in version $it, before the update to this one" }.orEmpty()
                     Text(
-                        "${if (problems.size == 1) "1 recorded" else "${problems.size} recorded"}, the latest a ${latest.kind.label.lowercase()} on $at$ranAs. " +
+                        "${if (problems.size == 1) "1 recorded" else "${problems.size} recorded"}; the latest, on $at$ranAs: ${latest.kind.label.lowercase()}. " +
                             "The report stays on this phone unless you share it, and can include bits of what Winnow was handling.",
                     )
-                    Row {
+                    // Gone for good once cleared: asked first, as every other forgetting is.
+                    var confirmClear by remember { mutableStateOf(false) }
+                    if (confirmClear) {
+                        AlertDialog(
+                            onDismissRequest = { confirmClear = false },
+                            title = { Text("Clear ${if (problems.size == 1) "the problem record" else "${problems.size} problem records"}?") },
+                            text = { Text("Their details are deleted from this phone and can't be shared after.") },
+                            confirmButton = { TextButton(onClick = { confirmClear = false; onClear() }) { Text("Clear") } },
+                            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Keep them") } },
+                        )
+                    }
+                    FlowRow {
                         TextButton(onClick = onShare) { Text("Share report") }
-                        TextButton(onClick = onClear) { Text("Clear") }
+                        TextButton(onClick = { confirmClear = true }) { Text("Clear") }
                     }
                 }
             }

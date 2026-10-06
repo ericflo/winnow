@@ -1,6 +1,9 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.ericflo.winnow.ui.review
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -75,7 +78,7 @@ fun ReviewInboxCard(status: ReviewStatus, classifier: String, onStart: () -> Uni
                 LinearProgressIndicator(progress = { status.done / status.total.coerceAtLeast(1).toFloat() }, modifier = Modifier.fillMaxWidth())
             } else {
                 Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     // Filled: a tonal button is the card's own color, and would show as bare text on it.
                     if (status is ReviewStatus.Ready) Button(onClick = { confirming = true }) { Text("Review") }
                     TextButton(onClick = onDismiss) { Text(if (status is ReviewStatus.Finished) "Done" else "Not now") }

@@ -155,6 +155,8 @@ data class LogRow(
     val rule: String?,
     val mine: Category?,
     val changed: Boolean,
+    /** The service that decided it, by name, when one did: the one asked then, not whichever is set up now. */
+    val serviceName: String? = null,
 )
 
 data class ActivityUiState(
@@ -201,7 +203,15 @@ class ActivityViewModel(private val container: AppContainer) : ViewModel() {
 
     suspend fun explain(key: String) = container.provenance.explain(key)
 
-    private fun summarize(records: List<VerdictRecord>, window: Window, service: String): ActivityUiState {
+    private fun summarize(records: List<VerdictRecord>, window: Window, current: String): ActivityUiState {
+        fun nameOf(providerId: String) = com.ericflo.winnow.data.ProviderKind.labelFor(providerId).substringBefore(" (")
+        // The services that decided these texts, not just the one set up now: one by name, more as a kind.
+        val services = records.filter { it.byProvider }.map { it.sourceDetail }.distinct()
+        val service = when (services.size) {
+            0 -> current
+            1 -> nameOf(services.single())
+            else -> "Classifier services"
+        }
         val counts = records.groupingBy { it.category }.eachCount()
         val byWho = records.groupBy(::whoOf)
         fun changed(r: VerdictRecord) = (r.userCategory != null && r.userCategory != r.category) || (r.userAction != null && r.userAction != r.action)
@@ -227,6 +237,7 @@ class ActivityViewModel(private val container: AppContainer) : ViewModel() {
                     who = whoOf(r), why = Provenance.modelReason(r.sourceKind, r.fallbackReason, r.localModel),
                     category = r.category, confidence = r.confidence, outcome = outcomeOf(r.action),
                     rule = r.sourceDetail.takeIf { whoOf(r) == Who.RULE }, mine = r.userCategory, changed = changed(r),
+                    serviceName = if (r.byProvider) nameOf(r.sourceDetail) else null,
                 )
             },
             service = service,
@@ -653,7 +664,9 @@ private fun LogItem(row: LogRow, text: String?, service: String, onClick: () -> 
                 Spacer(Modifier.width(8.dp))
                 Text(
                     buildString {
-                        append(row.who.name(service))
+                        append(row.who.name(row.serviceName ?: service))
+                        // Which service the model stood in for isn't kept: by name only when there was one.
+                        @Suppress("NAME_SHADOWING") val service = if (service == "Classifier services") "the service" else service
                         when (row.why) {
                             ModelReason.SURE -> append(" (sure enough)")
                             ModelReason.YOUR_LABELS -> append(" (your labels of this sender)")

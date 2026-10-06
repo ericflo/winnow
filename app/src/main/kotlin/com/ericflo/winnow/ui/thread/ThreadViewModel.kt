@@ -1163,7 +1163,14 @@ class ThreadViewModel(
     /** The conversation is being deleted: a long one takes a while (kept in Recently deleted first). */
     val deleting: StateFlow<Boolean> = _deleting.asStateFlow()
 
-    fun deleteEverything(messages: List<ChatMessage>, onDone: () -> Unit) {
+    /**
+     * The conversation was deleted from here: the screen leaves it the next time it's in front
+     * (a long delete can end with the user elsewhere, when going back isn't allowed).
+     */
+    private val _gone = MutableStateFlow(false)
+    val gone: StateFlow<Boolean> = _gone.asStateFlow()
+
+    fun deleteEverything(messages: List<ChatMessage>, onDone: () -> Unit = {}) {
         val id = threadId.value
         val newest = messages.maxOfOrNull { it.timestamp } ?: return
         _deleting.value = true
@@ -1174,7 +1181,7 @@ class ThreadViewModel(
                     _notices.emit(it)
                     return@launch
                 }
-                if (id in result.skipped) deleteMessages(messages) else withContext(Dispatchers.Main) { onDone() }
+                if (id in result.skipped) deleteMessages(messages) else { _gone.value = true; withContext(Dispatchers.Main) { onDone() } }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1242,7 +1249,7 @@ class ThreadViewModel(
         if (!pinned) _notices.emit("Your home screen doesn't take shortcuts")
     }
 
-    fun deleteConversation(onDone: () -> Unit) {
+    fun deleteConversation(onDone: () -> Unit = {}) {
         val id = threadId.value
         _deleting.value = true
         container.appScope.launch {
@@ -1252,6 +1259,7 @@ class ThreadViewModel(
                     _notices.emit(it)
                     return@launch
                 }
+                _gone.value = true
                 withContext(Dispatchers.Main) { onDone() }
             } catch (e: CancellationException) {
                 throw e

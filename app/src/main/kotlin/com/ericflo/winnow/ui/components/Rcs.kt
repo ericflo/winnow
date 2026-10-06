@@ -117,7 +117,7 @@ fun RcsBanner(onWhy: () -> Unit, onDismiss: () -> Unit) {
             )
             // In the banner's own ink: the app's accent reads poorly on it.
             val ink = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onTertiaryContainer)
-            Row(horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            FlowRow(horizontalArrangement = Arrangement.End, itemVerticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = onDismiss, colors = ink) { Text("Got it") }
                 TextButton(onClick = onWhy, colors = ink) { Text("What to do", fontWeight = FontWeight.SemiBold) }
             }
