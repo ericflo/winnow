@@ -127,23 +127,21 @@ class ExamplesExperiment(
                 val pool = bootstrap.exampleTexts(current)
                 val at = System.currentTimeMillis()
                 var cost = 0.0
+                // Each way of asking's own cost: the questions with examples are much longer.
+                var costPlain = 0.0
                 val trials = mutableListOf<Trial>()
                 _status.value = ExperimentStatus.Running(0, chosen.size, 0.0)
                 val pacer = Pacer(maxConcurrency = CONCURRENCY)
                 // The service's own answers, both ways: the user's labels of a sender mustn't answer for it.
                 val plain = classifiers.create(current.copy(decideOnPhoneWhenSure = false), timeoutMillis = TIMEOUT_MILLIS, serviceOnly = true)
-                // One classifier per set of examples: all of them, or all but a text's own conversation's.
-                val withExamples = HashMap<Set<Long>, MessageClassifier>()
-                suspend fun classifierFor(threadId: Long): MessageClassifier {
-                    val leaveOut = pool.filter { it.threadId == threadId }.mapTo(HashSet()) { it.threadId }
-                    return withExamples.getOrPut(leaveOut) {
-                        classifiers.create(
-                            current.copy(decideOnPhoneWhenSure = false), timeoutMillis = TIMEOUT_MILLIS,
-                            examples = pool.filter { it.threadId !in leaveOut }.groupBy({ it.category }, { it.body }),
-                            serviceOnly = true,
-                        )
-                    }
-                }
+                // The examples for a text: all but its own conversation's, and any that is the text
+                // itself, labeled in another conversation (the same spam sent twice would give it away).
+                fun same(a: String, b: String) = a.trim().equals(b.trim(), ignoreCase = true)
+                suspend fun classifierFor(threadId: Long, body: String): MessageClassifier = classifiers.create(
+                    current.copy(decideOnPhoneWhenSure = false), timeoutMillis = TIMEOUT_MILLIS,
+                    examples = pool.filter { it.threadId != threadId && !same(it.body, body) }.groupBy({ it.category }, { it.body }),
+                    serviceOnly = true,
+                )
                 var error: String? = null
                 var stopped = false
                 try {
@@ -157,7 +155,7 @@ class ExamplesExperiment(
                             async(Dispatchers.IO) {
                                 gate.withPermit {
                                     val a = runCatching { plain.classify(c.message) }.getOrNull()
-                                    val b = runCatching { classifierFor(c.threadId).classify(c.message) }.getOrNull()
+                                    val b = runCatching { classifierFor(c.threadId, c.message.body).classify(c.message) }.getOrNull()
                                     val n = done.incrementAndGet()
                                     _status.update { if (it is ExperimentStatus.Running) it.copy(done = maxOf(it.done, n), waiting = null) else it }
                                     Triple(c, a, b)
@@ -168,6 +166,7 @@ class ExamplesExperiment(
                         var answered = 0
                         for ((c, a, b) in asked) {
                             cost += (a?.costUsd ?: 0.0) + (b?.costUsd ?: 0.0)
+                            costPlain += a?.costUsd ?: 0.0
                             val pa = a.answer()
                             val pb = b.answer()
                             if (pa != null && pb != null) {
@@ -199,7 +198,7 @@ class ExamplesExperiment(
                     throw e
                 } finally {
                     withContext(kotlinx.coroutines.NonCancellable) {
-                        if (trials.isNotEmpty()) runCatching { keep(at, trials, cost, current.provider.label.substringBefore(" (")) }
+                        if (trials.isNotEmpty()) runCatching { keep(at, trials, costPlain, cost - costPlain, current.provider.label.substringBefore(" (")) }
                         _status.value = ExperimentStatus.Finished(ExperimentSummary.of(trials), cost, stopped, error, at)
                     }
                 }
@@ -258,7 +257,7 @@ class ExamplesExperiment(
     }
 
     /** Both sets of answers kept as evaluations of the service, at the same time, so they show side by side. */
-    private suspend fun keep(at: Long, trials: List<Trial>, cost: Double, service: String) = withContext(Dispatchers.IO) {
+    private suspend fun keep(at: Long, trials: List<Trial>, costPlain: Double, costExamples: Double, service: String) = withContext(Dispatchers.IO) {
         val classes = LocalModel.bundled.classes
         val unwanted = Category.entries.filter { it.defaultAction == Action.FILTER }.map { classes.indexOf(it.key) }.filter { it >= 0 }.toSet()
         fun scored(c: Category, sure: Double, label: Category): Scored {
@@ -278,9 +277,9 @@ class ExamplesExperiment(
                     at = at, model = model, label = label, dataset = EvalEntity.DATASET_MINE, method = METHOD_ASKED,
                     examples = rows.size, accuracy = m.accuracy.finite(), macroF1 = m.macroF1.finite(), kappa = m.kappa.finite(),
                     unwantedAuc = m.unwanted.auc.takeIf { it.isFinite() }, falsePositiveRate = m.unwanted.operatingPoint.falsePositiveRate.takeIf { it.isFinite() },
-                    costUsd = cost / 2, metrics = null,
+                    costUsd = if (model == MODEL_PLAIN) costPlain else costExamples, metrics = null,
                     note = "Asked now, ${rows.size} of your labeled texts, " +
-                        if (model == MODEL_PLAIN) "with the plain question it gets as texts arrive." else "each with your labels as examples, never one from its own conversation.",
+                        if (model == MODEL_PLAIN) "with the plain question it gets as texts arrive." else "each with your labels as examples, never one from its own conversation or the same text.",
                 ),
             )
             evals.insertItems(trials.map { t -> pick(t).let { (c, s) -> EvalItemEntity(id, t.key, t.threadId, t.label.key, c.key, s) } })

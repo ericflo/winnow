@@ -324,7 +324,8 @@ class ModelLab(
                     scored += TrainingItem(f, idx, label, recipe.userWeight, group = r.threadId, key = r.messageKey, sender = t?.address, at = r.createdAt, conversing = r.threadId in replied)
                     scoredKeys += r.messageKey to r.threadId
                 }
-                else -> others += TrainingItem(f, idx, label, recipe.userWeight)
+                // A conversation's own correction: left out wherever that conversation is held out.
+                else -> others += TrainingItem(f, idx, label, recipe.userWeight, key = r.messageKey ?: r.threadId?.let(com.ericflo.winnow.classifier.local.PersonalEvaluation::threadKey))
             }
         }
         if (recipe.kind != RecipeKind.PERSONAL && recipe.includeCorpus && recipe.corpusWeight > 0) {

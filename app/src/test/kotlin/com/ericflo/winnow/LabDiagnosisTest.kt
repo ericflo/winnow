@@ -106,4 +106,11 @@ class LabDiagnosisTest {
         assertTrue(apart(null).contains("that sender's next texts follow your label"))
         assertTrue(apart(0.0).contains("With \"Who sent it\" off"))
     }
+
+    @Test
+    fun `a model as good on new texts as on what it learned is told nothing about its size`() {
+        val good = List(97) { s(600 + it, Category.PERSONAL, Category.PERSONAL) } + List(3) { s(700 + it, Category.PERSONAL, Category.SPAM) }
+        val out = LabDiagnosis.suggestions(good, toReview = 0, keptApart = 0, fitAccuracy = 1.0)
+        assertFalse(out.any { it.title.startsWith("It can't follow all") || it.title == "A bigger model won't help" })
+    }
 }

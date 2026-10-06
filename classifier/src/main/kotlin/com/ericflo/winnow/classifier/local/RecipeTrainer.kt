@@ -176,7 +176,7 @@ object RecipeTrainer {
             val held = scoredItems.indices.filter { foldOf[it] == fold }
             if (held.isEmpty()) return@flatMap emptyList()
             // Not a service's label on a text being held out either: that would be training on the answer.
-            val heldKeys = held.mapNotNullTo(HashSet()) { scoredItems[it].key }
+            val heldKeys = held.mapNotNullTo(HashSet()) { scoredItems[it].key } + held.map { PersonalEvaluation.threadKey(scoredItems[it].group) }
             val train = scoredItems.filterIndexed { i, _ -> foldOf[i] != fold } + others.filter { it.key == null || it.key !in heldKeys }
             val model = train(recipe, base, train, stopped = stopped)
             held.mapNotNull { i -> logits(model, scoredItems[i])?.let { i to it } }
@@ -215,7 +215,7 @@ object RecipeTrainer {
         // Labels given together stay on one side (see PersonalEvaluation.newestSplit).
         val newest = PersonalEvaluation.newestSplit(scoredItems.map { it.at }, n)?.first ?: return emptyList()
         val newestSet = newest.toHashSet()
-        val newestKeys = newest.mapNotNullTo(HashSet()) { scoredItems[it].key }
+        val newestKeys = newest.mapNotNullTo(HashSet()) { scoredItems[it].key } + newest.map { PersonalEvaluation.threadKey(scoredItems[it].group) }
         val train = scoredItems.filterIndexed { i, _ -> i !in newestSet } + others.filter { it.key == null || it.key !in newestKeys }
         val model = train(recipe, base, train, stopped = stopped)
         return newest.mapNotNull { i -> logits(model, scoredItems[i])?.let { i to it } }

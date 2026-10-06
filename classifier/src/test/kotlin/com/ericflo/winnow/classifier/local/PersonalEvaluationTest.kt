@@ -125,4 +125,16 @@ class PersonalEvaluationTest {
         // All given at once: nothing older to learn from.
         assertNull(PersonalEvaluation.newestSplit(List(10) { 7L }, 3))
     }
+
+    @Test
+    fun aHeldOutConversationsOwnCorrectionIsLeftOutOfItsRefit() {
+        val labels = labels(60, perConversation = 3).mapIndexed { i, l -> PersonalEvaluation.Label(l.buckets, l.label, l.group, key = "sms:$i") }
+        val target = labels.indices.first { wordsSay(labels[it].buckets) == labels[it].label }
+        val wrong = (labels[target].label + 1) % model.classes.size
+        // Its conversation's "Not spam"-like correction, carrying the same text, counting fifty times over.
+        val correction = listOf(Correction(labels[target].buckets, wrong, 50.0))
+        fun scored(keys: List<String?>) = PersonalEvaluation.crossValidateIndexed(model, labels, correction, othersKeys = keys).first { it.first == target }.second
+        assertEquals("trained on, it would decide", wrong, scored(listOf(null)).predicted)
+        assertEquals(labels[target].label, scored(listOf(PersonalEvaluation.threadKey(labels[target].group))).predicted)
+    }
 }

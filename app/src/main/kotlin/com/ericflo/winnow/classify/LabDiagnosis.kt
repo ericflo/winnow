@@ -148,8 +148,10 @@ object LabDiagnosis {
                     "It learns your sense of a category from your examples of it: a few more of these help it most.",
             )
         }
-        if (fitAccuracy != null) {
-            out += if (fitAccuracy >= accuracy + 0.06 && fitAccuracy >= 0.95) {
+        // How it fits what it learns from: held back (under 95%), or fitting it all with a gap to
+        // new texts; close to as good on new texts as on those it learned, nothing to say.
+        if (fitAccuracy != null && (fitAccuracy < 0.95 || fitAccuracy >= accuracy + 0.06)) {
+            out += if (fitAccuracy >= 0.95) {
                 Suggestion(
                     "A bigger model won't help",
                     "It follows ${pct(fitAccuracy)} of the labels it learns from, but ${pct(accuracy)} of ones it hasn't seen: what holds it back is carrying your labels over to new texts, not room to learn. " +

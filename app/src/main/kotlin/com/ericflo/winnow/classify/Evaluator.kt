@@ -108,14 +108,18 @@ class EvalData(
         ): EvalData {
             fun buckets(e: CorrectionEntity) = e.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray()
             val current = rows.filter { it.featurizerVersion == Featurizer.VERSION && model.classes.indexOf(it.label) >= 0 }
-            val (labels, rest) = current.partition { !it.fromProvider && it.messageKey != null && it.threadId != null && !it.messageKey.startsWith(BackupLabelPrefix) }
+            // A label waiting to be rechecked under the six categories trains but isn't scored, as in the Lab.
+            val recheck = verdicts.filter { it.recheck }.mapTo(HashSet()) { it.threadId }
+            val (labels, rest) = current.partition {
+                !it.fromProvider && it.messageKey != null && it.threadId != null && !it.messageKey.startsWith(BackupLabelPrefix) && it.threadId !in recheck
+            }
             val service = HashMap<String, Pair<Category, Double>>()
             answers.sortedBy { it.answeredAt }.forEach { a -> Category.fromKey(a.category)?.let { service[a.messageKey] = it to a.confidence } }
             verdicts.forEach { v -> v.serviceAnswer?.let { (c, sure) -> Category.fromKey(c)?.let { service[v.messageKey] = it to sure } } }
             val senders = verdicts.filter { it.address.isNotBlank() }.associate { it.messageKey to it.address }
             return EvalData(
                 labels = labels.map { Labeled(it.messageKey!!, it.threadId!!, buckets(it), model.classes.indexOf(it.label), it.createdAt, senders[it.messageKey], it.threadId in conversing) },
-                corrections = rest.filter { !it.fromProvider }.map { Dated(buckets(it), model.classes.indexOf(it.label), it.createdAt) },
+                corrections = rest.filter { !it.fromProvider }.map { Dated(buckets(it), model.classes.indexOf(it.label), it.createdAt, it.messageKey ?: it.threadId?.let(PersonalEvaluation::threadKey)) },
                 provider = rest.filter { it.fromProvider }.map { Dated(buckets(it), model.classes.indexOf(it.label), it.createdAt, it.messageKey) },
                 service = service,
             )
@@ -150,7 +154,7 @@ class Evaluator(
         fun others(weight: Double): List<Correction> =
             data.corrections.map { Correction(it.buckets, it.label) } + provider(weight).map { Correction(it.buckets, it.label, weight) }
         fun crossValidated(weight: Double, how: String): EvalResult {
-            val keys = data.corrections.map { null } + provider(weight).map { it.key }
+            val keys = data.corrections.map { it.key } + provider(weight).map { it.key }
             val words = PersonalEvaluation.crossValidateIndexed(
                 model, labels, others(weight), epochs = fitting.epochs, l2 = fitting.l2, learningRate = fitting.step,
                 onFold = { f, k -> onProgress("${subject.label}: part ${f + 1} of $k") }, stopped = stopped, othersKeys = keys,

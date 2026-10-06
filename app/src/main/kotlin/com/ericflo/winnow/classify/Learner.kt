@@ -58,7 +58,7 @@ class Learner(
      * correction when it contradicts this label. Retrains once, unless told not to (a round of
      * many labels retrains at the end). Returns every row it replaced, for an undo.
      */
-    suspend fun label(threadId: Long, examples: Map<String, InboundMessage>, category: Category, retrain: Boolean = true): List<CorrectionEntity> {
+    suspend fun label(threadId: Long, examples: Map<String, InboundMessage>, category: Category, retrain: Boolean = true, wholeConversation: Boolean = false): List<CorrectionEntity> {
         val now = System.currentTimeMillis()
         val rows = withContext(Dispatchers.Default) {
             examples.mapNotNull { (key, message) ->
@@ -77,8 +77,11 @@ class Learner(
         val replaced = lock.withLock {
             val before = dao.forMessages(examples.keys)
             val restored = dao.restoredFor(rows.map { it.buckets }.toSet())
-            val contradicted = dao.forThread(threadId).filter { c ->
-                Category.fromKey(c.label)?.let(policy::forCategory) != policy.forCategory(category)
+            // The conversation's own correction, if it says otherwise; and, for a label of the whole
+            // conversation, a service's labels on its other texts that say otherwise too (as a
+            // correction drops them, see dropForCorrection): the user's word on it stands alone.
+            val contradicted = (dao.forThread(threadId) + if (wholeConversation) dao.providerForThread(threadId) else emptyList()).filter { c ->
+                c.messageKey !in examples.keys && Category.fromKey(c.label)?.let(policy::forCategory) != policy.forCategory(category)
             }
             dao.deleteForMessages(examples.keys)
             dao.deleteIds((restored + contradicted).map { it.id })
@@ -87,6 +90,15 @@ class Learner(
         }
         if (retrain) retrain()
         return replaced
+    }
+
+    /** A classifier service's labels of [keys] go (never the user's), with no refit: the next one leaves them out. */
+    suspend fun forgetServiceLabels(keys: Collection<String>) {
+        if (keys.isEmpty()) return
+        lock.withLock {
+            val theirs = dao.forMessages(keys).filter { it.fromProvider }
+            if (theirs.isNotEmpty()) dao.deleteIds(theirs.map { it.id })
+        }
     }
 
     /** Takes labels back: [keys]' labels go, and [restore]'s (what they replaced) come back. */

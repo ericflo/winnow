@@ -234,6 +234,7 @@ class Bootstrap(
                     val filed = mutableListOf<VerdictEntity>()
                     val answered = mutableListOf<String>()
                     val answers = mutableListOf<Pair<Text, Verdict>>()
+                    val unsureRedone = mutableListOf<String>()
                     val retry = mutableListOf<Text>()
                     val troubles = mutableListOf<Pacer.Trouble>()
                     for ((t, verdict) in results) {
@@ -247,6 +248,8 @@ class Bootstrap(
                                 val row = label(t, answer)?.copy(runId = runId)
                                 tally = if (row != null) tally.copy(labeled = tally.labeled + 1) else tally.copy(unsure = tally.unsure + 1)
                                 row?.let { labels += it }
+                                // A redo's new answer replaces the old one: too unsure to teach, the old one goes too.
+                                if (row == null && redo) unsureRedone += t.key
                                 // Dated by the message: a verdict on an old text mustn't become the conversation's latest.
                                 filed += VerdictEntity.from(t.key, t.threadId, t.sender, answer, t.date).copy(summarized = true, runId = runId)
                                 (answer.source as VerdictSource.Provider).model?.let { if (run.model == null) run = run.copy(model = it) }
@@ -287,6 +290,7 @@ class Bootstrap(
                     }
                     // Each answer kept beside what the model made of the text before it learned from it.
                     if (runId != 0L) record(runId, answers, labels.mapNotNullTo(HashSet()) { it.messageKey })
+                    if (unsureRedone.isNotEmpty()) runCatching { learner.forgetServiceLabels(unsureRedone) }
                     save(labels, filed, retrain = ++batches % RETRAIN_EVERY_BATCHES == 0)
                     remember(answered)
                     queue.addAll(0, retry)

@@ -310,7 +310,7 @@ private fun ExperimentCard(viewModel: ModelViewModel, onOpenThread: (Long, List<
     InsightCard("Do your labels change $service's answers?", subtitle = "Measured, not assumed: ask it about your own labeled texts twice, and compare") {
         Text(
             "Each text is asked once with the plain question $service gets as texts arrive, and once with your labels as examples, the way a backlog run asks, " +
-                "never with an example from its own conversation. Both are scored against your label.",
+                "never with an example from its own conversation or the same text labeled elsewhere. Both are scored against your label.",
             style = MaterialTheme.typography.bodyMedium,
         )
         when (val st = status) {

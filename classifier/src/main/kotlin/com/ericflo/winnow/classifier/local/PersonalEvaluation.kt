@@ -64,7 +64,8 @@ object PersonalEvaluation {
             onFold(fold, k)
             val held = labels.withIndex().filter { foldOf.getValue(it.value.group) == fold }
             if (held.isEmpty()) return@flatMap emptyList()
-            val heldKeys = held.mapNotNullTo(HashSet()) { it.value.key }
+            // Its texts, and its conversations' own corrections (a "Not spam" carries the conversation's newest text).
+            val heldKeys = held.mapNotNullTo(HashSet()) { it.value.key } + held.map { threadKey(it.value.group) }
             val kept = if (heldKeys.isEmpty() || othersKeys.isEmpty()) others else others.filterIndexed { j, _ -> othersKeys.getOrNull(j) !in heldKeys }
             val train = labels.filter { foldOf.getValue(it.group) != fold }.map { Correction(it.buckets, it.label) } + kept
             val adjustments = Personalizer.train(base, train, epochs = epochs, learningRate = learningRate, l2 = l2, stopped = stopped)
@@ -116,7 +117,7 @@ object PersonalEvaluation {
         if (labels.size < n * 2) return null
         val (newest, olderIndices) = newestSplit(labels.map { it.at }, n) ?: return null
         val older = olderIndices.map(labels::get)
-        val newestKeys = newest.mapNotNullTo(HashSet()) { labels[it].key }
+        val newestKeys = newest.mapNotNullTo(HashSet()) { labels[it].key } + newest.map { threadKey(labels[it].group) }
         val kept = others.filterIndexed { j, _ -> othersKeys.getOrNull(j) !in newestKeys }
         val adjustments = Personalizer.train(base, older.map { Correction(it.buckets, it.label) } + kept, epochs = epochs, learningRate = learningRate, l2 = l2, stopped = stopped)
         val memory = SenderMemory.of(older.mapNotNull { l -> l.sender?.let { it to l.label } }, base.classes, strength)
@@ -145,6 +146,13 @@ object PersonalEvaluation {
         if (cut == 0 || cut == byTime.size) return null
         return byTime.drop(cut) to byTime.take(cut)
     }
+
+    /**
+     * How a conversation's own correction ("Not spam", "Filter sender", which carries its newest
+     * text) is named among the others a model learns from, so it's left out wherever that
+     * conversation is held out.
+     */
+    fun threadKey(threadId: Long) = "thread:$threadId"
 
     /** Each conversation's fold, dealt round-robin in a fixed order so a re-run scores the same way; null with fewer than two. */
     internal fun foldsOf(labels: List<Label>, folds: Int): Map<Long, Int>? {

@@ -76,7 +76,7 @@ class Labeler(
             val messages = repo.messagesNow(threadId, newestSenders = SENDERS_NEEDED)
             val examples = examplesFrom(messages, recipients)
             if (examples.isEmpty()) continue
-            val undo = label(threadId, recipients, examples, hasOutgoing = messages.any { it.outgoing }, category, retrain = false)
+            val undo = label(threadId, recipients, examples, hasOutgoing = messages.any { it.outgoing }, category, retrain = false, wholeConversation = true)
             keys += undo.keys
             verdictsBefore += undo.verdictsBefore
             // Labeled now: any of its labels from before the six categories are settled. Kept for an undo.
@@ -131,6 +131,8 @@ class Labeler(
         hasOutgoing: Boolean,
         category: Category,
         retrain: Boolean,
+        /** A label of the whole conversation: a word about all of it (see Learner.label). */
+        wholeConversation: Boolean = false,
     ): Undo {
         val examples = messages.mapNotNull { m ->
             val sender = m.sender ?: recipients.singleOrNull() ?: return@mapNotNull null
@@ -167,7 +169,7 @@ class Labeler(
             )
             verdicts.upsert(row)
         }
-        val replaced = learner.label(threadId, examples.associate { (m, inbound) -> m.key to inbound }, category, retrain)
+        val replaced = learner.label(threadId, examples.associate { (m, inbound) -> m.key to inbound }, category, retrain, wholeConversation)
         return Undo(keys, before, replaced)
     }
 

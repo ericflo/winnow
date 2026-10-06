@@ -194,7 +194,8 @@ internal fun computeMine(
         val label = model.classes.indexOf(e.label).takeIf { it >= 0 } ?: return@mapNotNull null
         // As the model is fitted: at 0 the service's labels are left out.
         if (e.fromProvider && providerWeight <= 0) return@mapNotNull null
-        e.messageKey to com.ericflo.winnow.classifier.local.Correction(buckets(e), label, if (e.fromProvider) providerWeight else 1.0)
+        (e.messageKey ?: e.threadId?.let(com.ericflo.winnow.classifier.local.PersonalEvaluation::threadKey)) to
+            com.ericflo.winnow.classifier.local.Correction(buckets(e), label, if (e.fromProvider) providerWeight else 1.0)
     }
     val evaluation = com.ericflo.winnow.classifier.local.PersonalEvaluation
     // A failed scoring shows as none, never a crash.
