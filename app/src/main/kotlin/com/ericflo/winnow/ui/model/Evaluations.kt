@@ -147,6 +147,20 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
         }
     }
 
+    /** Every miss of [eval] broken down (see MissBreakdown), with the texts to open. */
+    suspend fun breakdown(eval: EvalEntity): com.ericflo.winnow.classify.MissBreakdown.Result = withContext(Dispatchers.IO) {
+        val items = container.evalDao.items(eval.id)
+        val texts = MessageTexts(container.appContext).of(items.filter { it.label != it.predicted }.map { it.messageKey })
+        com.ericflo.winnow.classify.MissBreakdown.of(
+            items.mapNotNull { i ->
+                val label = Category.fromKey(i.label) ?: return@mapNotNull null
+                val predicted = Category.fromKey(i.predicted) ?: return@mapNotNull null
+                val t = texts[i.messageKey]
+                com.ericflo.winnow.classify.MissBreakdown.Item(i.messageKey, i.threadId, t?.address, label, predicted, i.confidence, t?.body)
+            },
+        )
+    }
+
     /** A labeled text to open, with what [LabDiagnosis] says of it. */
     data class Shown(val key: String, val threadId: Long?, val address: String?, val text: String?, val label: Category, val predicted: Category? = null, val confidence: Double? = null)
 

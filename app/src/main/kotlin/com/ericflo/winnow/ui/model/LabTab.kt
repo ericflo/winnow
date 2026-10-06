@@ -63,6 +63,8 @@ internal fun LazyListScope.lab(viewModel: ModelViewModel, onOpenThread: (Long, L
     item("status") { StatusCard(viewModel) }
     // What holds the models back from following the user's labels, and what would help.
     item("follow") { FollowYourLabelsCard(viewModel, onOpenThread) }
+    // Every miss of the same model, broken down: how far to 90%, and what each kind has in common.
+    item("misses") { MissesCard(viewModel, onOpenThread) }
     item("sweep") { SweepCard(viewModel) }
     item("design") { DesignCard(viewModel) }
     item("models-head") { ModelsHeader(viewModel) }
