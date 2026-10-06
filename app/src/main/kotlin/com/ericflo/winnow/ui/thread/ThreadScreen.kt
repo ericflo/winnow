@@ -2354,7 +2354,8 @@ private fun Composer(
         // Something to send and something in its way: say so now, not once it's failed.
         val inTheWay = when {
             readiness.airplane -> "Airplane mode is on, so this may not send"
-            !isSms && readiness.mobileDataOff -> "Mobile data is off. Picture messages need it to send"
+            // A group text, a picture, or a long text the carrier takes as MMS: each needs mobile data.
+            (!isSms || sendsAsMms) && readiness.mobileDataOff -> "Mobile data is off. This sends as MMS, which needs it"
             else -> null
         }
         if (inTheWay != null && (draft.isNotBlank() || attachments.isNotEmpty() || subject != null)) {

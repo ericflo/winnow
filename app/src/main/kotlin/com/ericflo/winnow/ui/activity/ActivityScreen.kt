@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -250,9 +251,10 @@ class ActivityViewModel(private val container: AppContainer) : ViewModel() {
         val today = LocalDate.now(zone)
         val dates = records.map { Instant.ofEpochMilli(it.decidedAt).atZone(zone).toLocalDate() }
         val spanDays = window.days ?: (ChronoUnit.DAYS.between(dates.minOrNull() ?: today, today) + 1).coerceAtLeast(30)
-        // Daily up to two months, weekly up to a year, then as wide as it takes to fit 52 bars.
+        // Daily up to 52 days, weekly up to a year, then as wide as it takes: never more than 52
+        // bars, and every day in one of them.
         val step = when {
-            spanDays <= 60 -> 1
+            spanDays <= 52 -> 1
             spanDays <= 364 -> 7
             else -> ((spanDays + 51) / 52).toInt()
         }
@@ -500,7 +502,7 @@ private fun WhoCard(state: ActivityUiState) {
                     Text(whoDetail(w.who, state.service), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(count(w.total), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 8.dp))
-                Text(share(w.total, total), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End, modifier = Modifier.width(44.dp).padding(top = 4.dp))
+                Text(share(w.total, total), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End, modifier = Modifier.widthIn(min = 44.dp).padding(top = 4.dp))
             }
         }
     }
@@ -734,12 +736,12 @@ private fun LinkCard(title: String, detail: String, onClick: () -> Unit) {
 private fun CategoryBar(category: Category, n: Int, max: Int, total: Int) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = "${category.label}: $n" }) {
         CategoryDot(category, Modifier.size(18.dp))
-        Text("  ${category.label}", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(118.dp))
+        Text("  ${category.label}", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(min = 118.dp))
         Box(Modifier.weight(1f).height(8.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(4.dp))) {
             if (n > 0) Box(Modifier.fillMaxWidth(n / max.toFloat()).height(8.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp)))
         }
-        Text(count(n), style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.End, modifier = Modifier.width(44.dp))
-        Text(if (total == 0) "" else "${(n * 100f / total).roundToInt()}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End, modifier = Modifier.width(40.dp))
+        Text(count(n), style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.End, modifier = Modifier.widthIn(min = 44.dp))
+        Text(if (total == 0) "" else "${(n * 100f / total).roundToInt()}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End, modifier = Modifier.widthIn(min = 40.dp))
     }
 }
 

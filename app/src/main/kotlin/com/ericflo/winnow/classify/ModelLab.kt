@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -123,12 +124,24 @@ class ModelLab(
         // Trained before their size was kept: read off their files.
         .map { e -> if (e.bytes == 0L && e.trainedAt != null) e.copy(bytes = modelFile(e.id).takeIf { it.exists() }?.length() ?: 0) else e }
 
+    private val writes = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * [list] is the Lab's now; written to disk after, off the main thread (a tap saves too), one
+     * write at a time and each of the latest list, so the file ends as the list does.
+     */
     private fun save(list: List<Entry>) {
-        dir.mkdirs()
-        val part = File(dir, "recipes.json.part")
-        part.writeText(json.encodeToString(ListSerializer(Entry.serializer()), list))
-        part.renameTo(file)
         _entries.value = list
+        scope.launch(Dispatchers.IO) {
+            writes.withLock {
+                runCatching {
+                    dir.mkdirs()
+                    val part = File(dir, "recipes.json.part")
+                    part.writeText(json.encodeToString(ListSerializer(Entry.serializer()), _entries.value))
+                    part.renameTo(file)
+                }.onFailure { android.util.Log.w("WinnowLab", "Couldn't save the Lab's designs", it) }
+            }
+        }
     }
 
     private fun update(id: String, change: (Entry) -> Entry) = save(_entries.value.map { if (it.id == id) change(it) else it })
@@ -149,7 +162,7 @@ class ModelLab(
 
     fun delete(id: String) {
         if (id == runningId()) job?.cancel()
-        modelFile(id).delete()
+        scope.launch(Dispatchers.IO) { modelFile(id).delete() }
         save(_entries.value.filterNot { it.id == id })
         scope.launch { if (settings.current().labModel == id) use(null) }
     }

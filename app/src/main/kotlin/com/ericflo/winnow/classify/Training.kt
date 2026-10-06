@@ -196,8 +196,14 @@ class Training(
     }
 
     suspend fun record(result: RoundResult) = withContext(Dispatchers.IO) {
+        val done = roundsDone() + 1
         val rounds = (history() + result).takeLast(MAX_ROUNDS_KEPT)
-        prefs.edit().putString(KEY_ROUNDS, json.encodeToString(ListSerializer(RoundResult.serializer()), rounds)).apply()
+        prefs.edit().putString(KEY_ROUNDS, json.encodeToString(ListSerializer(RoundResult.serializer()), rounds)).putInt(KEY_DONE, done).apply()
+    }
+
+    /** Rounds finished, ever: only the latest [MAX_ROUNDS_KEPT] are kept, so not their count. */
+    suspend fun roundsDone(): Int = withContext(Dispatchers.IO) {
+        prefs.getInt(KEY_DONE, -1).takeIf { it >= 0 } ?: history().size
     }
 
     companion object {
@@ -222,6 +228,7 @@ class Training(
             else -> confidence
         }
         private const val KEY_ROUNDS = "rounds"
+        private const val KEY_DONE = "rounds_done"
         private const val KEY_PROGRESS = "round_in_progress"
         private const val MAX_ROUNDS_KEPT = 200
 

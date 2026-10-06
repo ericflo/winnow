@@ -244,7 +244,7 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
         _state.value = TrainState.Loading
         viewModelScope.launch {
             refit?.join()
-            val number = training.history().size + 1
+            val number = training.roundsDone() + 1
             val resumed = training.progress()?.let { saved ->
                 resume(training.nextRound(only = saved.threadIds), saved).takeIf { (_, decisions) -> decisions.isNotEmpty() }
             }

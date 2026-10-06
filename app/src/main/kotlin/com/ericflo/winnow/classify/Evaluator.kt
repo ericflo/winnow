@@ -225,7 +225,13 @@ class Evaluator(
     fun learningCurve(data: EvalData, steps: Int = 8, stopped: () -> Boolean = { false }): List<CurvePoint> {
         val ordered = data.labels.sortedBy { it.createdAt }
         if (ordered.size < steps * 2) return emptyList()
-        val cuts = (1 until steps).map { it * ordered.size / steps } + ordered.size
+        // Labels given together (a conversation's) are never split between taught and tested.
+        fun apart(cut: Int): Int {
+            var c = cut
+            while (c in 1 until ordered.size && ordered[c - 1].createdAt == ordered[c].createdAt) c--
+            return c
+        }
+        val cuts = ((1 until steps).map { apart(it * ordered.size / steps) }.filter { it > 0 } + ordered.size).distinct()
         val temperature = model.temperature.toDouble()
         return cuts.zipWithNext().mapNotNull { (cut, next) ->
             if (stopped()) throw java.util.concurrent.CancellationException("curve no longer wanted")

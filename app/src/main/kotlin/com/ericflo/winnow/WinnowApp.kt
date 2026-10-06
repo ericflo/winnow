@@ -88,6 +88,9 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
         // First, so a crash anywhere after this is on record (Settings → About).
         container.problems.install()
         container.appScope.launch(Dispatchers.IO) { runCatching { container.problems.load() } }
+        // The shipped model, read from the APK once, here, off the main thread: screens that show
+        // it (the model's Inside tab) would otherwise read it there the first time.
+        container.appScope.launch(Dispatchers.Default) { runCatching { com.ericflo.winnow.classifier.local.LocalModel.bundled } }
         // Messages an earlier run stored but was ended before telling anyone about: told now.
         container.appScope.launch(Dispatchers.IO) {
             try {

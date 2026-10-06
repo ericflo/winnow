@@ -195,7 +195,8 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
                 }
                 // One that hasn't finished: reported only if it's still going after a long while, with where it is.
                 watchdog?.cancel()
-                if (e == EmptyInbox.Listing) watchdog = viewModelScope.launch {
+                // Off the main thread: it counts the store and writes the report.
+                if (e == EmptyInbox.Listing) watchdog = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     kotlinx.coroutines.delay(SLOW_LISTING_MILLIS)
                     if (repo.listHealth() == null && !listingReported && container.isLive.value) {
                         listingReported = true
