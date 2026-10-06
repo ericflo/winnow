@@ -58,13 +58,13 @@ import com.ericflo.winnow.ui.insight.pct
  * for new models (their kind, capacity, fitting and what they learn from, every number
  * changeable), and every model designed so far with how it scored on the user's own labels.
  */
-internal fun LazyListScope.lab(viewModel: ModelViewModel, onOpenThread: (Long, List<String>) -> Unit = { _, _ -> }) {
+internal fun LazyListScope.lab(viewModel: ModelViewModel, onOpenThread: (Long, List<String>) -> Unit = { _, _ -> }, onOpenTrain: () -> Unit = {}) {
     item("in-use") { InUseCard(viewModel) }
     item("status") { StatusCard(viewModel) }
     // What holds the models back from following the user's labels, and what would help.
     item("follow") { FollowYourLabelsCard(viewModel, onOpenThread) }
     // Every miss of the same model, broken down: how far to 90%, and what each kind has in common.
-    item("misses") { MissesCard(viewModel, onOpenThread) }
+    item("misses") { MissesCard(viewModel, onOpenThread, onOpenTrain) }
     item("sweep") { SweepCard(viewModel) }
     item("design") { DesignCard(viewModel) }
     item("models-head") { ModelsHeader(viewModel) }

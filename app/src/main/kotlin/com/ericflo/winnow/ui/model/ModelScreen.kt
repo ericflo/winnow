@@ -195,6 +195,27 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
     /** Models the user designs and trains here (see ModelLab and the Lab tab). */
     val lab = container.modelLab
 
+    /**
+     * A Train round of the conversations that read most like the user's labels of [category],
+     * then [onReady] (to open Train); said so when there are none left to label.
+     */
+    fun labelMoreLike(category: com.ericflo.winnow.classifier.message.Category, onReady: () -> Unit) {
+        viewModelScope.launch {
+            val ids = runCatching { container.training.likeThese(category) }.getOrDefault(emptyList())
+            if (ids.isEmpty()) {
+                container.toast("No conversations left to label read like your ${category.label.lowercase()} labels")
+                return@launch
+            }
+            container.training.focusOn(
+                com.ericflo.winnow.classify.Training.Focus(
+                    ids, category,
+                    "Picked because they read most like the texts you labeled ${category.label.lowercase()}: label each as you see it.",
+                ),
+            )
+            onReady()
+        }
+    }
+
     /** The classifier service that would steer a sweep, by name; null when none is set up. */
     val steeringService: StateFlow<String?> = container.settings.settings
         .map { s -> runCatching { container.classifiers.provider(s)?.let { s.provider.label.substringBefore(" (") } }.getOrNull() }
@@ -416,7 +437,7 @@ fun ModelScreen(
             when (ModelTab.entries[tab]) {
                 ModelTab.OVERVIEW -> overview(viewModel, onOpenMetrics, onOpenRuns, onOpenTrain)
                 ModelTab.EVALUATE -> evaluate(viewModel, onOpenThread)
-                ModelTab.LAB -> lab(viewModel, onOpenThread)
+                ModelTab.LAB -> lab(viewModel, onOpenThread, onOpenTrain)
                 ModelTab.INSIDE -> inside(viewModel, onOpenThread)
                 ModelTab.HISTORY -> history(viewModel)
             }

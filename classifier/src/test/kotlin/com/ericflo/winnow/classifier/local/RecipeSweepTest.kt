@@ -428,6 +428,19 @@ class RecipeSweepTest {
         assertTrue(s.score(recipe, rows, tune = true)!!.recipe.conversationReading > 0)
     }
 
+    @Test
+    fun foldsTrainedSideBySideScoreExactlyAsOneAtATime() {
+        val recipe = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 12, epochs = 5, learningRate = 0.2, inputDropout = 0.2)
+        val one = RecipeTrainer.crossValidateRows(recipe, base, scored, others, parallelism = 1)
+        val four = RecipeTrainer.crossValidateRows(recipe, base, scored, others, parallelism = 4)
+        assertEquals(one.map { it.index }, four.map { it.index })
+        one.zip(four).forEach { (a, b) -> assertContentEquals(a.logits, b.logits) }
+        // A failure in one fold comes out as itself.
+        val stop = java.util.concurrent.atomic.AtomicInteger()
+        val e = runCatching { RecipeTrainer.crossValidateRows(recipe, base, scored, others, parallelism = 3, stopped = { stop.incrementAndGet() > 3 }) }.exceptionOrNull()
+        assertTrue(e is java.util.concurrent.CancellationException, "$e")
+    }
+
     private class FakeProvider(private val fail: Boolean = false, private val more: Double = 0.8, private val sure: Map<String, String> = emptyMap()) : DecisionProvider {
         override val descriptor = ProviderDescriptor("fake", "Fake Jev", DataHandling.REMOTE)
         var calls = 0

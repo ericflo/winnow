@@ -304,7 +304,11 @@ object RecipeTrainer {
      */
     class Row(val index: Int, val logits: DoubleArray, val earlier: List<DoubleArray> = emptyList())
 
-    /** [crossValidate], with each scored text's earlier texts read by the same model (see [Row]). */
+    /**
+     * [crossValidate], with each scored text's earlier texts read by the same model (see [Row]).
+     * [parallelism] folds train at once (each its own model, the same as one at a time: training
+     * is deterministic and shares nothing), on a phone's other cores.
+     */
     fun crossValidateRows(
         recipe: Recipe,
         base: LocalModel,
@@ -313,20 +317,65 @@ object RecipeTrainer {
         folds: Int = 5,
         onFold: (Int, Int) -> Unit = { _, _ -> },
         stopped: () -> Boolean = { false },
+        parallelism: Int = 1,
     ): List<Row> {
         val foldOf = foldsOf(scoredItems, folds) ?: return emptyList()
         val k = foldOf.max() + 1
-        return (0 until k).flatMap { fold ->
+        val each = (0 until k).map { fold -> { foldRows(recipe, base, scoredItems, others, foldOf, fold, k, onFold, stopped) } }
+        return inParallel(each, parallelism).flatten()
+    }
+
+    /** [tasks]' results in order, up to [parallelism] at a time; the first failure is thrown as it was. */
+    private fun <T> inParallel(tasks: List<() -> T>, parallelism: Int): List<T> {
+        if (parallelism <= 1 || tasks.size <= 1) return tasks.map { it() }
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(minOf(parallelism, tasks.size))
+        try {
+            val futures = tasks.map { t -> pool.submit(java.util.concurrent.Callable { t() }) }
+            return futures.map { f ->
+                try {
+                    f.get()
+                } catch (e: java.util.concurrent.ExecutionException) {
+                    throw e.cause ?: e
+                }
+            }
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+
+    /**
+     * Roughly how many bytes training [recipe] takes at its peak (its weights and their step
+     * sizes), for deciding how many trainings fit side by side in a phone's memory.
+     */
+    fun memoryOf(recipe: Recipe, classes: Int = 6): Long = when (recipe.kind) {
+        RecipeKind.LINEAR -> recipe.buckets.toLong() * classes * 8 * (2 + if (recipe.bags > 1) recipe.bags else 0)
+        RecipeKind.NEURAL -> recipe.buckets.toLong() * recipe.layers[0] * 8 + (if (recipe.wide) recipe.buckets.toLong() * classes * 8 else 0) + 4_000_000
+        RecipeKind.PERSONAL -> LocalModel.bundled.buckets.toLong() * classes * 16
+        RecipeKind.BLEND -> recipe.members.maxOfOrNull { memoryOf(it, classes) } ?: 0
+    } + 8_000_000
+
+    private fun foldRows(
+        recipe: Recipe,
+        base: LocalModel,
+        scoredItems: List<TrainingItem>,
+        others: List<TrainingItem>,
+        foldOf: IntArray,
+        fold: Int,
+        k: Int,
+        onFold: (Int, Int) -> Unit,
+        stopped: () -> Boolean,
+    ): List<Row> {
+        run {
             onFold(fold, k)
             val held = scoredItems.indices.filter { foldOf[it] == fold }
-            if (held.isEmpty()) return@flatMap emptyList()
+            if (held.isEmpty()) return emptyList()
             // Not a service's label on a text being held out either: that would be training on the answer.
             val heldKeys = held.mapNotNullTo(HashSet()) { scoredItems[it].key } + held.map { PersonalEvaluation.threadKey(scoredItems[it].group) }
             // Nor any other label in a conversation held out (a service's, on another of its texts): it's to be one never seen.
             val heldGroups = held.mapTo(HashSet()) { scoredItems[it].group }
             val train = scoredItems.filterIndexed { i, _ -> foldOf[i] != fold } + others.filter { (it.key == null || it.key !in heldKeys) && (it.group < 0 || it.group !in heldGroups) }
             val model = train(recipe, base, train, stopped = stopped)
-            held.mapNotNull { i -> rowOf(model, i, scoredItems[i]) }
+            return held.mapNotNull { i -> rowOf(model, i, scoredItems[i]) }
         }
     }
 

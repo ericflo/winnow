@@ -214,7 +214,10 @@ class ModelLab(
         val ctx = currentCoroutineContext()
         val started = System.currentTimeMillis()
         val rows = withContext(Dispatchers.Default) {
-            RecipeTrainer.crossValidateRows(recipe, LocalModel.bundled, data.scored, data.others, onFold = { f, k -> say("Scoring on your labels: part ${f + 1} of $k", 0.8f * f / k) }, stopped = { !ctx.isActive })
+            RecipeTrainer.crossValidateRows(
+                recipe, LocalModel.bundled, data.scored, data.others, onFold = { f, k -> say("Scoring on your labels: part ${f + 1} of $k", 0.8f * f / k) },
+                stopped = { !ctx.isActive }, parallelism = parallelismFor(recipe),
+            )
         }
         val cv = rows.map { it.index to it.logits }
         val cvEarlier = rows.associate { it.index to it.earlier }
@@ -401,7 +404,7 @@ class ModelLab(
             val names = baselines.map { it.first }.toSet()
             val classes = LocalModel.bundled.classes
             val unwanted = Category.entries.filter { it.defaultAction == Action.FILTER }.map { classes.indexOf(it.key) }.filter { it >= 0 }.toSet()
-            val scorer = SweepScorer(LocalModel.bundled, data.scored, data.others, unwanted, settings.current().actionPolicy.onDeviceMinConfidence)
+            val scorer = SweepScorer(LocalModel.bundled, data.scored, data.others, unwanted, settings.current().actionPolicy.onDeviceMinConfidence, parallelism = ::parallelismFor)
             state = state.copy(plan = plan, steeredBy = steerer?.name, noService = prefs.steer && prefs.steeringCalls > 0 && steerer == null)
             publish(state)
             // Where the last sweep got to: its best tries start this one, so each sweep picks up from the one before.
@@ -468,6 +471,17 @@ class ModelLab(
             publish(state.copy(failed = "${e::class.simpleName}: ${e.message}", finishedAt = System.currentTimeMillis()))
             throw e
         }
+    }
+
+    /**
+     * How many of [recipe]'s folds train at once: as many as the phone has cores to spare (up to
+     * four), and as fit in the memory Winnow has left, with room to spare. One, at worst.
+     */
+    private fun parallelismFor(recipe: Recipe): Int {
+        val runtime = Runtime.getRuntime()
+        val free = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory()) - MEMORY_RESERVE
+        val fits = (free / (RecipeTrainer.memoryOf(recipe) * 3 / 2)).toInt()
+        return minOf(MAX_PARALLEL, runtime.availableProcessors() - 1, fits).coerceAtLeast(1)
     }
 
     /** A sweep's try kept as a Lab model of its own, trained and scored like any other; null while something else trains. */
@@ -731,6 +745,10 @@ class ModelLab(
     companion object {
         /** A sweep's id where a model's would be, in [Status]. */
         const val SWEEP = "sweep"
+
+        /** Folds trained at once, at most; and memory kept free for the rest of Winnow while they train. */
+        private const val MAX_PARALLEL = 4
+        private const val MEMORY_RESERVE = 96L * 1024 * 1024
 
         /** How many of the last sweep's best tries start the next. */
         private const val LAST_BEST = 3

@@ -1,5 +1,7 @@
 package com.ericflo.winnow.classify
 
+import com.ericflo.winnow.classifier.local.Featurizer
+
 import android.content.Context
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classifier.message.InboundMessage
@@ -61,7 +63,45 @@ class Training(
     }
 
     /** [rechecks] of the candidates are the user's earlier labels to confirm; [toRecheck] conversations wait in all. */
-    data class Round(val candidates: List<Candidate>, val backlog: Int, val labeled: Int, val rechecks: Int = 0, val toRecheck: Int = 0)
+    data class Round(
+        val candidates: List<Candidate>,
+        val backlog: Int,
+        val labeled: Int,
+        val rechecks: Int = 0,
+        val toRecheck: Int = 0,
+        /** Why these conversations, when they were picked for a reason (see [Focus]). */
+        val focus: String? = null,
+    )
+
+    /**
+     * Conversations the next round is made of, and why: the ones that read most like the user's
+     * labels of a category, to give the model more of what it misses (see [likeThese]). Taken by
+     * the next new round; a round already being answered comes first.
+     */
+    data class Focus(val threadIds: List<Long>, val category: Category, val why: String)
+
+    private val focus = java.util.concurrent.atomic.AtomicReference<Focus?>(null)
+
+    fun focusOn(f: Focus) = focus.set(f)
+
+    fun takeFocus(): Focus? = focus.getAndSet(null)
+
+    /**
+     * The conversations still to label (as rounds choose them: strangers', not labeled yet) whose
+     * newest text reads most like the user's own labels of [category], best first: by how alike
+     * their words are to the closest of those, rarer words counting more. More of the category to
+     * answer as the user sees them; nothing's labeled for them.
+     */
+    suspend fun likeThese(category: Category, size: Int = ROUND_SIZE): List<Long> = withContext(Dispatchers.IO) {
+        val mine = corrections.all().filter { !it.fromProvider && it.label == category.key }.mapNotNull { it.messageKey }
+        val texts = com.ericflo.winnow.data.MessageTexts(context).of(mine)
+        val examples = texts.values.map { t -> Featurizer.features(Featurizer.Input(t.address.orEmpty(), t.body)) }
+        if (examples.isEmpty()) return@withContext emptyList()
+        val judged = verdicts.judgedThreads().toSet()
+        val backlog = repo.conversations().first().filter { eligible(it) && it.threadId !in judged && !knownEmpty(it) }
+        val pool = backlog.map { c -> c.threadId to Featurizer.features(Featurizer.Input(c.address, c.snippet.removePrefix("You: "))) }
+        closest(pool, examples, size * 2)
+    }
 
     /** A finished round, kept so progress can be shown round over round. */
     @Serializable
@@ -221,6 +261,28 @@ class Training(
          * then where the service and the model disagree, then by how unsure the model is. Pure,
          * so it's unit-tested.
          */
+        /**
+         * Of [pool] (an id and a text's features), the [size] whose words are most like the closest
+         * of [examples]: cosine over words, word pairs and named signals, each weighted by how rare
+         * it is across them all, so "your" and "the" don't make texts alike. Best first.
+         */
+        fun closest(pool: List<Pair<Long, List<String>>>, examples: List<List<String>>, size: Int): List<Long> {
+            fun kept(f: List<String>) = f.filter { it.startsWith("w:") || it.startsWith("b:") || it.startsWith("h:") || it.startsWith("__") }.toSet()
+            val all = pool.map { kept(it.second) } + examples.map(::kept)
+            val df = HashMap<String, Int>().also { m -> all.forEach { s -> s.forEach { m.merge(it, 1, Int::plus) } } }
+            val n = all.size.toDouble()
+            fun vector(s: Set<String>): Map<String, Double> {
+                val w = s.associateWith { kotlin.math.ln(1 + n / (df[it] ?: 1)) }
+                val norm = kotlin.math.sqrt(w.values.sumOf { it * it }).takeIf { it > 0 } ?: return emptyMap()
+                return w.mapValues { it.value / norm }
+            }
+            val ex = examples.map { vector(kept(it)) }
+            return pool.map { (id, f) ->
+                val v = vector(kept(f))
+                id to ex.maxOf { e -> v.entries.sumOf { (k, x) -> x * (e[k] ?: 0.0) } }
+            }.sortedByDescending { it.second }.take(size).map { it.first }
+        }
+
         fun priority(confidence: Double, recheck: Boolean, reminderLikely: Boolean, disagree: Boolean): Double = when {
             recheck -> confidence - 3.0
             reminderLikely -> confidence - 2.0

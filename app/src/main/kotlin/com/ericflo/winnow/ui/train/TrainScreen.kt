@@ -248,7 +248,10 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
             val resumed = training.progress()?.let { saved ->
                 resume(training.nextRound(only = saved.threadIds), saved).takeIf { (_, decisions) -> decisions.isNotEmpty() }
             }
-            val round = resumed?.first ?: training.nextRound()
+            // A round picked for a reason (texts like the user's labels of a category: see the Lab's
+            // misses), unless one is already being answered.
+            val focus = if (resumed == null) training.takeFocus() else null
+            val round = resumed?.first ?: focus?.let { f -> training.nextRound(only = f.threadIds).copy(focus = f.why) } ?: training.nextRound()
             _state.value = if (round.candidates.isEmpty()) TrainState.Done(round.labeled) else TrainState.Reviewing(round, number, resumed?.second.orEmpty())
             // The guesses not answered yet follow the answers, as they did before.
             if (resumed != null) reguess()
@@ -519,6 +522,7 @@ private fun Reviewing(
         item("intro") {
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Round ${s.number}", style = MaterialTheme.typography.titleLarge)
+                s.round.focus?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }
                 if (s.round.rechecks > 0) {
                     Text(
                         "${plural(s.round.rechecks, "conversation")} here you labeled before the categories changed " +

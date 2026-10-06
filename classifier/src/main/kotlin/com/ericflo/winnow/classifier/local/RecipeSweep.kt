@@ -409,6 +409,8 @@ class SweepScorer(
     private val unwanted: Set<Int>,
     private val filterAt: Double,
     val strengths: List<Double> = listOf(0.0, 0.5, 1.0, 2.0, 3.0, 4.0),
+    /** How many of a recipe's folds may train at once (see RecipeTrainer.crossValidateRows). */
+    private val parallelism: (Recipe) -> Int = { 1 },
 ) {
     val classes = base.classes
     private val folds = RecipeTrainer.foldsOf(scored)
@@ -418,7 +420,8 @@ class SweepScorer(
 
     class Scoring(val recipe: Recipe, val logits: List<RecipeTrainer.Row>, val accuracy: Double, val macroF1: Double, val wordsAccuracy: Double)
 
-    fun crossValidate(recipe: Recipe, stopped: () -> Boolean = { false }) = RecipeTrainer.crossValidateRows(recipe, base, scored, others, stopped = stopped)
+    fun crossValidate(recipe: Recipe, stopped: () -> Boolean = { false }) =
+        RecipeTrainer.crossValidateRows(recipe, base, scored, others, stopped = stopped, parallelism = parallelism(recipe))
 
     /** Rows from logits alone, for a model whose earlier texts weren't read. */
     fun rows(cv: List<Pair<Int, DoubleArray>>) = cv.map { (i, l) -> RecipeTrainer.Row(i, l) }

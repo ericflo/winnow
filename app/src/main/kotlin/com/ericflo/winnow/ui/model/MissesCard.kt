@@ -41,7 +41,7 @@ import com.ericflo.winnow.ui.insight.pct
  * these are where the model doesn't yet follow them.
  */
 @Composable
-fun MissesCard(viewModel: ModelViewModel, onOpenThread: (Long, List<String>) -> Unit) {
+fun MissesCard(viewModel: ModelViewModel, onOpenThread: (Long, List<String>) -> Unit, onOpenTrain: () -> Unit = {}) {
     val entries by viewModel.lab.entries.collectAsStateWithLifecycle()
     val history by viewModel.evals.history.collectAsStateWithLifecycle()
     val all = history ?: return
@@ -83,13 +83,13 @@ fun MissesCard(viewModel: ModelViewModel, onOpenThread: (Long, List<String>) -> 
             Note("${count(r.closeCalls)} of the misses were close calls (it was under ${pct(MissBreakdown.CLOSE)} sure): a little more to go on could turn these.")
         }
         Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 4.dp)) {
-            r.groups.forEach { g -> GroupRow(g, r.misses, onOpenThread) }
+            r.groups.forEach { g -> GroupRow(g, r.misses, onOpenThread) { viewModel.labelMoreLike(g.label, onOpenTrain) } }
         }
     }
 }
 
 @Composable
-private fun GroupRow(g: MissBreakdown.Group, misses: Int, onOpenThread: (Long, List<String>) -> Unit) {
+private fun GroupRow(g: MissBreakdown.Group, misses: Int, onOpenThread: (Long, List<String>) -> Unit, onLabelMore: () -> Unit) {
     var open by remember(g.label, g.predicted) { mutableStateOf(false) }
     val label = g.label.label.lowercase()
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -114,7 +114,11 @@ private fun GroupRow(g: MissBreakdown.Group, misses: Int, onOpenThread: (Long, L
             g.misses.take(SHOWN).forEach { m -> MissRow(m, onOpenThread) }
             if (g.misses.size > SHOWN) Note("And ${count(g.misses.size - SHOWN)} more.")
         }
-        TextButton(onClick = { open = !open }, contentPadding = PaddingValues(0.dp)) { Text(if (open) "Hide them" else "Show them") }
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton(onClick = { open = !open }, contentPadding = PaddingValues(0.dp)) { Text(if (open) "Hide them" else "Show them") }
+            // More of the user's own sense of the category: texts that read like their labels of it, to label.
+            TextButton(onClick = onLabelMore, contentPadding = PaddingValues(0.dp)) { Text("Label more like your $label") }
+        }
     }
 }
 
