@@ -151,3 +151,7 @@ app/         The Android app: Compose + Material 3, Room, DataStore, the system 
 In daily use on the author's phone. Known issue: picture-message downloads fail on at least one
 carrier, and Winnow now says why each one failed while that's tracked down. RCS isn't possible
 (see Install).
+
+## License
+
+[MIT](LICENSE)
