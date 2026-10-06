@@ -10,12 +10,21 @@ import kotlinx.coroutines.withContext
  * labels made since, and the model's progress seen fit by fit. Unnamed ones beyond [MAX_KEPT]
  * go, oldest first; ones the user named stay.
  */
-class ModelKeeper(private val learner: Learner, private val fits: ModelFitDao, private val snapshots: ModelSnapshots) {
+class ModelKeeper(
+    private val learner: Learner,
+    private val fits: ModelFitDao,
+    private val snapshots: ModelSnapshots,
+    /** The messages that have taught the model, by key (see CorrectionDao.taughtKeys). */
+    private val taughtKeys: suspend () -> List<String> = { emptyList() },
+) {
     /** Keeps the fit in use now, named [name] if given; false when there's nothing taught to keep. */
     suspend fun keepCurrent(name: String? = null): Boolean = withContext(Dispatchers.IO) {
         val model = learner.classifier()
         val fit = model.fit ?: return@withContext false
         if (!snapshots.has(fit) && !snapshots.save(fit, model.adjustments)) return@withContext false
+        // What it learned from, so it's scored on texts it never saw: a text labeled again since is
+        // newer by date, but not new to it.
+        if (snapshots.loadKeys(fit) == null) runCatching { snapshots.saveKeys(fit, taughtKeys()) }
         fits.setKept(fit, true)
         if (name != null) fits.setName(fit, name)
         prune()
@@ -32,6 +41,9 @@ class ModelKeeper(private val learner: Learner, private val fits: ModelFitDao, p
     }
 
     fun load(fit: String) = snapshots.load(fit)
+
+    /** The texts [fit] learned from, by key; null for one kept before that was kept. */
+    fun learnedKeys(fit: String) = snapshots.loadKeys(fit)
 
     private suspend fun prune() {
         val kept = fits.all().filter { it.kept }

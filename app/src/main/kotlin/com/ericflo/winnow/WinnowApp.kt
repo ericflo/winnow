@@ -195,7 +195,10 @@ class AppContainer(private val context: Context) {
     val evalDao by lazy { database.evals() }
     /** Fits of the on-device model kept to score and compare later (see ModelKeeper). */
     val modelKeeper by lazy {
-        com.ericflo.winnow.classify.ModelKeeper(learner, fitDao, com.ericflo.winnow.classify.ModelSnapshots(java.io.File(context.filesDir, "model-fits")))
+        com.ericflo.winnow.classify.ModelKeeper(
+            learner, fitDao, com.ericflo.winnow.classify.ModelSnapshots(java.io.File(context.filesDir, "model-fits")),
+            taughtKeys = { correctionDao.taughtKeys() },
+        )
     }
     /** Scoring models on the user's labels (the Model screen's Evaluate tab), app-wide so it outlives the screen. */
     val evaluations by lazy { com.ericflo.winnow.ui.model.Evaluations(this, appScope) }

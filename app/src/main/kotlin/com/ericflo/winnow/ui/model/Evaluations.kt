@@ -253,7 +253,9 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
         Pick.YoursOnly -> EvalSubject.YoursOnly
         Pick.Service -> EvalSubject.Service(serviceName)
         is Pick.Weight -> EvalSubject.ServiceWeight(pick.weight)
-        is Pick.Kept -> container.modelKeeper.load(pick.fit.fit)?.let { EvalSubject.Kept(pick.fit.fit, pick.fit.fittedAt, it, pick.fit.name) }
+        is Pick.Kept -> container.modelKeeper.load(pick.fit.fit)?.let {
+            EvalSubject.Kept(pick.fit.fit, pick.fit.fittedAt, it, pick.fit.name, learned = container.modelKeeper.learnedKeys(pick.fit.fit))
+        }
     }
 
     private suspend fun keep(at: Long, r: EvalResult) = withContext(Dispatchers.IO) {

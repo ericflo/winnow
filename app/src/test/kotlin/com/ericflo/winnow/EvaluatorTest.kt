@@ -126,6 +126,19 @@ class EvaluatorTest {
         assertTrue(barely.how, barely.how.contains("1 passes, step 0.01, L2 0.001."))
         assertTrue("${barely.metrics!!.accuracy} vs ${usual.metrics!!.accuracy}", barely.metrics!!.accuracy < usual.metrics!!.accuracy)
     }
+
+    @Test
+    fun aKeptFitThatKnowsWhatItLearnedIsScoredOnTextsItNeverSawThoughRelabeled() {
+        val d = data()
+        val early = base.learn(d.labels.take(30).map { Correction(it.buckets, it.label) }).adjustments
+        // It learned the first 30; the first one was labeled again after it (a later createdAt).
+        val relabeled = EvalData(d.labels.mapIndexed { i, l -> if (i == 0) EvalData.Labeled(l.key, l.threadId, l.buckets, l.label, createdAt = 10_000) else l }, emptyList(), emptyList(), emptyMap())
+        val byDate = Evaluator().evaluate(EvalSubject.Kept("abc123", fittedAt = 29, adjustments = early), relabeled)
+        assertTrue("by date, the relabeled one counts as new", "sms:0" in byDate.items.map { it.key })
+        val learned = d.labels.take(30).mapTo(HashSet()) { it.key }
+        val byKeys = Evaluator().evaluate(EvalSubject.Kept("abc123", fittedAt = 29, adjustments = early, learned = learned), relabeled)
+        assertEquals((30 until 60).map { "sms:$it" }, byKeys.items.map { it.key })
+    }
 }
 
 class RebuildWeightTest {

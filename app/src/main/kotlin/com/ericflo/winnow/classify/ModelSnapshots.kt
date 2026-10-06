@@ -38,7 +38,23 @@ class ModelSnapshots(private val dir: File) {
 
     fun delete(fit: String) {
         file(fit).delete()
+        keysFile(fit).delete()
     }
+
+    private fun keysFile(fit: String) = File(dir, "$fit.keys")
+
+    /** The texts [fit] learned from, by message key: what scoring it "since" leaves out. */
+    fun saveKeys(fit: String, keys: Collection<String>): Boolean = runCatching {
+        dir.mkdirs()
+        val partial = File(dir, "$fit.keys.part")
+        partial.writeText(keys.joinToString("\n"))
+        partial.renameTo(keysFile(fit)) || run { partial.delete(); false }
+    }.getOrDefault(false)
+
+    /** What [saveKeys] kept for [fit]; null for a fit kept before they were. */
+    fun loadKeys(fit: String): Set<String>? = runCatching {
+        keysFile(fit).takeIf { it.exists() }?.readLines()?.filterTo(HashSet()) { it.isNotBlank() }
+    }.getOrNull()
 
     /** What the kept fits take on the phone, in bytes. */
     fun bytes(): Long = dir.listFiles()?.sumOf { it.length() } ?: 0

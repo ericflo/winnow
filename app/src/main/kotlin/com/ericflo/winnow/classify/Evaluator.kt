@@ -49,7 +49,14 @@ sealed interface EvalSubject {
     }
 
     /** A kept fit of the model (see ModelSnapshots), scored on the labels made since it. */
-    data class Kept(val fit: String, val fittedAt: Long, val adjustments: Adjustments, val name: String? = null) : EvalSubject {
+    data class Kept(
+        val fit: String,
+        val fittedAt: Long,
+        val adjustments: Adjustments,
+        val name: String? = null,
+        /** The texts it learned from, by key, when that was kept (see ModelKeeper). */
+        val learned: Set<String>? = null,
+    ) : EvalSubject {
         override val key = "fit:$fit"
         override val label = name ?: "Fit $fit"
     }
@@ -194,10 +201,14 @@ class Evaluator(
                 PersonalEvaluation.scoreWith(model, labels, Adjustments.NONE).mapIndexed { i, s -> data.labels[i] to s },
             )
             is EvalSubject.Kept -> {
-                val since = data.labels.withIndex().filter { it.value.createdAt > subject.fittedAt }
+                // Texts it never learned from: by what it learned, where that was kept; a label made
+                // since it otherwise (a text labeled again since is then counted, though it saw it).
+                val since = data.labels.withIndex().filter { (_, l) -> subject.learned?.let { l.key !in it } ?: (l.createdAt > subject.fittedAt) }
                 if (since.isNotEmpty()) {
                     result(
-                        subject, EvalEntity.METHOD_SINCE, "On the ${since.size} labels you made after this fit: texts it never learned from.",
+                        subject, EvalEntity.METHOD_SINCE,
+                        if (subject.learned != null) "On the ${since.size} of your labeled texts it never learned from."
+                        else "On the ${since.size} labels you made after this fit: texts it never learned from, unless you labeled one again since.",
                         since.map { (i, l) -> l to PersonalEvaluation.scoreWith(model, listOf(labels[i]), subject.adjustments).single() },
                     )
                 } else {
