@@ -136,6 +136,36 @@ class DebugSeedReceiver : BroadcastReceiver() {
                     Log.i(TAG, "Seeded $written MMS in group thread $threadId in ${(System.nanoTime() - started) / 1_000_000} ms")
                     return@launch
                 }
+                if (intent.hasExtra("contacts")) {
+                    // --ei contacts N [--es areas ...]: N fictional contacts, "Seeded Person N", on
+                    // the areas' 555-01xx numbers, for a contact list the size of a real one. Needs
+                    // `pm grant com.ericflo.winnow android.permission.WRITE_CONTACTS` (debug builds only).
+                    val n = intent.getIntExtra("contacts", 1000).coerceIn(1, 100 * areas.size)
+                    val started = System.nanoTime()
+                    var made = 0
+                    for (chunk in (0 until n).chunked(100)) {
+                        val ops = ArrayList<android.content.ContentProviderOperation>()
+                        for (i in chunk) {
+                            val back = ops.size
+                            ops += android.content.ContentProviderOperation.newInsert(android.provider.ContactsContract.RawContacts.CONTENT_URI)
+                                .withValue(android.provider.ContactsContract.RawContacts.ACCOUNT_TYPE, null)
+                                .withValue(android.provider.ContactsContract.RawContacts.ACCOUNT_NAME, null).build()
+                            ops += android.content.ContentProviderOperation.newInsert(android.provider.ContactsContract.Data.CONTENT_URI)
+                                .withValueBackReference(android.provider.ContactsContract.Data.RAW_CONTACT_ID, back)
+                                .withValue(android.provider.ContactsContract.Data.MIMETYPE, android.provider.ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
+                                .withValue(android.provider.ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, "Seeded Person $i").build()
+                            ops += android.content.ContentProviderOperation.newInsert(android.provider.ContactsContract.Data.CONTENT_URI)
+                                .withValueBackReference(android.provider.ContactsContract.Data.RAW_CONTACT_ID, back)
+                                .withValue(android.provider.ContactsContract.Data.MIMETYPE, android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE)
+                                .withValue(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER, "+1${areas[i / 100]}55501${"%02d".format(i % 100)}")
+                                .withValue(android.provider.ContactsContract.CommonDataKinds.Phone.TYPE, android.provider.ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE).build()
+                        }
+                        context.contentResolver.applyBatch(android.provider.ContactsContract.AUTHORITY, ops)
+                        made += chunk.size
+                    }
+                    Log.i(TAG, "Seeded $made contacts in ${(System.nanoTime() - started) / 1_000_000} ms")
+                    return@launch
+                }
                 if (intent.getBooleanExtra("onboarding", false)) {
                     container.settings.update { it.copy(onboarded = false) }
                     return@launch
