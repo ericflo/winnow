@@ -469,10 +469,14 @@ class Bootstrap(
         }
         val rules = senderRules()
         val gate = classifiers.create(current)
+        val memory = runCatching { learner.classifier().memory }.getOrDefault(com.ericflo.winnow.classifier.local.SenderMemory.NONE)
         conversations.filter { it.threadId in newest }.flatMap { newest.getValue(it.threadId) }
             .filterNot { it.key in done }
             .map { t -> t.withRule(rules[com.ericflo.winnow.data.normalizeAddress(t.sender)]) }
             .filterNot { gate.staysOnPhone(it.message()) }
+            // Ones the user's labels of the sender decide aren't asked about (see MessageClassifier),
+            // so they aren't in the plan either: it says what the run would really send.
+            .filterNot { t -> memory.decisive(t.sender, conversing = t.repliedTo) != null }
     }
 
     /**
