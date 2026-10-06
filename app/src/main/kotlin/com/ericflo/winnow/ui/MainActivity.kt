@@ -194,6 +194,7 @@ class MainActivity : ComponentActivity() {
             ACTION_NEW_CHAT -> pendingRoute.value = NewChatRoute()
             ACTION_OPEN_FILTERED -> pendingRoute.value = FilteredRoute
             ACTION_OPEN_TRAIN -> pendingRoute.value = TrainRoute
+            ACTION_OPEN_MODEL -> pendingRoute.value = ModelRoute(tab = intent.getStringExtra(EXTRA_MODEL_TAB).orEmpty(), at = System.currentTimeMillis())
             ACTION_OPEN_RUN -> pendingRoute.value = intent.getLongExtra(EXTRA_RUN_ID, 0L).takeIf { it != 0L }?.let(::RunRoute) ?: TrainRoute
             ACTION_FORWARD -> container.forwards.remove(intent.getStringExtra(EXTRA_TOKEN) ?: return)?.let { (text, attachments) ->
                 pendingRoute.value = NewChatRoute(draft = text, attachments = attachments)
@@ -252,6 +253,9 @@ class MainActivity : ComponentActivity() {
         const val ACTION_OPEN_FILTERED = "com.ericflo.winnow.OPEN_FILTERED"
         /** The backlog-labeling notification (see BootstrapService). */
         const val ACTION_OPEN_TRAIN = "com.ericflo.winnow.OPEN_TRAIN"
+        /** Winnow's model on a tab ([EXTRA_MODEL_TAB]), where work done in the background shows how it went (see ModelWorkService). */
+        const val ACTION_OPEN_MODEL = "com.ericflo.winnow.OPEN_MODEL"
+        const val EXTRA_MODEL_TAB = "model_tab"
         /** A backlog run's notification: its results (see RunScreen), under [EXTRA_RUN_ID]. */
         const val ACTION_OPEN_RUN = "com.ericflo.winnow.OPEN_RUN"
         const val EXTRA_RUN_ID = "run_id"

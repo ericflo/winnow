@@ -61,6 +61,8 @@ class ModelLab(
     private val dir: File,
     /** Told when the model in use changed or was trained again (Learner.reload). */
     private val onModelChanged: suspend () -> Unit,
+    /** Told as training starts, to keep it going when the user leaves Winnow (see ModelWorkService). */
+    private val onRunStarted: () -> Unit = {},
 ) {
     /** One recipe and what became of it. */
     @Serializable
@@ -212,6 +214,9 @@ class ModelLab(
     private fun launch(id: String, block: suspend (Entry) -> Unit) {
         if (job?.isActive == true) return
         val entry = _entries.value.firstOrNull { it.id == id } ?: return
+        // Running before anything watches for it: the service keeping it going stops at Idle.
+        progress(id, "Starting…", 0f)
+        onRunStarted()
         job = scope.launch {
             try {
                 block(entry)

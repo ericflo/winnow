@@ -169,7 +169,10 @@ class AppContainer(private val context: Context) {
     }
     /** Asking the service about the user's labeled texts with and without their examples (see ExamplesExperiment). */
     val examplesExperiment by lazy {
-        com.ericflo.winnow.classify.ExamplesExperiment(context, appScope, verdictDao, correctionDao, contacts, settings, classifiers, bootstrap, evalDao)
+        com.ericflo.winnow.classify.ExamplesExperiment(
+            context, appScope, verdictDao, correctionDao, contacts, settings, classifiers, bootstrap, evalDao,
+            onRunStarted = { com.ericflo.winnow.classify.ModelWorkService.start(context) },
+        )
     }
     /** Models the user designs, trains on the phone, scores and puts in use (see ModelLab). */
     val modelLab: com.ericflo.winnow.classify.ModelLab by lazy {
@@ -177,7 +180,9 @@ class AppContainer(private val context: Context) {
             appScope, correctionDao, verdictDao, contacts, settings, com.ericflo.winnow.data.MessageTexts(context), evalDao,
             repliedThreads = { bootstrap.threadsWithOutgoing() },
             dir = java.io.File(context.filesDir, "lab"),
-        ) { learner.reload() }
+            onModelChanged = { learner.reload() },
+            onRunStarted = { com.ericflo.winnow.classify.ModelWorkService.start(context) },
+        )
     }
 
     /** After a Train round or a backlog run: a Lab model in use learns what it taught, if the user wants it to. */

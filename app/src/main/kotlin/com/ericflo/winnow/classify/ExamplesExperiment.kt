@@ -29,6 +29,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -96,6 +97,8 @@ class ExamplesExperiment(
     private val classifiers: ClassifierFactory,
     private val bootstrap: Bootstrap,
     private val evals: EvalDao,
+    /** Told as a test starts, to keep it going when the user leaves Winnow (see ModelWorkService). */
+    private val onRunStarted: () -> Unit = {},
 ) {
     private val _status = MutableStateFlow<ExperimentStatus>(ExperimentStatus.Idle)
     val status: StateFlow<ExperimentStatus> = _status.asStateFlow()
@@ -113,80 +116,92 @@ class ExamplesExperiment(
 
     fun start(limit: Int) {
         if (job?.isActive == true) return
+        // Running before anything watches for it: the service keeping it going stops when it isn't.
+        _status.value = ExperimentStatus.Running(0, 0, 0.0)
+        onRunStarted()
         job = scope.launch {
-            val current = settings.current()
-            if (bootstrap.unavailable(current) != null) return@launch
-            val chosen = spread(candidates(current), limit)
-            val pool = bootstrap.exampleTexts(current)
-            val at = System.currentTimeMillis()
-            var cost = 0.0
-            val trials = mutableListOf<Trial>()
-            _status.value = ExperimentStatus.Running(0, chosen.size, 0.0)
-            val pacer = Pacer(maxConcurrency = CONCURRENCY)
-            val plain = classifiers.create(current.copy(decideOnPhoneWhenSure = false), timeoutMillis = TIMEOUT_MILLIS)
-            // One classifier per set of examples: all of them, or all but a text's own conversation's.
-            val withExamples = HashMap<Set<Long>, MessageClassifier>()
-            suspend fun classifierFor(threadId: Long): MessageClassifier {
-                val leaveOut = pool.filter { it.threadId == threadId }.mapTo(HashSet()) { it.threadId }
-                return withExamples.getOrPut(leaveOut) {
-                    classifiers.create(
-                        current.copy(decideOnPhoneWhenSure = false), timeoutMillis = TIMEOUT_MILLIS,
-                        examples = pool.filter { it.threadId !in leaveOut }.groupBy({ it.category }, { it.body }),
-                    )
-                }
-            }
-            var error: String? = null
-            var stopped = false
             try {
-                val queue = ArrayDeque(chosen)
-                while (queue.isNotEmpty()) {
-                    val batch = List(minOf(BATCH, queue.size)) { queue.removeFirst() }
-                    val gate = Semaphore(pacer.concurrency)
-                    val asked = batch.map { c ->
-                        async(Dispatchers.IO) {
-                            gate.withPermit {
-                                val a = runCatching { plain.classify(c.message) }.getOrNull()
-                                val b = runCatching { classifierFor(c.threadId).classify(c.message) }.getOrNull()
-                                Triple(c, a, b)
-                            }
-                        }
-                    }.awaitAll()
-                    val troubles = mutableListOf<Pacer.Trouble>()
-                    var answered = 0
-                    for ((c, a, b) in asked) {
-                        cost += (a?.costUsd ?: 0.0) + (b?.costUsd ?: 0.0)
-                        val pa = a.answer()
-                        val pb = b.answer()
-                        if (pa != null && pb != null) {
-                            answered++
-                            trials += Trial(c.key, c.threadId, c.label, pa.category, pa.confidence, pb.category, pb.confidence)
-                        } else {
-                            listOfNotNull(a, b).filter { it.answer() == null }.forEach { v ->
-                                troubles += Pacer.troubleOf((v.source as? VerdictSource.OnDevice)?.fallbackReason ?: "no answer")
-                            }
-                        }
-                    }
-                    _status.value = ExperimentStatus.Running(chosen.size - queue.size, chosen.size, cost)
-                    when (val next = pacer.after(answered, troubles, System.currentTimeMillis())) {
-                        Pacer.Next.Go -> Unit
-                        is Pacer.Next.Wait -> {
-                            _status.value = ExperimentStatus.Running(chosen.size - queue.size, chosen.size, cost, waiting = Bootstrap.pauseText(current.provider.label, next.trouble, next.millis))
-                            kotlinx.coroutines.delay(next.millis)
-                        }
-                        is Pacer.Next.GiveUp -> {
-                            error = "${current.provider.label} stopped answering, so the test stopped there."
-                            break
-                        }
+                val current = settings.current()
+                if (bootstrap.unavailable(current) != null) return@launch
+                val chosen = spread(candidates(current), limit)
+                val pool = bootstrap.exampleTexts(current)
+                val at = System.currentTimeMillis()
+                var cost = 0.0
+                val trials = mutableListOf<Trial>()
+                _status.value = ExperimentStatus.Running(0, chosen.size, 0.0)
+                val pacer = Pacer(maxConcurrency = CONCURRENCY)
+                val plain = classifiers.create(current.copy(decideOnPhoneWhenSure = false), timeoutMillis = TIMEOUT_MILLIS)
+                // One classifier per set of examples: all of them, or all but a text's own conversation's.
+                val withExamples = HashMap<Set<Long>, MessageClassifier>()
+                suspend fun classifierFor(threadId: Long): MessageClassifier {
+                    val leaveOut = pool.filter { it.threadId == threadId }.mapTo(HashSet()) { it.threadId }
+                    return withExamples.getOrPut(leaveOut) {
+                        classifiers.create(
+                            current.copy(decideOnPhoneWhenSure = false), timeoutMillis = TIMEOUT_MILLIS,
+                            examples = pool.filter { it.threadId !in leaveOut }.groupBy({ it.category }, { it.body }),
+                        )
                     }
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                stopped = true
-                throw e
+                var error: String? = null
+                var stopped = false
+                try {
+                    val queue = ArrayDeque(chosen)
+                    // Texts asked both ways so far, counted as each is, not only as a batch ends.
+                    val done = java.util.concurrent.atomic.AtomicInteger(0)
+                    while (queue.isNotEmpty()) {
+                        val batch = List(minOf(BATCH, queue.size)) { queue.removeFirst() }
+                        val gate = Semaphore(pacer.concurrency)
+                        val asked = batch.map { c ->
+                            async(Dispatchers.IO) {
+                                gate.withPermit {
+                                    val a = runCatching { plain.classify(c.message) }.getOrNull()
+                                    val b = runCatching { classifierFor(c.threadId).classify(c.message) }.getOrNull()
+                                    val n = done.incrementAndGet()
+                                    _status.update { if (it is ExperimentStatus.Running) it.copy(done = maxOf(it.done, n), waiting = null) else it }
+                                    Triple(c, a, b)
+                                }
+                            }
+                        }.awaitAll()
+                        val troubles = mutableListOf<Pacer.Trouble>()
+                        var answered = 0
+                        for ((c, a, b) in asked) {
+                            cost += (a?.costUsd ?: 0.0) + (b?.costUsd ?: 0.0)
+                            val pa = a.answer()
+                            val pb = b.answer()
+                            if (pa != null && pb != null) {
+                                answered++
+                                trials += Trial(c.key, c.threadId, c.label, pa.category, pa.confidence, pb.category, pb.confidence)
+                            } else {
+                                listOfNotNull(a, b).filter { it.answer() == null }.forEach { v ->
+                                    troubles += Pacer.troubleOf((v.source as? VerdictSource.OnDevice)?.fallbackReason ?: "no answer")
+                                }
+                            }
+                        }
+                        _status.value = ExperimentStatus.Running(chosen.size - queue.size, chosen.size, cost)
+                        when (val next = pacer.after(answered, troubles, System.currentTimeMillis())) {
+                            Pacer.Next.Go -> Unit
+                            is Pacer.Next.Wait -> {
+                                _status.value = ExperimentStatus.Running(chosen.size - queue.size, chosen.size, cost, waiting = Bootstrap.pauseText(current.provider.label, next.trouble, next.millis))
+                                kotlinx.coroutines.delay(next.millis)
+                            }
+                            is Pacer.Next.GiveUp -> {
+                                error = "${current.provider.label} stopped answering, so the test stopped there."
+                                break
+                            }
+                        }
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    stopped = true
+                    throw e
+                } finally {
+                    withContext(kotlinx.coroutines.NonCancellable) {
+                        if (trials.isNotEmpty()) runCatching { keep(at, trials, cost, current.provider.label.substringBefore(" (")) }
+                        _status.value = ExperimentStatus.Finished(ExperimentSummary.of(trials), cost, stopped, error, at)
+                    }
+                }
             } finally {
-                withContext(kotlinx.coroutines.NonCancellable) {
-                    if (trials.isNotEmpty()) runCatching { keep(at, trials, cost, current.provider.label.substringBefore(" (")) }
-                    _status.value = ExperimentStatus.Finished(ExperimentSummary.of(trials), cost, stopped, error, at)
-                }
+                // Ended before it began (no service to ask): nothing to report, and nothing running.
+                if (_status.value is ExperimentStatus.Running) _status.value = ExperimentStatus.Idle
             }
         }
     }

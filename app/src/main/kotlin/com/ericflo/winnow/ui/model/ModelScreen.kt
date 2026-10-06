@@ -312,8 +312,22 @@ fun ModelScreen(
     onOpenRuns: () -> Unit,
     onOpenTrain: () -> Unit,
     onOpenThread: (Long, List<String>) -> Unit = { _, _ -> },
+    /** The tab to open on, by name ("lab"); the first when it names none. */
+    startTab: String = "",
+    /** When [startTab] was asked for: asked again while this is open, it switches to it. */
+    tabAskedAt: Long = 0,
 ) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var tab by rememberSaveable { mutableIntStateOf(ModelTab.entries.indexOfFirst { it.name.equals(startTab, ignoreCase = true) }.coerceAtLeast(0)) }
+    // Each request once: a rotation recomposes this, and mustn't undo the user's own choice of tab since.
+    var tabAskedHandled by rememberSaveable { androidx.compose.runtime.mutableLongStateOf(tabAskedAt) }
+    androidx.compose.runtime.LaunchedEffect(tabAskedAt) {
+        if (tabAskedAt == tabAskedHandled) return@LaunchedEffect
+        tabAskedHandled = tabAskedAt
+        ModelTab.entries.indexOfFirst { it.name.equals(startTab, ignoreCase = true) }.takeIf { it >= 0 }?.let { tab = it }
+    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // The tab shows how the work on it went: a notification saying so has done its job.
+    androidx.compose.runtime.LaunchedEffect(tab) { com.ericflo.winnow.classify.ModelWorkService.clearFinished(context, ModelTab.entries[tab].name.lowercase()) }
     Scaffold(
         topBar = {
             Column {

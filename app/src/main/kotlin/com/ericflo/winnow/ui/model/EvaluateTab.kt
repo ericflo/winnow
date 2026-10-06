@@ -314,7 +314,7 @@ private fun ExperimentCard(viewModel: ModelViewModel, onOpenThread: (Long, List<
         when (val st = status) {
             is com.ericflo.winnow.classify.ExperimentStatus.Running -> {
                 androidx.compose.material3.LinearProgressIndicator(progress = { if (st.total == 0) 0f else st.done / st.total.toFloat() }, modifier = Modifier.fillMaxWidth())
-                Text("${count(st.done)} of ${count(st.total)} texts asked · ${com.ericflo.winnow.ui.insight.money(st.costUsd)} so far", style = MaterialTheme.typography.bodyMedium)
+                Text(if (st.total == 0) "Starting…" else "${count(st.done)} of ${count(st.total)} texts asked · ${com.ericflo.winnow.ui.insight.money(st.costUsd)} so far", style = MaterialTheme.typography.bodyMedium)
                 st.waiting?.let { Note(it) }
                 TextButton(onClick = viewModel.experiment::stop, contentPadding = PaddingValues(0.dp)) { Text("Stop") }
             }
@@ -346,7 +346,7 @@ private fun ExperimentCard(viewModel: ModelViewModel, onOpenThread: (Long, List<
                                     Text(
                                         "Only texts your privacy settings already let $service see, masked as they say, with zero data retention as for a backlog run. " +
                                             "The second time, up to ${com.ericflo.winnow.classify.Bootstrap.EXAMPLES_PER_CATEGORY} of your labeled texts per category go with each, as examples. " +
-                                            "Nothing is labeled or taught by this: it only measures. You can stop it at any time; keep Winnow open while it runs.",
+                                            "Nothing is labeled or taught by this: it only measures. You can stop it at any time; it keeps going if you leave Winnow, with its progress in a notification.",
                                     )
                                 },
                                 confirmButton = { TextButton(onClick = { confirming = false; viewModel.experiment.start(n) }) { Text("Ask") } },

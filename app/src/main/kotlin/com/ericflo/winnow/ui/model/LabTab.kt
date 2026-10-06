@@ -109,7 +109,7 @@ private fun StatusCard(viewModel: ModelViewModel) {
         is ModelLab.Status.Running -> InsightCard("Training ${entries.firstOrNull { it.id == s.id }?.name ?: ""}") {
             LinearProgressIndicator(progress = { s.progress }, modifier = Modifier.fillMaxWidth())
             Text(s.what, style = MaterialTheme.typography.bodyMedium)
-            Note("On this phone, with nothing sent anywhere. Keep Winnow open; it stops if Winnow is closed.")
+            Note("On this phone, with nothing sent anywhere. It keeps going if you leave Winnow, with its progress and a Stop button in a notification.")
             TextButton(onClick = viewModel.lab::cancel, contentPadding = PaddingValues(0.dp)) { Text("Stop") }
         }
         is ModelLab.Status.Failed -> InsightCard("Training stopped") {
