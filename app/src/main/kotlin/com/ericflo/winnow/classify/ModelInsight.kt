@@ -44,6 +44,8 @@ data class DeciderCounts(
     /** The on-device model: as the only one, sure enough not to ask, standing in for a service that failed, or with nothing allowed to leave the phone. */
     val modelOnly: Int = 0,
     val modelSure: Int = 0,
+    /** Decided by the user's own labels of the sender (see SenderMemory). */
+    val modelYourLabels: Int = 0,
     val modelFallback: Int = 0,
     val modelKept: Int = 0,
     val modelUnknown: Int = 0,
@@ -51,7 +53,7 @@ data class DeciderCounts(
     /** Of all of them, how many the user has since labeled or corrected. */
     val youSince: Int = 0,
 ) {
-    val model: Int get() = modelOnly + modelSure + modelFallback + modelKept + modelUnknown
+    val model: Int get() = modelOnly + modelSure + modelYourLabels + modelFallback + modelKept + modelUnknown
     val total: Int get() = rule + service + model + keywords
 }
 
@@ -110,6 +112,7 @@ object ModelInsight {
                 Decider.MODEL -> when (Provenance.modelReason(v)) {
                     ModelReason.ONLY_ONE -> c.copy(modelOnly = c.modelOnly + 1)
                     ModelReason.SURE -> c.copy(modelSure = c.modelSure + 1)
+                    ModelReason.YOUR_LABELS -> c.copy(modelYourLabels = c.modelYourLabels + 1)
                     ModelReason.PROVIDER_FAILED -> c.copy(modelFallback = c.modelFallback + 1)
                     ModelReason.KEPT_ON_PHONE -> c.copy(modelKept = c.modelKept + 1)
                     ModelReason.UNKNOWN, null -> c.copy(modelUnknown = c.modelUnknown + 1)

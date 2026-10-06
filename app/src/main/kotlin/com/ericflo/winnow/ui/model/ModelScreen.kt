@@ -521,6 +521,7 @@ private fun DecidersCard(o: Overview) {
             "A rule on this phone" to d.rule,
             "${o.provider}" to d.service,
             "Model, sure enough not to ask" to d.modelSure,
+            "Your labels of the sender" to d.modelYourLabels,
             "Model, ${o.provider} didn't answer" to d.modelFallback,
             "Model, nothing could be sent" to d.modelKept,
             "Model, no service set up" to d.modelOnly,

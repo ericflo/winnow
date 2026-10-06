@@ -31,6 +31,9 @@ enum class ModelReason {
     /** It was sure enough not to ask (Settings: decide on this phone when sure). */
     SURE,
 
+    /** The user's own labels of this sender decided it, so no service was asked (see SenderMemory). */
+    YOUR_LABELS,
+
     /** The service was asked and didn't answer. */
     PROVIDER_FAILED,
 
@@ -86,6 +89,7 @@ object Provenance {
         if (sourceKind != VerdictEntity.KIND_LOCAL) return null
         return when {
             fallbackReason == VerdictSource.OnDevice.SURE -> ModelReason.SURE
+            fallbackReason == VerdictSource.OnDevice.YOUR_LABELS -> ModelReason.YOUR_LABELS
             fallbackReason?.startsWith("Provider unavailable") == true -> ModelReason.PROVIDER_FAILED
             fallbackReason != null -> ModelReason.KEPT_ON_PHONE
             // Since these were kept, every model verdict names its model.
@@ -169,6 +173,7 @@ object Provenance {
             Decider.MODEL -> {
                 when (modelReason(v)) {
                     ModelReason.SURE -> why += "It was ${pct(v.confidence)} sure, so the classifier service wasn't asked (Settings: decide on this phone when it's sure, at 95%)."
+                    ModelReason.YOUR_LABELS -> why += "Your labels of this sender decided it: you've labeled their texts this way, and your labels outweigh the classifier service's, so it wasn't asked."
                     ModelReason.PROVIDER_FAILED -> why += "The classifier service was asked and didn't answer: ${v.fallbackReason!!.removePrefix("Provider unavailable (").removeSuffix(")")}."
                     ModelReason.KEPT_ON_PHONE -> why += "Nothing was sent anywhere: ${v.fallbackReason!!.replaceFirstChar { it.lowercase() }}."
                     ModelReason.ONLY_ONE -> why += "No classifier service is set up, so the on-device model decides everything that no rule does."

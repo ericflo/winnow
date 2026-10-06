@@ -91,4 +91,5 @@ tasks.register<JavaExec>("labCeilingExperiment") {
     maxHeapSize = "3g"
     // -Ppart=two for part two (labels it's sure are wrong, parts of words, more labels).
     providers.gradleProperty("part").orNull?.let { systemProperty("part", it) }
+    providers.gradleProperty("mixed").orNull?.let { systemProperty("mixed", it) }
 }

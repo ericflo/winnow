@@ -291,4 +291,20 @@ class MessageClassifierTest {
         assertEquals(Action.FILTER, policy.resolve(Category.SPAM, 0.9, Origin.ON_DEVICE))
         assertEquals(Action.SILENCE, policy.resolve(Category.SPAM, 0.99, Origin.HEURISTIC))
     }
+
+    @Test
+    fun `the user's labels of a sender decide before any service is asked`() = runTest {
+        val provider = FakeProvider { mapOf("friend_chat" to 1.0) }
+        val classes = com.ericflo.winnow.classifier.local.LocalModel.bundled.classes
+        val memory = com.ericflo.winnow.classifier.local.SenderMemory.of(List(4) { stranger.sender to classes.indexOf(Category.TRANSACTIONAL.key) }, classes)
+        val classifier = MessageClassifier(listOf(provider), onDevice = OnDeviceClassifier().withMemory(memory))
+        val verdict = classifier.classify(stranger)
+        assertEquals(Category.TRANSACTIONAL, verdict.category)
+        assertTrue(provider.seen.isEmpty(), "the service wasn't asked")
+        val source = assertIs<VerdictSource.OnDevice>(verdict.source)
+        assertEquals(VerdictSource.OnDevice.YOUR_LABELS, source.fallbackReason)
+        // Another sender still goes to the service.
+        classifier.classify(stranger.copy(sender = "+15555550199"))
+        assertEquals(1, provider.seen.size)
+    }
 }

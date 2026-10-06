@@ -119,6 +119,12 @@ data class WinnowSettings(
      * others and pick one in Winnow's model (see Evaluator).
      */
     val providerWeight: Double = com.ericflo.winnow.classify.Learner.PROVIDER_WEIGHT,
+    /**
+     * How much the user's labels of a sender count with the model's answer for that sender's
+     * next texts (see SenderMemory): 0 is off. Enough labels of a sender, one way, decide
+     * whatever the strength; it shapes how fewer nudge. Changeable in the Lab.
+     */
+    val senderMemory: Double = com.ericflo.winnow.classifier.local.SenderMemory.DEFAULT_STRENGTH,
     /** How the personal layer is fitted: passes, step and pull toward zero (see Personalizer); the user can change them in the Lab. */
     val personalEpochs: Int = com.ericflo.winnow.classifier.local.Personalizer.EPOCHS,
     val personalStep: Double = com.ericflo.winnow.classifier.local.Personalizer.LEARNING_RATE,
@@ -236,6 +242,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
             decideOnPhoneWhenSure = this[DECIDE_ON_PHONE] ?: false,
             learnFromProvider = this[LEARN_FROM_PROVIDER] ?: true,
             providerWeight = (this[PROVIDER_WEIGHT] ?: com.ericflo.winnow.classify.Learner.PROVIDER_WEIGHT).coerceIn(0.0, 1.0),
+            senderMemory = (this[SENDER_MEMORY] ?: com.ericflo.winnow.classifier.local.SenderMemory.DEFAULT_STRENGTH).coerceIn(0.0, 4.0),
             personalEpochs = (this[PERSONAL_EPOCHS] ?: com.ericflo.winnow.classifier.local.Personalizer.EPOCHS).coerceIn(1, 500),
             personalStep = (this[PERSONAL_STEP] ?: com.ericflo.winnow.classifier.local.Personalizer.LEARNING_RATE).coerceIn(1e-4, 10.0),
             personalL2 = (this[PERSONAL_L2] ?: com.ericflo.winnow.classifier.local.Personalizer.L2).coerceIn(0.0, 1.0),
@@ -298,6 +305,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         this[DECIDE_ON_PHONE] = s.decideOnPhoneWhenSure
         this[LEARN_FROM_PROVIDER] = s.learnFromProvider
         this[PROVIDER_WEIGHT] = s.providerWeight
+        this[SENDER_MEMORY] = s.senderMemory
         this[PERSONAL_EPOCHS] = s.personalEpochs
         this[PERSONAL_STEP] = s.personalStep
         this[PERSONAL_L2] = s.personalL2
@@ -347,6 +355,7 @@ class SettingsRepository(context: Context, private val secrets: SecretBox) {
         val DECIDE_ON_PHONE = booleanPreferencesKey("privacy.decide_on_phone_when_sure")
         val LEARN_FROM_PROVIDER = booleanPreferencesKey("model.learn_from_provider")
         val PROVIDER_WEIGHT = doublePreferencesKey("model.provider_weight")
+        val SENDER_MEMORY = doublePreferencesKey("model.sender_memory")
         val PERSONAL_EPOCHS = intPreferencesKey("model.personal_epochs")
         val PERSONAL_STEP = doublePreferencesKey("model.personal_step")
         val PERSONAL_L2 = doublePreferencesKey("model.personal_l2")

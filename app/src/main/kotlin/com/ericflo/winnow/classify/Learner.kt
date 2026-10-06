@@ -4,6 +4,7 @@ import com.ericflo.winnow.classifier.local.Correction
 import com.ericflo.winnow.classifier.local.Featurizer
 import com.ericflo.winnow.classifier.local.LocalModel
 import com.ericflo.winnow.classifier.local.OnDeviceClassifier
+import com.ericflo.winnow.classifier.local.SenderMemory
 import com.ericflo.winnow.classifier.local.Personalizer
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
@@ -37,6 +38,8 @@ class Learner(
     private val scope: kotlinx.coroutines.CoroutineScope? = null,
     /** A model the user trained in the Lab and put in use, with its name, if there is one (see ModelLab). */
     private val labModel: suspend () -> Pair<String, com.ericflo.winnow.classifier.local.Predictor>? = { null },
+    /** The user's labels with who sent each (address, category key): what they say about senders (see SenderMemory). */
+    private val senderLabels: suspend () -> List<Pair<String, String>> = { emptyList() },
 ) {
     private val base by lazy { OnDeviceClassifier() }
     private val lock = Mutex()
@@ -272,6 +275,14 @@ class Learner(
         val weight = current?.providerWeight ?: PROVIDER_WEIGHT
         val fitting = Fitting(current?.personalEpochs ?: Personalizer.EPOCHS, current?.personalStep ?: Personalizer.LEARNING_RATE, current?.personalL2 ?: Personalizer.L2)
         val lab = runCatching { labModel() }.getOrNull()
+        // What the user's labels say about each sender, used with whichever model answers.
+        val memory = runCatching {
+            val classes = base.model.classes
+            SenderMemory.of(
+                withContext(Dispatchers.IO) { senderLabels() }.map { (address, key) -> address to classes.indexOf(key) },
+                classes, current?.senderMemory ?: SenderMemory.DEFAULT_STRENGTH,
+            )
+        }.getOrDefault(SenderMemory.NONE)
         withContext(Dispatchers.Default) {
             // The weight and the fitting are part of what a fit is: different ones are a different fit.
             val stamp = (store?.stamp(rows, weight) ?: PersonalModelStore.stampOf(rows, 0, weight)).let { if (fitting.isDefault) it else it xor fitting.stamp() }
@@ -282,7 +293,7 @@ class Learner(
             // Loading the model happens here too, off the main thread.
             if (kept != null) {
                 if (fit != null) record(fit, rows, kept.size, millis = 0, onlyIfNew = true, weight = weight, fitting = fitting)
-                return@withContext withLab(base.withAdjustments(kept, fit), lab)
+                return@withContext withLab(base.withAdjustments(kept, fit), lab).withMemory(memory)
             }
             val started = System.nanoTime()
             // A bad correction must never stop classification: fall back to the bundled model.
@@ -293,7 +304,7 @@ class Learner(
                 withContext(Dispatchers.IO) { store?.save(stamp, fitted.adjustments) }
                 if (fit != null) record(fit, rows, fitted.adjustments.size, millis = (System.nanoTime() - started) / 1_000_000, onlyIfNew = false, weight = weight, fitting = fitting)
             }
-            withLab(fitted ?: base, lab)
+            withLab(fitted ?: base, lab).withMemory(memory)
         }.also { trained = it }
     }
 

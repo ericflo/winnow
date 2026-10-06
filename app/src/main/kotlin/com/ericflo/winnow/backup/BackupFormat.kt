@@ -63,6 +63,8 @@ data class SettingsBackup(
     val learnFromProvider: Boolean? = null,
     /** Null in backups made before it could be chosen: the phone keeps its own. */
     val providerWeight: Double? = null,
+    /** Null in backups made before the user's labels of a sender counted: the phone keeps its own. */
+    val senderMemory: Double? = null,
     /** Null in backups made before the personal layer's fitting could be changed. */
     val personalEpochs: Int? = null,
     val personalStep: Double? = null,

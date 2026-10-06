@@ -121,9 +121,9 @@ object LabDiagnosis {
             out += Suggestion(
                 "It can't yet tell your ${apart.label.label.lowercase()} from ${apart.predicted.label.lowercase()}",
                 "Of your ${apart.ofLabel} ${apart.label.label.lowercase()} texts it called ${apart.count} ${apart.predicted.label.lowercase()}. " +
-                    "It reads a text's words and a few signals (links, money, the kind of sender, whether you've written back); " +
-                    "where your ${apart.label.label.lowercase()} and ${apart.predicted.label.lowercase()} texts use similar words, what makes them different to you " +
-                    "(who sent them, when, what came before) is something it doesn't see yet. More examples of both help it find any difference that is in the words." +
+                    "It reads a text's words and a few signals (links, money, the kind of sender, whether you've written back), and with \"Who sent it\" your labels of each sender, " +
+                    "for senders you've labeled; where your ${apart.label.label.lowercase()} and ${apart.predicted.label.lowercase()} texts use similar words, what else makes them different to you " +
+                    "(when they came, what came before) is something it doesn't see yet. Labeling a few texts from each sender you see both ways helps it most there." +
                     if (keptApart > 0) " You kept $keptApart ${if (keptApart == 1) "pair" else "pairs"} of alike texts apart: those it can't separate from the words at all." else "",
             )
         }

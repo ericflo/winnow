@@ -169,9 +169,11 @@ class AppContainer(private val context: Context) {
     val learner: Learner by lazy {
         // Kept for this install: an update (a new model, a new way of fitting) fits afresh.
         val install = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
-        Learner(correctionDao, settings, com.ericflo.winnow.classify.PersonalModelStore(java.io.File(context.filesDir, "personal-model.bin"), install), database.fits(), appScope) {
-            modelLab.inUse()
-        }
+        Learner(
+            correctionDao, settings, com.ericflo.winnow.classify.PersonalModelStore(java.io.File(context.filesDir, "personal-model.bin"), install), database.fits(), appScope,
+            labModel = { modelLab.inUse() },
+            senderLabels = { verdictDao.senderLabels().map { it.address to it.userCategory } },
+        )
     }
     /** Backlog runs and every answer they got (see RunEntity). */
     val runDao by lazy { database.runs() }

@@ -175,6 +175,7 @@ private fun DesignCard(viewModel: ModelViewModel) {
             Step("Each of your labels counts", ModelLab.HELP.getValue("userWeight"), USER_WEIGHTS, r.userWeight, { "×$it" }) { v -> viewModel.editDraft { it.copy(userWeight = v) } }
         }
         Step("Each of $service's labels counts", ModelLab.HELP.getValue("serviceWeight"), SERVICE_WEIGHTS, r.serviceWeight, { if (it == 0.0) "left out" else "×$it" }) { v -> viewModel.editDraft { it.copy(serviceWeight = v) } }
+        Step("Who sent it: your labels of each sender count", ModelLab.HELP.getValue("senderMemory"), SENDER_STRENGTHS, r.senderMemory, { if (it == 0.0) "not at all" else "×$it" }) { v -> viewModel.editDraft { it.copy(senderMemory = v) } }
         if (r.kind != RecipeKind.PERSONAL) Toggle("Balance the categories", ModelLab.HELP.getValue("balance"), r.balance) { v -> viewModel.editDraft { it.copy(balance = v) } }
         Step("Seed", "The same seed trains the same model from the same texts.", (1..100).toList(), r.seed, { "$it" }) { v -> viewModel.editDraft { it.copy(seed = v) } }
         val problem = r.problem()
@@ -248,6 +249,10 @@ private fun Models(viewModel: ModelViewModel) {
                             "trained ${ago(e.trainedAt)} (final fit ${com.ericflo.winnow.ui.insight.duration(e.trainMillis)})",
                             e.accuracy?.let { "macro F1 ${e.macroF1?.let(::f2)} on ${count(e.scoredOn)} labels" },
                             e.fitAccuracy?.let { "follows ${pct(it)} of the labels it learns from" },
+                            e.newestAccuracy?.let { a ->
+                                "on your newest ${count(e.newestCount)} labels ${pct(a)}" +
+                                    (e.newestWordsAccuracy?.takeIf { e.recipe.senderMemory > 0 }?.let { " (${pct(it)} from the words alone)" } ?: "")
+                            },
                             if (e.parameters > 0) "${count(e.parameters.toInt())} numbers" else null,
                             e.bytes.takeIf { it > 0 }?.let { "${sizeOf(it)} on this phone" },
                             "learned from ${count(e.learnedFrom)} texts",
@@ -304,6 +309,7 @@ private val L2S = listOf(0.0, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1)
 private val WEIGHTS = listOf(0.0, 0.1, 0.25, 0.5, 1.0, 2.0, 3.0, 5.0)
 private val USER_WEIGHTS = listOf(0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0)
 private val SERVICE_WEIGHTS = listOf(0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0, 1.5, 2.0)
+private val SENDER_STRENGTHS = listOf(0.0, 0.5, 1.0, 2.0)
 
 /** "8.0 MB", "640 KB": what a trained model takes up on the phone. */
 private fun sizeOf(bytes: Long): String =

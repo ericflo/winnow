@@ -656,6 +656,7 @@ private fun LogItem(row: LogRow, text: String?, service: String, onClick: () -> 
                         append(row.who.name(service))
                         when (row.why) {
                             ModelReason.SURE -> append(" (sure enough)")
+                            ModelReason.YOUR_LABELS -> append(" (your labels of this sender)")
                             ModelReason.PROVIDER_FAILED -> append(" ($service didn't answer)")
                             ModelReason.KEPT_ON_PHONE -> append(" (kept on phone)")
                             else -> Unit

@@ -10,6 +10,7 @@ import com.ericflo.winnow.classifier.local.Predictor
 import com.ericflo.winnow.classifier.local.Recipe
 import com.ericflo.winnow.classifier.local.RecipeKind
 import com.ericflo.winnow.classifier.local.RecipeTrainer
+import com.ericflo.winnow.classifier.local.SenderMemory
 import com.ericflo.winnow.classifier.local.Scored
 import com.ericflo.winnow.classifier.local.ShippedCorpus
 import com.ericflo.winnow.classifier.local.TrainingItem
@@ -91,6 +92,14 @@ class ModelLab(
          * fits the labels it learns from, beside how it does on ones it hasn't seen (see LabDiagnosis).
          */
         val fitAccuracy: Double? = null,
+        /**
+         * On the user's newest labels, by a model trained on their older ones (see
+         * RecipeTrainer.scoreNewest): how many, the share it followed as it would on the phone
+         * (with their labels of each sender), and from the words alone.
+         */
+        val newestCount: Int = 0,
+        val newestAccuracy: Double? = null,
+        val newestWordsAccuracy: Double? = null,
     )
 
     /** What a training of everything came to. */
@@ -166,7 +175,29 @@ class ModelLab(
         }
         // A trained model's odds set to match how often it was right on labels it hadn't seen.
         val temperature = if (recipe.kind == RecipeKind.PERSONAL) LocalModel.bundled.temperature else RecipeTrainer.calibrate(cv.map { (i, s) -> s to data.scored[i].label })
-        val evalId = keepScoring(entry, data, cv, temperature, started)
+        val classes = LocalModel.bundled.classes
+        fun memoryOf(indices: List<Int>) = SenderMemory.of(indices.mapNotNull { i -> data.scored[i].sender?.let { it to data.scored[i].label } }, classes, recipe.senderMemory)
+        // Scored as the model would answer on the phone: with the user's labels of each sender,
+        // from the other conversations only.
+        val folds = RecipeTrainer.foldsOf(data.scored)
+        val memories = folds?.let { f -> (0..f.max()).associateWith { fold -> memoryOf(data.scored.indices.filter { f[it] != fold }) } }.orEmpty()
+        val answered = cv.map { (i, s) ->
+            val p = LocalModel.softmax(s, temperature.toDouble())
+            val memory = folds?.let { memories[it[i]] }
+            i to (data.scored[i].sender?.let { sender -> memory?.follow(p, sender) }?.let(::distributionOf) ?: p)
+        }
+        val evalId = keepScoring(entry, data, answered, started)
+        // On their newest labels, by a model trained on their older ones: where who sent it can count.
+        progress(id, "Scoring on your newest labels…", 0.8f)
+        val newest = withContext(Dispatchers.Default) { RecipeTrainer.scoreNewest(recipe, LocalModel.bundled, data.scored, data.others, stopped = { !ctx.isActive }) }
+        val newestSet = newest.mapTo(HashSet()) { it.first }
+        val olderMemory = memoryOf(data.scored.indices.filter { it !in newestSet })
+        fun argmax(p: DoubleArray) = p.indices.maxBy { p[it] }
+        val newestWords = newest.count { (i, s) -> argmax(s) == data.scored[i].label }
+        val newestFollowed = newest.count { (i, s) ->
+            val p = LocalModel.softmax(s, temperature.toDouble())
+            (data.scored[i].sender?.let { olderMemory.follow(p, it).best } ?: argmax(p)) == data.scored[i].label
+        }
         progress(id, "Training on everything…", 0.85f)
         val trained = trainFinal(id, recipe, data, temperature)
         val m = evalId?.let { evals.get(it) }
@@ -175,9 +206,22 @@ class ModelLab(
                 trainedAt = System.currentTimeMillis(), evalId = evalId, accuracy = m?.accuracy, macroF1 = m?.macroF1, scoredOn = m?.examples ?: 0,
                 trainMillis = trained.millis, parameters = trained.parameters, temperature = temperature, learnedFrom = data.scored.size + data.others.size, leftOut = data.leftOut,
                 bytes = trained.bytes, fitAccuracy = trained.fitAccuracy,
+                newestCount = newest.size,
+                newestAccuracy = newest.takeIf { it.isNotEmpty() }?.let { newestFollowed.toDouble() / it.size },
+                newestWordsAccuracy = newest.takeIf { it.isNotEmpty() }?.let { newestWords.toDouble() / it.size },
             )
         }
         if (settings.current().labModel == id) onModelChanged()
+    }
+
+    /**
+     * A distribution with what the user's labels settled on top: decided, their category at its
+     * confidence and the rest shared out as the model had them; nudged, as nudged.
+     */
+    private fun distributionOf(f: SenderMemory.Followed): DoubleArray {
+        if (!f.decided) return f.p
+        val rest = f.p.indices.filter { it != f.best }.sumOf { f.p[it] }
+        return DoubleArray(f.p.size) { i -> if (i == f.best) f.confidence else if (rest <= 0) 0.0 else f.p[i] / rest * (1 - f.confidence) }
     }
 
     /** Trains the model in use again on everything as it stands, without scoring it (the user's "Retrain on device"). */
@@ -215,6 +259,8 @@ class ModelLab(
         } else {
             settings.update { it.copy(labModel = entry?.id) }
         }
+        // Who sent it counts on the phone as the design that's put in use says.
+        entry?.let { e -> settings.update { it.copy(senderMemory = e.recipe.senderMemory) } }
         onModelChanged()
     }
 
@@ -277,14 +323,15 @@ class ModelLab(
         for (r in rows) {
             val label = classes.indexOf(r.label)
             val f = featuresOf(r.messageKey)
+            val t = r.messageKey?.let(found::get)
             if (!fits(f)) { if (!r.fromProvider) leftOut++; continue }
             val idx = buckets(r.buckets)
             when {
-                r.fromProvider -> if (recipe.serviceWeight > 0) others += TrainingItem(f, idx, label, recipe.serviceWeight)
+                r.fromProvider -> if (recipe.serviceWeight > 0) others += TrainingItem(f, idx, label, recipe.serviceWeight, key = r.messageKey)
                 // The user's labels on texts are the answer key, a conversation's labels kept together;
                 // a label still waiting to be rechecked under the six categories trains but isn't scored.
                 r.messageKey != null && r.threadId != null && !r.messageKey.startsWith("restored:") && r.threadId !in recheck -> {
-                    scored += TrainingItem(f, idx, label, recipe.userWeight, group = r.threadId)
+                    scored += TrainingItem(f, idx, label, recipe.userWeight, group = r.threadId, key = r.messageKey, sender = t?.address, at = t?.date ?: r.createdAt)
                     scoredKeys += r.messageKey to r.threadId
                 }
                 else -> others += TrainingItem(f, idx, label, recipe.userWeight)
@@ -345,11 +392,11 @@ class ModelLab(
     }.getOrNull()
 
     /** The cross-validated scores kept as an evaluation of this recipe, beside every other. */
-    private suspend fun keepScoring(entry: Entry, data: Data, cv: List<Pair<Int, DoubleArray>>, temperature: Float, at: Long): Long? = withContext(Dispatchers.IO) {
+    private suspend fun keepScoring(entry: Entry, data: Data, cv: List<Pair<Int, DoubleArray>>, at: Long): Long? = withContext(Dispatchers.IO) {
         if (cv.isEmpty()) return@withContext null
         val classes = LocalModel.bundled.classes
         val unwanted = Category.entries.filter { it.defaultAction == Action.FILTER }.map { classes.indexOf(it.key) }.filter { it >= 0 }.toSet()
-        val rows = cv.map { (i, s) -> Scored(data.scored[i].label, LocalModel.softmax(s, temperature.toDouble())) }
+        val rows = cv.map { (i, p) -> Scored(data.scored[i].label, p) }
         val m: ClassifierMetrics = MetricsCalculator.compute(entry.name, "Cross-validated on your labels", classes, rows, unwanted, settings.current().actionPolicy.onDeviceMinConfidence)
         val id = evals.insert(
             EvalEntity(
@@ -358,12 +405,12 @@ class ModelLab(
                 unwantedAuc = m.unwanted.auc.takeIf { it.isFinite() }, falsePositiveRate = m.unwanted.operatingPoint.falsePositiveRate.takeIf { it.isFinite() },
                 metrics = json.encodeToString(ClassifierMetrics.serializer(), m),
                 note = "${entry.recipe.describe()}. Each of your labeled texts scored by the recipe trained without its conversation's labels" +
-                    (if (entry.recipe.kind != RecipeKind.PERSONAL && entry.recipe.includeCorpus) ", on the shipped examples too" else "") + ".",
+                    (if (entry.recipe.kind != RecipeKind.PERSONAL && entry.recipe.includeCorpus) ", on the shipped examples too" else "") +
+                    (if (entry.recipe.senderMemory > 0) ", with your labels of each sender from the other conversations" else "") + ".",
             ),
         )
         evals.insertItems(
-            cv.mapNotNull { (i, s) ->
-                val p = LocalModel.softmax(s, temperature.toDouble())
+            cv.mapNotNull { (i, p) ->
                 val best = p.indices.maxBy { p[it] }
                 data.scoredKeys.getOrNull(i)?.let { (key, thread) -> EvalItemEntity(id, key, thread, classes[data.scored[i].label], classes[best], p[best]) }
             },
@@ -389,6 +436,8 @@ class ModelLab(
             "userWeight" to "How much each of your labels counts against one shipped text.",
             "serviceWeight" to "How much each of the classifier service's labels counts; 0 leaves them out. Your labels always count more: where the service sees texts differently from you, less here lets yours set the model.",
             "balance" to "Count each category equally, however many texts it has: it helps the model follow you on the categories you've labeled few of.",
+            "senderMemory" to "Texts that read alike can be different things to you because of who sent them. This makes your labels of each sender count with the model's answer for their next texts: " +
+                "three or more labels of a sender, nearly all one way, decide; fewer nudge, by this much. 0 leaves who sent it out. Your newest labels, scored by a model trained on the older ones, show what it adds.",
         )
     }
 }

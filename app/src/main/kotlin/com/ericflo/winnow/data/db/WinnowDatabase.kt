@@ -491,8 +491,15 @@ data class SenderRuleEntity(
     val createdAt: Long,
 )
 
+/** One of the user's labels and who sent the message it's on (see VerdictDao.senderLabels). */
+data class SenderLabel(val address: String, val userCategory: String)
+
 @Dao
 interface VerdictDao {
+    /** The user's labels with who sent each labeled message, for remembering what they say about senders (see SenderMemory). */
+    @Query("SELECT address, userCategory FROM verdicts WHERE userCategory IS NOT NULL AND address != ''")
+    suspend fun senderLabels(): List<SenderLabel>
+
     @Query("SELECT * FROM verdicts")
     fun observeAll(): Flow<List<VerdictEntity>>
 

@@ -111,6 +111,7 @@ fun main() {
             r.recall.joinToString(" ") { if (it.isNaN()) "    -" else String.format(Locale.US, "%4.0f%%", it * 100) }),
     )
     if (System.getProperty("part") == "two") { partTwo(user, service, corpus, base, ::f, ::idx, ::userLabels); return }
+    if (System.getProperty("part") == "sender") { partSender(user, service, corpus, base, ::f, ::idx); return }
     val only = System.getProperty("only")
     for (noise in listOf("clean", "random10", "systematic")) {
         for ((name, recipe) in designs) {
@@ -182,5 +183,72 @@ private fun partTwo(
         val labels = userLabels(noise)
         val row = listOf(100, 200, 300, 400).map { n -> val sub = user.take(n); acc(cv(linear, sub, labels.take(n)).first, labels.take(n)) }
         println(String.format(Locale.US, "%-10s labels 100/200/300/400: %s", noise, row.joinToString(" / ") { String.format(Locale.US, "%.1f%%", it * 100) }))
+    }
+}
+
+/**
+ * Whether knowing who sent a text helps a model follow labels that go by sender: each
+ * conversation of four (one category) has its own sender, and some senders' reminders are
+ * transactional to "you", their marketing spam, whole senders at a time, the words alike either
+ * way. Scored cross-validated by conversation (a sender never seen) and on each conversation's
+ * newest text after learning from its earlier ones (a sender seen before).
+ */
+private fun partSender(user: List<LabeledText>, service: List<LabeledText>, corpus: List<LabeledText>, base: LocalModel, f: (LabeledText) -> List<String>, idx: (LabeledText) -> Int) {
+    val classes = base.classes
+    fun c(key: String) = classes.indexOf(key)
+    val r = Random(17)
+    // Conversations of four, one category each, one sender each.
+    val conv = IntArray(user.size)
+    val sender = arrayOfNulls<String>(user.size)
+    val order = IntArray(user.size)
+    user.indices.groupBy { idx(user[it]) }.values.forEach { ids -> ids.forEachIndexed { n, i -> conv[i] = idx(user[i]) * 1000 + n / 4; order[i] = n % 4 } }
+    // -Dmixed=true: each sender has two conversations of different categories (a friend who sends reminders too).
+    val mixed = System.getProperty("mixed") == "true"
+    val convs = conv.distinct().sorted()
+    val senders = if (!mixed) convs.associateWith { "+1206555" + (1000 + it % 9000).toString().padStart(4, '0') }
+        else convs.shuffled(Random(5)).withIndex().associate { (n, g) -> g to "+1206555" + (1000 + n / 2).toString() }
+    user.indices.forEach { sender[it] = senders.getValue(conv[it]) }
+    // Whole senders labeled your way.
+    val relabel = conv.distinct().associateWith { g ->
+        val y = g / 1000
+        when {
+            y == c("reminder") && r.nextDouble() < 0.4 -> c("transactional")
+            y == c("marketing") && r.nextDouble() < 0.3 -> c("spam")
+            else -> y
+        }
+    }
+    val labels = user.indices.map { relabel.getValue(conv[it]) }
+    fun feats(i: Int, withSender: Boolean) = f(user[i]) + if (withSender) listOf("s:" + sender[i]!!.takeLast(10)) else emptyList()
+    val others = service.map { TrainingItem(f(it), null, idx(it), 0.35) } + corpus.map { TrainingItem(f(it), null, idx(it), 1.0) }
+    fun scoredItems(recipe: Recipe, withSender: Boolean, ids: List<Int>) = ids.map { TrainingItem(feats(it, withSender), null, labels[it], recipe.userWeight, conv[it].toLong()) }
+    fun argmax(s: DoubleArray) = s.indices.maxBy { s[it] }
+    val linear = Recipe.PRESETS.first { it.first == "Retrained, wider" }.second
+    val neural = Recipe.PRESETS.first { it.first == "Neural, wider" }.second
+    for ((name, recipe) in listOf("linear" to linear, "neural 64+wide" to neural)) {
+        for (withSender in listOf(false, true)) {
+            val all = user.indices.toList()
+            val cv = RecipeTrainer.crossValidate(recipe, base, scoredItems(recipe, withSender, all), if (recipe.includeCorpus) others else others.take(service.size))
+            val cvAcc = cv.count { (i, s) -> argmax(s) == labels[i] }.toDouble() / cv.size
+            // Newest: each conversation's last text, after learning from its first three.
+            val newest = all.filter { order[it] == 3 }
+            val older = all.filter { order[it] != 3 }
+            val model = RecipeTrainer.train(recipe, base, scoredItems(recipe, withSender, older) + others)
+            val newAcc = newest.count { i -> RecipeTrainer.logits(model, TrainingItem(feats(i, withSender), null, labels[i], 1.0))?.let(::argmax) == labels[i] }.toDouble() / newest.size
+            println(String.format(Locale.US, "%-16s %-14s cross-validated by conversation %.1f%%   newest of each conversation %.1f%% (%d texts)",
+                name, if (withSender) "who sent it" else "words only", cvAcc * 100, newAcc * 100, newest.size))
+            if (withSender) continue
+            // A memory of your labels per sender, combined with the words-only model at the end.
+            val t = RecipeTrainer.calibrate(cv.map { (i, sc) -> sc to labels[i] })
+            for (strength in listOf(0.5, 1.0, 2.0)) {
+                val memAcc = newest.count { i ->
+                    val logits = RecipeTrainer.logits(model, TrainingItem(feats(i, false), null, labels[i], 1.0)) ?: return@count false
+                    val p = LocalModel.softmax(logits, t.toDouble())
+                    val history = older.filter { sender[it] == sender[i] }.map { labels[it] }
+                    val prior = DoubleArray(p.size) { cl -> (history.count { it == cl } + 0.5) / (history.size + 0.5 * p.size) }
+                    p.indices.maxBy { kotlin.math.ln(p[it]) + strength * kotlin.math.ln(prior[it]) } == labels[i]
+                }.toDouble() / newest.size
+                println(String.format(Locale.US, "%-16s %-14s newest of each conversation %.1f%% (sender memory at strength %.1f)", name, "words+memory", memAcc * 100, strength))
+            }
+        }
     }
 }

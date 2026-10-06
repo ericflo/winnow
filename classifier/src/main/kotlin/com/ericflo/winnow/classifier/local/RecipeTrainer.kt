@@ -50,6 +50,11 @@ data class Recipe(
     val serviceWeight: Double = 0.35,
     /** Weight the categories so a rare one counts as much as a common one. */
     val balance: Boolean = true,
+    /**
+     * How much the user's labels of a sender count with the model's answer for their next texts
+     * (see SenderMemory): 0 leaves them out. Enough of them, one way, decide.
+     */
+    val senderMemory: Double = SenderMemory.DEFAULT_STRENGTH,
     val seed: Int = 42,
 ) {
     /** What's wrong with it, if anything, in words; null when it can be trained. */
@@ -66,6 +71,7 @@ data class Recipe(
         dropout < 0 || dropout >= 0.9 -> "Dropout must be 0 to 0.9."
         bags !in 1..10 -> "Bags must be 1 to 10."
         userWeight <= 0 || userWeight > 100 || serviceWeight < 0 || serviceWeight > 100 || corpusWeight < 0 || corpusWeight > 100 -> "Weights must be 0 to 100 (yours above 0)."
+        senderMemory < 0 || senderMemory > 4 -> "Who sent it must count 0 to 4."
         else -> null
     }
 
@@ -93,9 +99,20 @@ data class Recipe(
 /**
  * One text to learn from: its features (or, for one whose text is gone, its buckets in the shipped
  * model's space), its class, how much it counts, and its conversation (-1 for the shipped
- * examples), so cross-validation keeps a conversation's texts together.
+ * examples), so cross-validation keeps a conversation's texts together. [key] is its message (so
+ * a classifier service's label on a text held out isn't trained on), [sender] who sent it (for
+ * the user's labels of each sender, see SenderMemory), and [at] when it came.
  */
-class TrainingItem(val features: List<String>?, val baseIndices: IntArray?, val label: Int, val weight: Double, val group: Long = -1)
+class TrainingItem(
+    val features: List<String>?,
+    val baseIndices: IntArray?,
+    val label: Int,
+    val weight: Double,
+    val group: Long = -1,
+    val key: String? = null,
+    val sender: String? = null,
+    val at: Long = 0,
+)
 
 /** Trains, scores and calibrates models from [Recipe]s. Pure and deterministic. */
 object RecipeTrainer {
@@ -150,18 +167,56 @@ object RecipeTrainer {
         onFold: (Int, Int) -> Unit = { _, _ -> },
         stopped: () -> Boolean = { false },
     ): List<Pair<Int, DoubleArray>> {
-        val groups = scoredItems.map { it.group }.distinct().sorted()
-        if (groups.size < 2) return emptyList()
-        val k = folds.coerceAtMost(groups.size)
-        val foldOf = groups.withIndex().associate { (i, g) -> g to Math.floorMod(LocalModel.fnv1a(g.toString()) + i, k) }
+        val foldOf = foldsOf(scoredItems, folds) ?: return emptyList()
+        val k = foldOf.max() + 1
         return (0 until k).flatMap { fold ->
             onFold(fold, k)
-            val held = scoredItems.withIndex().filter { foldOf.getValue(it.value.group) == fold }
+            val held = scoredItems.indices.filter { foldOf[it] == fold }
             if (held.isEmpty()) return@flatMap emptyList()
-            val train = scoredItems.filter { foldOf.getValue(it.group) != fold } + others
+            // Not a service's label on a text being held out either: that would be training on the answer.
+            val heldKeys = held.mapNotNullTo(HashSet()) { scoredItems[it].key }
+            val train = scoredItems.filterIndexed { i, _ -> foldOf[i] != fold } + others.filter { it.key == null || it.key !in heldKeys }
             val model = train(recipe, base, train, stopped = stopped)
-            held.mapNotNull { (i, item) -> logits(model, item)?.let { i to it } }
+            held.mapNotNull { i -> logits(model, scoredItems[i])?.let { i to it } }
         }
+    }
+
+    /**
+     * Each of [scoredItems]'s fold, conversations kept together, in a fixed order ([crossValidate]
+     * scores each fold by a model trained without it); null when there are fewer than two conversations.
+     */
+    fun foldsOf(scoredItems: List<TrainingItem>, folds: Int = 5): IntArray? {
+        val groups = scoredItems.map { it.group }.distinct().sorted()
+        if (groups.size < 2) return null
+        val k = folds.coerceAtMost(groups.size)
+        val foldOf = groups.withIndex().associate { (i, g) -> g to Math.floorMod(LocalModel.fnv1a(g.toString()) + i, k) }
+        return IntArray(scoredItems.size) { foldOf.getValue(scoredItems[it].group) }
+    }
+
+    /**
+     * The newest [share] of [scoredItems] (by [TrainingItem.at]; at least [atLeast]) scored by a
+     * model trained on the older ones (and [others], less any on the same texts): how it does on
+     * texts that come after what it learned from, senders it has seen among them. Their indices
+     * and logits, or empty when there are too few to say.
+     */
+    fun scoreNewest(
+        recipe: Recipe,
+        base: LocalModel,
+        scoredItems: List<TrainingItem>,
+        others: List<TrainingItem>,
+        share: Double = 0.2,
+        atLeast: Int = 10,
+        stopped: () -> Boolean = { false },
+    ): List<Pair<Int, DoubleArray>> {
+        val n = maxOf(atLeast, (scoredItems.size * share).toInt())
+        if (scoredItems.size < n * 2) return emptyList()
+        val byTime = scoredItems.indices.sortedWith(compareBy({ scoredItems[it].at }, { it }))
+        val newest = byTime.takeLast(n)
+        val newestSet = newest.toHashSet()
+        val newestKeys = newest.mapNotNullTo(HashSet()) { scoredItems[it].key }
+        val train = scoredItems.filterIndexed { i, _ -> i !in newestSet } + others.filter { it.key == null || it.key !in newestKeys }
+        val model = train(recipe, base, train, stopped = stopped)
+        return newest.mapNotNull { i -> logits(model, scoredItems[i])?.let { i to it } }
     }
 
     private fun TrainingItem.indicesIn(buckets: Int): IntArray? = when {

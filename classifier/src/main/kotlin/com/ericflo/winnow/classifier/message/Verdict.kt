@@ -58,6 +58,8 @@ sealed interface VerdictSource {
     data class OnDevice(val model: String, val reasons: List<String>, val fallbackReason: String? = null) : VerdictSource {
         companion object {
             const val SURE = "Sure enough to decide without asking"
+            /** The user's own labels of this sender decided it: theirs outweigh any service's (see SenderMemory). */
+            const val YOUR_LABELS = "Your labels of this sender decided it"
         }
     }
 
