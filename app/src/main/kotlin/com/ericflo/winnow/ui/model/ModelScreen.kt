@@ -293,6 +293,15 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
     private val _senders = MutableStateFlow<Senders?>(null)
     val senders: StateFlow<Senders?> = _senders.asStateFlow()
 
+    /** How much the user's labels of each sender count from now on, with whichever model is in use (0 for not at all). */
+    fun setSenderMemory(strength: Double) {
+        viewModelScope.launch {
+            container.settings.update { it.copy(senderMemory = strength) }
+            container.learner.reload()
+            loadSenders()
+        }
+    }
+
     /** Reads the user's labels of each sender again: they change as the user labels. */
     fun loadSenders() {
         viewModelScope.launch {
@@ -617,7 +626,7 @@ private fun LazyListScope.inside(viewModel: ModelViewModel, onOpenThread: (Long,
     item("senders") {
         androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.loadSenders() }
         val senders by viewModel.senders.collectAsStateWithLifecycle()
-        SendersCard(senders, onOpenThread)
+        SendersCard(senders, viewModel::setSenderMemory, onOpenThread)
     }
     item("try") { TryCard(viewModel) }
 }
@@ -627,16 +636,29 @@ private fun LazyListScope.inside(viewModel: ModelViewModel, onOpenThread: (Long,
  * that sender's next text (see SenderInsight). Each opens its conversation.
  */
 @Composable
-private fun SendersCard(s: ModelViewModel.Senders?, onOpenThread: (Long, List<String>) -> Unit) {
+@OptIn(ExperimentalLayoutApi::class)
+private fun SendersCard(s: ModelViewModel.Senders?, onStrength: (Double) -> Unit, onOpenThread: (Long, List<String>) -> Unit) {
     InsightCard("Your labels of each sender", subtitle = "What they do to each sender's next text, as \"Who sent it\" is set now") {
         if (s == null) { CircularProgressIndicator(); return@InsightCard }
         if (s.senders.isEmpty()) {
             Text("You haven't labeled any texts yet: once you do, what you've said about each sender shows here.", style = MaterialTheme.typography.bodyMedium)
             return@InsightCard
         }
+        // "Who sent it", for whichever model is in use: off, or how much a sender's labels lean it.
+        Text("How much they count", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(0.0, 0.5, 1.0, 2.0).forEach { x ->
+                androidx.compose.material3.FilterChip(
+                    selected = s.strength == x,
+                    onClick = { if (s.strength != x) onStrength(x) },
+                    label = { Text(if (x == 0.0) "Not at all" else "×" + if (x % 1.0 == 0.0) x.toInt().toString() else x.toString()) },
+                )
+            }
+        }
+        Note("For the model in use. More leans harder toward your labels where they don't decide; not at all leaves who sent it out. Putting a Lab design in use sets it to the design's.")
         val deciding = s.senders.count { it.decides != null }
         Text(
-            if (s.strength <= 0.0) "\"Who sent it\" is off (in the Lab), so your labels of a sender don't count for their next texts: only the words do."
+            if (s.strength <= 0.0) "Set to not at all, your labels of a sender don't count for their next texts: only the words do."
             else "Your labels decide the next texts of ${plural(deciding, "sender")}: ${com.ericflo.winnow.classifier.local.SenderMemory.DECISIVE_AT_LEAST} or more, all one way, from someone you don't text with. " +
                 "For ${plural(s.senders.size - deciding, "other sender")}, they lean the model's answer and the words decide between your categories. Label one of a sender's texts another way and their labels only lean from then on.",
             style = MaterialTheme.typography.bodyMedium,
