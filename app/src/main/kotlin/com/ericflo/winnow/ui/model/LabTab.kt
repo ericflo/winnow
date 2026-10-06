@@ -86,7 +86,8 @@ private fun InUseCard(viewModel: ModelViewModel) {
                 Text(
                     listOfNotNull(
                         inUse.trainedAt?.let { "trained ${ago(it)}" } ?: "not trained yet",
-                        inUse.accuracy?.let { "${pct(it)} on your labels (${count(inUse.scoredOn)})" },
+                        inUse.accuracy?.let { "${pct(it)} on conversations it hadn't seen" },
+                        inUse.newestAccuracy?.let { "${pct(it)} on your newest ${count(inUse.newestCount)} labels" },
                         "learns again " + if (o.labAutoRetrain) "after each Train round and backlog run" else "only when you retrain it",
                     ).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
@@ -171,10 +172,10 @@ private fun DesignCard(viewModel: ModelViewModel) {
         Text("What it learns from", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp))
         if (r.kind != RecipeKind.PERSONAL) {
             Toggle("The shipped examples", ModelLab.HELP.getValue("corpus"), r.includeCorpus) { v -> viewModel.editDraft { it.copy(includeCorpus = v) } }
-            if (r.includeCorpus) Step("Each shipped example counts", null, WEIGHTS, r.corpusWeight, { "×$it" }) { v -> viewModel.editDraft { it.copy(corpusWeight = v) } }
-            Step("Each of your labels counts", ModelLab.HELP.getValue("userWeight"), USER_WEIGHTS, r.userWeight, { "×$it" }) { v -> viewModel.editDraft { it.copy(userWeight = v) } }
+            if (r.includeCorpus) Step("Each shipped example counts", null, WEIGHTS, r.corpusWeight, { times(it) }) { v -> viewModel.editDraft { it.copy(corpusWeight = v) } }
+            Step("Each of your labels counts", ModelLab.HELP.getValue("userWeight"), USER_WEIGHTS, r.userWeight, { times(it) }) { v -> viewModel.editDraft { it.copy(userWeight = v) } }
         }
-        Step("Each of $service's labels counts", ModelLab.HELP.getValue("serviceWeight"), SERVICE_WEIGHTS, r.serviceWeight, { if (it == 0.0) "left out" else "×$it" }) { v -> viewModel.editDraft { it.copy(serviceWeight = v) } }
+        Step("Each of $service's labels counts", ModelLab.HELP.getValue("serviceWeight"), SERVICE_WEIGHTS, r.serviceWeight, { if (it == 0.0) "left out" else times(it) }) { v -> viewModel.editDraft { it.copy(serviceWeight = v) } }
         Step("Who sent it: your labels of each sender count", ModelLab.HELP.getValue("senderMemory"), SENDER_STRENGTHS, r.senderMemory, { if (it == 0.0) "not at all" else times(it) }) { v -> viewModel.editDraft { it.copy(senderMemory = v) } }
         if (r.kind != RecipeKind.PERSONAL) Toggle("Balance the categories", ModelLab.HELP.getValue("balance"), r.balance) { v -> viewModel.editDraft { it.copy(balance = v) } }
         Step("Seed", "The same seed trains the same model from the same texts.", (1..100).toList(), r.seed, { "$it" }) { v -> viewModel.editDraft { it.copy(seed = v) } }
@@ -191,7 +192,7 @@ private fun ModelsHeader(viewModel: ModelViewModel) {
     if (entries.isEmpty()) return
     Column(Modifier.padding(top = 8.dp)) {
         Text("Your models", style = MaterialTheme.typography.titleMedium)
-        Note("Every one scored the same way, on your labels: cross-validated by conversation. Their scorings are under Evaluate too, beside Winnow's own.")
+        Note("Every one scored the same two ways on your labels: on conversations it hadn't seen (cross-validated by conversation), and on your newest labels after learning from the ones before them, the way the phone meets a new text. Their scorings are under Evaluate too, beside Winnow's own.")
     }
 }
 
@@ -236,23 +237,15 @@ private fun Models(viewModel: ModelViewModel) {
             }
             Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.Top) {
-                        Column(Modifier.weight(1f)) {
-                            Text(e.name + if (inUse) " · in use" else "", style = MaterialTheme.typography.titleSmall)
-                            Text(e.recipe.describe(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Text(e.accuracy?.let(::pct) ?: "—", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                    }
+                    Text(e.name + if (inUse) " · in use" else "", style = MaterialTheme.typography.titleSmall)
+                    Text(e.recipe.describe(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (e.accuracy != null) Scores(e)
                     Text(
                         if (e.trainedAt == null) "Not trained yet."
                         else listOfNotNull(
                             "trained ${ago(e.trainedAt)} (final fit ${com.ericflo.winnow.ui.insight.duration(e.trainMillis)})",
                             e.accuracy?.let { "macro F1 ${e.macroF1?.let(::f2)} on ${count(e.scoredOn)} labels" },
                             e.fitAccuracy?.let { "follows ${pct(it)} of the labels it learns from" },
-                            e.newestAccuracy?.let { a ->
-                                "on your newest ${count(e.newestCount)} labels ${pct(a)}" +
-                                    (e.newestWordsAccuracy?.takeIf { e.recipe.senderMemory > 0 }?.let { if (it == a) " (the same from the words alone)" else " (${pct(it)} from the words alone)" } ?: "")
-                            },
                             if (e.parameters > 0) "${count(e.parameters.toInt())} numbers" else null,
                             e.bytes.takeIf { it > 0 }?.let { "${sizeOf(it)} on this phone" },
                             "learned from ${count(e.learnedFrom)} texts",
@@ -320,3 +313,29 @@ private fun whoSentIt(strength: Double) = if (strength <= 0.0) "your labels of e
 
 /** "×1", "×0.5". */
 private fun times(x: Double) = "×" + if (x % 1.0 == 0.0) x.toInt().toString() else x.toString()
+
+/**
+ * A Lab model's two scores side by side: on conversations it hadn't seen (cross-validated; a
+ * sender's texts are held out together, so the user's labels of the sender seldom count), and on
+ * the user's newest labels after learning from the older ones, the way the phone meets a text.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun Scores(e: ModelLab.Entry) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column {
+            Text(e.accuracy?.let(::pct) ?: "—", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            Text("on conversations it hadn't seen", style = MaterialTheme.typography.labelSmall, color = muted)
+        }
+        e.newestAccuracy?.let { a ->
+            Column {
+                Text(pct(a), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                Text("on your newest ${count(e.newestCount)} labels", style = MaterialTheme.typography.labelSmall, color = muted)
+                e.newestWordsAccuracy?.takeIf { e.recipe.senderMemory > 0 && it != a }?.let {
+                    Text("${pct(it)} from the words alone", style = MaterialTheme.typography.labelSmall, color = muted)
+                }
+            }
+        }
+    }
+}
