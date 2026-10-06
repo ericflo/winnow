@@ -35,6 +35,8 @@ class ContactLookup(private val context: Context, private val scope: CoroutineSc
 
     init {
         appContext = context.applicationContext
+        // Names given to people are asked for on the main thread (nameIfKnown): read from disk ahead.
+        scope?.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { namesPrefs.all } }
     }
 
     // NOT_FOUND caches "not a contact" so unknown senders aren't looked up on every frame.

@@ -189,7 +189,7 @@ class AppContainer(private val context: Context) {
     }
 
     /** When Winnow stopped being the SMS app, and what arrived until it was again (see RoleWatch). */
-    val roleWatch by lazy { com.ericflo.winnow.data.RoleWatch(context) }
+    val roleWatch by lazy { com.ericflo.winnow.data.RoleWatch(context, appScope) }
 
     /** Why a text went where it did (see Provenance). */
     val provenance by lazy {

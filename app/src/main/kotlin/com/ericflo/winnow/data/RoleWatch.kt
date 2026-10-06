@@ -17,7 +17,7 @@ import kotlinx.serialization.json.Json
  * RCS chats arrive only then. Told by Android when the SMS app changes (see [Receiver]), and
  * checked again whenever Winnow comes to the front, in case that was missed.
  */
-class RoleWatch(private val context: Context) {
+class RoleWatch(private val context: Context, scope: kotlinx.coroutines.CoroutineScope) {
     /** What arrived while another app was the SMS app. */
     @Serializable
     data class Away(
@@ -32,7 +32,10 @@ class RoleWatch(private val context: Context) {
 
     private val prefs by lazy { context.getSharedPreferences("sms_role", Context.MODE_PRIVATE) }
     private val json = Json { ignoreUnknownKeys = true }
-    private val _away = MutableStateFlow(load())
+    // Read off the main thread: preferences come from disk, and the inbox asks for this as it opens.
+    private val _away = MutableStateFlow<Away?>(null).also { flow ->
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) { if (flow.value == null) flow.value = load() }
+    }
     /** The last time away, until dismissed; null when there's nothing to say. */
     val away: StateFlow<Away?> = _away.asStateFlow()
 

@@ -143,7 +143,10 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     fun dismissAway() = container.roleWatch.dismiss()
 
     private val rcsPrefs by lazy { container.appContext.getSharedPreferences("rcs_card", android.content.Context.MODE_PRIVATE) }
-    private val rcsDismissedAt = MutableStateFlow(runCatching { rcsPrefs.getInt("dismissed_count", 0) }.getOrDefault(0))
+    // Read off the main thread (preferences come from disk); the card waits for it.
+    private val rcsDismissedAt = MutableStateFlow(Int.MAX_VALUE).also { flow ->
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { flow.value = runCatching { rcsPrefs.getInt("dismissed_count", 0) }.getOrDefault(0) }
+    }
 
     /**
      * Conversations that were RCS chats, wherever they're filed, while there are more than when the
@@ -155,8 +158,8 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun dismissRcs(count: Int) {
-        rcsPrefs.edit().putInt("dismissed_count", count).apply()
         rcsDismissedAt.value = count
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { rcsPrefs.edit().putInt("dismissed_count", count).apply() }
     }
 
     /** The listing under way, for the empty inbox to say how long it's been. */
