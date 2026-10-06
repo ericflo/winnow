@@ -1,6 +1,7 @@
 package com.ericflo.winnow.ui.train
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -701,8 +702,11 @@ private fun CandidateRow(
                 }
             }
             if (open) {
+                // A card low on the screen opens its choices under the bar at the bottom: brought into view.
+                val choices = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+                androidx.compose.runtime.LaunchedEffect(Unit) { choices.bringIntoView() }
                 Text("It's actually…", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.bringIntoViewRequester(choices)) {
                     Category.entries.forEach { category ->
                         FilterChip(
                             selected = shown == category && decision != null && decision != Decision.Skip,
