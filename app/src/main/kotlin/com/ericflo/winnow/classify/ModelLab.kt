@@ -84,6 +84,8 @@ class ModelLab(
         /** Texts it learned from, and the user's labels left out because their text is gone and its buckets don't fit. */
         val learnedFrom: Int = 0,
         val leftOut: Int = 0,
+        /** What its trained model takes up on the phone (compressed); 0 for a personal layer, which keeps no file. */
+        val bytes: Long = 0,
     )
 
     sealed interface Status {
@@ -101,6 +103,8 @@ class ModelLab(
     private var job: Job? = null
 
     private fun load(): List<Entry> = runCatching { json.decodeFromString(ListSerializer(Entry.serializer()), file.readText()) }.getOrDefault(emptyList())
+        // Trained before their size was kept: read off their files.
+        .map { e -> if (e.bytes == 0L && e.trainedAt != null) e.copy(bytes = modelFile(e.id).takeIf { it.exists() }?.length() ?: 0) else e }
 
     private fun save(list: List<Entry>) {
         dir.mkdirs()
@@ -156,12 +160,12 @@ class ModelLab(
         val temperature = if (recipe.kind == RecipeKind.PERSONAL) LocalModel.bundled.temperature else RecipeTrainer.calibrate(cv.map { (i, s) -> s to data.scored[i].label })
         val evalId = keepScoring(entry, data, cv, temperature, started)
         progress(id, "Training on everything…", 0.85f)
-        val (millis, parameters) = trainFinal(id, recipe, data, temperature)
+        val (millis, parameters, bytes) = trainFinal(id, recipe, data, temperature)
         val m = evalId?.let { evals.get(it) }
         update(id) {
             it.copy(
                 trainedAt = System.currentTimeMillis(), evalId = evalId, accuracy = m?.accuracy, macroF1 = m?.macroF1, scoredOn = m?.examples ?: 0,
-                trainMillis = millis, parameters = parameters, temperature = temperature, learnedFrom = data.scored.size + data.others.size, leftOut = data.leftOut,
+                trainMillis = millis, parameters = parameters, temperature = temperature, learnedFrom = data.scored.size + data.others.size, leftOut = data.leftOut, bytes = bytes,
             )
         }
         if (settings.current().labModel == id) onModelChanged()
@@ -174,8 +178,8 @@ class ModelLab(
             launch(id) { entry ->
                 progress(id, "Training on everything…", 0.1f)
                 val data = data(entry.recipe)
-                val (millis, parameters) = trainFinal(id, entry.recipe, data, entry.temperature)
-                update(id) { it.copy(trainedAt = System.currentTimeMillis(), trainMillis = millis, parameters = parameters, learnedFrom = data.scored.size + data.others.size, leftOut = data.leftOut) }
+                val (millis, parameters, bytes) = trainFinal(id, entry.recipe, data, entry.temperature)
+                update(id) { it.copy(trainedAt = System.currentTimeMillis(), trainMillis = millis, parameters = parameters, learnedFrom = data.scored.size + data.others.size, leftOut = data.leftOut, bytes = bytes) }
                 onModelChanged()
             }
         }
@@ -281,7 +285,7 @@ class ModelLab(
     }
 
     /** Trains on everything and keeps the model; its training time and size. */
-    private suspend fun trainFinal(id: String, recipe: Recipe, data: Data, temperature: Float): Pair<Long, Long> {
+    private suspend fun trainFinal(id: String, recipe: Recipe, data: Data, temperature: Float): Triple<Long, Long, Long> {
         val ctx = currentCoroutineContext()
         val started = System.nanoTime()
         val model = withContext(Dispatchers.Default) {
@@ -305,7 +309,8 @@ class ModelLab(
             }
             if (recipe.kind == RecipeKind.PERSONAL) part.delete() else part.renameTo(modelFile(id))
         }
-        return millis to parameters
+        val bytes = withContext(Dispatchers.IO) { modelFile(id).takeIf { recipe.kind != RecipeKind.PERSONAL && it.exists() }?.length() ?: 0 }
+        return Triple(millis, parameters, bytes)
     }
 
     private fun modelFile(id: String) = File(dir, "$id.model")
