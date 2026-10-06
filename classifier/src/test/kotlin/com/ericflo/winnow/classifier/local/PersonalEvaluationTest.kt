@@ -113,4 +113,16 @@ class PersonalEvaluationTest {
         assertEquals(n.words, PersonalEvaluation.scoreNewest(model, older + before + after, strength = 0.0, share = 0.0, atLeast = 10)!!.withSenders)
         assertNull("too few to say", PersonalEvaluation.scoreNewest(model, older.take(15)))
     }
+
+    @Test
+    fun theNewestLabelsNeverSplitLabelsGivenTogether() {
+        // Five acts of labeling, each a conversation's three labels at one time.
+        val at = List(15) { (it / 3).toLong() }
+        val (newest, older) = PersonalEvaluation.newestSplit(at, 4)!!
+        // Four asked for: the tie at the edge comes whole, so six.
+        assertEquals(listOf(9, 10, 11, 12, 13, 14), newest)
+        assertEquals((0..8).toList(), older)
+        // All given at once: nothing older to learn from.
+        assertNull(PersonalEvaluation.newestSplit(List(10) { 7L }, 3))
+    }
 }

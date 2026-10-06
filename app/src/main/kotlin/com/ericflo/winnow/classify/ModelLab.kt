@@ -321,7 +321,7 @@ class ModelLab(
                 // The user's labels on texts are the answer key, a conversation's labels kept together;
                 // a label still waiting to be rechecked under the six categories trains but isn't scored.
                 r.messageKey != null && r.threadId != null && !r.messageKey.startsWith("restored:") && r.threadId !in recheck -> {
-                    scored += TrainingItem(f, idx, label, recipe.userWeight, group = r.threadId, key = r.messageKey, sender = t?.address, at = t?.date ?: r.createdAt, conversing = r.threadId in replied)
+                    scored += TrainingItem(f, idx, label, recipe.userWeight, group = r.threadId, key = r.messageKey, sender = t?.address, at = r.createdAt, conversing = r.threadId in replied)
                     scoredKeys += r.messageKey to r.threadId
                 }
                 else -> others += TrainingItem(f, idx, label, recipe.userWeight)

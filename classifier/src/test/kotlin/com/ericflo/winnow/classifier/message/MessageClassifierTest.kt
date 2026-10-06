@@ -338,4 +338,22 @@ class MessageClassifierTest {
         val few = OnDeviceClassifier().withMemory(com.ericflo.winnow.classifier.local.SenderMemory.of(labels.take(2), classes))
         assertIs<VerdictSource.Provider>(MessageClassifier(listOf(FakeProvider { mapOf("friend_chat" to 1.0) }), onDevice = few).classify(pharmacy).source)
     }
+
+    @Test
+    fun `a text the user's labels decide goes where their label sends it, service or none`() = runTest {
+        // A hookless opener from a number the user has labeled spam three times: the model alone,
+        // unsure and with no hook, would only silence it, or let it through.
+        val opener = InboundMessage(sender = "+12395550171", body = "Hey are you around this weekend?")
+        val classes = com.ericflo.winnow.classifier.local.LocalModel.bundled.classes
+        val memory = com.ericflo.winnow.classifier.local.SenderMemory.of(List(3) { opener.sender to classes.indexOf(Category.SPAM.key) }, classes)
+        val onDevice = OnDeviceClassifier().withMemory(memory)
+        val withService = MessageClassifier(listOf(FakeProvider { mapOf("friend_chat" to 1.0) }), onDevice = onDevice).classify(opener)
+        assertEquals(Category.SPAM, withService.category)
+        assertEquals(Action.FILTER, withService.action)
+        assertTrue(withService.decidedByYourLabels)
+        // No service set up: still their labels that decided, and said so.
+        val alone = MessageClassifier(emptyList(), onDevice = onDevice).classify(opener)
+        assertEquals(Action.FILTER, alone.action)
+        assertEquals(VerdictSource.OnDevice.YOUR_LABELS, assertIs<VerdictSource.OnDevice>(alone.source).fallbackReason)
+    }
 }

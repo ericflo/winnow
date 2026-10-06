@@ -175,7 +175,9 @@ class ExamplesExperiment(
                                 trials += Trial(c.key, c.threadId, c.label, pa.category, pa.confidence, pb.category, pb.confidence)
                             } else {
                                 listOfNotNull(a, b).filter { it.answer() == null }.forEach { v ->
-                                    troubles += Pacer.troubleOf((v.source as? VerdictSource.OnDevice)?.fallbackReason ?: "no answer")
+                                    // Asked without the on-device model, a failure comes back as the keyword fallback, with the reason.
+                                    val why = (v.source as? VerdictSource.OnDevice)?.fallbackReason ?: (v.source as? VerdictSource.Heuristic)?.reason
+                                    troubles += Pacer.troubleOf(why ?: "no answer")
                                 }
                             }
                         }

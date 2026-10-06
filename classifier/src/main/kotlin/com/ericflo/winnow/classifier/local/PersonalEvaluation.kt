@@ -114,9 +114,8 @@ object PersonalEvaluation {
     ): Newest? {
         val n = maxOf(atLeast, (labels.size * share).toInt())
         if (labels.size < n * 2) return null
-        val byTime = labels.indices.sortedWith(compareBy({ labels[it].at }, { it }))
-        val newest = byTime.takeLast(n)
-        val older = byTime.dropLast(n).map(labels::get)
+        val (newest, olderIndices) = newestSplit(labels.map { it.at }, n) ?: return null
+        val older = olderIndices.map(labels::get)
         val newestKeys = newest.mapNotNullTo(HashSet()) { labels[it].key }
         val kept = others.filterIndexed { j, _ -> othersKeys.getOrNull(j) !in newestKeys }
         val adjustments = Personalizer.train(base, older.map { Correction(it.buckets, it.label) } + kept, epochs = epochs, learningRate = learningRate, l2 = l2, stopped = stopped)
@@ -130,7 +129,21 @@ object PersonalEvaluation {
             if (p.indices.maxBy { p[it] } == l.label) words++
             if ((l.sender?.let { memory.follow(p, it, l.conversing).best } ?: p.indices.maxBy { p[it] }) == l.label) followed++
         }
-        return Newest(n, words, followed)
+        return Newest(newest.size, words, followed)
+    }
+
+    /**
+     * Indices of the newest [n] of [at] (by time, then index) and of the rest, older first. Labels
+     * given together (a conversation's, which share a time) stay on one side: the newest side
+     * takes the whole tie at its edge, so none is scored by a memory of its own act's labels.
+     * Null when nothing would be left older.
+     */
+    internal fun newestSplit(at: List<Long>, n: Int): Pair<List<Int>, List<Int>>? {
+        val byTime = at.indices.sortedWith(compareBy({ at[it] }, { it }))
+        var cut = (byTime.size - n).coerceAtLeast(0)
+        while (cut > 0 && at[byTime[cut - 1]] == at[byTime[cut]]) cut--
+        if (cut == 0 || cut == byTime.size) return null
+        return byTime.drop(cut) to byTime.take(cut)
     }
 
     /** Each conversation's fold, dealt round-robin in a fixed order so a re-run scores the same way; null with fewer than two. */

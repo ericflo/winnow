@@ -102,7 +102,7 @@ data class Recipe(
  * examples), so cross-validation keeps a conversation's texts together. [key] is its message (so
  * a classifier service's label on a text held out isn't trained on), [sender] who sent it (for
  * the user's labels of each sender, see SenderMemory, [conversing] when the user texts with
- * them), and [at] when it came.
+ * them), and [at] when the user labeled it.
  */
 class TrainingItem(
     val features: List<String>?,
@@ -198,7 +198,7 @@ object RecipeTrainer {
     /**
      * The newest [share] of [scoredItems] (by [TrainingItem.at]; at least [atLeast]) scored by a
      * model trained on the older ones (and [others], less any on the same texts): how it does on
-     * texts that come after what it learned from, senders it has seen among them. Their indices
+     * labels given after the ones it learned from, senders it has seen among them. Their indices
      * and logits, or empty when there are too few to say.
      */
     fun scoreNewest(
@@ -212,8 +212,8 @@ object RecipeTrainer {
     ): List<Pair<Int, DoubleArray>> {
         val n = maxOf(atLeast, (scoredItems.size * share).toInt())
         if (scoredItems.size < n * 2) return emptyList()
-        val byTime = scoredItems.indices.sortedWith(compareBy({ scoredItems[it].at }, { it }))
-        val newest = byTime.takeLast(n)
+        // Labels given together stay on one side (see PersonalEvaluation.newestSplit).
+        val newest = PersonalEvaluation.newestSplit(scoredItems.map { it.at }, n)?.first ?: return emptyList()
         val newestSet = newest.toHashSet()
         val newestKeys = newest.mapNotNullTo(HashSet()) { scoredItems[it].key }
         val train = scoredItems.filterIndexed { i, _ -> i !in newestSet } + others.filter { it.key == null || it.key !in newestKeys }

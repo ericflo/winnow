@@ -251,6 +251,13 @@ class Bootstrap(
                             verdict?.decidedByYourLabels == true -> {
                                 tally = tally.copy(kept = tally.kept + 1, costUsd = tally.costUsd + verdict.costUsd)
                                 done++
+                                // Settled: never asked about again, and filed as the user's labels say.
+                                answered += t.key
+                                filed += VerdictEntity.from(t.key, t.threadId, t.sender, verdict, t.date).copy(summarized = true, runId = runId)
+                                // Asked and outweighed: what the service said is kept with the run (it teaches nothing).
+                                verdict.serviceOpinion?.let { said ->
+                                    answers += t to verdict.copy(category = said.category, confidence = said.confidence, subcategory = null)
+                                }
                             }
                             else -> {
                                 lastDetail = (verdict?.source as? VerdictSource.OnDevice)?.fallbackReason ?: "no answer"

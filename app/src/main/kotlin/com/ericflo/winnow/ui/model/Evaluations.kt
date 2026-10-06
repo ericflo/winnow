@@ -91,7 +91,7 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
             try {
                 _progress.value = "Reading your labels…"
                 val data = withContext(Dispatchers.IO) {
-                    EvalData.of(container.correctionDao.all(), container.verdictDao.all(), container.runDao.allAnswers(), conversing = container.bootstrap.threadsWithOutgoing())
+                    EvalData.of(container.correctionDao.all(), container.verdictDao.all(), container.runDao.allAnswers(), conversing = runCatching { container.bootstrap.threadsWithOutgoing() }.getOrDefault(emptySet()))
                 }
                 val settings = container.settings.current()
                 val evaluator = Evaluator(policy = settings.actionPolicy, providerWeight = settings.providerWeight, senderMemory = settings.senderMemory, fitting = settings.fitting())

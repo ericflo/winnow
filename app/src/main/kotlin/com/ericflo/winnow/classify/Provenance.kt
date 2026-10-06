@@ -177,7 +177,7 @@ object Provenance {
             Decider.MODEL -> {
                 when (modelReason(v)) {
                     ModelReason.SURE -> why += "It was ${pct(v.confidence)} sure, so the classifier service wasn't asked (Settings: decide on this phone when it's sure, at 95%)."
-                    ModelReason.YOUR_LABELS -> why += "Your labels of this sender decided it: you've labeled their texts this way, every one, and your labels outweigh the classifier service's, so it wasn't asked. " +
+                    ModelReason.YOUR_LABELS -> why += "Your labels of this sender decided it: you've labeled their texts this way, every one, and your labels outweigh any classifier service's, so none was asked. " +
                         "Label one of their texts another way and your labels of them only lean the model from then on, its reading of the words deciding between your categories."
                     ModelReason.OVER_SERVICE -> {
                         val said = v.serviceCategory?.let(Category::fromKey)?.label?.lowercase()

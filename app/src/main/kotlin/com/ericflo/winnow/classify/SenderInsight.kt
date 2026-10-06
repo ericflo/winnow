@@ -16,8 +16,8 @@ object SenderInsight {
     /**
      * A sender, as the user has labeled them: [counts] of their texts per category, most first;
      * [decides] the category their labels settle, or null when they only lean; [conversing] when
-     * the user texts with them (their labels then only lean). [address] and [threadId] are their
-     * most recent labeled text's, for opening the conversation.
+     * the user has written in their latest labeled text's conversation (their labels then only
+     * lean). [address] and [threadId] are that text's, for opening the conversation.
      */
     data class Sender(
         val key: String,
@@ -39,7 +39,8 @@ object SenderInsight {
         return labels.groupBy { SenderMemory.keyOf(it.address) }.mapNotNull { (key, rows) ->
             key ?: return@mapNotNull null
             val last = rows.last()
-            val texting = rows.any { it.threadId in conversing }
+            // As the phone judges it: by the conversation their next text comes in, most likely their latest.
+            val texting = last.threadId in conversing
             Sender(
                 key = key,
                 address = last.address,
