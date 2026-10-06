@@ -113,6 +113,7 @@ object Featurizer {
         feature.startsWith("b:") -> feature.removePrefix("b:").takeIf { it.split(' ').all(::meaningful) }?.let { "“$it”" }
         feature.startsWith("h:") -> feature.removePrefix("h:").takeIf(::meaningful)?.let { "a link mentioning “$it”" }
         feature.startsWith("__tld_") -> "a .${feature.removePrefix("__tld_").removeSuffix("__")} link"
+        ContextFeatures.isContext(feature) -> ContextFeatures.describe(feature)
         else -> DESCRIPTIONS[feature]
     }
 

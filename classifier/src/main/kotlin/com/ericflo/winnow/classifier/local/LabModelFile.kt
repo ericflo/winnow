@@ -61,7 +61,8 @@ object LabModelFile {
                 return BlendPredictor(members, recipe.memberWeights.ifEmpty { List(n) { 1.0 } }, temperature)
             }
         }
-        return if (recipe.pieces) PiecesPredictor(model) else model
+        val read = if (recipe.pieces) PiecesPredictor(model) else model
+        return if (recipe.context) ContextPredictor(read) else read
     }
 
     /** How many numbers [model] holds. */
@@ -69,6 +70,7 @@ object LabModelFile {
         is NeuralModel -> model.parameters
         is LinearPredictor -> model.model.buckets.toLong() * model.model.classes.size + model.adjustments.size.toLong() * model.model.classes.size
         is PiecesPredictor -> parameters(model.inner)
+        is ContextPredictor -> parameters(model.inner)
         is BlendPredictor -> model.members.sumOf(::parameters)
         else -> 0
     }
@@ -78,9 +80,14 @@ object LabModelFile {
         is NeuralModel -> model.also { it.temperature = temperature }
         is LinearPredictor -> if (model.adjustments.size == 0) LinearPredictor(model.model.withTemperature(temperature)) else model
         is PiecesPredictor -> PiecesPredictor(calibrate(model.inner, temperature))
+        is ContextPredictor -> ContextPredictor(calibrate(model.inner, temperature))
         is BlendPredictor -> model.also { it.temperature = temperature }
         else -> model
     }
 
-    private fun unwrap(model: Predictor): Predictor = if (model is PiecesPredictor) unwrap(model.inner) else model
+    private fun unwrap(model: Predictor): Predictor = when (model) {
+        is PiecesPredictor -> unwrap(model.inner)
+        is ContextPredictor -> unwrap(model.inner)
+        else -> model
+    }
 }

@@ -8,7 +8,28 @@ data class InboundMessage(
     /** The user has sent this sender a message before. */
     val userHasMessagedSender: Boolean = false,
     val senderRule: SenderRule? = null,
+    /** When it came and what came before it in its conversation, where known (see ContextFeatures). */
+    val context: MessageContext? = null,
 )
+
+/**
+ * When a text came and what came before it in its conversation: what its words don't say. Read
+ * only by a model trained to (a Lab recipe with context); counts stop at [CAP].
+ */
+data class MessageContext(
+    val sentAt: Long,
+    /** The conversation's texts before it: from them, and from the user. */
+    val earlierFromThem: Int,
+    val earlierFromYou: Int,
+    /** Whether the text just before it was the user's (it answers them); null when it's the first. */
+    val answersYou: Boolean?,
+    /** Since the text before it; null when it's the first. */
+    val sinceLastMillis: Long?,
+) {
+    companion object {
+        const val CAP = 20
+    }
+}
 
 data class Verdict(
     /** Null when a sender rule decided without classifying. */

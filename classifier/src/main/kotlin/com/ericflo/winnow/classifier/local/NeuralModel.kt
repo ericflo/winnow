@@ -21,6 +21,9 @@ interface Predictor {
 
     /** What pushed hardest toward [classIndex], in words, strongest first. */
     fun reasons(features: List<String>, classIndex: Int, limit: Int = 3): List<String>
+
+    /** Whether it learned from a text's context (see ContextFeatures), so it wants those features too. */
+    val readsContext: Boolean get() = false
 }
 
 /** The shipped linear model (or a retrained one), with [adjustments] the user taught it on top. */

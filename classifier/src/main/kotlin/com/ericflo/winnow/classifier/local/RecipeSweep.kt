@@ -10,22 +10,27 @@ import kotlin.random.Random
  * A setting a sweep turns: the values it tries, and what it means, in words a steering service
  * (see [ServiceSteerer]) reads. Every value is one a [Recipe] can take.
  */
-enum class Knob(val key: String, val meaning: String, val values: List<String>, val neuralOnly: Boolean = false) {
+enum class Knob(val key: String, val meaning: String, val values: List<String>, val neuralOnly: Boolean = false, val linearOnly: Boolean = false) {
     KIND("kind", "Linear: one weight per word and category. Neural: a small network over the words (it can learn combinations).", listOf("linear", "neural")),
-    LAYERS("layers", "Neural only: the word embedding's width, then any hidden layer's (64-32 is two layers).", listOf("32", "64", "128", "64-32", "128-64", "256-64"), neuralOnly = true),
+    LAYERS("layers", "Neural only: the word embedding's width, then any hidden layer's (64-32 is two layers).", listOf("16", "32", "64", "128", "256", "64-32", "128-64", "128-128", "256-64"), neuralOnly = true),
     WIDE("wide", "Neural only: a linear part beside the network, so single words still count directly.", listOf("yes", "no"), neuralOnly = true),
-    DROPOUT("dropout", "Neural only: the share of hidden units left out of each training step.", listOf("0", "0.1", "0.25", "0.4"), neuralOnly = true),
-    BUCKETS("buckets", "Words are hashed into this many buckets: more is wider, fewer words sharing one.", listOf("4096", "8192", "16384", "32768", "65536")),
-    EPOCHS("passes", "Passes over every text while training: more fits the labels closer, and past a point carries over to new texts worse.", listOf("3", "5", "8", "12", "20", "30", "60")),
-    STEP("step", "AdaGrad's step size.", listOf("0.02", "0.05", "0.1", "0.2", "0.4")),
-    L2("l2", "How hard every weight is pulled toward zero.", listOf("0", "1e-6", "1e-5", "1e-4", "1e-3")),
-    WORDS_OUT("words_left_out", "The share of a text's words left out of each training step, a different few each time.", listOf("0", "0.15", "0.3", "0.45")),
+    DROPOUT("dropout", "Neural only: the share of hidden units left out of each training step.", listOf("0", "0.1", "0.25", "0.4", "0.55"), neuralOnly = true),
+    BAGS("bags", "Linear only: models trained on resamples of the texts and averaged.", listOf("1", "3", "5"), linearOnly = true),
+    BUCKETS("buckets", "Words are hashed into this many buckets: more is wider, fewer words sharing one.", listOf("4096", "8192", "16384", "32768", "65536", "131072", "262144")),
+    EPOCHS("passes", "Passes over every text while training: more fits the labels closer, and past a point carries over to new texts worse.", listOf("3", "5", "8", "12", "20", "30", "60", "100", "150", "200")),
+    STEP("step", "AdaGrad's step size.", listOf("0.01", "0.02", "0.05", "0.1", "0.2", "0.4", "0.8")),
+    L2("l2", "How hard every weight is pulled toward zero.", listOf("0", "1e-8", "1e-7", "1e-6", "1e-5", "1e-4", "1e-3")),
+    WORDS_OUT("words_left_out", "The share of a text's words left out of each training step, a different few each time.", listOf("0", "0.15", "0.3", "0.45", "0.6")),
     PIECES("word_pieces", "Also learn from four-letter pieces of words, so words sharing a stem share what's learned.", listOf("no", "yes")),
-    USER_WEIGHT("user_label_weight", "How much each of the person's own labels counts against one shipped example.", listOf("1", "2", "3", "5", "8")),
-    SERVICE_WEIGHT("service_label_weight", "How much each of the classifier service's labels counts; 0 leaves them out.", listOf("0", "0.15", "0.35", "0.7", "1")),
-    CORPUS_WEIGHT("shipped_example_weight", "How much each of the 1,493 hand-written shipped examples counts; 0 leaves them out.", listOf("0", "0.3", "1")),
+    CONTEXT("context", "Also learn from when each text came and what came before it in its conversation: time of day, weekday or weekend, the first text or an answer to the person's, how much came before, how long since the last.", listOf("no", "yes")),
+    USER_WEIGHT("user_label_weight", "How much each of the person's own labels counts against one shipped example.", listOf("1", "2", "3", "5", "8", "12", "20")),
+    SERVICE_WEIGHT("service_label_weight", "How much each of the classifier service's labels counts; 0 leaves them out.", listOf("0", "0.05", "0.15", "0.35", "0.7", "1", "1.5")),
+    CORPUS_WEIGHT("shipped_example_weight", "How much each of the 1,493 hand-written shipped examples counts; 0 leaves them out.", listOf("0", "0.1", "0.3", "0.6", "1", "2")),
     BALANCE("balance_categories", "Count each category equally, however many texts it has.", listOf("yes", "no")),
     ;
+
+    /** Whether a try of this kind uses it. */
+    fun usedBy(neural: Boolean) = if (neural) !linearOnly else !neuralOnly
 
     companion object {
         fun byKey(key: String) = entries.firstOrNull { it.key == key }
@@ -48,8 +53,10 @@ object SweepSpace {
             learningRate = v(Knob.STEP).toDouble(),
             l2 = v(Knob.L2).toDouble(),
             dropout = if (neural) v(Knob.DROPOUT).toDouble() else 0.0,
+            bags = if (neural) 1 else v(Knob.BAGS).toInt(),
             inputDropout = v(Knob.WORDS_OUT).toDouble(),
             pieces = v(Knob.PIECES) == "yes",
+            context = v(Knob.CONTEXT) == "yes",
             includeCorpus = corpus > 0,
             corpusWeight = if (corpus > 0) corpus else 1.0,
             userWeight = v(Knob.USER_WEIGHT).toDouble(),
@@ -76,12 +83,14 @@ object SweepSpace {
             Knob.LAYERS to (Knob.LAYERS.values.firstOrNull { it == layers } ?: Knob.LAYERS.values.minBy { v -> abs(v.split('-').sumOf(String::toInt) - recipe.layers.sum()) }),
             Knob.WIDE to if (recipe.wide) "yes" else "no",
             Knob.DROPOUT to nearest(Knob.DROPOUT, recipe.dropout),
+            Knob.BAGS to nearest(Knob.BAGS, recipe.bags.toDouble()),
             Knob.BUCKETS to nearest(Knob.BUCKETS, recipe.buckets.toDouble()),
             Knob.EPOCHS to nearest(Knob.EPOCHS, recipe.epochs.toDouble()),
             Knob.STEP to nearest(Knob.STEP, recipe.learningRate),
             Knob.L2 to nearest(Knob.L2, recipe.l2),
             Knob.WORDS_OUT to nearest(Knob.WORDS_OUT, recipe.inputDropout),
             Knob.PIECES to if (recipe.pieces) "yes" else "no",
+            Knob.CONTEXT to if (recipe.context) "yes" else "no",
             Knob.USER_WEIGHT to nearest(Knob.USER_WEIGHT, recipe.userWeight),
             Knob.SERVICE_WEIGHT to nearest(Knob.SERVICE_WEIGHT, recipe.serviceWeight),
             Knob.CORPUS_WEIGHT to if (recipe.includeCorpus) nearest(Knob.CORPUS_WEIGHT, recipe.corpusWeight) else "0",
@@ -89,10 +98,10 @@ object SweepSpace {
         )
     }
 
-    /** One key per distinct try: a linear one's network settings don't make it another. */
+    /** One key per distinct try: a linear one's network settings (or a network's bags) don't make it another. */
     fun keyOf(settings: Map<Knob, String>): String {
         val neural = settings[Knob.KIND] == "neural"
-        return Knob.entries.joinToString(";") { k -> if (k.neuralOnly && !neural) "${k.key}=-" else "${k.key}=${settings[k]}" }
+        return Knob.entries.joinToString(";") { k -> if (!k.usedBy(neural)) "${k.key}=-" else "${k.key}=${settings[k]}" }
     }
 
     /** Where a sweep starts: different ways to keep a model from memorizing, one of each kind. */
@@ -103,14 +112,18 @@ object SweepSpace {
         settings("linear", buckets = "32768", epochs = "30", step = "0.2", l2 = "1e-5", wordsOut = "0.15", pieces = "yes"),
         settings("neural", layers = "128", buckets = "16384", epochs = "5", step = "0.05", l2 = "1e-5", wordsOut = "0.3"),
         settings("neural", layers = "64", wide = "no", buckets = "16384", epochs = "20", step = "0.05", l2 = "1e-6", dropout = "0.4", wordsOut = "0.3"),
+        // When texts came and what came before them: a signal words don't carry.
+        settings("linear", buckets = "65536", epochs = "60", step = "0.2", l2 = "1e-5", context = "yes"),
+        settings("neural", layers = "64", buckets = "32768", epochs = "8", step = "0.05", l2 = "1e-6", wordsOut = "0.3", context = "yes"),
     )
 
     private fun settings(
         kind: String, layers: String = "64", wide: String = "yes", dropout: String = "0", buckets: String, epochs: String, step: String, l2: String,
         wordsOut: String = "0", pieces: String = "no", user: String = "3", service: String = "0.35", corpus: String = "1", balance: String = "yes",
+        bags: String = "1", context: String = "no",
     ) = mapOf(
-        Knob.KIND to kind, Knob.LAYERS to layers, Knob.WIDE to wide, Knob.DROPOUT to dropout, Knob.BUCKETS to buckets, Knob.EPOCHS to epochs,
-        Knob.STEP to step, Knob.L2 to l2, Knob.WORDS_OUT to wordsOut, Knob.PIECES to pieces, Knob.USER_WEIGHT to user,
+        Knob.KIND to kind, Knob.LAYERS to layers, Knob.WIDE to wide, Knob.DROPOUT to dropout, Knob.BAGS to bags, Knob.BUCKETS to buckets, Knob.EPOCHS to epochs,
+        Knob.STEP to step, Knob.L2 to l2, Knob.WORDS_OUT to wordsOut, Knob.PIECES to pieces, Knob.CONTEXT to context, Knob.USER_WEIGHT to user,
         Knob.SERVICE_WEIGHT to service, Knob.CORPUS_WEIGHT to corpus, Knob.BALANCE to balance,
     )
 }
@@ -230,7 +243,7 @@ object SweepSampler {
     /** [best] with one or two knobs moved: those the odds lean away from its value most likely. */
     private fun nudge(best: Map<Knob, String>, odds: Map<Knob, Map<String, Double>>, random: Random): Map<Knob, String> {
         val neural = best[Knob.KIND] == "neural"
-        val movable = Knob.entries.filter { !it.neuralOnly || neural }
+        val movable = Knob.entries.filter { it.usedBy(neural) }
         val away = movable.associateWith { k -> (1.0 - (odds[k]?.get(best[k]) ?: 0.0)).coerceAtLeast(0.02) }
         val out = best.toMutableMap()
         repeat(1 + random.nextInt(2)) {
@@ -359,8 +372,12 @@ class RecipeSweep(
     private val steerer: Steerer?,
     private val plan: Plan = Plan(),
 ) {
+    /**
+     * [endEarly]: end once the steering twice running gives another round under [END_BELOW] odds
+     * of gaining, after at least half the rounds; never, when false.
+     */
     @Serializable
-    data class Plan(val rounds: Int = 4, val perRound: Int = 6, val steeringCalls: Int = 4, val seed: Int = 7)
+    data class Plan(val rounds: Int = 8, val perRound: Int = 8, val steeringCalls: Int = 8, val seed: Int = 7, val endEarly: Boolean = true)
 
     sealed interface Event {
         data class Trying(val round: Int, val n: Int, val of: Int, val recipe: Recipe) : Event
@@ -375,7 +392,13 @@ class RecipeSweep(
      * Runs it. [baselines] (names and recipes: what the user has, to beat) are scored as they
      * are. [stopped] ends it between tries and inside each; what was tried by then stays.
      */
-    suspend fun run(baselines: List<Pair<String, Recipe>>, onEvent: (Event) -> Unit = {}, stopped: () -> Boolean = { false }): Result {
+    suspend fun run(
+        baselines: List<Pair<String, Recipe>>,
+        onEvent: (Event) -> Unit = {},
+        stopped: () -> Boolean = { false },
+        /** More to start from (named by where they came from: the last sweep's best, say), after the starts. */
+        starts: List<Pair<String, Recipe>> = emptyList(),
+    ): Result {
         val trials = mutableListOf<SweepTrial>()
         val rounds = mutableListOf<SweepRound>()
         val library = mutableListOf<Pair<Recipe, List<Pair<Int, DoubleArray>>>>()
@@ -387,9 +410,9 @@ class RecipeSweep(
         var stoppedEarly = false
 
         fun keep(round: Int, scoring: SweepScorer.Scoring, millis: Long, from: String): SweepTrial {
-            // A linear try's network settings mean nothing: not shown, not counted as evidence.
+            // A linear try's network settings (a network's bags) mean nothing: not shown, not counted as evidence.
             val neural = scoring.recipe.kind == RecipeKind.NEURAL
-            val settings = SweepSpace.settingsOf(scoring.recipe)?.filterKeys { !it.neuralOnly || neural }
+            val settings = SweepSpace.settingsOf(scoring.recipe)?.filterKeys { it.usedBy(neural) }
             val trial = SweepTrial(round, scoring.recipe, settings?.mapKeys { it.key.key }, scoring.accuracy, scoring.macroF1, scoring.wordsAccuracy, scoring.logits.size, millis, from)
             trials += trial
             onEvent(Event.Tried(trial))
@@ -416,11 +439,14 @@ class RecipeSweep(
 
         // Round 0: what the user has, as it is, then the starts (none the same as one of theirs).
         baselines.forEach { (_, recipe) -> SweepSpace.settingsOf(recipe)?.takeIf { SweepSpace.recipeOf(it) == recipe }?.let { tried += SweepSpace.keyOf(it) } }
-        val starts = SweepSpace.STARTS.filter { tried.add(SweepSpace.keyOf(it)) }
-        val firstCount = starts.size + baselines.size
+        val fixed = SweepSpace.STARTS.filter { tried.add(SweepSpace.keyOf(it)) }
+        val more = starts.filter { (_, r) -> SweepSpace.settingsOf(r)?.let { s -> SweepSpace.recipeOf(s) != r || tried.add(SweepSpace.keyOf(s)) } ?: true }
+        val firstCount = fixed.size + baselines.size + more.size
         var n = 0
         baselines.forEach { (name, recipe) -> tryOne(0, ++n, firstCount, recipe, name, tune = false) }
-        starts.forEach { tryOne(0, ++n, firstCount, SweepSpace.recipeOf(it), "start") }
+        fixed.forEach { tryOne(0, ++n, firstCount, SweepSpace.recipeOf(it), "start") }
+        more.forEach { (from, recipe) -> tryOne(0, ++n, firstCount, recipe, from) }
+        var lowRounds = 0
 
         for (round in 1..plan.rounds) {
             // Nothing could be scored (too few conversations): nothing to steer by, nothing to pay for.
@@ -454,8 +480,10 @@ class RecipeSweep(
                 leaning = steering.odds.map { (k, o) -> o.maxBy { it.value }.let { (v, p) -> Lean(k.key, v, p) } },
                 more = steering.more, costUsd = steering.costUsd, note = steering.note,
             ).also { onEvent(Event.Steered(it)) }
-            // Told there's little left to gain, after a round of its own: done, without spending more.
-            if (round >= 2 && steering.more < 0.25) {
+            // Told twice running there's almost nothing left to gain, past half its rounds: done,
+            // without spending more. Anything less, it keeps looking.
+            lowRounds = if (steering.more < END_BELOW) lowRounds + 1 else 0
+            if (plan.endEarly && lowRounds >= 2 && round * 2 >= plan.rounds) {
                 stoppedEarly = true
                 break
             }
@@ -479,5 +507,8 @@ class RecipeSweep(
     companion object {
         /** Half a point: what a blend must beat the best try alone by. */
         const val BLEND_MARGIN = 0.005
+
+        /** The odds of another round gaining under which the steering's "no" counts toward ending (see [Plan.endEarly]). */
+        const val END_BELOW = 0.10
     }
 }

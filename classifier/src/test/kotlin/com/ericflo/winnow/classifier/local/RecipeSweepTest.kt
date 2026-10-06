@@ -184,12 +184,72 @@ class RecipeSweepTest {
     }
 
     @Test
-    fun theServiceSayingThereIsLittleLeftEndsTheSweepEarly() = runBlocking {
-        val provider = FakeProvider(more = 0.1)
-        val result = RecipeSweep(scorer(), ServiceSteerer(provider), RecipeSweep.Plan(rounds = 4, perRound = 1, steeringCalls = 4)).run(emptyList())
-        assertTrue(result.stoppedEarly)
-        // Its first round runs whatever it says; it's asked once more, then it's done.
-        assertEquals(2, provider.calls)
+    fun theSweepEndsEarlyOnlyWhenTheSteeringTwiceSeesAlmostNothingLeft() = runBlocking {
+        // Twice under 10%, half its rounds done: it ends.
+        val nothing = FakeProvider(more = 0.05)
+        val ended = RecipeSweep(scorer(), ServiceSteerer(nothing), RecipeSweep.Plan(rounds = 4, perRound = 1, steeringCalls = 4)).run(emptyList())
+        assertTrue(ended.stoppedEarly)
+        assertEquals(2, nothing.calls)
+        assertEquals(2, ended.rounds.size)
+        // 19% (as a real sweep's steering said) isn't nothing: it keeps looking, every round.
+        val little = FakeProvider(more = 0.19)
+        val kept = RecipeSweep(scorer(), ServiceSteerer(little), RecipeSweep.Plan(rounds = 4, perRound = 1, steeringCalls = 4)).run(emptyList())
+        assertFalse(kept.stoppedEarly)
+        assertEquals(4, kept.rounds.size)
+        // Told not to end early, it never does.
+        val never = RecipeSweep(scorer(), ServiceSteerer(FakeProvider(more = 0.0)), RecipeSweep.Plan(rounds = 3, perRound = 1, steeringCalls = 3, endEarly = false)).run(emptyList())
+        assertFalse(never.stoppedEarly)
+        assertEquals(3, never.rounds.size)
+    }
+
+    @Test
+    fun contextFeaturesSayWhenATextCameAndWhatCameBefore() {
+        val utc = java.util.TimeZone.getTimeZone("UTC")
+        // Saturday 2026-10-03, 23:30 UTC; a reply to the user's text five minutes before.
+        val sat = java.util.GregorianCalendar(utc).apply { clear(); set(2026, java.util.Calendar.OCTOBER, 3, 23, 30) }.timeInMillis
+        val reply = ContextFeatures.of(com.ericflo.winnow.classifier.message.MessageContext(sat, earlierFromThem = 7, earlierFromYou = 4, answersYou = true, sinceLastMillis = 5 * 60_000L), utc)
+        assertEquals(setOf("__ctx_hour_late__", "__ctx_weekend__", "__ctx_them_some__", "__ctx_you_wrote__", "__ctx_answers_you__", "__ctx_gap_minutes__"), reply.toSet())
+        // A stranger's first text on a weekday morning.
+        val tue = java.util.GregorianCalendar(utc).apply { clear(); set(2026, java.util.Calendar.OCTOBER, 6, 9, 0) }.timeInMillis
+        val first = ContextFeatures.of(com.ericflo.winnow.classifier.message.MessageContext(tue, 0, 0, null, null), utc)
+        assertEquals(setOf("__ctx_hour_morning__", "__ctx_weekday__", "__ctx_first__", "__ctx_them_none__", "__ctx_you_never__"), first.toSet())
+        assertTrue(ContextFeatures.of(null).isEmpty())
+        assertEquals("an answer to your text", Featurizer.describe("__ctx_answers_you__"))
+    }
+
+    @Test
+    fun aModelThatLearnsFromContextReadsItAndABlendGivesItOnlyToThoseThatDo() {
+        val utc = java.util.TimeZone.getTimeZone("UTC")
+        // Context that tells the categories apart where words alone might not: each category at its own hour.
+        val withContext = scored.map { item ->
+            val ctx = com.ericflo.winnow.classifier.message.MessageContext(item.label * 4 * 3_600_000L, item.label, 0, null, null)
+            TrainingItem(item.features, null, item.label, 3.0, group = item.group, key = item.key, sender = item.sender, source = TrainingItem.Source.USER, contextFeatures = ContextFeatures.of(ctx, utc))
+        }
+        val reads = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 12, epochs = 5, learningRate = 0.2, context = true)
+        val plain = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 12, epochs = 5, learningRate = 0.2)
+        val model = RecipeTrainer.train(reads, base, withContext)
+        assertTrue(model.readsContext && model is ContextPredictor)
+        val item = withContext.first()
+        val p = model.probabilities(item.features!! + item.contextFeatures!!)
+        val q = LocalModel.softmax(RecipeTrainer.logits(model, item)!!)
+        p.indices.forEach { assertEquals(p[it], q[it], 1e-9) }
+        // Scored by conversation, the hours it learned carry over.
+        fun accuracy(r: Recipe) = RecipeTrainer.crossValidate(r, base, withContext, others).count { (i, l) -> l.indices.maxBy { l[it] } == withContext[i].label }.toDouble() / withContext.size
+        assertTrue(accuracy(reads) > accuracy(plain), "context ${accuracy(reads)} vs words ${accuracy(plain)}")
+        // In a blend, a member that didn't learn from context never sees it.
+        val blend = Recipe(kind = RecipeKind.BLEND, members = listOf(reads, plain))
+        val both = RecipeTrainer.train(blend, base, withContext) as BlendPredictor
+        assertTrue(both.readsContext)
+        val f = item.features!! + item.contextFeatures!!
+        val expected = BlendPredictor.blendLogits(listOf(RecipeTrainer.logits(both.members[0], item)!!, RecipeTrainer.logits(both.members[1], item)!!), listOf(0.5, 0.5))
+        val got = both.probabilities(f)
+        LocalModel.softmax(expected).forEachIndexed { c, x -> assertEquals(x, got[c], 1e-9) }
+        // And it's kept and read back whole.
+        val bytes = java.io.ByteArrayOutputStream().also { LabModelFile.write(blend, both, 1f, it) }.toByteArray()
+        val back = LabModelFile.read(blend, java.io.ByteArrayInputStream(bytes))!!
+        assertTrue(back.readsContext)
+        back.probabilities(f).forEachIndexed { c, x -> assertEquals(got[c], x, 5e-3) }
+        assertNotNull(Recipe(kind = RecipeKind.PERSONAL, context = true).problem())
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.ericflo.winnow.classify
 
 import com.ericflo.winnow.classifier.local.ClassifierMetrics
 import com.ericflo.winnow.classifier.DecisionProvider
+import com.ericflo.winnow.classifier.local.ContextFeatures
 import com.ericflo.winnow.classifier.local.Featurizer
 import com.ericflo.winnow.classifier.local.LabModelFile
 import com.ericflo.winnow.classifier.local.LocalModel
@@ -58,6 +59,7 @@ import kotlinx.serialization.json.Json
  * use can be trained again on demand, or after each Train round and backlog run.
  */
 class ModelLab(
+    private val context: android.content.Context,
     private val scope: CoroutineScope,
     private val corrections: CorrectionDao,
     private val verdicts: VerdictDao,
@@ -293,9 +295,16 @@ class ModelLab(
     @Serializable
     data class Mark(val name: String, val accuracy: Double)
 
-    /** How the next sweep runs: its rounds, tries a round, and how many times the service may steer (each call is paid). */
+    /**
+     * How the next sweep runs: its rounds, tries a round, how many times the service may steer
+     * (each call is paid), and whether it may end early when the steering sees nothing left.
+     */
     @Serializable
-    data class SweepPrefs(val rounds: Int = 4, val perRound: Int = 6, val steeringCalls: Int = 4, val steer: Boolean = true)
+    data class SweepPrefs(val rounds: Int = 8, val perRound: Int = 8, val steeringCalls: Int = 8, val steer: Boolean = true, val endEarly: Boolean = true)
+
+    private val contexts = com.ericflo.winnow.data.MessageContexts(context)
+    // Null where the store couldn't say (asked again next time): a ConcurrentHashMap can't hold that.
+    private val contextCache: MutableMap<String, com.ericflo.winnow.classifier.message.MessageContext?> = java.util.Collections.synchronizedMap(HashMap())
 
     private val sweepFile = File(dir, "sweep.json")
     private val sweepPrefsFile = File(dir, "sweep-prefs.json")
@@ -355,7 +364,8 @@ class ModelLab(
     fun startSweep() = launchJob(SWEEP) {
         val prefs = _sweepPrefs.value
         // Said at once, so a sweep stopped while it reads the labels is this one, not the last.
-        var state = Sweep(System.currentTimeMillis(), RecipeSweep.Plan(rounds = prefs.rounds, perRound = prefs.perRound, steeringCalls = 0))
+        val last = _sweep.value
+        var state = Sweep(System.currentTimeMillis(), RecipeSweep.Plan(rounds = prefs.rounds, perRound = prefs.perRound, steeringCalls = 0, endEarly = prefs.endEarly))
         publish(state)
         val ctx = currentCoroutineContext()
         try {
@@ -364,7 +374,7 @@ class ModelLab(
             val provider = if (prefs.steer && prefs.steeringCalls > 0) runCatching { steeringProvider() }.getOrNull() else null
             // Called what the rest of Winnow calls it.
             val steerer = provider?.let { ServiceSteerer(it, settings.current().provider.label.substringBefore(" (")) }
-            val plan = RecipeSweep.Plan(rounds = prefs.rounds, perRound = prefs.perRound, steeringCalls = if (steerer != null) prefs.steeringCalls else 0)
+            val plan = RecipeSweep.Plan(rounds = prefs.rounds, perRound = prefs.perRound, steeringCalls = if (steerer != null) prefs.steeringCalls else 0, endEarly = prefs.endEarly)
             val baselines = baselines()
             val names = baselines.map { it.first }.toSet()
             val classes = LocalModel.bundled.classes
@@ -372,7 +382,10 @@ class ModelLab(
             val scorer = SweepScorer(LocalModel.bundled, data.scored, data.others, unwanted, settings.current().actionPolicy.onDeviceMinConfidence)
             state = state.copy(plan = plan, steeredBy = steerer?.name, noService = prefs.steer && prefs.steeringCalls > 0 && steerer == null)
             publish(state)
-            val planned = SweepSpace.STARTS.size + baselines.size + plan.rounds * plan.perRound
+            // Where the last sweep got to: its best tries start this one, so each sweep picks up from the one before.
+            val again = last?.trials.orEmpty().filter { it.settings != null && it.from !in names && it.from != "blend" }
+                .take(LAST_BEST).map { "the last sweep's best" to it.recipe }
+            val planned = SweepSpace.STARTS.size + baselines.size + again.size + plan.rounds * plan.perRound
             var done = 0
             val result = withContext(Dispatchers.Default) {
                 RecipeSweep(scorer, steerer, plan).run(
@@ -406,6 +419,7 @@ class ModelLab(
                         }
                     },
                     stopped = { !ctx.isActive },
+                    starts = again,
                 )
             }
             state = state.copy(
@@ -553,6 +567,12 @@ class ModelLab(
         val found = texts.of(rows.mapNotNull { it.messageKey })
         val replied = repliedThreads()
         fun buckets(s: String) = s.split(',').mapNotNull(String::toIntOrNull).toIntArray()
+        // Each text's context, read once a process (what came before a text doesn't change).
+        fun contextOf(key: String?): List<String>? {
+            val t = key?.let(found::get) ?: return null
+            val ctx = contextCache.getOrPut(key) { contexts.before(t.threadId, t.date, key) } ?: return null
+            return ContextFeatures.of(ctx)
+        }
         fun featuresOf(key: String?): List<String>? {
             val t = key?.let(found::get) ?: return null
             val address = t.address ?: return null
@@ -572,7 +592,7 @@ class ModelLab(
             val idx = buckets(r.buckets)
             when {
                 // With its conversation, so it's left out wherever that conversation is held out.
-                r.fromProvider -> others += TrainingItem(f, idx, label, 1.0, group = r.threadId ?: -1, key = r.messageKey, source = TrainingItem.Source.SERVICE)
+                r.fromProvider -> others += TrainingItem(f, idx, label, 1.0, group = r.threadId ?: -1, key = r.messageKey, source = TrainingItem.Source.SERVICE, contextFeatures = contextOf(r.messageKey))
                 // The user's labels on texts are the answer key, a conversation's labels kept together;
                 // a label still waiting to be rechecked under the six categories trains but isn't scored.
                 // Only those whose text is still here, which every recipe can read, so all are scored on
@@ -581,7 +601,7 @@ class ModelLab(
                 r.messageKey != null && r.threadId != null && !r.messageKey.startsWith("restored:") && r.threadId !in recheck && f != null -> {
                     scored += TrainingItem(
                         f, idx, label, 1.0, group = r.threadId, key = r.messageKey, sender = t?.address, at = r.createdAt, conversing = r.threadId in replied,
-                        source = TrainingItem.Source.USER,
+                        source = TrainingItem.Source.USER, contextFeatures = contextOf(r.messageKey),
                     )
                     scoredKeys += r.messageKey to r.threadId
                 }
@@ -591,7 +611,7 @@ class ModelLab(
                 // A conversation's own correction: left out wherever that conversation is held out.
                 else -> others += TrainingItem(
                     f, idx, label, 1.0, key = r.messageKey ?: r.threadId?.let(com.ericflo.winnow.classifier.local.PersonalEvaluation::threadKey),
-                    source = TrainingItem.Source.USER,
+                    source = TrainingItem.Source.USER, contextFeatures = contextOf(r.messageKey),
                 )
             }
         }
@@ -665,6 +685,9 @@ class ModelLab(
         /** A sweep's id where a model's would be, in [Status]. */
         const val SWEEP = "sweep"
 
+        /** How many of the last sweep's best tries start the next. */
+        private const val LAST_BEST = 3
+
         /** What a recipe's numbers mean, in a line each, for the editor. */
         val HELP = mapOf(
             "kind" to "Personal layer: the shipped model with a light layer of what you taught on top (what Winnow does now). Linear: one weight per word and category, trained from scratch here. Neural: a small network that can learn combinations words alone can't say.",
@@ -678,6 +701,7 @@ class ModelLab(
             "bags" to "Train this many on resampled texts and average them: steadier, slower.",
             "inputDropout" to "The share of a text's words left out of each training step, a different few each time. No one word can carry a text, so the model learns from the rest of it too: it memorizes your labels less and carries them over to new texts better.",
             "pieces" to "Also learn from pieces of words, four letters at a time, so words that share a stem (redeliver, redelivery) or a misspelling share what's learned.",
+            "context" to "Also learn from when each text came and what came before it in its conversation: the time of day, a weekday or the weekend, whether it opened the conversation or answered your text, how much came before it, how long since the last text. Where texts read alike, these can be what tells them apart to you. It reads the same of each new text, on this phone.",
             "corpus" to "Also learn from the 1,493 hand-written texts the shipped model learned from.",
             "userWeight" to "How much each of your labels counts against one shipped text.",
             "serviceWeight" to "How much each of the classifier service's labels counts; 0 leaves them out. Your labels always count more: where the service sees texts differently from you, less here lets yours set the model.",

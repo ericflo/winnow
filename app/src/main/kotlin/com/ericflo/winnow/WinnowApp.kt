@@ -212,7 +212,7 @@ class AppContainer(private val context: Context) {
     /** Models the user designs, trains on the phone, scores and puts in use (see ModelLab). */
     val modelLab: com.ericflo.winnow.classify.ModelLab by lazy {
         com.ericflo.winnow.classify.ModelLab(
-            appScope, correctionDao, verdictDao, contacts, settings, com.ericflo.winnow.data.MessageTexts(context), evalDao,
+            context, appScope, correctionDao, verdictDao, contacts, settings, com.ericflo.winnow.data.MessageTexts(context), evalDao,
             repliedThreads = { bootstrap.threadsWithOutgoing() },
             dir = java.io.File(context.filesDir, "lab"),
             onModelChanged = { learner.reload() },

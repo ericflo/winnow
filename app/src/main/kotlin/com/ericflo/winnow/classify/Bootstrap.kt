@@ -229,7 +229,9 @@ class Bootstrap(
                     tally = tally.copy(kept = tally.kept + stay.size)
                     done += stay.size
                     val gate = Semaphore(pacer.concurrency)
-                    val results = go.map { t -> async(Dispatchers.IO) { gate.withPermit { t to runCatching { classifier.classify(t.message()) }.getOrNull() } } }.awaitAll()
+                    // A model in use that learned from texts' context reads each one's.
+                    val reads = runCatching { learner.classifier().custom?.readsContext == true }.getOrDefault(false)
+                    val results = go.map { t -> async(Dispatchers.IO) { gate.withPermit { t to runCatching { classifier.classify(t.message(reads)) }.getOrNull() } } }.awaitAll()
                     val labels = mutableListOf<CorrectionEntity>()
                     val filed = mutableListOf<VerdictEntity>()
                     val answered = mutableListOf<String>()
@@ -360,12 +362,13 @@ class Bootstrap(
         if (answers.isEmpty()) return
         runCatching {
             val model = learner.classifier()
+            val reads = model.custom?.readsContext == true
             val before = verdicts.forKeys(answers.map { it.first.key })
                 .mapNotNull { v -> v.serviceAnswer?.let { v.messageKey to it.first } }.toMap()
             val now = System.currentTimeMillis()
             val rows = withContext(Dispatchers.Default) {
                 answers.map { (t, v) ->
-                    val opinion = runCatching { model.classify(t.message()) }.getOrNull()
+                    val opinion = runCatching { model.classify(t.message(reads)) }.getOrNull()
                     com.ericflo.winnow.data.db.RunAnswerEntity(
                         runId = runId,
                         messageKey = t.key,
@@ -539,6 +542,11 @@ class Bootstrap(
     }
 
     private fun Text.message() = InboundMessage(sender = sender, body = body, senderInContacts = false, userHasMessagedSender = repliedTo, senderRule = senderRule)
+
+    /** The text as a model reads it, with its context when the model learned from texts' context. */
+    private fun Text.message(withContext: Boolean) = if (withContext) message().copy(context = contexts.before(threadId, date, key)) else message()
+
+    private val contexts by lazy { com.ericflo.winnow.data.MessageContexts(context) }
 
     companion object {
         private const val TAG = "WinnowBootstrap"

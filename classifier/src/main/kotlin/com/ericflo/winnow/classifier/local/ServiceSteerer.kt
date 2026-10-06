@@ -79,7 +79,8 @@ class ServiceSteerer(private val provider: DecisionProvider, override val name: 
             k.key to Choice(
                 instructions = "For the next round of trials, give the odds that each value of \"${k.key}\" (${k.meaning}) belongs in the best trial. " +
                     "Lean toward values in the best-scoring trials and away from values that did clearly worse; keep some odds on values not tried yet that could plausibly do better." +
-                    (if (k.neuralOnly) " Only neural trials use it." else ""),
+                    (if (k.neuralOnly) " Only neural trials use it." else "") + (if (k.linearOnly) " Only linear trials use it." else "") +
+                    " Values at either end of the list are worth trying when the best trials sit near that end.",
                 options = k.values.associateWith { null },
             )
         } + (

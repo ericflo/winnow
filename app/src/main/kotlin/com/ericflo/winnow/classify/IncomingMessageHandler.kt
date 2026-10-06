@@ -72,6 +72,8 @@ class IncomingMessageHandler(
     }
 
     /** An incoming SMS once it's in the store: what's left is classifying it and saying so. */
+    private val contexts = com.ericflo.winnow.data.MessageContexts(context)
+
     data class StoredSms(val uri: Uri, val threadId: Long, val address: String, val body: String)
 
     /**
@@ -362,7 +364,7 @@ class IncomingMessageHandler(
         val verdict = try {
             // A few at a time, as a burst of texts would otherwise ask the service all at once; the
             // wait for a turn isn't counted against the text's budget.
-            classifyGate.withPermit { withTimeout(BUDGET_MILLIS) { classify(sender, text, threadId) { asked = it } } }
+            classifyGate.withPermit { withTimeout(BUDGET_MILLIS) { classify(sender, text, threadId, key) { asked = it } } }
         } catch (e: TimeoutCancellationException) {
             Log.w(TAG, "Classification over budget; delivering normally")
             null
@@ -455,7 +457,7 @@ class IncomingMessageHandler(
         }
     }
 
-    private suspend fun classify(address: String, body: String, threadId: Long, onMessage: (InboundMessage) -> Unit): Verdict {
+    private suspend fun classify(address: String, body: String, threadId: Long, key: String, onMessage: (InboundMessage) -> Unit): Verdict {
         val current = settings.current()
         val message = InboundMessage(
             sender = address,
@@ -463,6 +465,8 @@ class IncomingMessageHandler(
             senderInContacts = contacts.isContact(address),
             userHasMessagedSender = withContext(Dispatchers.IO) { hasOutgoing(threadId) },
             senderRule = dao.senderRule(normalizeAddress(address))?.let { runCatching { SenderRule.valueOf(it) }.getOrNull() },
+            // For a model that learned from texts' context: it came now, after what's in its conversation.
+            context = withContext(Dispatchers.IO) { contexts.before(threadId, System.currentTimeMillis(), key) },
         )
         onMessage(message)
         return classifiers.create(current, timeoutMillis = PROVIDER_TIMEOUT_MILLIS).classify(message)

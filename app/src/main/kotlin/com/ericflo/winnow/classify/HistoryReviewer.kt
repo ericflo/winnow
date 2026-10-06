@@ -55,6 +55,8 @@ class HistoryReviewer(
 ) {
     private data class Candidate(val key: String, val threadId: Long, val sender: String, val body: String, val date: Long)
 
+    private val contexts by lazy { com.ericflo.winnow.data.MessageContexts(context) }
+
     private val _status = MutableStateFlow<ReviewStatus>(ReviewStatus.Unknown)
     val status: StateFlow<ReviewStatus> = _status.asStateFlow()
     private var job: Job? = null
@@ -153,6 +155,8 @@ class HistoryReviewer(
                 senderInContacts = contacts.isContact(c.sender),
                 userHasMessagedSender = c.threadId in replied,
                 senderRule = dao.senderRule(normalizeAddress(c.sender))?.let { runCatching { SenderRule.valueOf(it) }.getOrNull() },
+                // For a model that learned from texts' context.
+                context = withContext(Dispatchers.IO) { contexts.before(c.threadId, c.date, c.key) },
             ),
         )
         if (providerFailed(verdict)) return false

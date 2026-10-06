@@ -58,7 +58,9 @@ class OnDeviceClassifier(
     fun classify(message: InboundMessage): LocalPrediction {
         val features = features(message)
         val classes = custom?.classes ?: model.classes
-        val words = custom?.probabilities(features) ?: model.predict(features, adjustments)
+        // A model trained on the phone that learned from texts' context reads this one's too.
+        val read = if (custom?.readsContext == true) features + ContextFeatures.of(message.context) else features
+        val words = custom?.probabilities(read) ?: model.predict(features, adjustments)
         // The user's labels of this sender, where they've given any: enough of them, one way,
         // decide; fewer nudge.
         val followed = if (memory.classes == classes) memory.follow(words, message.sender, conversing = message.userHasMessagedSender) else null
@@ -73,7 +75,7 @@ class OnDeviceClassifier(
             // Said when the labels decided it, or backed it: "you labeled 3 of this sender's 4 texts transactional".
             if (n > 0) "you labeled $n of this sender's $total ${if (total == 1) "text" else "texts"} ${Category.fromKey(classes[best])?.label?.lowercase() ?: classes[best]}" else null
         }
-        val wordReasons = custom?.reasons(features, best) ?: model.explain(features, best, adjustments = adjustments)
+        val wordReasons = custom?.reasons(read, best) ?: model.explain(features, best, adjustments = adjustments)
         return LocalPrediction(
             category = Category.fromKey(classes[best]) ?: Category.SPAM,
             confidence = followed?.confidence ?: p[best],
