@@ -134,6 +134,10 @@ class TrainViewModel(private val container: AppContainer) : ViewModel() {
 
     val bootstrap: StateFlow<com.ericflo.winnow.classify.BootstrapStatus> = container.bootstrap.status
 
+    /** A model from the Lab is in use: its guesses don't move as the user answers (it learns when retrained). */
+    val labInUse: StateFlow<Boolean> = container.settings.settings.map { it.labModel != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     /** Whether Winnow can read the texts at all (see AppContainer.isLive). */
     val live: StateFlow<Boolean> = container.isLive
     private val _offer = MutableStateFlow<BootstrapOffer?>(null)
@@ -498,9 +502,12 @@ private fun Reviewing(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
+                val lab by viewModel.labInUse.collectAsStateWithLifecycle()
                 Text(
                     "Here's what Winnow thinks of ${s.round.candidates.size} of your conversations. Tap ✓ when it's right, or tap its guess to fix it. " +
-                        "Its other guesses update as you answer, so texts like one you fixed follow it. Anything you leave stays unlabeled.",
+                        (if (lab) "These guesses are your Lab model's, which learns from your answers when it's trained again after the round (Winnow's model → Lab). "
+                        else "Its other guesses update as you answer, so texts like one you fixed follow it. ") +
+                        "Anything you leave stays unlabeled.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

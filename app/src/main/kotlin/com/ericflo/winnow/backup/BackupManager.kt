@@ -109,6 +109,10 @@ class BackupManager(
     private val reminders: com.ericflo.winnow.notify.Reminders? = null,
     /** Settings → Backup password: when set, new backups are protected with it. */
     private val password: BackupPassword? = null,
+    /** Names the user gave RCS people; null leaves them out. */
+    private val contacts: com.ericflo.winnow.data.ContactLookup? = null,
+    /** Models designed in the Lab; null leaves them out. */
+    private val lab: com.ericflo.winnow.classify.ModelLab? = null,
 ) {
     /** Keys for protected files the user gave the password of, while they're being restored. */
     private val unlocked = java.util.concurrent.ConcurrentHashMap<Uri, BackupCrypto.Key>()
@@ -333,6 +337,8 @@ class BackupManager(
             corrections = corrections.all().map { c ->
                 CorrectionBackup(c.buckets.split(',').mapNotNull(String::toIntOrNull), c.label, c.featurizerVersion, c.createdAt, c.messageKey, c.source)
             },
+            names = contacts?.givenNames().orEmpty(),
+            labRecipes = lab?.entries?.value.orEmpty().map { LabRecipeBackup(it.id, it.name, it.recipe, it.createdAt) },
         )
         var saved = 0
         report(BackupStatus.Working("Saving the backup", 0, media.size))
@@ -514,6 +520,11 @@ class BackupManager(
             }
             val backup = openArchive(uri).use { input ->
                 BackupArchive.read(input) { name, stream -> File(spool, name).outputStream().use { stream.copyTo(it) } }
+            }
+
+            contacts?.restoreGivenNames(backup.names)?.takeIf { it > 0 }?.let { restored += plural(it, "name") + " you gave people" }
+            lab?.restore(backup.labRecipes.map { Triple(it.id, it.name, it.recipe to it.createdAt) })?.takeIf { it > 0 }?.let {
+                restored += plural(it, "Lab model") + " (to train again)"
             }
 
             val known = verdicts.allSenderRules().mapTo(HashSet()) { it.address }

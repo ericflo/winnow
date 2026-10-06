@@ -110,6 +110,14 @@ class ModelLab(
 
     private fun update(id: String, change: (Entry) -> Entry) = save(_entries.value.map { if (it.id == id) change(it) else it })
 
+    /** Designs from a backup not here already (by id), untrained: how many were added. */
+    fun restore(designs: List<Triple<String, String, Pair<Recipe, Long>>>): Int {
+        val have = _entries.value.mapTo(HashSet()) { it.id }
+        val fresh = designs.filter { it.first !in have }.map { (id, name, rc) -> Entry(id, name, rc.first, rc.second) }
+        if (fresh.isNotEmpty()) save(_entries.value + fresh)
+        return fresh.size
+    }
+
     fun create(name: String, recipe: Recipe): Entry {
         val entry = Entry(java.lang.Long.toHexString(System.nanoTime()).takeLast(6), name.trim().ifEmpty { recipe.describe() }, recipe, System.currentTimeMillis())
         save(_entries.value + entry)

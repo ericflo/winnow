@@ -410,6 +410,8 @@ class AppContainer(private val context: Context) {
             drafts = draftAttachments,
             reminders = reminders,
             password = backupPassword,
+            contacts = contacts,
+            lab = modelLab,
         )
     }
 

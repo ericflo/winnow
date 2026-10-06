@@ -27,6 +27,10 @@ data class WinnowBackup(
     val conversations: List<ConversationBackup> = emptyList(),
     val scheduled: List<ScheduledBackup> = emptyList(),
     val corrections: List<CorrectionBackup> = emptyList(),
+    /** Names the user gave people Winnow can't name itself (RCS ids), by address. */
+    val names: Map<String, String> = emptyMap(),
+    /** Models the user designed in the Lab: their recipes, trained again after a restore. */
+    val labRecipes: List<LabRecipeBackup> = emptyList(),
 ) {
     val messageCount: Int get() = conversations.sumOf { it.messages.size }
 
@@ -311,3 +315,7 @@ object BackupArchive {
     internal fun safeName(name: String): String? =
         name.takeIf { it.isNotEmpty() && it != "." && it != ".." && '/' !in it && '\\' !in it }
 }
+
+/** A Lab model's design (see ModelLab): its name and recipe, not the trained model or its scores. */
+@Serializable
+data class LabRecipeBackup(val id: String, val name: String, val recipe: com.ericflo.winnow.classifier.local.Recipe, val createdAt: Long)

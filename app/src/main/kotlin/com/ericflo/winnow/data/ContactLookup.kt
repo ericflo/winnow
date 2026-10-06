@@ -56,6 +56,18 @@ class ContactLookup(private val context: Context, private val scope: CoroutineSc
 
     fun givenName(address: String): String? = namesPrefs.getString(address.trim().lowercase(), null)
 
+    /** Every name the user gave, by address, for backups. */
+    fun givenNames(): Map<String, String> = namesPrefs.all.mapNotNull { (k, v) -> (v as? String)?.let { k to it } }.toMap()
+
+    /** Names from a backup, for addresses not named here already; how many were added. */
+    fun restoreGivenNames(given: Map<String, String>): Int {
+        val fresh = given.filterKeys { namesPrefs.getString(it.trim().lowercase(), null) == null }.filterValues { it.isNotBlank() }
+        if (fresh.isEmpty()) return 0
+        namesPrefs.edit().apply { fresh.forEach { (k, v) -> putString(k.trim().lowercase(), v.trim()) } }.apply()
+        names.update { it + 1 }
+        return fresh.size
+    }
+
     /** Names [address] (null takes the name away); every list showing them reads names again. */
     fun setGivenName(address: String, name: String?) {
         namesPrefs.edit().apply { if (name.isNullOrBlank()) remove(address.trim().lowercase()) else putString(address.trim().lowercase(), name.trim()) }.apply()

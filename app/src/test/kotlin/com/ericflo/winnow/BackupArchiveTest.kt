@@ -3,6 +3,7 @@ package com.ericflo.winnow
 import com.ericflo.winnow.backup.BackupArchive
 import com.ericflo.winnow.backup.ConversationBackup
 import com.ericflo.winnow.backup.CorrectionBackup
+import com.ericflo.winnow.backup.LabRecipeBackup
 import com.ericflo.winnow.backup.MessageBackup
 import com.ericflo.winnow.backup.PartBackup
 import com.ericflo.winnow.backup.SenderRuleBackup
@@ -74,6 +75,23 @@ class BackupArchiveTest {
         assertEquals(backup, BackupArchive.peek(ByteArrayInputStream(out.toByteArray())))
         val manifest = java.util.zip.ZipInputStream(ByteArrayInputStream(out.toByteArray())).use { it.nextEntry; it.readBytes().decodeToString() }
         assert(manifest.startsWith("{\"format\":${WinnowBackup.FORMAT},")) { manifest.take(40) }
+    }
+
+    @Test
+    fun `names given to rcs people and lab designs travel too, and older backups without them still read`() {
+        val withMore = backup.copy(
+            names = mapOf("3f9a0c1d2e4b5a69@rcs.google.com" to "Aunt Pat"),
+            labRecipes = listOf(LabRecipeBackup("d5c2a3", "Neural, deeper", com.ericflo.winnow.classifier.local.Recipe.PRESETS[2].second, 7)),
+        )
+        val out = ByteArrayOutputStream()
+        BackupArchive.write(out, withMore) { null }
+        assertEquals(withMore, BackupArchive.read(ByteArrayInputStream(out.toByteArray())) { _, _ -> })
+        // One made before either existed reads with none.
+        val old = ByteArrayOutputStream()
+        BackupArchive.write(old, backup) { null }
+        val read = BackupArchive.read(ByteArrayInputStream(old.toByteArray())) { _, _ -> }
+        assertEquals(emptyMap<String, String>(), read.names)
+        assertEquals(emptyList<LabRecipeBackup>(), read.labRecipes)
     }
 
     @Test
