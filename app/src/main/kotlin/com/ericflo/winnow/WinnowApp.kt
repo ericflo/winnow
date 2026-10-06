@@ -167,6 +167,8 @@ class AppContainer(private val context: Context) {
     val modelKeeper by lazy {
         com.ericflo.winnow.classify.ModelKeeper(learner, fitDao, com.ericflo.winnow.classify.ModelSnapshots(java.io.File(context.filesDir, "model-fits")))
     }
+    /** Scoring models on the user's labels (the Model screen's Evaluate tab), app-wide so it outlives the screen. */
+    val evaluations by lazy { com.ericflo.winnow.ui.model.Evaluations(this, appScope) }
     /** Asking the service about the user's labeled texts with and without their examples (see ExamplesExperiment). */
     val examplesExperiment by lazy {
         com.ericflo.winnow.classify.ExamplesExperiment(

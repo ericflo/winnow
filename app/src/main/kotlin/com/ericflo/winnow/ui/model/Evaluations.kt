@@ -68,9 +68,19 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
 
     private var job: Job? = null
 
-    /** Scores [picks] on the user's labels, one after another, keeping each as it's done. */
+    private val _finishedAt = MutableStateFlow<Long?>(null)
+    /** When the last scoring ran to its end (not stopped, not failed). */
+    val finishedAt: StateFlow<Long?> = _finishedAt.asStateFlow()
+
+    /**
+     * Scores [picks] on the user's labels, one after another, keeping each as it's done. It keeps
+     * going when the user leaves the screen or Winnow (see ModelWorkService).
+     */
     fun run(picks: List<Pick>, serviceName: String) {
         if (job?.isActive == true || picks.isEmpty()) return
+        // Under way before anything watches for it: the service keeping it going stops when it isn't.
+        _progress.value = "Reading your labels…"
+        com.ericflo.winnow.classify.ModelWorkService.start(container.appContext)
         job = scope.launch {
             val at = System.currentTimeMillis()
             _error.value = null
@@ -90,6 +100,7 @@ class Evaluations(private val container: AppContainer, private val scope: Corout
                     }
                     keep(at, result)
                 }
+                _finishedAt.value = System.currentTimeMillis()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

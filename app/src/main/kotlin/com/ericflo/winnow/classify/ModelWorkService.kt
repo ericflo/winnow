@@ -24,9 +24,9 @@ import kotlin.math.roundToInt
 
 /**
  * Keeps work on Winnow's model going when the user leaves Winnow or the screen goes off:
- * training a Lab model on their labels (see [ModelLab]), and the examples test, asking the
- * classifier service about their labeled texts (see [ExamplesExperiment]). Either can take
- * minutes, and Android freezes an app in the background within about a minute, and may end it,
+ * training a Lab model on their labels (see [ModelLab]), the examples test, asking the
+ * classifier service about their labeled texts (see [ExamplesExperiment]), and scoring models
+ * on their labels (see Evaluations). Each can take minutes, and Android freezes an app in the background within about a minute, and may end it,
  * losing the run (and, for the test, requests already paid for). A foreground service of the
  * data-sync kind (local processing, and requests to the service), with the work's progress
  * and a Stop button in a notification, and a partial wake lock so it keeps going with the
@@ -41,6 +41,7 @@ class ModelWorkService : Service() {
     private val container get() = (application as WinnowApp).container
     private val lab get() = container.modelLab
     private val experiment get() = container.examplesExperiment
+    private val evaluations get() = container.evaluations
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -48,6 +49,7 @@ class ModelWorkService : Service() {
         if (intent?.action == ACTION_STOP) {
             lab.cancel()
             experiment.stop()
+            evaluations.cancel()
             return START_NOT_STICKY
         }
         BootstrapService.createChannel(this)
@@ -64,7 +66,9 @@ class ModelWorkService : Service() {
             // When it was last trained before this: a training that ends with a new time finished.
             var trainedBefore: Long? = null
             var testing = false
-            combine(lab.status, experiment.status, ::Pair).collectLatest { (l, e) ->
+            var scoring = false
+            var scoringFinishedBefore: Long? = null
+            combine(lab.status, experiment.status, evaluations.progress, ::Triple).collectLatest { (l, e, scored) ->
                 // Training: how it ended, when it has.
                 if (l is ModelLab.Status.Running && training == null) {
                     clearFinished(this@ModelWorkService, LAB)
@@ -90,6 +94,19 @@ class ModelWorkService : Service() {
                     if (e is ExperimentStatus.Finished && !e.stopped && !visible()) notify(NOTIFICATION_TEST_DONE, tested(e))
                     testing = false
                 }
+                // Scoring on the Evaluate tab: how it ended, when it has.
+                if (scored != null && !scoring) {
+                    clearFinished(this@ModelWorkService, EVALUATE)
+                    scoring = true
+                    scoringFinishedBefore = evaluations.finishedAt.value
+                } else if (scored == null && scoring) {
+                    val error = evaluations.error.value
+                    val finished = evaluations.finishedAt.value.let { it != null && it != scoringFinishedBefore }
+                    if (!visible() && (error != null || finished)) {
+                        notify(NOTIFICATION_TEST_DONE, finished(if (error != null) "Scoring stopped" else "Your models are scored", error ?: "On your labels: see how each did.", EVALUATE))
+                    }
+                    scoring = false
+                }
                 when {
                     l is ModelLab.Status.Running -> notify(NOTIFICATION_RUNNING, progress("Training ${nameOf(l.id) ?: "a model"}", l.what, l.progress, LAB))
                     e is ExperimentStatus.Running -> notify(
@@ -101,6 +118,7 @@ class ModelWorkService : Service() {
                             EVALUATE,
                         ),
                     )
+                    scored != null -> notify(NOTIFICATION_RUNNING, progress("Scoring on your labels", scored, 0f, EVALUATE))
                     else -> stop()
                 }
             }
@@ -113,6 +131,7 @@ class ModelWorkService : Service() {
     override fun onTimeout(startId: Int, fgsType: Int) {
         lab.cancel()
         experiment.stop()
+        evaluations.cancel()
         stop()
     }
 

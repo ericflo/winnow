@@ -178,7 +178,7 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
     val fits: StateFlow<List<ModelFitEntity>?> = container.fitDao.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Scoring models on the user's labels (see the Evaluate tab). */
-    val evals = Evaluations(container, viewModelScope)
+    val evals = container.evaluations
 
     /** Models the user designs and trains here (see ModelLab and the Lab tab). */
     val lab = container.modelLab
