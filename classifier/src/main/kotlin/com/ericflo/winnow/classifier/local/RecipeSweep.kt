@@ -22,6 +22,7 @@ enum class Knob(val key: String, val meaning: String, val values: List<String>, 
     L2("l2", "How hard every weight is pulled toward zero.", listOf("0", "1e-8", "1e-7", "1e-6", "1e-5", "1e-4", "1e-3")),
     WORDS_OUT("words_left_out", "The share of a text's words left out of each training step, a different few each time.", listOf("0", "0.15", "0.3", "0.45", "0.6")),
     PIECES("word_pieces", "Also learn from four-letter pieces of words, so words sharing a stem share what's learned.", listOf("no", "yes")),
+    CROSSES("words_by_sender", "Also learn each word as from the kind of sender it came from (a business, a stranger, someone the person texts), so a word can mean different things from each.", listOf("no", "yes")),
     CONTEXT("context", "Also learn from when each text came and what came before it in its conversation: time of day, weekday or weekend, the first text or an answer to the person's, how much came before, how long since the last.", listOf("no", "yes")),
     USER_WEIGHT("user_label_weight", "How much each of the person's own labels counts against one shipped example.", listOf("1", "2", "3", "5", "8", "12", "20")),
     SERVICE_WEIGHT("service_label_weight", "How much each of the classifier service's labels counts; 0 leaves them out.", listOf("0", "0.05", "0.15", "0.35", "0.7", "1", "1.5")),
@@ -62,6 +63,7 @@ object SweepSpace {
             inputDropout = v(Knob.WORDS_OUT).toDouble(),
             pieces = v(Knob.PIECES) == "yes",
             context = v(Knob.CONTEXT) == "yes",
+            crosses = v(Knob.CROSSES) == "yes",
             includeCorpus = corpus > 0,
             corpusWeight = if (corpus > 0) corpus else 1.0,
             userWeight = v(Knob.USER_WEIGHT).toDouble(),
@@ -97,6 +99,7 @@ object SweepSpace {
             Knob.WORDS_OUT to nearest(Knob.WORDS_OUT, recipe.inputDropout),
             Knob.PIECES to if (recipe.pieces) "yes" else "no",
             Knob.CONTEXT to if (recipe.context) "yes" else "no",
+            Knob.CROSSES to if (recipe.crosses) "yes" else "no",
             Knob.USER_WEIGHT to nearest(Knob.USER_WEIGHT, recipe.userWeight),
             Knob.SERVICE_WEIGHT to nearest(Knob.SERVICE_WEIGHT, recipe.serviceWeight),
             Knob.CORPUS_WEIGHT to if (recipe.includeCorpus) nearest(Knob.CORPUS_WEIGHT, recipe.corpusWeight) else "0",
@@ -125,15 +128,17 @@ object SweepSpace {
         // The rest of each conversation the person has labeled one way: many more of their own texts to learn from.
         settings("linear", buckets = "65536", epochs = "60", step = "0.2", l2 = "1e-5", conversations = "0.25"),
         settings("linear", buckets = "131072", epochs = "60", step = "0.2", l2 = "1e-5", wordsOut = "0.15", conversations = "0.25", context = "yes"),
+        // Words by the kind of sender they came from: what a linear model can't combine on its own.
+        settings("linear", buckets = "131072", epochs = "60", step = "0.2", l2 = "1e-5", crosses = "yes"),
     )
 
     private fun settings(
         kind: String, layers: String = "64", wide: String = "yes", dropout: String = "0", buckets: String, epochs: String, step: String, l2: String,
         wordsOut: String = "0", pieces: String = "no", user: String = "3", service: String = "0.35", corpus: String = "1", balance: String = "yes",
-        bags: String = "1", context: String = "no", conversations: String = "0",
+        bags: String = "1", context: String = "no", conversations: String = "0", crosses: String = "no",
     ) = mapOf(
         Knob.KIND to kind, Knob.LAYERS to layers, Knob.WIDE to wide, Knob.DROPOUT to dropout, Knob.BAGS to bags, Knob.BUCKETS to buckets, Knob.EPOCHS to epochs,
-        Knob.STEP to step, Knob.L2 to l2, Knob.WORDS_OUT to wordsOut, Knob.PIECES to pieces, Knob.CONTEXT to context, Knob.USER_WEIGHT to user,
+        Knob.STEP to step, Knob.L2 to l2, Knob.WORDS_OUT to wordsOut, Knob.PIECES to pieces, Knob.CONTEXT to context, Knob.CROSSES to crosses, Knob.USER_WEIGHT to user,
         Knob.SERVICE_WEIGHT to service, Knob.CORPUS_WEIGHT to corpus, Knob.CONVERSATION_WEIGHT to conversations, Knob.BALANCE to balance,
     )
 }
@@ -167,6 +172,8 @@ data class SweepRound(
     val costUsd: Double = 0.0,
     /** Anything the user should know: the service couldn't be reached, say, and the phone steered instead. */
     val note: String? = null,
+    /** How the round's tries were made from the odds: jitters from the best, steered, exploring. */
+    val made: String? = null,
 )
 
 @Serializable
@@ -182,6 +189,12 @@ class SweepState(
     val serviceLabels: Int,
     /** Other texts in the person's conversations whose labels all agree (see [Knob.CONVERSATION_WEIGHT]). */
     val conversationTexts: Int = 0,
+    /** How many tries have had each value of each knob. */
+    val counts: Map<Knob, Map<String, Int>> = emptyMap(),
+    /** Each round's steering so far: what it leaned toward. */
+    val earlierRounds: List<SweepRound> = emptyList(),
+    /** Rounds since the best last gained half a point or more (or since the start). */
+    val stalled: Int = 0,
     val trials: List<SweepTrial>,
     val round: Int,
     val roundsLeft: Int,
@@ -227,15 +240,34 @@ object LocalSteerer : Steerer {
 /** Draws a round's tries from a steering's odds. */
 object SweepSampler {
     /**
-     * [n] new tries: half from the best so far with a knob or two moved where the odds lean, half
-     * drawn from the odds outright. Never one already [tried], never a recipe that can't train.
+     * [n] new tries in three parts, so no round only refines one point: jitters (the best with a
+     * knob or two a step or two along its values), steered (from the odds: half the best moved
+     * where they lean, half drawn outright), and explorers (each knob's least-tried values; once
+     * the best has [stalled] two rounds, as often the other kind of model). More explorers once it
+     * has stalled at all. Never one already [tried], never a recipe that can't train.
      */
-    fun round(odds: Map<Knob, Map<String, Double>>, best: Map<Knob, String>?, tried: Set<String>, n: Int, random: Random): List<Map<Knob, String>> {
+    fun round(
+        odds: Map<Knob, Map<String, Double>>,
+        best: Map<Knob, String>?,
+        tried: Set<String>,
+        n: Int,
+        random: Random,
+        counts: Map<Knob, Map<String, Int>> = emptyMap(),
+        stalled: Int = 0,
+    ): List<Map<Knob, String>> {
+        val (jitters, explorers) = split(n, best != null, stalled)
+        val parts = List(jitters) { Part.JITTER } + List(n - jitters - explorers) { Part.STEERED } + List(explorers) { Part.EXPLORE }
         val out = mutableListOf<Map<Knob, String>>()
         val taken = tried.toHashSet()
-        repeat(n) { i ->
+        for (part in parts.take(n)) {
             for (attempt in 0 until 200) {
-                val s = if (best != null && i < (n + 1) / 2) nudge(complete(best, odds, random), odds, random) else draw(odds, random)
+                val s = when {
+                    best == null -> draw(odds, random)
+                    part == Part.JITTER -> jitter(complete(best, odds, random), random)
+                    part == Part.EXPLORE -> explore(counts, best, stalled, random)
+                    random.nextBoolean() -> nudge(complete(best, odds, random), odds, random)
+                    else -> draw(odds, random)
+                }
                 val key = SweepSpace.keyOf(s)
                 if (key in taken || SweepSpace.recipeOf(s).problem() != null) continue
                 taken += key
@@ -243,6 +275,49 @@ object SweepSampler {
                 break
             }
         }
+        return out
+    }
+
+    private enum class Part { JITTER, STEERED, EXPLORE }
+
+    /** Of [n] tries, how many jitter from the best and how many explore (the rest are steered). Two or fewer are all steered. */
+    fun split(n: Int, fromBest: Boolean, stalled: Int): Pair<Int, Int> {
+        if (!fromBest || n <= 2) return 0 to 0
+        val explorers = (if (stalled >= 1) maxOf(2, n * 3 / 8) else maxOf(1, n / 4)).coerceAtMost(n - 1)
+        val jitters = maxOf(1, n * 3 / 8).coerceAtMost(n - explorers)
+        return jitters to explorers
+    }
+
+    /** [best] with one or two of its knobs (never its kind) a step or two along their values, either way. */
+    private fun jitter(best: Map<Knob, String>, random: Random): Map<Knob, String> {
+        val neural = best[Knob.KIND] == "neural"
+        val movable = Knob.entries.filter { it != Knob.KIND && it.usedBy(neural) }
+        val out = best.toMutableMap()
+        repeat(1 + random.nextInt(2)) {
+            val knob = movable[random.nextInt(movable.size)]
+            val at = knob.values.indexOf(out[knob]).coerceAtLeast(0)
+            val step = (1 + random.nextInt(2)) * (if (random.nextBoolean()) 1 else -1)
+            val to = (at + step).let { if (it !in knob.values.indices) at - step else it }.coerceIn(knob.values.indices)
+            out[knob] = knob.values[to]
+        }
+        return out
+    }
+
+    /**
+     * Each knob at its least-tried values, most likely, the slowest a little less (many passes, the
+     * widest networks: a phone's minutes); stalled two rounds, the other kind of model half the time.
+     */
+    private fun explore(counts: Map<Knob, Map<String, Int>>, best: Map<Knob, String>, stalled: Int, random: Random): Map<Knob, String> {
+        fun slowness(k: Knob, v: String): Double = when (k) {
+            Knob.EPOCHS -> maxOf(1.0, v.toDouble() / 30)
+            Knob.LAYERS -> maxOf(1.0, v.split('-').sumOf(String::toInt) / 96.0)
+            Knob.BAGS -> v.toDouble()
+            else -> 1.0
+        }
+        val out = Knob.entries.associateWith { k ->
+            weighted(k.values.associateWith { v -> 1.0 / Math.pow(1.0 + (counts[k]?.get(v) ?: 0), 2.0) / slowness(k, v) }, random)
+        }.toMutableMap()
+        if (stalled >= 2 && random.nextBoolean()) out[Knob.KIND] = if (best[Knob.KIND] == "neural") "linear" else "neural"
         return out
     }
 
@@ -277,6 +352,46 @@ object SweepSampler {
             if (x <= 0) return k
         }
         return odds.keys.last()
+    }
+}
+
+/**
+ * A steering's odds made to explore, whoever gave them: flattened (the square root of each), no
+ * value above [cap] for its knob, values tried less counting more (one never tried, twice), and a
+ * value the steering leaned toward last round as well, that's the best try's already, at half.
+ * So a steering that leans the same way round after round still has its rounds look around.
+ */
+object SweepExploration {
+    fun cap(values: Int) = maxOf(0.5, 1.5 / values)
+
+    fun shape(
+        odds: Map<Knob, Map<String, Double>>,
+        counts: Map<Knob, Map<String, Int>>,
+        previousTop: Map<Knob, String>?,
+        best: Map<Knob, String>?,
+    ): Map<Knob, Map<String, Double>> = Knob.entries.associateWith { k ->
+        val raw = odds[k]?.filterKeys { it in k.values }?.takeIf { it.isNotEmpty() } ?: k.values.associateWith { 1.0 / k.values.size }
+        val repeat = previousTop?.get(k)?.takeIf { it == best?.get(k) }
+        val w = k.values.associateWith { v ->
+            kotlin.math.sqrt((raw[v] ?: 0.0).coerceAtLeast(1e-6)) *
+                (1.0 + 1.0 / (1 + (counts[k]?.get(v) ?: 0))) *
+                (if (v == repeat) 0.5 else 1.0)
+        }
+        capped(w.mapValues { it.value / w.values.sum() }, cap(k.values.size))
+    }
+
+    /** [p] with none above [cap], the excess shared among the rest by their odds. */
+    private fun capped(p: Map<String, Double>, cap: Double): Map<String, Double> {
+        var q = p
+        repeat(p.size) {
+            val over = q.filterValues { it > cap + 1e-12 }
+            if (over.isEmpty()) return q
+            val excess = over.values.sumOf { it - cap }
+            val rest = q.filterKeys { it !in over }
+            val restSum = rest.values.sum()
+            q = q.mapValues { (v, x) -> if (v in over) cap else if (restSum > 0) x + excess * x / restSum else x + excess / rest.size }
+        }
+        return q
     }
 }
 
@@ -413,7 +528,7 @@ class RecipeSweep(
      * of gaining, after at least half the rounds; never, when false.
      */
     @Serializable
-    data class Plan(val rounds: Int = 8, val perRound: Int = 8, val steeringCalls: Int = 8, val seed: Int = 7, val endEarly: Boolean = true)
+    data class Plan(val rounds: Int = 8, val perRound: Int = 8, val steeringCalls: Int = 8, val seed: Int = 7, val endEarly: Boolean = false)
 
     sealed interface Event {
         data class Trying(val round: Int, val n: Int, val of: Int, val recipe: Recipe) : Event
@@ -485,6 +600,12 @@ class RecipeSweep(
         fixed.forEach { tryOne(0, ++n, firstCount, SweepSpace.recipeOf(it), "start") }
         more.forEach { (from, recipe) -> tryOne(0, ++n, firstCount, recipe, from) }
         var lowRounds = 0
+        var previousTop: Map<Knob, String>? = null
+        var stalled = 0
+        var bestBefore = trials.maxOfOrNull { it.accuracy } ?: 0.0
+        fun counts(): Map<Knob, Map<String, Int>> = Knob.entries.associateWith { k ->
+            trials.mapNotNull { it.settings?.get(k.key) }.groupingBy { it }.eachCount()
+        }
 
         for (round in 1..plan.rounds) {
             // Nothing could be scored (too few conversations): nothing to steer by, nothing to pay for.
@@ -496,6 +617,7 @@ class RecipeSweep(
                 shippedExamples = scorer.others.count { it.source == TrainingItem.Source.CORPUS },
                 serviceLabels = scorer.others.count { it.source == TrainingItem.Source.SERVICE },
                 conversationTexts = scorer.others.count { it.source == TrainingItem.Source.CONVERSATION },
+                counts = counts(), earlierRounds = rounds.toList(), stalled = stalled,
                 trials = trials.toList(), round = round, roundsLeft = plan.rounds - round,
             )
             // Every call counts against the cap, answered or not: a failed one may be paid for too.
@@ -514,11 +636,17 @@ class RecipeSweep(
             } else {
                 LocalSteerer.steer(state)
             }
+            val best = trials.filter { it.settings != null }.maxByOrNull { it.accuracy }?.settings?.mapKeys { Knob.byKey(it.key)!! }
+            // Whatever the steering said, the round explores (see SweepExploration, SweepSampler.round).
+            val shaped = SweepExploration.shape(steering.odds, counts(), previousTop, best)
+            val next = SweepSampler.round(shaped, best, tried, plan.perRound, random, counts(), stalled)
             rounds += SweepRound(
                 round, steering.by,
                 leaning = steering.odds.map { (k, o) -> o.maxBy { it.value }.let { (v, p) -> Lean(k.key, v, p) } },
                 more = steering.more, costUsd = steering.costUsd, note = steering.note,
+                made = madeOf(next.size, best != null, stalled, plan.perRound),
             ).also { onEvent(Event.Steered(it)) }
+            previousTop = steering.odds.mapValues { (_, o) -> o.maxBy { it.value }.key }
             // Told twice running there's almost nothing left to gain, past half its rounds: done,
             // without spending more. Anything less, it keeps looking.
             lowRounds = if (steering.more < END_BELOW) lowRounds + 1 else 0
@@ -526,24 +654,37 @@ class RecipeSweep(
                 stoppedEarly = true
                 break
             }
-            val best = trials.filter { it.settings != null }.maxByOrNull { it.accuracy }?.settings?.mapKeys { Knob.byKey(it.key)!! }
-            val next = SweepSampler.round(steering.odds, best, tried, plan.perRound, random)
             next.forEachIndexed { i, s ->
                 tried += SweepSpace.keyOf(s)
                 tryOne(round, i + 1, next.size, SweepSpace.recipeOf(s), steering.by)
             }
+            val bestNow = trials.maxOfOrNull { it.accuracy } ?: 0.0
+            stalled = if (bestNow >= bestBefore + STALL_GAIN) 0 else stalled + 1
+            bestBefore = maxOf(bestBefore, bestNow)
         }
 
         // A blend is picked and weighed on the very scores it's judged by: kept only when clearly ahead.
         val bestAlone = trials.maxOfOrNull { it.accuracy } ?: 0.0
         val blend = if (stopped()) null else scorer.blend(library)?.takeIf { it.accuracy >= bestAlone + BLEND_MARGIN }?.let { b ->
-            val millis = b.recipe.members.sumOf { m -> trials.firstOrNull { it.recipe.copy(senderMemory = 0.0) == m }?.millis ?: 0 }
+            val millis = b.recipe.members.sumOf { m -> trials.firstOrNull { it.recipe.copy(senderMemory = 0.0, classBias = emptyList()) == m }?.millis ?: 0 }
             keep(plan.rounds + 1, b, millis, "blend")
         }
         return Result(trials.sortedByDescending { it.accuracy }, rounds, blend, calls, failed, cost, stoppedEarly)
     }
 
+    /** What a round's tries were, in words (mirrors SweepSampler.round's split). */
+    private fun madeOf(made: Int, fromBest: Boolean, stalled: Int, n: Int): String {
+        val (jitters, explorers) = SweepSampler.split(n, fromBest, stalled)
+        if (jitters == 0 && explorers == 0) return "$made drawn from the odds"
+        val steered = n - jitters - explorers
+        return "$jitters a step or two from the best, $steered steered, $explorers exploring the least-tried settings" +
+            (if (stalled >= 2) ", some the other kind of model" else "") + (if (stalled >= 1) " (the best had stalled)" else "")
+    }
+
     companion object {
+        /** What counts as the best gaining, for exploring more when it hasn't: half a point. */
+        const val STALL_GAIN = 0.005
+
         /** Leanings tried for each category, and how many times round them all. */
         val LEANS = (-8..8).map { it * 0.25 }
         const val LEAN_PASSES = 2

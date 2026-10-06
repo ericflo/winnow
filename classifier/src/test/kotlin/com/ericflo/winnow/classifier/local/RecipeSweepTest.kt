@@ -187,17 +187,17 @@ class RecipeSweepTest {
     fun theSweepEndsEarlyOnlyWhenTheSteeringTwiceSeesAlmostNothingLeft() = runBlocking {
         // Twice under 10%, half its rounds done: it ends.
         val nothing = FakeProvider(more = 0.05)
-        val ended = RecipeSweep(scorer(), ServiceSteerer(nothing), RecipeSweep.Plan(rounds = 4, perRound = 1, steeringCalls = 4)).run(emptyList())
+        val ended = RecipeSweep(scorer(), ServiceSteerer(nothing), RecipeSweep.Plan(rounds = 4, perRound = 1, steeringCalls = 4, endEarly = true)).run(emptyList())
         assertTrue(ended.stoppedEarly)
         assertEquals(2, nothing.calls)
         assertEquals(2, ended.rounds.size)
         // 19% (as a real sweep's steering said) isn't nothing: it keeps looking, every round.
         val little = FakeProvider(more = 0.19)
-        val kept = RecipeSweep(scorer(), ServiceSteerer(little), RecipeSweep.Plan(rounds = 4, perRound = 1, steeringCalls = 4)).run(emptyList())
+        val kept = RecipeSweep(scorer(), ServiceSteerer(little), RecipeSweep.Plan(rounds = 4, perRound = 1, steeringCalls = 4, endEarly = true)).run(emptyList())
         assertFalse(kept.stoppedEarly)
         assertEquals(4, kept.rounds.size)
-        // Told not to end early, it never does.
-        val never = RecipeSweep(scorer(), ServiceSteerer(FakeProvider(more = 0.0)), RecipeSweep.Plan(rounds = 3, perRound = 1, steeringCalls = 3, endEarly = false)).run(emptyList())
+        // Unless told it may (it isn't, to start), it never ends early.
+        val never = RecipeSweep(scorer(), ServiceSteerer(FakeProvider(more = 0.0)), RecipeSweep.Plan(rounds = 3, perRound = 1, steeringCalls = 3)).run(emptyList())
         assertFalse(never.stoppedEarly)
         assertEquals(3, never.rounds.size)
     }
@@ -319,7 +319,82 @@ class RecipeSweepTest {
         assertNotNull(Recipe(classBias = listOf(1.0)).problem())
     }
 
-    private class FakeProvider(private val fail: Boolean = false, private val more: Double = 0.8) : DecisionProvider {
+    @Test
+    fun wordsBySenderLearnWhatAWordMeansFromEachKindOfSender() {
+        val f = SenderCrosses.expand(listOf("__sender_short_code__", "w:appointment", "b:your appointment"))
+        assertTrue("x:short_code|appointment" in f && f.none { it.startsWith("x:") && "your" in it })
+        assertTrue("x:phone_number+you|tonight" in SenderCrosses.expand(listOf("__sender_phone_number__", "__known__", "w:tonight")))
+        // The same two words, opposite things from a business and from someone you text: words
+        // alone can't say; words by sender can.
+        val reminder = classes.indexOf("reminder")
+        val personal = classes.indexOf("personal")
+        val items = (0 until 120).map { i ->
+            val business = i % 2 == 0
+            val word = if (i % 4 < 2) "w:pickup" else "w:tomorrow"
+            val label = if (business == (word == "w:pickup")) reminder else personal
+            val kind = if (business) listOf("__sender_short_code__") else listOf("__sender_phone_number__", "__known__")
+            TrainingItem(kind + word + "w:filler${i % 7}", null, label, 1.0, group = (i / 2).toLong(), key = "sms:x$i", source = TrainingItem.Source.USER)
+        }
+        val plain = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 12, epochs = 20, learningRate = 0.2, includeCorpus = false)
+        fun accuracy(r: Recipe) = RecipeTrainer.crossValidate(r, base, items, emptyList()).count { (i, l) -> l.indices.maxBy { l[it] } == items[i].label }.toDouble() / items.size
+        assertTrue(accuracy(plain.copy(crosses = true)) > 0.95, "by sender ${accuracy(plain.copy(crosses = true))}")
+        assertTrue(accuracy(plain) < 0.8, "words alone ${accuracy(plain)}")
+        // It reads each new text the same way, and is kept and read back whole.
+        val model = RecipeTrainer.train(plain.copy(crosses = true), base, items)
+        assertTrue(model is CrossesPredictor)
+        val p = model.probabilities(items[0].features!!)
+        val q = LocalModel.softmax(RecipeTrainer.logits(model, items[0])!!)
+        p.indices.forEach { assertEquals(p[it], q[it], 1e-9) }
+        val bytes = java.io.ByteArrayOutputStream().also { LabModelFile.write(plain.copy(crosses = true), model, 1f, it) }.toByteArray()
+        assertTrue(LabModelFile.read(plain.copy(crosses = true), java.io.ByteArrayInputStream(bytes)) is CrossesPredictor)
+    }
+
+    @Test
+    fun oddsAreSpreadSoARoundLooksAround() {
+        // A steering sure of one value: none ends up above half, and values tried less count more.
+        val sure = mapOf(Knob.EPOCHS to Knob.EPOCHS.values.associateWith { if (it == "60") 0.98 else 0.02 / (Knob.EPOCHS.values.size - 1) })
+        val counts = mapOf(Knob.EPOCHS to mapOf("60" to 9, "20" to 3))
+        val shaped = SweepExploration.shape(sure, counts, previousTop = null, best = null).getValue(Knob.EPOCHS)
+        assertEquals(1.0, shaped.values.sum(), 1e-9)
+        assertTrue(shaped.values.all { it <= 0.5 + 1e-9 }, shaped.toString())
+        assertTrue(shaped.getValue("100") > shaped.getValue("20"))
+        // Leaning toward the best's value again, round after round, counts for half of that.
+        val leaning = mapOf(Knob.EPOCHS to Knob.EPOCHS.values.associateWith { if (it == "60") 0.6 else 0.4 / (Knob.EPOCHS.values.size - 1) })
+        val again = SweepExploration.shape(leaning, emptyMap(), previousTop = mapOf(Knob.EPOCHS to "60"), best = mapOf(Knob.EPOCHS to "60")).getValue(Knob.EPOCHS)
+        assertTrue(again.getValue("60") < SweepExploration.shape(leaning, emptyMap(), null, null).getValue(Knob.EPOCHS).getValue("60"))
+    }
+
+    @Test
+    fun aRoundJittersFromTheBestAndExploresTheLeastTried() {
+        val best = SweepSpace.STARTS[2]
+        val uniform = Knob.entries.associateWith { k -> k.values.associateWith { 1.0 } }
+        val round = SweepSampler.round(uniform, best, setOf(SweepSpace.keyOf(best)), 8, Random(3), stalled = 2)
+        assertEquals(8, round.size)
+        fun distance(s: Map<Knob, String>) = Knob.entries.count { k -> k.usedBy(best[Knob.KIND] == "neural") && s[k] != best[k] }
+        // Jitters: a knob or two from the best.
+        assertTrue(round.count { distance(it) <= 2 } >= 3, round.map(::distance).toString())
+        // Explorers: far from it.
+        assertTrue(round.any { distance(it) >= 5 }, round.map(::distance).toString())
+    }
+
+    @Test
+    fun aSteeringThatLeansTheSameWayEveryRoundStillHasTheSweepLookAround() = runBlocking {
+        // Like a real sweep's: 92-99% on one point, five rounds running.
+        val stuck = FakeProvider(sure = mapOf("passes" to "60", "step" to "0.2", "buckets" to "65536", "l2" to "1e-5", "service_label_weight" to "0.35", "kind" to "linear"))
+        val result = RecipeSweep(scorer(), ServiceSteerer(stuck), RecipeSweep.Plan(rounds = 3, perRound = 6, steeringCalls = 3)).run(emptyList())
+        val steered = result.trials.filter { it.round >= 1 && it.settings != null }
+        assertTrue(steered.size >= 15)
+        // Far from all on that point: several passes, steps and kinds tried.
+        assertTrue(steered.mapNotNull { it.settings?.get("passes") }.distinct().size >= 4)
+        assertTrue(steered.mapNotNull { it.settings?.get("step") }.distinct().size >= 3)
+        assertTrue(steered.count { it.settings?.get("passes") == "60" && it.settings?.get("step") == "0.2" && it.settings?.get("buckets") == "65536" } < steered.size / 2)
+        assertTrue(result.rounds.all { it.made != null })
+        // It's told what's been tried and where it leaned.
+        val shown = stuck.requests.last().state.toString()
+        assertTrue("times_each_value_was_tried" in shown && "your_earlier_leanings" in shown)
+    }
+
+    private class FakeProvider(private val fail: Boolean = false, private val more: Double = 0.8, private val sure: Map<String, String> = emptyMap()) : DecisionProvider {
         override val descriptor = ProviderDescriptor("fake", "Fake Jev", DataHandling.REMOTE)
         var calls = 0
         val requests = mutableListOf<DecisionRequest>()
@@ -331,9 +406,10 @@ class RecipeSweepTest {
             // Leans every knob to its first value but passes, which it wants small.
             val answers = request.questions.mapValues { (key, q) ->
                 val options = q.options.keys.toList()
-                when (key) {
-                    ServiceSteerer.MORE -> Distribution.of(mapOf("yes" to more, "no" to 1 - more), options)
-                    Knob.EPOCHS.key -> Distribution.of(mapOf("3" to 0.7, "5" to 0.3), options)
+                when {
+                    key in sure -> Distribution.of(options.associateWith { if (it == sure[key]) 0.98 else 0.02 / (options.size - 1) }, options)
+                    key == ServiceSteerer.MORE -> Distribution.of(mapOf("yes" to more, "no" to 1 - more), options)
+                    key == Knob.EPOCHS.key -> Distribution.of(mapOf("3" to 0.7, "5" to 0.3), options)
                     else -> Distribution.of(mapOf(options.first() to 0.6) + options.drop(1).associateWith { 0.4 / (options.size - 1) }, options)
                 }
             }

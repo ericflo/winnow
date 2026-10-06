@@ -47,9 +47,34 @@ class BiasedPredictor(val inner: Predictor, val bias: List<Double>, var temperat
 fun featuresFor(model: Predictor, features: List<String>): List<String> =
     if (model.readsContext) features else features.filterNot(ContextFeatures::isContext)
 
+/**
+ * Each word again, as from the kind of sender it came from ("x:short_code|appointment",
+ * "x:phone_number+you|tonight", "+you" when the user texts with them or has them as a contact):
+ * the same word can mean different things from a business, a stranger and a friend, and a linear
+ * model weighs each feature one way. Made from the features alone, like [WordPieces].
+ */
+object SenderCrosses {
+    private val KINDS = setOf("phone_number", "short_code", "alphanumeric", "email", "unknown")
+
+    fun expand(features: List<String>): List<String> {
+        val kind = features.firstNotNullOfOrNull { f -> f.removePrefix("__sender_").removeSuffix("__").takeIf { f.startsWith("__sender_") && it in KINDS } } ?: return features
+        val group = kind + if ("__known__" in features || "__contact__" in features) "+you" else ""
+        return features + features.filter { it.startsWith("w:") }.map { "x:$group|${it.substring(2)}" }
+    }
+}
+
+/** A model that learned from [SenderCrosses] too: every text it reads gets them first. */
+class CrossesPredictor(val inner: Predictor) : Predictor {
+    override val classes get() = inner.classes
+    override val readsContext get() = inner.readsContext
+    override fun probabilities(features: List<String>) = inner.probabilities(SenderCrosses.expand(features))
+    override fun reasons(features: List<String>, classIndex: Int, limit: Int) = inner.reasons(SenderCrosses.expand(features), classIndex, limit)
+}
+
 /** A model that learned from [WordPieces] too: every text it reads gets them first. */
 class PiecesPredictor(val inner: Predictor) : Predictor {
     override val classes get() = inner.classes
+    override val readsContext get() = inner.readsContext
     override fun probabilities(features: List<String>) = inner.probabilities(WordPieces.expand(features))
     override fun reasons(features: List<String>, classIndex: Int, limit: Int) = inner.reasons(WordPieces.expand(features), classIndex, limit)
 }
@@ -85,6 +110,7 @@ class BlendPredictor(val members: List<Predictor>, weights: List<Double>, var te
     private fun rawProbabilities(member: Predictor, features: List<String>): DoubleArray = when (member) {
         is NeuralModel -> LocalModel.softmax(member.scores(member.indices(features)))
         is PiecesPredictor -> rawProbabilities(member.inner, WordPieces.expand(features))
+        is CrossesPredictor -> rawProbabilities(member.inner, SenderCrosses.expand(features))
         is ContextPredictor -> rawProbabilities(member.inner, features)
         else -> member.probabilities(features)
     }

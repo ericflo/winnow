@@ -51,6 +51,8 @@ data class Recipe(
     val pieces: Boolean = false,
     /** Retrained kinds: learn from when each text came and what came before it in its conversation too (see [ContextFeatures]). */
     val context: Boolean = false,
+    /** Retrained kinds: each word as from the kind of sender it came from too (see [SenderCrosses]). */
+    val crosses: Boolean = false,
     /** Linear only: models trained on resamples and averaged. */
     val bags: Int = 1,
     /** Retrained kinds: learn from the texts the shipped model learned from too, and how much each counts. */
@@ -102,6 +104,7 @@ data class Recipe(
         inputDropout < 0 || inputDropout >= 0.9 -> "Words left out must be 0 to 0.9."
         kind == RecipeKind.PERSONAL && pieces -> "Pieces of words need a retrained model: the personal layer reads the shipped model's features."
         kind == RecipeKind.PERSONAL && context -> "Context needs a retrained model: the personal layer reads the shipped model's features."
+        kind == RecipeKind.PERSONAL && crosses -> "Words by sender need a retrained model: the personal layer reads the shipped model's features."
         // Each bag's weights are kept until they're averaged: past this a phone runs short of memory.
         kind == RecipeKind.LINEAR && bags.toLong() * buckets > MAX_BAGGED_BUCKETS -> "Bags × buckets can be at most ${"%,d".format(MAX_BAGGED_BUCKETS)}: fewer bags, or fewer buckets."
         kind == RecipeKind.BLEND && members.size !in 2..MAX_MEMBERS -> "A blend needs 2 to $MAX_MEMBERS recipes."
@@ -144,7 +147,7 @@ data class Recipe(
 
     private fun num(x: Double) = if (x % 1.0 == 0.0) x.toInt().toString() else x.toString()
 
-    private fun extras(): String = (if (context) ", context" else "") + (if (pieces) ", word pieces" else "") + (if (inputDropout > 0) ", ${(inputDropout * 100).toInt()}% of words left out" else "")
+    private fun extras(): String = (if (context) ", context" else "") + (if (crosses) ", words by sender" else "") + (if (pieces) ", word pieces" else "") + (if (inputDropout > 0) ", ${(inputDropout * 100).toInt()}% of words left out" else "")
 
     companion object {
         const val MAX_EMBEDDING = 4_194_304L
@@ -204,6 +207,9 @@ class TrainingItem(
     /** With [WordPieces] among its features. */
     fun withPieces(): TrainingItem = if (features == null) this else copy(features = WordPieces.expand(features))
 
+    /** With [SenderCrosses] among its features. */
+    fun withCrosses(): TrainingItem = if (features == null) this else copy(features = SenderCrosses.expand(features))
+
     /** With its context among its features, where both are known. */
     fun withContext(): TrainingItem = if (features == null || contextFeatures.isNullOrEmpty()) this else copy(features = features + contextFeatures)
 }
@@ -232,7 +238,7 @@ object RecipeTrainer {
         }
         // Each text counts as the recipe says for where its label came from.
         val weighted = items.mapNotNull { item -> item.weightUnder(recipe).takeIf { it > 0 }?.let { w -> if (w == item.weight) item else item.copy(weight = w) } }
-        val ready = weighted.map { if (recipe.context) it.withContext() else it }.map { if (recipe.pieces) it.withPieces() else it }
+        val ready = weighted.map { if (recipe.context) it.withContext() else it }.map { if (recipe.pieces) it.withPieces() else it }.map { if (recipe.crosses) it.withCrosses() else it }
         val model = when (recipe.kind) {
             RecipeKind.PERSONAL -> {
                 val corrections = ready.mapNotNull { it.indicesIn(base.buckets)?.let { idx -> Correction(idx, it.label, it.weight.coerceAtMost(1.0)) } }
@@ -243,7 +249,8 @@ object RecipeTrainer {
             RecipeKind.NEURAL -> trainNeural(recipe, base.classes, ready, onProgress, stopped)
             RecipeKind.BLEND -> error("blends are trained above")
         }
-        val read = if (recipe.pieces) PiecesPredictor(model) else model
+        val pieced = if (recipe.pieces) PiecesPredictor(model) else model
+        val read = if (recipe.crosses) CrossesPredictor(pieced) else pieced
         return if (recipe.context) ContextPredictor(read) else read
     }
 
@@ -252,6 +259,7 @@ object RecipeTrainer {
         is LinearPredictor -> item.indicesIn(predictor.model.buckets)?.let { predictor.model.scoresOf(it, predictor.adjustments) }
         is NeuralModel -> item.indicesIn(predictor.buckets)?.let { predictor.scores(it) }
         is PiecesPredictor -> logits(predictor.inner, item.withPieces())
+        is CrossesPredictor -> logits(predictor.inner, item.withCrosses())
         is ContextPredictor -> logits(predictor.inner, item.withContext())
         is BiasedPredictor -> logits(predictor.inner, item)?.let { l -> DoubleArray(l.size) { l[it] + predictor.bias.getOrElse(it) { 0.0 } } }
         // The log of the members' averaged odds: a softmax of it gives the blend's answer back.

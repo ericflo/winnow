@@ -186,6 +186,7 @@ private fun DesignCard(viewModel: ModelViewModel) {
             Step("Words left out", ModelLab.HELP.getValue("inputDropout"), WORDS_OUT, r.inputDropout, { pct(it) }) { v -> viewModel.editDraft { it.copy(inputDropout = v) } }
             Toggle("Pieces of words", ModelLab.HELP.getValue("pieces"), r.pieces) { v -> viewModel.editDraft { it.copy(pieces = v) } }
             Toggle("When it came and what came before", ModelLab.HELP.getValue("context"), r.context) { v -> viewModel.editDraft { it.copy(context = v) } }
+            Toggle("Words by who sent them", ModelLab.HELP.getValue("crosses"), r.crosses) { v -> viewModel.editDraft { it.copy(crosses = v) } }
         }
         Step("Passes", ModelLab.HELP.getValue("epochs"), EPOCHS, r.epochs, { "$it" }) { v -> viewModel.editDraft { it.copy(epochs = v) } }
         Step("Step size", ModelLab.HELP.getValue("learningRate"), STEPS, r.learningRate, { "$it" }) { v -> viewModel.editDraft { it.copy(learningRate = v) } }
@@ -334,9 +335,9 @@ private fun SweepCard(viewModel: ModelViewModel) {
         Step("Tries a round", null, (2..12).toList(), prefs.perRound, { "$it" }) { v -> viewModel.lab.setSweepPrefs(prefs.copy(perRound = v)) }
         Toggle(
             "End early when there's nothing left to find",
-            "Only once at least half its rounds are done, and only when the steering twice running puts another round's chance of gaining under 10%. Off, it runs every round.",
-            prefs.endEarly,
-        ) { v -> viewModel.lab.setSweepPrefs(prefs.copy(endEarly = v)) }
+            "Only once at least half its rounds are done, and only when the steering twice running puts another round's chance of gaining under 10%. Off (as it starts), it runs every round.",
+            prefs.endEarlyWhenSettled,
+        ) { v -> viewModel.lab.setSweepPrefs(prefs.copy(endEarlyWhenSettled = v)) }
         Note("About ${prefs.rounds * prefs.perRound + SweepSpace.STARTS.size + 5} tries, starting from your models, the last sweep's best and a few different ways to keep a model from memorizing your labels. Each takes seconds to a minute on a phone; it keeps going if you leave Winnow, with a Stop button in its notification.")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = viewModel.lab::startSweep, enabled = !busy) { Text(if (running) "Sweeping…" else if (sweep == null) "Start a sweep" else "Sweep again") }
@@ -417,6 +418,7 @@ private fun SweepResults(sw: ModelLab.Sweep, running: Boolean, busy: Boolean, en
                     (r.more?.let { " · another round worth it: ${pct(it)}" } ?: ""),
                 style = MaterialTheme.typography.bodySmall, color = muted,
             )
+            r.made?.let { Text("Tried: $it. Its odds were spread so the round looks around: none above half, values tried less counting more, last round's lean at half.", style = MaterialTheme.typography.bodySmall, color = muted) }
             r.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
         }
     }

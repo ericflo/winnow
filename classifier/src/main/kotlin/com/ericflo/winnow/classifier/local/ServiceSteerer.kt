@@ -72,6 +72,16 @@ class ServiceSteerer(private val provider: DecisionProvider, override val name: 
                 }
             }
             put("trials_so_far", state.trials.size)
+            // What's been looked at, and where the steering has leaned: so it looks somewhere new.
+            putJsonObject("times_each_value_was_tried") {
+                state.counts.forEach { (k, c) -> putJsonObject(k.key) { k.values.forEach { v -> put(v, c[v] ?: 0) } } }
+            }
+            putJsonArray("your_earlier_leanings") {
+                state.earlierRounds.forEach { r ->
+                    add(buildJsonObject { put("round", r.round); putJsonObject("leaned_toward") { r.leaning.forEach { l -> put(l.knob, l.value) } } })
+                }
+            }
+            put("rounds_since_the_best_gained_half_a_point", state.stalled)
             put("round", state.round)
             put("rounds_left_after_this", state.roundsLeft)
         }
@@ -79,7 +89,8 @@ class ServiceSteerer(private val provider: DecisionProvider, override val name: 
         fun questions(): Map<String, Choice> = Knob.entries.associate { k ->
             k.key to Choice(
                 instructions = "For the next round of trials, give the odds that each value of \"${k.key}\" (${k.meaning}) belongs in the best trial. " +
-                    "Lean toward values in the best-scoring trials and away from values that did clearly worse; keep some odds on values not tried yet that could plausibly do better." +
+                    "Lean toward values in the best-scoring trials and away from values that did clearly worse, but this is a search: put real odds on values tried least (see times_each_value_was_tried), " +
+                    "and don't lean the same way as your earlier leanings unless the last round's trials confirmed it. When the best has stopped gaining, lean somewhere new." +
                     (if (k.neuralOnly) " Only neural trials use it." else "") + (if (k.linearOnly) " Only linear trials use it." else "") +
                     " Values at either end of the list are worth trying when the best trials sit near that end.",
                 options = k.values.associateWith { null },

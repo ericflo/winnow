@@ -300,7 +300,14 @@ class ModelLab(
      * (each call is paid), and whether it may end early when the steering sees nothing left.
      */
     @Serializable
-    data class SweepPrefs(val rounds: Int = 8, val perRound: Int = 8, val steeringCalls: Int = 8, val steer: Boolean = true, val endEarly: Boolean = true)
+    data class SweepPrefs(
+        val rounds: Int = 8,
+        val perRound: Int = 8,
+        val steeringCalls: Int = 8,
+        val steer: Boolean = true,
+        // Named anew when it came to start off: a sweep that ended early before is now let run every round.
+        val endEarlyWhenSettled: Boolean = false,
+    )
 
     private val contexts = com.ericflo.winnow.data.MessageContexts(context)
     /** Each labeled conversation's latest texts, read once a process. */
@@ -369,7 +376,7 @@ class ModelLab(
         val prefs = _sweepPrefs.value
         // Said at once, so a sweep stopped while it reads the labels is this one, not the last.
         val last = _sweep.value
-        var state = Sweep(System.currentTimeMillis(), RecipeSweep.Plan(rounds = prefs.rounds, perRound = prefs.perRound, steeringCalls = 0, endEarly = prefs.endEarly))
+        var state = Sweep(System.currentTimeMillis(), RecipeSweep.Plan(rounds = prefs.rounds, perRound = prefs.perRound, steeringCalls = 0, endEarly = prefs.endEarlyWhenSettled))
         publish(state)
         val ctx = currentCoroutineContext()
         try {
@@ -378,7 +385,7 @@ class ModelLab(
             val provider = if (prefs.steer && prefs.steeringCalls > 0) runCatching { steeringProvider() }.getOrNull() else null
             // Called what the rest of Winnow calls it.
             val steerer = provider?.let { ServiceSteerer(it, settings.current().provider.label.substringBefore(" (")) }
-            val plan = RecipeSweep.Plan(rounds = prefs.rounds, perRound = prefs.perRound, steeringCalls = if (steerer != null) prefs.steeringCalls else 0, endEarly = prefs.endEarly)
+            val plan = RecipeSweep.Plan(rounds = prefs.rounds, perRound = prefs.perRound, steeringCalls = if (steerer != null) prefs.steeringCalls else 0, endEarly = prefs.endEarlyWhenSettled)
             val baselines = baselines()
             val names = baselines.map { it.first }.toSet()
             val classes = LocalModel.bundled.classes
@@ -726,6 +733,7 @@ class ModelLab(
             "bags" to "Train this many on resampled texts and average them: steadier, slower.",
             "inputDropout" to "The share of a text's words left out of each training step, a different few each time. No one word can carry a text, so the model learns from the rest of it too: it memorizes your labels less and carries them over to new texts better.",
             "pieces" to "Also learn from pieces of words, four letters at a time, so words that share a stem (redeliver, redelivery) or a misspelling share what's learned.",
+            "crosses" to "Also learn each word as from the kind of sender it came from: a business (a short code or a named sender), a stranger's number, or someone you text or have as a contact. \"Appointment\" from a clinic and from a friend can then mean different things to it.",
             "conversationWeight" to "How much each of your other texts counts in a conversation whose labels from you all agree, taken as that label: a pharmacy's other reminders, a friend's other texts. Many more of your own texts to learn from; never one in a conversation being scored. 0 leaves them out.",
             "context" to "Also learn from when each text came and what came before it in its conversation: the time of day, a weekday or the weekend, whether it opened the conversation or answered your text, how much came before it, how long since the last text. Where texts read alike, these can be what tells them apart to you. It reads the same of each new text, on this phone.",
             "corpus" to "Also learn from the 1,493 hand-written texts the shipped model learned from.",
