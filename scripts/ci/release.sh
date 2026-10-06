@@ -53,24 +53,23 @@ tar xzf "$work/gh.tgz" -C "$gh_dir" --strip-components=1
 gh="$gh_dir/bin/gh"
 
 # What's new, in the words of the tag and of each change since the last release: the commit
-# messages say what each change means for someone using the app. GitHub's own list of links
-# when the history isn't there to read.
+# messages say what each change means for someone using the app. Read through GitHub's API (the
+# checkout here has neither the other tags nor the history); GitHub's own list of links if not.
 notes="$work/notes.md"
-git fetch --quiet --tags origin 2>/dev/null || true
-[ -f "$(git rev-parse --git-dir)/shallow" ] && { git fetch --quiet --unshallow origin 2>/dev/null || true; }
-prev=$(git describe --tags --abbrev=0 "$tag^" 2>/dev/null || true)
+prev=$("$gh" api "repos/$repo/releases?per_page=30" --jq "[.[] | select(.tag_name != \"$tag\" and .draft == false)][0].tag_name // empty" 2>/dev/null || true)
 {
-  git tag -l --format='%(contents)' "$tag" | sed '/^-----BEGIN PGP/,$d'
+  tag_sha=$("$gh" api "repos/$repo/git/ref/tags/$tag" --jq '.object.sha' 2>/dev/null || true)
+  [ -n "$tag_sha" ] && "$gh" api "repos/$repo/git/tags/$tag_sha" --jq '.message' 2>/dev/null | sed '/^-----BEGIN PGP/,$d'
   if [ -n "$prev" ]; then
     printf '\n### Changes since %s\n\n' "$prev"
-    git log --no-merges --reverse --format='- %s' "$prev..$tag"
+    "$gh" api "repos/$repo/compare/$prev...$tag" --jq '.commits[] | "- " + (.commit.message | split("\n")[0])'
     printf '\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' "$repo" "$prev" "$tag"
   fi
 } > "$notes" 2>/dev/null || true
 
 # Made here, or reused if it already exists (a re-run, or one drafted by hand).
 if ! "$gh" release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-  if [ -s "$notes" ] && [ -n "$prev" ]; then
+  if [ -n "$prev" ] && grep -q '^- ' "$notes" 2>/dev/null; then
     flags=(--title "Winnow $version" --notes-file "$notes" --verify-tag)
   else
     flags=(--title "Winnow $version" --generate-notes --verify-tag)
