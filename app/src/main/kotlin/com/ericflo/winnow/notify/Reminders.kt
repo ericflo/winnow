@@ -136,6 +136,11 @@ class Reminders(
         }
     }
 
+    /** Every reminder whose time has passed, shown now: its alarm may have been held back (see MessageScheduler.sendDue). */
+    suspend fun fireDue(now: Long = System.currentTimeMillis()) {
+        dao.all().filter { it.remindAt <= now }.forEach { runCatching { fire(it.messageKey) } }
+    }
+
     /** Alarms don't survive a reboot or a force-stop: every reminder armed again (overdue ones at once). */
     suspend fun rearmAll() {
         val now = System.currentTimeMillis()

@@ -66,6 +66,15 @@ class DebugSeedReceiver : BroadcastReceiver() {
                     container.reminders.bringForward(System.currentTimeMillis() + intent.getLongExtra("remind_in", 5_000))
                     return@launch
                 }
+                if (intent.hasExtra("schedule_in")) {
+                    // --ei schedule_in N: a text to a fictional number, scheduled N seconds from now.
+                    val to = intent.getStringExtra("to") ?: "+12065550198"
+                    val threadId = Telephony.Threads.getOrCreateThreadId(context, setOf(to))
+                    val at = System.currentTimeMillis() + intent.getIntExtra("schedule_in", 60) * 1000L
+                    container.scheduler.schedule(threadId, listOf(to), intent.getStringExtra("text") ?: "Scheduled test", at)
+                    Log.i(TAG, "Scheduled a text to $to for $at")
+                    return@launch
+                }
                 if (intent.getBooleanExtra("checkformat", false)) {
                     // Winnow's own formatting of North American numbers against Android's, number by number.
                     val r = Random(5)

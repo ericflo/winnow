@@ -271,6 +271,7 @@ fun ThreadScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     // The message whose "why" is open (see ProvenanceSheet), by key.
     var explaining by rememberSaveable { mutableStateOf<String?>(null) }
+    val restricted by viewModel.restricted.collectAsStateWithLifecycle()
     // RCS: what it means for this conversation, and the RCS member being named.
     var rcsWhy by rememberSaveable { mutableStateOf(false) }
     var naming by rememberSaveable { mutableStateOf<String?>(null) }
@@ -788,6 +789,7 @@ fun ThreadScreen(
                 audio = audio,
                 onActions = { actionsFor = it },
                 onNameSender = { naming = it },
+                heldBack = restricted,
                 onRetry = viewModel::retry,
                 onCopyCode = { copy(it, "Code copied") },
                 highlight = query.trim().takeIf { searching && it.length >= 2 },
@@ -1466,6 +1468,8 @@ private fun MessageList(
     onTextScale: (Float) -> Unit = {},
     /** Names an RCS member (see NamePersonDialog). */
     onNameSender: (String) -> Unit = {},
+    /** Android holds Winnow's alarms back: scheduled texts say they may wait. */
+    heldBack: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     // Follows the pinch live; saved when the fingers lift.
@@ -1553,6 +1557,7 @@ private fun MessageList(
                 onEdit = { onScheduledEdit(message) },
                 onDelete = { onScheduledDelete(message.id) },
                 onReschedule = { at -> onScheduledReschedule(message.id, at) },
+                heldBack = heldBack,
             )
         }
         items(items, key = { it.key }) { item ->

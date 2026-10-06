@@ -245,6 +245,8 @@ fun ScheduledBubble(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onReschedule: (Long) -> Unit = {},
+    /** Android holds Winnow's alarms back (see AppContainer.restricted): it goes out when Winnow's opened. */
+    heldBack: Boolean = false,
 ) {
     var menu by remember { mutableStateOf(false) }
     var picking by remember { mutableStateOf(false) }
@@ -271,9 +273,9 @@ fun ScheduledBubble(
             }
         }
         Text(
-            "Scheduled · ${scheduleLabel(message.sendAt)}",
+            "Scheduled · ${scheduleLabel(message.sendAt)}" + if (heldBack) " · may wait until you open Winnow (battery Restricted)" else "",
             style = MaterialTheme.typography.labelSmall,
-            color = colors.primary,
+            color = if (heldBack) colors.error else colors.primary,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
         )
     }

@@ -185,6 +185,8 @@ fun InboxScreen(
     /** A conversation swiped to label (see SwipeChoice.LABEL). */
     var labelingSwiped by remember { mutableStateOf<ConversationSummary?>(null) }
     val alertsOff by viewModel.alertsOff.collectAsStateWithLifecycle()
+    val restricted by viewModel.restricted.collectAsStateWithLifecycle()
+    var restrictedDismissed by rememberSaveable { mutableStateOf(false) }
     val contactsHidden by viewModel.contactsHidden.collectAsStateWithLifecycle()
     val newProblems by viewModel.newProblems.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -292,6 +294,15 @@ fun InboxScreen(
                         }
                         // Texts arriving without a sound or a notification at all: worth saying every time the inbox opens.
                         // Only once Winnow is the SMS app: before that, the old app still sounds the alerts.
+                        // Held back in the background: scheduled texts and reminders wait for Winnow to be opened.
+                        if (state.live && state.isDefault && restricted && !restrictedDismissed) {
+                            item("restricted") {
+                                RestrictedCard(
+                                    onSettings = { runCatching { context.startActivity(viewModel.appSettingsIntent()) } },
+                                    onDismiss = { restrictedDismissed = true },
+                                )
+                            }
+                        }
                         if (state.live && state.isDefault && alertsOff && !alertsOffDismissed) {
                             item("alerts-off") {
                                 AlertsOffCard(
@@ -1053,6 +1064,30 @@ private fun AlertsOffCard(onTurnOn: () -> Unit, onDismiss: () -> Unit) {
                 Button(onClick = onTurnOn) { Text("Turn on") }
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onDismiss) { Text("Not now") }
+            }
+        }
+    }
+}
+
+/** Android's battery setting holds Winnow back: what that stops, and where to change it. */
+@Composable
+private fun RestrictedCard(onSettings: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Android is holding Winnow back", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Winnow's battery use is set to Restricted (or the phone has put it to sleep). Texts still arrive, but scheduled texts and " +
+                    "reminders can't go out on time: Winnow sends them only when you open it. In Winnow's app settings, under Battery, choose " +
+                    "Unrestricted (on a Galaxy, also take it off the sleeping apps list).",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onSettings) { Text("Open app settings") }
+                TextButton(onClick = onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onErrorContainer)) { Text("Not now") }
             }
         }
     }

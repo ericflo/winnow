@@ -1093,6 +1093,9 @@ class ThreadViewModel(
      * Moves [messages] to Recently deleted (in the app's scope: leaving doesn't stop it halfway).
      * Their reminders are kept with them, and come back if they do.
      */
+    /** Android holds Winnow back in the background (see AppContainer.restricted). */
+    val restricted: StateFlow<Boolean> = container.restricted
+
     /** Names someone Winnow can't name itself (an RCS member): every list shows the name from then on. */
     fun nameSender(address: String, name: String?) {
         container.contacts.setGivenName(address, name)

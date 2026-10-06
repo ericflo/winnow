@@ -301,6 +301,9 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
     /** New texts can't alert the user: Winnow's notifications, or its message channel, are turned off. */
     val alertsOff: StateFlow<Boolean> = _alertsOff.asStateFlow()
 
+    /** Android is holding Winnow back in the background (see AppContainer.restricted). */
+    val restricted: StateFlow<Boolean> = container.restricted
+
     private val _contactsHidden = MutableStateFlow(false)
     /**
      * Winnow can't read contacts (not allowed, or no longer): a contact's text is sorted like a

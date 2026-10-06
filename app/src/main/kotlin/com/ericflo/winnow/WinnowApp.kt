@@ -444,7 +444,27 @@ class AppContainer(private val context: Context) {
         // In case Android's word of the SMS app changing was missed (see RoleWatch.Receiver).
         val isDefault = isDefaultSmsApp()
         appScope.launch(Dispatchers.IO) { runCatching { roleWatch.check(isDefault, messages::displayName) } }
+        // Anything whose alarm Android held back goes out now that Winnow's in front (see sendDue).
+        if (isDefault) appScope.launch(Dispatchers.IO) {
+            runCatching { scheduler.sendDue() }
+            runCatching { reminders.fireDue() }
+        }
+        restricted.value = backgroundRestricted()
         if (isDefaultSmsApp()) defaultRefused.value = false
+    }
+
+    /**
+     * Android is holding Winnow back in the background: the "Restricted" battery setting (Samsung's
+     * too), or a standby bucket so low that its alarms and jobs wait. Texts still arrive; scheduled
+     * texts, reminders and the evening summary don't go out on time.
+     */
+    val restricted = MutableStateFlow(false)
+
+    private fun backgroundRestricted(): Boolean {
+        val am = context.getSystemService(android.app.ActivityManager::class.java)
+        val usage = context.getSystemService(android.app.usage.UsageStatsManager::class.java)
+        return runCatching { am.isBackgroundRestricted }.getOrDefault(false) ||
+            runCatching { usage.appStandbyBucket >= android.app.usage.UsageStatsManager.STANDBY_BUCKET_RESTRICTED }.getOrDefault(false)
     }
 
     private fun hasSmsAccess(): Boolean =

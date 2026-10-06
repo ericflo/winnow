@@ -103,6 +103,18 @@ class MessageScheduler(
         if (id.toString() in told) failures.edit().putStringSet(TOLD, told - id.toString()).apply()
     }
 
+    /**
+     * Sends every scheduled text whose time has passed, now. An alarm can be held back for good:
+     * Android doesn't fire a background-restricted app's alarms (Samsung's "Restricted" battery
+     * setting, or an app it's put to sleep), not even once it's opened. So whenever Winnow comes
+     * to the front, anything overdue goes out then. One that fails is reported as any would be.
+     */
+    suspend fun sendDue(now: Long = System.currentTimeMillis()) {
+        dao.all().filter { it.sendAt <= now }.forEach { m ->
+            runCatching { sendNow(m.id) }.onFailure { runCatching { notifyFailed(m.id) } }
+        }
+    }
+
     /** Alarms don't survive a reboot; this re-arms every pending message (overdue ones fire at once). */
     suspend fun rearmAll() {
         val now = System.currentTimeMillis()
