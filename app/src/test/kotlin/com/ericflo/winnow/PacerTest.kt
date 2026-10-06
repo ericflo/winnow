@@ -18,6 +18,8 @@ class PacerTest {
         assertEquals(Trouble.REFUSED, Pacer.troubleOf("x: HTTP 405 method not allowed"))
         assertEquals(Trouble.UNAVAILABLE, Pacer.troubleOf("x: HTTP 503 down"))
         assertEquals(Trouble.UNAVAILABLE, Pacer.troubleOf("x: timeout"))
+        // It answered, unusably: set aside, not retried batch after batch.
+        assertEquals(Trouble.REJECTED, Pacer.troubleOf("Provider unavailable (x: ${com.ericflo.winnow.classifier.message.MessageClassifier.UNUSABLE_ANSWER} response has no answers: {})"))
         assertEquals(Trouble.UNAVAILABLE, Pacer.troubleOf("x: unexpected end of stream on http://h/..."))
     }
 

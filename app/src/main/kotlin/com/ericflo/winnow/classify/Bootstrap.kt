@@ -168,14 +168,20 @@ class Bootstrap(
         if (job?.isActive == true) return
         job = scope.launch {
             val first = settings.current()
-            if (unavailable(first) != null) return@launch
+            // Can't run now (the service turned off since it was offered, say): said, and ended,
+            // never left waiting, a run's notification up and the phone kept awake.
+            unavailable(first)?.let { reason ->
+                _status.value = BootstrapStatus.Finished(0, Tally(), stopped = true, error = reason)
+                return@launch
+            }
             val texts = planned ?: candidates(first)
             val redo = plannedRedo && planned != null
             planned = null
             plannedRedo = false
             var tally = Tally()
             var done = 0
-            // The user's own labeled texts go with every request, so the service sorts the way they do.
+            // The user's own labeled texts go with every request, so the service sorts the way they do
+            // (chosen again each batch, under the settings then: see below).
             val examples = examples(first)
             val startedAt = System.currentTimeMillis()
             // Kept from the start: a run Winnow is closed during still shows how far it got.
@@ -211,11 +217,14 @@ class Bootstrap(
                         return@launch
                     }
                     // The provider decides every text: no deciding on the phone when sure, a generous wait.
-                    val classifier = classifiers.create(current.copy(decideOnPhoneWhenSure = false), timeoutMillis = PROVIDER_TIMEOUT_MILLIS, examples = examples)
+                    // The examples, and who the user has written to, as they are now: a privacy
+                    // setting changed or a reply sent since the run began counts from this batch.
+                    val classifier = classifiers.create(current.copy(decideOnPhoneWhenSure = false), timeoutMillis = PROVIDER_TIMEOUT_MILLIS, examples = examples(current))
                     val judged = verdicts.judgedThreads().toSet()
                     val rules = senderRules()
+                    val replied = threadsWithOutgoing()
                     val (stay, go) = batch
-                        .map { t -> t.withRule(rules[com.ericflo.winnow.data.normalizeAddress(t.sender)]) }
+                        .map { t -> t.withRule(rules[com.ericflo.winnow.data.normalizeAddress(t.sender)]).withReplied(t.threadId in replied) }
                         .partition { t -> t.threadId in judged || contacts.isContact(t.sender) || classifier.staysOnPhone(t.message()) }
                     tally = tally.copy(kept = tally.kept + stay.size)
                     done += stay.size
@@ -265,9 +274,11 @@ class Bootstrap(
                                 val trouble = Pacer.troubleOf(lastDetail)
                                 troubles += trouble
                                 if (trouble == Pacer.Trouble.REJECTED) {
-                                    // This one text the service won't take: skipped, offered again next run.
+                                    // This one text the service won't take: skipped, offered again next run;
+                                    // one it answered unusably isn't (it would answer, and be paid, the same).
                                     tally = tally.copy(failed = tally.failed + 1)
                                     done++
+                                    if (com.ericflo.winnow.classifier.message.MessageClassifier.UNUSABLE_ANSWER in lastDetail) answered += t.key
                                 } else {
                                     retry += t
                                 }
@@ -427,9 +438,10 @@ class Bootstrap(
         val judged = verdicts.judgedThreads().toSet()
         val wanted = conversations.filter { it.threadId !in judged }.associateBy { it.threadId }
         val replied = threadsWithOutgoing()
-        // A redo skips only what the user taught; otherwise anything taught or answered before.
+        // A redo skips only what the user taught; otherwise anything taught or answered before,
+        // here or anywhere else (as texts arrived, or checking older conversations): never paid for twice.
         val done = if (redo) corrections.all().filterNot { it.fromProvider }.mapNotNullTo(HashSet()) { it.messageKey }
-        else corrections.taughtKeys().toHashSet().apply { addAll(asked()) }
+        else corrections.taughtKeys().toHashSet().apply { addAll(asked()); addAll(verdicts.serviceAnsweredKeys()) }
         val newest = HashMap<Long, MutableList<Text>>()
         context.contentResolver.query(
             Telephony.Sms.CONTENT_URI,
@@ -499,6 +511,8 @@ class Bootstrap(
     }
 
     private fun Text.withRule(rule: com.ericflo.winnow.classifier.message.SenderRule?) = Text(key, threadId, sender, body, date, repliedTo, rule)
+
+    private fun Text.withReplied(replied: Boolean) = Text(key, threadId, sender, body, date, replied, senderRule)
 
     internal fun threadsWithOutgoing(): Set<Long> {
         val threads = HashSet<Long>()

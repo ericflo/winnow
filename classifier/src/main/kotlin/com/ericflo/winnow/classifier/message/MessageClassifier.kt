@@ -95,7 +95,10 @@ class MessageClassifier(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                failures += "$id: ${e.message}"
+                // An answer that came but can't be used: asking again at once gets the same one, and
+                // is paid for again. Said so, so a run sets the text aside (see Pacer.troubleOf).
+                val unusable = e is com.ericflo.winnow.classifier.ProviderException && !e.retryable && "HTTP " !in e.message.orEmpty()
+                failures += if (unusable) "$id: $UNUSABLE_ANSWER ${e.message}" else "$id: ${e.message}"
                 continue
             }
             val answer = response?.answers?.get(QUESTION_KEY)
@@ -167,6 +170,9 @@ class MessageClassifier(
     }
 
     companion object {
+        /** In a failure's reason: the service answered, but not in a way Winnow can use. */
+        const val UNUSABLE_ANSWER = "unusable answer:"
+
         const val QUESTION_KEY = "category"
 
         /** The six categories, as the question explains them: each option counts as one of these. */

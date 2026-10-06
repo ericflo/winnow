@@ -86,6 +86,8 @@ class Pacer(
     companion object {
         /** What a failed request's error text says went wrong. */
         fun troubleOf(detail: String): Trouble = when {
+            // It answered, but unusably: this text is set aside, not asked again and again.
+            com.ericflo.winnow.classifier.message.MessageClassifier.UNUSABLE_ANSWER in detail -> Trouble.REJECTED
             Regex("""HTTP (40[12345]|410)\b""").containsMatchIn(detail) -> Trouble.REFUSED
             Regex("""HTTP 429\b""").containsMatchIn(detail) -> Trouble.RATE_LIMITED
             Regex("""HTTP 4\d\d\b""").containsMatchIn(detail) -> Trouble.REJECTED

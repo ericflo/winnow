@@ -544,6 +544,10 @@ interface VerdictDao {
     @Upsert
     suspend fun upsert(verdict: VerdictEntity)
 
+    /** Messages a classifier service has answered about: it decided them, or the user's labels outweighed it. */
+    @Query("SELECT messageKey FROM verdicts WHERE sourceKind = 'provider' OR serviceCategory IS NOT NULL")
+    suspend fun serviceAnsweredKeys(): List<String>
+
     /** [verdict], unless its message has one already (a label, or one made as it arrived): -1 then. */
     @Insert(onConflict = androidx.room.OnConflictStrategy.IGNORE)
     suspend fun insertIfAbsent(verdict: VerdictEntity): Long

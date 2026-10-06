@@ -78,6 +78,11 @@ class MessageClassifierTest {
         assertEquals(1, provider.seen.size)
         // An ordinary email address isn't an RCS id.
         assertFalse(RcsIds.isRcs("someone@rcsmail.com"))
+        // Known conversations may be sent, but contacts mustn't be: an RCS person may be either, so stays.
+        val knownOnly = MessageClassifier(listOf(provider), PrivacyPolicy(classifyKnownConversations = true))
+        assertTrue(knownOnly.staysOnPhone(family))
+        // Both allowed: then they may go.
+        assertFalse(MessageClassifier(listOf(provider), PrivacyPolicy(classifyKnownConversations = true, classifyContacts = true)).staysOnPhone(family))
     }
 
     @Test
@@ -355,5 +360,23 @@ class MessageClassifierTest {
         val alone = MessageClassifier(emptyList(), onDevice = onDevice).classify(opener)
         assertEquals(Action.FILTER, alone.action)
         assertEquals(VerdictSource.OnDevice.YOUR_LABELS, assertIs<VerdictSource.OnDevice>(alone.source).fallbackReason)
+    }
+
+    @Test
+    fun `an answer that came but can't be used is said so, apart from a service that's down`() = runTest {
+        val unusable = object : DecisionProvider {
+            override val descriptor = ProviderDescriptor("broken", "broken", DataHandling.REMOTE)
+            override suspend fun decide(request: DecisionRequest): DecisionResponse =
+                throw com.ericflo.winnow.classifier.ProviderException("response has no answers: {}", retryable = false)
+        }
+        val down = object : DecisionProvider {
+            override val descriptor = ProviderDescriptor("down", "down", DataHandling.REMOTE)
+            override suspend fun decide(request: DecisionRequest): DecisionResponse =
+                throw com.ericflo.winnow.classifier.ProviderException("down: timeout", retryable = true)
+        }
+        val said = MessageClassifier(listOf(unusable)).classify(stranger)
+        assertTrue(said.source.toString().contains(MessageClassifier.UNUSABLE_ANSWER), said.source.toString())
+        val notSaid = MessageClassifier(listOf(down)).classify(stranger)
+        assertFalse(notSaid.source.toString().contains(MessageClassifier.UNUSABLE_ANSWER))
     }
 }
