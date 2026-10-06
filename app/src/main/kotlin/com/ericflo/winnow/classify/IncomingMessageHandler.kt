@@ -85,14 +85,23 @@ class IncomingMessageHandler(
      * a conversation's notification shows its texts in the order they came.
      */
     suspend fun handleStored(sms: StoredSms) {
-        // Its place in line, taken now: texts take theirs in the order they were stored.
+        inLine(sms.threadId) { beforeActing ->
+            route(sms.uri, ChatMessage.Kind.SMS, sms.threadId, sms.address, listOf(sms.address), sms.body, Tapback.summarize(sms.body), beforeActing = beforeActing)
+        }
+    }
+
+    /**
+     * Runs [block] with a place in [threadId]'s line, taken at once (messages take theirs in the
+     * order they were stored); what it's given waits for the message before it to be acted on.
+     */
+    private suspend fun <T> inLine(threadId: Long, block: suspend (beforeActing: suspend () -> Unit) -> T): T {
         val mine = kotlinx.coroutines.CompletableDeferred<Unit>()
-        val before = synchronized(lastInLine) { lastInLine.put(sms.threadId, mine) }
+        val before = synchronized(lastInLine) { lastInLine.put(threadId, mine) }
         try {
-            route(sms.uri, ChatMessage.Kind.SMS, sms.threadId, sms.address, listOf(sms.address), sms.body, Tapback.summarize(sms.body), beforeActing = { before?.await() })
+            return block { before?.await() }
         } finally {
             mine.complete(Unit)
-            synchronized(lastInLine) { if (lastInLine[sms.threadId] === mine) lastInLine.remove(sms.threadId) }
+            synchronized(lastInLine) { if (lastInLine[threadId] === mine) lastInLine.remove(threadId) }
         }
     }
 
@@ -108,11 +117,14 @@ class IncomingMessageHandler(
         val words = subjectAndText(subject, text)
         val preview = words.ifBlank { attachmentSummary(mediaTypes) }
         // A media-only message still gets classified, on what little it says.
-        val action = route(
-            uri, ChatMessage.Kind.MMS, threadId, sender, recipients, words.ifBlank { "[photo]" }, preview, caption = words,
-            // A code is looked for in the text before the subject (an order number there isn't it).
-            codeIn = listOfNotNull(text, subject),
-        )
+        // In line with the conversation's other messages (see handleStored): a group gets texts and pictures.
+        val action = inLine(threadId) { beforeActing ->
+            route(
+                uri, ChatMessage.Kind.MMS, threadId, sender, recipients, words.ifBlank { "[photo]" }, preview, caption = words,
+                // A code is looked for in the text before the subject (an order number there isn't it).
+                codeIn = listOfNotNull(text, subject), beforeActing = beforeActing,
+            )
+        }
         // Into the gallery if the user asked: only what reached the inbox (never a filtered or
         // silenced one's), and only from people they know. A classifier that timed out lets a
         // stranger's message through too, and the gallery may back up to the cloud. In a group,

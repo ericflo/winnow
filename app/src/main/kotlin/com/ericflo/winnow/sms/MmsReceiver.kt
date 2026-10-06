@@ -129,6 +129,8 @@ class MmsReceiver(
     /**
      * A downloaded m-retrieve-conf. [placeholder] is replaced by the real message; with
      * [acknowledge], the carrier is told the message arrived so it stops re-announcing it.
+     * Returns what's left once it's stored, classifying and notifying, for after the download's
+     * broadcast has ended (see MmsDownloadedReceiver); null if there's nothing left to do.
      */
     suspend fun onDownloaded(
         placeholder: Uri?,
@@ -138,7 +140,7 @@ class MmsReceiver(
         acknowledge: Boolean = true,
         /** Fetched after a deferred notification, which the spec confirms with m-acknowledge-ind instead. */
         deferred: Boolean = false,
-    ) {
+    ): (suspend () -> Unit)? {
         val conf = pdu?.let {
             try {
                 PduParser.parse(it) as? RetrieveConf
@@ -149,13 +151,13 @@ class MmsReceiver(
         }
         if (conf == null) {
             placeholder?.let(::failed)
-            return
+            return null
         }
         val recipients = participants(conf)
         val threadId = Telephony.Threads.getOrCreateThreadId(context, recipients.toSet())
         val message = store.insertIncoming(conf, threadId, subscriptionId) ?: run {
             placeholder?.let(::failed)
-            return
+            return null
         }
         placeholder?.let(store::delete)
         placeholder?.lastPathSegment?.toLongOrNull()?.let { retries?.done(it) }
@@ -165,7 +167,7 @@ class MmsReceiver(
         val text = conf.parts.filter { it.contentType == ContentTypes.TEXT_PLAIN }.mapNotNull { it.text }.joinToString("\n")
         // Contacts are text/x-vcard, so "everything but the text and the layout", not "not text/".
         val media = conf.parts.map { it.contentType }.filter { it != ContentTypes.TEXT_PLAIN && it != ContentTypes.SMIL }
-        incoming.onMmsStored(message, threadId, conf.from ?: UNKNOWN_SENDER, recipients, text, media, subject = conf.subject)
+        return { incoming.onMmsStored(message, threadId, conf.from ?: UNKNOWN_SENDER, recipients, text, media, subject = conf.subject) }
     }
 
     /**
@@ -210,9 +212,11 @@ class MmsDownloadedReceiver : BroadcastReceiver() {
         val ok = resultCode == Activity.RESULT_OK
         val pending = goAsync()
         container.appScope.launch {
+            // Stored, the broadcast ends (the next download's can come); classifying and notifying follow.
+            var then: (suspend () -> Unit)? = null
             try {
                 val bytes = if (ok) file?.takeIf { it.exists() }?.readBytes() else null
-                container.mmsReceiver.onDownloaded(
+                then = container.mmsReceiver.onDownloaded(
                     placeholder = intent.data,
                     pdu = bytes,
                     transactionId = intent.getStringExtra(MmsReceiver.EXTRA_TRANSACTION_ID),
@@ -226,6 +230,15 @@ class MmsDownloadedReceiver : BroadcastReceiver() {
             } finally {
                 file?.delete()
                 pending.finish()
+            }
+            then?.let { rest ->
+                try {
+                    rest()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e("WinnowMms", "Classifying a downloaded MMS failed", e)
+                }
             }
         }
     }

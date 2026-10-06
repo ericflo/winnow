@@ -57,6 +57,8 @@ class DebugMmsReceiver : BroadcastReceiver() {
         val id = "debug${System.currentTimeMillis()}"
         val pending = goAsync()
         container.appScope.launch {
+            // As MmsDownloadedReceiver does: stored, the broadcast ends; classifying and notifying follow.
+            var then: (suspend () -> Unit)? = null
             try {
                 if (intent.getStringExtra("mode") == "delivered") {
                     val sent = intent.getLongExtra("sent", -1)
@@ -93,7 +95,7 @@ class DebugMmsReceiver : BroadcastReceiver() {
                         subject = intent.getStringExtra("subject"),
                         parts = listOf(Smil.forParts(content)) + content,
                     )
-                    container.mmsReceiver.onDownloaded(null, PduComposer.compose(conf), id, subscriptionId, acknowledge = false)
+                    then = container.mmsReceiver.onDownloaded(null, PduComposer.compose(conf), id, subscriptionId, acknowledge = false)
                 }
                 Log.i(TAG, "Injected MMS $id from $from")
             } catch (e: Exception) {
@@ -101,6 +103,7 @@ class DebugMmsReceiver : BroadcastReceiver() {
             } finally {
                 pending.finish()
             }
+            runCatching { then?.invoke() }.onFailure { Log.e(TAG, "Classifying the injected MMS failed", it) }
         }
     }
 
