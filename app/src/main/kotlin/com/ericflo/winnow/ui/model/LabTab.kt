@@ -195,6 +195,9 @@ private fun DesignCard(viewModel: ModelViewModel) {
             Toggle("The shipped examples", ModelLab.HELP.getValue("corpus"), r.includeCorpus) { v -> viewModel.editDraft { it.copy(includeCorpus = v) } }
             if (r.includeCorpus) Step("Each shipped example counts", null, WEIGHTS, r.corpusWeight, { times(it) }) { v -> viewModel.editDraft { it.copy(corpusWeight = v) } }
             Step("Each of your labels counts", ModelLab.HELP.getValue("userWeight"), USER_WEIGHTS, r.userWeight, { times(it) }) { v -> viewModel.editDraft { it.copy(userWeight = v) } }
+            Step("The rest of your conversations count", ModelLab.HELP.getValue("conversationWeight"), CONVERSATION_WEIGHTS, r.conversationWeight, { if (it == 0.0) "left out" else times(it) }) { v ->
+                viewModel.editDraft { it.copy(conversationWeight = v) }
+            }
         }
         Step("Each of $service's labels counts", ModelLab.HELP.getValue("serviceWeight"), SERVICE_WEIGHTS, r.serviceWeight, { if (it == 0.0) "left out" else times(it) }) { v -> viewModel.editDraft { it.copy(serviceWeight = v) } }
         Step("Who sent it: your labels of each sender count", ModelLab.HELP.getValue("senderMemory"), SENDER_STRENGTHS, r.senderMemory, { if (it == 0.0) "not at all" else times(it) }) { v -> viewModel.editDraft { it.copy(senderMemory = v) } }
@@ -499,6 +502,7 @@ private val STEPS = listOf(0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3,
 private val L2S = listOf(0.0, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1)
 private val WEIGHTS = listOf(0.0, 0.1, 0.25, 0.5, 1.0, 2.0, 3.0, 5.0)
 private val USER_WEIGHTS = listOf(0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0)
+private val CONVERSATION_WEIGHTS = listOf(0.0, 0.05, 0.1, 0.25, 0.5, 1.0)
 private val SERVICE_WEIGHTS = listOf(0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0, 1.5, 2.0)
 private val SENDER_STRENGTHS = listOf(0.0, 0.5, 1.0, 2.0, 3.0, 4.0)
 

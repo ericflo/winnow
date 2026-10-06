@@ -15,9 +15,18 @@ import java.io.OutputStream
 object LabModelFile {
     private const val BLEND_MAGIC = 0x57424c44 // "WBLD"
     private const val BLEND_FORMAT = 1
+    private const val LEAN_MAGIC = 0x574c454e // "WLEN"
 
     /** Writes [model] (trained by [recipe]) at [temperature]; false for the personal layer, which keeps no file. */
     fun write(recipe: Recipe, model: Predictor, temperature: Float, out: OutputStream): Boolean {
+        // Leanings (kept in the recipe) at the calibration, the model under them at its own odds.
+        if (recipe.classBias.isNotEmpty() && model is BiasedPredictor) {
+            val o = DataOutputStream(out)
+            o.writeInt(LEAN_MAGIC)
+            o.writeFloat(temperature)
+            o.flush()
+            return write(recipe.copy(classBias = emptyList()), model.inner, 1f, out)
+        }
         when (recipe.kind) {
             RecipeKind.PERSONAL -> return false
             RecipeKind.LINEAR -> ((unwrap(model) as LinearPredictor).model.withTemperature(temperature)).write(out)
@@ -43,6 +52,13 @@ object LabModelFile {
 
     /** The model [recipe] trained, from what [write] wrote. */
     fun read(recipe: Recipe, input: InputStream): Predictor? {
+        if (recipe.classBias.isNotEmpty()) {
+            val d = DataInputStream(input)
+            require(d.readInt() == LEAN_MAGIC) { "Not a model with leanings" }
+            val temperature = d.readFloat()
+            val inner = read(recipe.copy(classBias = emptyList()), d) ?: return null
+            return BiasedPredictor(inner, recipe.classBias, temperature)
+        }
         val model: Predictor = when (recipe.kind) {
             RecipeKind.PERSONAL -> return null
             RecipeKind.LINEAR -> LinearPredictor(LocalModel.read(input))
@@ -71,6 +87,7 @@ object LabModelFile {
         is LinearPredictor -> model.model.buckets.toLong() * model.model.classes.size + model.adjustments.size.toLong() * model.model.classes.size
         is PiecesPredictor -> parameters(model.inner)
         is ContextPredictor -> parameters(model.inner)
+        is BiasedPredictor -> parameters(model.inner) + model.bias.size
         is BlendPredictor -> model.members.sumOf(::parameters)
         else -> 0
     }
@@ -81,6 +98,8 @@ object LabModelFile {
         is LinearPredictor -> if (model.adjustments.size == 0) LinearPredictor(model.model.withTemperature(temperature)) else model
         is PiecesPredictor -> PiecesPredictor(calibrate(model.inner, temperature))
         is ContextPredictor -> ContextPredictor(calibrate(model.inner, temperature))
+        // Calibrated on top: the model under it stays at its own odds.
+        is BiasedPredictor -> model.also { it.temperature = temperature }
         is BlendPredictor -> model.also { it.temperature = temperature }
         else -> model
     }

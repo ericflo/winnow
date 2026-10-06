@@ -46,6 +46,7 @@ class ServiceSteerer(private val provider: DecisionProvider, override val name: 
                 putJsonObject("labels_by_category") { state.categories.forEach { (c, n) -> put(c, n) } }
                 put("shipped_examples", state.shippedExamples)
                 put("service_labels", state.serviceLabels)
+                put("other_texts_in_conversations_labeled_one_way", state.conversationTexts)
             }
             putJsonObject("knobs") {
                 Knob.entries.forEach { k ->

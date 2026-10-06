@@ -42,6 +42,32 @@ class MessageContexts(private val context: Context) {
         )
     }.getOrNull()
 
+    /**
+     * A conversation's latest [limit] texts from them (text messages; a picture message's words
+     * take a query each), newest first, each with its context read from the same texts: what came
+     * before it among the latest, so counts near the oldest are short of the whole conversation's.
+     */
+    fun latestFromThem(threadId: Long, limit: Int): List<Pair<MessageTexts.Text, MessageContext>> = runCatching {
+        class Row(val id: Long, val address: String?, val body: String, val date: Long, val fromYou: Boolean)
+        val rows = ArrayList<Row>()
+        context.contentResolver.query(
+            Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms._ID, Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE),
+            "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.TYPE} != ${Telephony.Sms.MESSAGE_TYPE_DRAFT}",
+            arrayOf(threadId.toString()), "${Telephony.Sms.DATE} DESC LIMIT ${limit * 3}",
+        )?.use { c -> while (c.moveToNext()) rows += Row(c.getLong(0), c.getString(1), c.getString(2).orEmpty(), c.getLong(3), c.getInt(4) != Telephony.Sms.MESSAGE_TYPE_INBOX) }
+        rows.withIndex().filter { (_, r) -> !r.fromYou && r.body.isNotBlank() }.take(limit).map { (i, r) ->
+            val earlier = rows.drop(i + 1).take(LOOK_BACK)
+            val last = earlier.firstOrNull()
+            MessageTexts.Text(ChatMessage.messageKey(ChatMessage.Kind.SMS, r.id), threadId, r.address, r.body, r.date) to MessageContext(
+                sentAt = r.date,
+                earlierFromThem = earlier.count { !it.fromYou }.coerceAtMost(MessageContext.CAP),
+                earlierFromYou = earlier.count { it.fromYou }.coerceAtMost(MessageContext.CAP),
+                answersYou = last?.fromYou,
+                sinceLastMillis = last?.let { (r.date - it.date).coerceAtLeast(0) },
+            )
+        }
+    }.getOrDefault(emptyList())
+
     private companion object {
         /** Enough of the latest texts to count up to MessageContext.CAP each way. */
         const val LOOK_BACK = 2 * MessageContext.CAP

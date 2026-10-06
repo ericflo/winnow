@@ -56,6 +56,11 @@ data class Recipe(
     /** Retrained kinds: learn from the texts the shipped model learned from too, and how much each counts. */
     val includeCorpus: Boolean = true,
     val corpusWeight: Double = 1.0,
+    /**
+     * Retrained kinds: how much each of the other texts counts in a conversation whose labels
+     * from the user all agree, taken as that label; 0 leaves them out.
+     */
+    val conversationWeight: Double = 0.0,
     /** How much each of the user's labels counts (the personal layer always takes them at 1). */
     val userWeight: Double = 1.0,
     /** How much each of the classifier service's labels counts; 0 leaves them out. */
@@ -71,6 +76,12 @@ data class Recipe(
     /** Blend only: the recipes blended (linear and neural), and how much each counts (equally when empty). */
     val members: List<Recipe> = emptyList(),
     val memberWeights: List<Double> = emptyList(),
+    /**
+     * Retrained kinds: a lean toward or away from each category (in class order, added to its
+     * score before the odds are worked out), tuned by a sweep on the labels it hadn't seen. A
+     * model fitted with the categories balanced overweighs the rare ones; this weighs them back.
+     */
+    val classBias: List<Double> = emptyList(),
 ) {
     /** What's wrong with it, if anything, in words; null when it can be trained. */
     fun problem(): String? = when {
@@ -85,7 +96,8 @@ data class Recipe(
         l2 < 0 || l2 > 1 -> "L2 must be 0 to 1."
         dropout < 0 || dropout >= 0.9 -> "Dropout must be 0 to 0.9."
         bags !in 1..10 -> "Bags must be 1 to 10."
-        userWeight <= 0 || userWeight > 100 || serviceWeight < 0 || serviceWeight > 100 || corpusWeight < 0 || corpusWeight > 100 -> "Weights must be 0 to 100 (yours above 0)."
+        userWeight <= 0 || userWeight > 100 || serviceWeight < 0 || serviceWeight > 100 || corpusWeight < 0 || corpusWeight > 100 ||
+            conversationWeight < 0 || conversationWeight > 100 -> "Weights must be 0 to 100 (yours above 0)."
         senderMemory < 0 || senderMemory > 4 -> "Who sent it must count 0 to 4."
         inputDropout < 0 || inputDropout >= 0.9 -> "Words left out must be 0 to 0.9."
         kind == RecipeKind.PERSONAL && pieces -> "Pieces of words need a retrained model: the personal layer reads the shipped model's features."
@@ -96,6 +108,8 @@ data class Recipe(
         kind == RecipeKind.BLEND && members.any { it.kind != RecipeKind.LINEAR && it.kind != RecipeKind.NEURAL } -> "A blend can hold linear and neural recipes only."
         kind == RecipeKind.BLEND && memberWeights.isNotEmpty() && (memberWeights.size != members.size || memberWeights.any { it < 0 || !it.isFinite() } || memberWeights.sum() <= 0) ->
             "A blend's weights need one per recipe, none below 0."
+        classBias.isNotEmpty() && (kind == RecipeKind.PERSONAL || classBias.size > 16 || classBias.any { !it.isFinite() || it < -10 || it > 10 }) ->
+            "Leanings need a retrained model, each from -10 to 10."
         kind == RecipeKind.BLEND -> members.firstNotNullOfOrNull { it.problem() }
         else -> null
     }
@@ -111,7 +125,8 @@ data class Recipe(
     }
 
     /** The rest of what it says, for telling apart recipes [describe] calls the same: how it's fitted and what it learns from. */
-    fun details(): String = fitting() + " · who sent it ×${num(senderMemory)}"
+    fun details(): String = fitting() + " · who sent it ×${num(senderMemory)}" +
+        (if (classBias.any { it != 0.0 }) " · leanings " + classBias.joinToString(" ") { (if (it > 0) "+" else "") + "%.2f".format(it) } else "")
 
     private fun fitting(): String = when (kind) {
         RecipeKind.BLEND -> members.joinToString(" | ") { it.fitting() }
@@ -122,6 +137,7 @@ data class Recipe(
             if (kind != RecipeKind.PERSONAL) "your labels ×${num(userWeight)}" else null,
             "service ×${num(serviceWeight)}",
             if (kind != RecipeKind.PERSONAL) (if (includeCorpus) "shipped ×${num(corpusWeight)}" else "no shipped examples") else null,
+            if (kind != RecipeKind.PERSONAL && conversationWeight > 0) "rest of your conversations ×${num(conversationWeight)}" else null,
             if (kind != RecipeKind.PERSONAL && !balance) "categories as they come" else null,
         ).joinToString(" · ")
     }
@@ -169,7 +185,8 @@ class TrainingItem(
     /** Its context as features (see [ContextFeatures]), for recipes that learn from it; null when not known. */
     val contextFeatures: List<String>? = null,
 ) {
-    enum class Source { FIXED, USER, SERVICE, CORPUS }
+    /** [CONVERSATION]: another text in a conversation whose labels from the user all agree, taken as that label. */
+    enum class Source { FIXED, USER, SERVICE, CORPUS, CONVERSATION }
 
     /** How much it counts under [recipe]; 0 leaves it out. */
     fun weightUnder(recipe: Recipe): Double = when (source) {
@@ -178,6 +195,7 @@ class TrainingItem(
         Source.SERVICE -> recipe.serviceWeight
         // The personal layer sits on a model that learned from these already.
         Source.CORPUS -> if (recipe.includeCorpus && recipe.kind != RecipeKind.PERSONAL) recipe.corpusWeight else 0.0
+        Source.CONVERSATION -> if (recipe.kind != RecipeKind.PERSONAL) recipe.conversationWeight else 0.0
     }
 
     fun copy(features: List<String>? = this.features, weight: Double = this.weight) =
@@ -205,6 +223,8 @@ object RecipeTrainer {
         stopped: () -> Boolean = { false },
     ): Predictor {
         recipe.problem()?.let { throw IllegalArgumentException(it) }
+        // Leanings sit on top of whatever the recipe trains.
+        if (recipe.classBias.isNotEmpty()) return BiasedPredictor(train(recipe.copy(classBias = emptyList()), base, items, onProgress, stopped), recipe.classBias)
         if (recipe.kind == RecipeKind.BLEND) {
             val n = recipe.members.size
             val members = recipe.members.mapIndexed { m, member -> train(member, base, items, { e, of -> onProgress(m * of + e, n * of) }, stopped) }
@@ -233,6 +253,7 @@ object RecipeTrainer {
         is NeuralModel -> item.indicesIn(predictor.buckets)?.let { predictor.scores(it) }
         is PiecesPredictor -> logits(predictor.inner, item.withPieces())
         is ContextPredictor -> logits(predictor.inner, item.withContext())
+        is BiasedPredictor -> logits(predictor.inner, item)?.let { l -> DoubleArray(l.size) { l[it] + predictor.bias.getOrElse(it) { 0.0 } } }
         // The log of the members' averaged odds: a softmax of it gives the blend's answer back.
         is BlendPredictor -> predictor.members.map { logits(it, item) ?: return null }.let { predictor.blendLogits(it) }
         else -> null
@@ -307,7 +328,9 @@ object RecipeTrainer {
         val newest = PersonalEvaluation.newestSplit(scoredItems.map { it.at }, n)?.first ?: return emptyList()
         val newestSet = newest.toHashSet()
         val newestKeys = newest.mapNotNullTo(HashSet()) { scoredItems[it].key } + newest.map { PersonalEvaluation.threadKey(scoredItems[it].group) }
-        val train = scoredItems.filterIndexed { i, _ -> i !in newestSet } + others.filter { it.key == null || it.key !in newestKeys }
+        // Nor anything else in their conversations: a conversation's other texts take its label, the newest ones' included.
+        val newestGroups = newest.mapTo(HashSet()) { scoredItems[it].group }
+        val train = scoredItems.filterIndexed { i, _ -> i !in newestSet } + others.filter { (it.key == null || it.key !in newestKeys) && (it.group < 0 || it.group !in newestGroups) }
         val model = train(recipe, base, train, stopped = stopped)
         return newest.mapNotNull { i -> logits(model, scoredItems[i])?.let { i to it } }
     }

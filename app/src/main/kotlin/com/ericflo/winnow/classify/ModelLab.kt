@@ -303,6 +303,10 @@ class ModelLab(
     data class SweepPrefs(val rounds: Int = 8, val perRound: Int = 8, val steeringCalls: Int = 8, val steer: Boolean = true, val endEarly: Boolean = true)
 
     private val contexts = com.ericflo.winnow.data.MessageContexts(context)
+    /** Each labeled conversation's latest texts, read once a process. */
+    private val conversationCache: MutableMap<Long, List<Pair<com.ericflo.winnow.data.MessageTexts.Text, com.ericflo.winnow.classifier.message.MessageContext>>> =
+        java.util.Collections.synchronizedMap(HashMap())
+
     // Null where the store couldn't say (asked again next time): a ConcurrentHashMap can't hold that.
     private val contextCache: MutableMap<String, com.ericflo.winnow.classifier.message.MessageContext?> = java.util.Collections.synchronizedMap(HashMap())
 
@@ -610,8 +614,25 @@ class ModelLab(
                 )
                 // A conversation's own correction: left out wherever that conversation is held out.
                 else -> others += TrainingItem(
-                    f, idx, label, 1.0, key = r.messageKey ?: r.threadId?.let(com.ericflo.winnow.classifier.local.PersonalEvaluation::threadKey),
+                    f, idx, label, 1.0, group = r.threadId ?: -1, key = r.messageKey ?: r.threadId?.let(com.ericflo.winnow.classifier.local.PersonalEvaluation::threadKey),
                     source = TrainingItem.Source.USER, contextFeatures = contextOf(r.messageKey),
+                )
+            }
+        }
+        // The rest of each conversation the user labeled one way, taken as that label: for recipes
+        // that learn from them (see Recipe.conversationWeight). With their conversation, so they're
+        // left out wherever it's held out; never a text the user labeled themselves.
+        val mine = rows.filter { !it.fromProvider && it.threadId != null && it.threadId !in recheck }
+        val oneWay = mine.groupBy { it.threadId!! }.mapNotNull { (thread, labels) -> labels.map { it.label }.distinct().singleOrNull()?.let { thread to classes.indexOf(it) } }
+        val labeledKeys = rows.mapNotNullTo(HashSet()) { it.messageKey }
+        for ((thread, label) in oneWay.take(MAX_CONVERSATIONS)) {
+            val latest = conversationCache.getOrPut(thread) { contexts.latestFromThem(thread, PER_CONVERSATION) }
+            for ((t, ctx) in latest) {
+                val address = t.address ?: continue
+                if (t.key in labeledKeys) continue
+                others += TrainingItem(
+                    Featurizer.features(Featurizer.Input(address, t.body, contacts.isContact(address), thread in replied)), null, label, 1.0,
+                    group = thread, key = "conversation:${t.key}", source = TrainingItem.Source.CONVERSATION, contextFeatures = ContextFeatures.of(ctx),
                 )
             }
         }
@@ -688,6 +709,10 @@ class ModelLab(
         /** How many of the last sweep's best tries start the next. */
         private const val LAST_BEST = 3
 
+        /** Of each conversation labeled one way, the latest texts learned from; of those conversations, at most so many. */
+        private const val PER_CONVERSATION = 15
+        private const val MAX_CONVERSATIONS = 1500
+
         /** What a recipe's numbers mean, in a line each, for the editor. */
         val HELP = mapOf(
             "kind" to "Personal layer: the shipped model with a light layer of what you taught on top (what Winnow does now). Linear: one weight per word and category, trained from scratch here. Neural: a small network that can learn combinations words alone can't say.",
@@ -701,6 +726,7 @@ class ModelLab(
             "bags" to "Train this many on resampled texts and average them: steadier, slower.",
             "inputDropout" to "The share of a text's words left out of each training step, a different few each time. No one word can carry a text, so the model learns from the rest of it too: it memorizes your labels less and carries them over to new texts better.",
             "pieces" to "Also learn from pieces of words, four letters at a time, so words that share a stem (redeliver, redelivery) or a misspelling share what's learned.",
+            "conversationWeight" to "How much each of your other texts counts in a conversation whose labels from you all agree, taken as that label: a pharmacy's other reminders, a friend's other texts. Many more of your own texts to learn from; never one in a conversation being scored. 0 leaves them out.",
             "context" to "Also learn from when each text came and what came before it in its conversation: the time of day, a weekday or the weekend, whether it opened the conversation or answered your text, how much came before it, how long since the last text. Where texts read alike, these can be what tells them apart to you. It reads the same of each new text, on this phone.",
             "corpus" to "Also learn from the 1,493 hand-written texts the shipped model learned from.",
             "userWeight" to "How much each of your labels counts against one shipped text.",

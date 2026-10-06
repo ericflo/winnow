@@ -29,6 +29,20 @@ class ContextPredictor(val inner: Predictor) : Predictor {
     override fun reasons(features: List<String>, classIndex: Int, limit: Int) = inner.reasons(features, classIndex, limit)
 }
 
+/**
+ * A model with a lean toward or away from each category ([bias], added to its scores), at its
+ * own [temperature]: [inner] answers at its own odds (temperature 1), and these sit on top.
+ */
+class BiasedPredictor(val inner: Predictor, val bias: List<Double>, var temperature: Float = 1f) : Predictor {
+    override val classes get() = inner.classes
+    override val readsContext get() = inner.readsContext
+    override fun probabilities(features: List<String>): DoubleArray {
+        val p = inner.probabilities(features)
+        return LocalModel.softmax(DoubleArray(p.size) { ln(p[it].coerceAtLeast(1e-12)) + bias.getOrElse(it) { 0.0 } }, temperature.toDouble())
+    }
+    override fun reasons(features: List<String>, classIndex: Int, limit: Int) = inner.reasons(features, classIndex, limit)
+}
+
 /** [features] as [model] learned to read them: without context features unless it learned from them. */
 fun featuresFor(model: Predictor, features: List<String>): List<String> =
     if (model.readsContext) features else features.filterNot(ContextFeatures::isContext)

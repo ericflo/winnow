@@ -26,6 +26,11 @@ enum class Knob(val key: String, val meaning: String, val values: List<String>, 
     USER_WEIGHT("user_label_weight", "How much each of the person's own labels counts against one shipped example.", listOf("1", "2", "3", "5", "8", "12", "20")),
     SERVICE_WEIGHT("service_label_weight", "How much each of the classifier service's labels counts; 0 leaves them out.", listOf("0", "0.05", "0.15", "0.35", "0.7", "1", "1.5")),
     CORPUS_WEIGHT("shipped_example_weight", "How much each of the 1,493 hand-written shipped examples counts; 0 leaves them out.", listOf("0", "0.1", "0.3", "0.6", "1", "2")),
+    CONVERSATION_WEIGHT(
+        "conversation_text_weight",
+        "How much each of the person's other texts counts in a conversation whose labels from them all agree, taken as that label (never one in a conversation being scored); 0 leaves them out.",
+        listOf("0", "0.1", "0.25", "0.5", "1"),
+    ),
     BALANCE("balance_categories", "Count each category equally, however many texts it has.", listOf("yes", "no")),
     ;
 
@@ -60,6 +65,7 @@ object SweepSpace {
             includeCorpus = corpus > 0,
             corpusWeight = if (corpus > 0) corpus else 1.0,
             userWeight = v(Knob.USER_WEIGHT).toDouble(),
+            conversationWeight = v(Knob.CONVERSATION_WEIGHT).toDouble(),
             serviceWeight = v(Knob.SERVICE_WEIGHT).toDouble(),
             balance = v(Knob.BALANCE) == "yes",
         )
@@ -94,6 +100,7 @@ object SweepSpace {
             Knob.USER_WEIGHT to nearest(Knob.USER_WEIGHT, recipe.userWeight),
             Knob.SERVICE_WEIGHT to nearest(Knob.SERVICE_WEIGHT, recipe.serviceWeight),
             Knob.CORPUS_WEIGHT to if (recipe.includeCorpus) nearest(Knob.CORPUS_WEIGHT, recipe.corpusWeight) else "0",
+            Knob.CONVERSATION_WEIGHT to nearest(Knob.CONVERSATION_WEIGHT, recipe.conversationWeight),
             Knob.BALANCE to if (recipe.balance) "yes" else "no",
         )
     }
@@ -115,16 +122,19 @@ object SweepSpace {
         // When texts came and what came before them: a signal words don't carry.
         settings("linear", buckets = "65536", epochs = "60", step = "0.2", l2 = "1e-5", context = "yes"),
         settings("neural", layers = "64", buckets = "32768", epochs = "8", step = "0.05", l2 = "1e-6", wordsOut = "0.3", context = "yes"),
+        // The rest of each conversation the person has labeled one way: many more of their own texts to learn from.
+        settings("linear", buckets = "65536", epochs = "60", step = "0.2", l2 = "1e-5", conversations = "0.25"),
+        settings("linear", buckets = "131072", epochs = "60", step = "0.2", l2 = "1e-5", wordsOut = "0.15", conversations = "0.25", context = "yes"),
     )
 
     private fun settings(
         kind: String, layers: String = "64", wide: String = "yes", dropout: String = "0", buckets: String, epochs: String, step: String, l2: String,
         wordsOut: String = "0", pieces: String = "no", user: String = "3", service: String = "0.35", corpus: String = "1", balance: String = "yes",
-        bags: String = "1", context: String = "no",
+        bags: String = "1", context: String = "no", conversations: String = "0",
     ) = mapOf(
         Knob.KIND to kind, Knob.LAYERS to layers, Knob.WIDE to wide, Knob.DROPOUT to dropout, Knob.BAGS to bags, Knob.BUCKETS to buckets, Knob.EPOCHS to epochs,
         Knob.STEP to step, Knob.L2 to l2, Knob.WORDS_OUT to wordsOut, Knob.PIECES to pieces, Knob.CONTEXT to context, Knob.USER_WEIGHT to user,
-        Knob.SERVICE_WEIGHT to service, Knob.CORPUS_WEIGHT to corpus, Knob.BALANCE to balance,
+        Knob.SERVICE_WEIGHT to service, Knob.CORPUS_WEIGHT to corpus, Knob.CONVERSATION_WEIGHT to conversations, Knob.BALANCE to balance,
     )
 }
 
@@ -170,6 +180,8 @@ class SweepState(
     val categories: Map<String, Int>,
     val shippedExamples: Int,
     val serviceLabels: Int,
+    /** Other texts in the person's conversations whose labels all agree (see [Knob.CONVERSATION_WEIGHT]). */
+    val conversationTexts: Int = 0,
     val trials: List<SweepTrial>,
     val round: Int,
     val roundsLeft: Int,
@@ -299,20 +311,44 @@ class SweepScorer(
      */
     fun score(recipe: Recipe, cv: List<Pair<Int, DoubleArray>>, tune: Boolean): Scoring? {
         if (cv.isEmpty()) return null
-        val temperature = if (recipe.kind == RecipeKind.PERSONAL) base.temperature.toDouble() else RecipeTrainer.calibrate(cv.map { (i, s) -> s to scored[i].label }).toDouble()
-        fun answers(strength: Double) = cv.map { (i, s) ->
+        // [cv] is the recipe's own, without leanings: they're added here, as a model's are on top of it.
+        fun leaned(bias: List<Double>) = if (bias.isEmpty()) cv else cv.map { (i, s) -> i to DoubleArray(s.size) { s[it] + bias.getOrElse(it) { 0.0 } } }
+        fun temperatureOf(c: List<Pair<Int, DoubleArray>>) =
+            if (recipe.kind == RecipeKind.PERSONAL) base.temperature.toDouble() else RecipeTrainer.calibrate(c.map { (i, s) -> s to scored[i].label }).toDouble()
+        fun answers(c: List<Pair<Int, DoubleArray>>, temperature: Double, strength: Double) = c.map { (i, s) ->
             val p = LocalModel.softmax(s, temperature)
             val item = scored[i]
             val memory = folds?.let { memories[it[i]] }?.withStrength(strength)
             Scored(item.label, item.sender?.let { sender -> memory?.follow(p, sender, item.conversing)?.distribution } ?: p)
         }
         fun accuracy(rows: List<Scored>) = rows.count { it.predicted == it.label }.toDouble() / rows.size
+        var bias = recipe.classBias
+        var c = leaned(bias)
+        var temperature = temperatureOf(c)
         // Ties go to the recipe's own strength, then to the nearest to it.
         val strength = if (!tune) recipe.senderMemory else (strengths + recipe.senderMemory).distinct()
-            .sortedBy { abs(it - recipe.senderMemory) }.maxBy { accuracy(answers(it)) }
-        val m = MetricsCalculator.compute("sweep", "Cross-validated on your labels", classes, answers(strength), unwanted, filterAt)
-        val words = cv.count { (i, s) -> s.indices.maxBy { s[it] } == scored[i].label }.toDouble() / cv.size
-        return Scoring(recipe.copy(senderMemory = strength), cv, m.accuracy, m.macroF1, words)
+            .sortedBy { abs(it - recipe.senderMemory) }.maxBy { accuracy(answers(c, temperature, it)) }
+        // Leanings toward each category, a step at a time, wherever one raises the share it gets
+        // right (ties to the smaller lean), as free as the strength: no training.
+        if (tune && recipe.kind != RecipeKind.PERSONAL) {
+            val b = DoubleArray(classes.size) { bias.getOrElse(it) { 0.0 } }
+            var best = accuracy(answers(leaned(b.toList()), temperature, strength))
+            repeat(RecipeSweep.LEAN_PASSES) {
+                for (cl in b.indices) for (v in RecipeSweep.LEANS) {
+                    val old = b[cl]
+                    if (v == old) continue
+                    b[cl] = v
+                    val a = accuracy(answers(leaned(b.toList()), temperature, strength))
+                    if (a > best + 1e-9 || (a >= best - 1e-9 && abs(v) < abs(old))) best = maxOf(best, a) else b[cl] = old
+                }
+            }
+            bias = if (b.all { it == 0.0 }) emptyList() else b.toList()
+            c = leaned(bias)
+            temperature = temperatureOf(c)
+        }
+        val m = MetricsCalculator.compute("sweep", "Cross-validated on your labels", classes, answers(c, temperature, strength), unwanted, filterAt)
+        val words = c.count { (i, s) -> s.indices.maxBy { s[it] } == scored[i].label }.toDouble() / c.size
+        return Scoring(recipe.copy(senderMemory = strength, classBias = bias), cv, m.accuracy, m.macroF1, words)
     }
 
     /**
@@ -423,18 +459,20 @@ class RecipeSweep(
             if (stopped()) return
             onEvent(Event.Trying(round, n, of, recipe))
             val started = System.nanoTime()
+            // Leanings sit on top of a model's own answers (see SweepScorer.score): trained without them.
+            val plain = recipe.copy(classBias = emptyList())
             val cv = try {
-                scorer.crossValidate(recipe, stopped)
+                scorer.crossValidate(plain, stopped)
             } catch (e: java.util.concurrent.CancellationException) {
                 return
             }
             val millis = (System.nanoTime() - started) / 1_000_000
             val scoring = scorer.score(recipe, cv, tune) ?: return
-            library += recipe to cv
+            library += plain to cv
             keep(round, scoring, millis, from)
             // The user's own recipe with their labels of each sender counting differently: free to score.
-            if (!tune) scorer.score(recipe, cv, tune = true)?.takeIf { it.recipe.senderMemory != recipe.senderMemory && it.accuracy > scoring.accuracy }
-                ?.let { keep(round, it, 0, "$from, who sent it ×${it.recipe.senderMemory.let { s -> if (s % 1.0 == 0.0) s.toInt().toString() else s.toString() }}") }
+            if (!tune) scorer.score(recipe, cv, tune = true)?.takeIf { it.accuracy > scoring.accuracy }
+                ?.let { keep(round, it, 0, "$from, sender labels and leanings retuned") }
         }
 
         // Round 0: what the user has, as it is, then the starts (none the same as one of theirs).
@@ -457,6 +495,7 @@ class RecipeSweep(
                 categories = scorer.scored.groupingBy { scorer.classes[it.label] }.eachCount(),
                 shippedExamples = scorer.others.count { it.source == TrainingItem.Source.CORPUS },
                 serviceLabels = scorer.others.count { it.source == TrainingItem.Source.SERVICE },
+                conversationTexts = scorer.others.count { it.source == TrainingItem.Source.CONVERSATION },
                 trials = trials.toList(), round = round, roundsLeft = plan.rounds - round,
             )
             // Every call counts against the cap, answered or not: a failed one may be paid for too.
@@ -505,6 +544,10 @@ class RecipeSweep(
     }
 
     companion object {
+        /** Leanings tried for each category, and how many times round them all. */
+        val LEANS = (-8..8).map { it * 0.25 }
+        const val LEAN_PASSES = 2
+
         /** Half a point: what a blend must beat the best try alone by. */
         const val BLEND_MARGIN = 0.005
 

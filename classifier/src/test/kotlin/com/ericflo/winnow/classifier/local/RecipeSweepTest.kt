@@ -276,6 +276,49 @@ class RecipeSweepTest {
         assertTrue(q.max() < LabModelFile.calibrate(back, 1f).probabilities(probe).max())
     }
 
+    @Test
+    fun theRestOfAConversationLabeledOneWayTeachesUnseenOnes() {
+        // Conversations of three of "your" labels, one category each, and eight more of their texts unlabeled.
+        val byCategory = texts.groupBy { it.category }
+        val groups = byCategory.values.flatMap { it.chunked(11).filter { c -> c.size == 11 }.take(4) }
+        val labeled = groups.flatMapIndexed { g, c -> c.take(3).mapIndexed { j, t ->
+            TrainingItem(Featurizer.features(Featurizer.Input(t.sender, t.body)), null, classes.indexOf(t.category.key), 1.0, group = g.toLong(), key = "sms:$g-$j", source = TrainingItem.Source.USER)
+        } }
+        val rest = groups.flatMapIndexed { g, c -> c.drop(3).mapIndexed { j, t ->
+            TrainingItem(Featurizer.features(Featurizer.Input(t.sender, t.body)), null, classes.indexOf(t.category.key), 1.0, group = g.toLong(), key = "conversation:$g-$j", source = TrainingItem.Source.CONVERSATION)
+        } }
+        val base = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 14, epochs = 20, learningRate = 0.2, includeCorpus = false)
+        fun accuracy(r: Recipe) = RecipeTrainer.crossValidate(r, this.base, labeled, rest).count { (i, l) -> l.indices.maxBy { l[it] } == labeled[i].label }.toDouble() / labeled.size
+        val without = accuracy(base)
+        val with = accuracy(base.copy(conversationWeight = 0.5))
+        assertTrue(with > without, "with the rest of the conversations $with, without $without")
+        // A personal layer never takes them.
+        assertEquals(0.0, rest.first().weightUnder(Recipe(conversationWeight = 1.0)))
+    }
+
+    @Test
+    fun leaningsAreScoredAsTheLabScoresThemNeverCostAccuracyAndAreKept() {
+        val s = scorer()
+        val recipe = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 12, epochs = 5, learningRate = 0.2)
+        val cv = s.crossValidate(recipe)
+        val plain = s.score(recipe, cv, tune = false)!!
+        val tuned = s.score(recipe, cv, tune = true)!!
+        assertTrue(tuned.accuracy >= plain.accuracy)
+        // A recipe with leanings, trained and scored as the Lab does it, gives what the sweep said.
+        val leaning = recipe.copy(classBias = listOf(0.5, -0.25, 0.0, 0.75, -0.5, 0.25).take(classes.size))
+        assertNull(leaning.problem())
+        val asLab = RecipeTrainer.crossValidate(leaning, base, scored, others)
+        assertEquals(s.score(leaning, cv, tune = false)!!.accuracy, s.score(leaning.copy(classBias = emptyList()), asLab, tune = false)!!.accuracy, 1e-12)
+        // Kept, and read back with its calibration on top.
+        val model = LabModelFile.calibrate(RecipeTrainer.train(leaning, base, scored), 1.4f)
+        assertTrue(model is BiasedPredictor)
+        val bytes = java.io.ByteArrayOutputStream().also { assertTrue(LabModelFile.write(leaning, model, 1.4f, it)) }.toByteArray()
+        val back = LabModelFile.read(leaning, java.io.ByteArrayInputStream(bytes))!!
+        val f = scored.first().features!!
+        model.probabilities(f).zip(back.probabilities(f).toList()).forEach { (a, b) -> assertEquals(a, b, 5e-3) }
+        assertNotNull(Recipe(classBias = listOf(1.0)).problem())
+    }
+
     private class FakeProvider(private val fail: Boolean = false, private val more: Double = 0.8) : DecisionProvider {
         override val descriptor = ProviderDescriptor("fake", "Fake Jev", DataHandling.REMOTE)
         var calls = 0
