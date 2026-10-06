@@ -42,20 +42,23 @@ so providers can be compared on real traffic before switching.
 
 ### Taxonomy
 
-Six categories (`classifier/…/message/Taxonomy.kt`): personal, reminder, transactional,
-marketing, political and spam. Phishing and "likely scam" were categories of their own until
-they were folded into spam (Room migration 16→17 and backup format 2 rename them; the user's
-earlier labels, except political ones, are marked `recheck` and come first in Train).
+Five categories (`classifier/…/message/Taxonomy.kt`): personal, transactional, marketing,
+political and spam. Phishing and "likely scam" were categories of their own until they were
+folded into spam (Room migration 16→17 and backup format 2 rename them; the user's earlier
+labels, except political ones, are marked `recheck` and come first in Train). Reminder was one
+too, until 19→20 took it out: its notices count as transactional now, Winnow's and a
+service's answers of it read as transactional (`Category.fromAnswerKey`), and the user's own
+labels of it were cleared and marked `recheck` to be labeled again, since some were marketing.
 
-A provider isn't asked to choose among the six. One Choice question, `category`, offers 79
+A provider isn't asked to choose among the five. One Choice question, `category`, offers 79
 finer kinds of text (`Subcategories.kt`), each described with the category it counts as, and
-the answer's probabilities are added up into the six (`Subcategories.aggregate`); the verdict
+the answer's probabilities are added up into the five (`Subcategories.aggregate`); the verdict
 keeps the finer kind as `subcategory`. TypeSafe's docs put a Choice's limit at 255 options and
 recommend giving the model the full list rather than a shortlist. The parent's confidence is
 its summed probability, not the provider's own `confidence` (which is over the 79). Personal
 options are listed first and spam last because Jev leans toward earlier options. With
 examples, the instructions also carry up to three of the user's own labeled texts per
-category, redacted like the message. A provider that answers with the six directly still
+category, redacted like the message. A provider that answers with the categories directly still
 works: `aggregate` falls back to category keys. The spam and political options were written
 against patterns in a real spam folder: sensational "BREAKING" hooks, fake polls and
 petitions, wrong-name fundraising, and "are you free to talk?" openers.

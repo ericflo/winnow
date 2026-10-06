@@ -1,606 +1,153 @@
 # Winnow
 
 **An Android SMS/MMS app that reads every incoming text before it can buzz your phone.**
-Messages from people come through. Spam (scams and phishing included) and political blasts go
-to Filtered, with no notification. Marketing arrives quietly. Nothing is deleted, and one tap
-fixes a wrong call.
+
+People you know come through. Spam, scams, phishing and political blasts go to Filtered, with
+no notification. Marketing arrives quietly. Nothing is deleted, every decision says why, and one
+tap fixes a wrong call.
 
 <table>
   <tr>
     <td><img src="docs/screenshots/inbox.png" width="200" alt="Inbox"></td>
     <td><img src="docs/screenshots/filtered.png" width="200" alt="Filtered"></td>
-    <td><img src="docs/screenshots/thread-filtered.png" width="200" alt="A phishing text, filtered"></td>
-    <td><img src="docs/screenshots/group.png" width="200" alt="Group MMS with a photo and a reaction"></td>
+    <td><img src="docs/screenshots/thread-filtered.png" width="200" alt="A phishing text, filtered, links off"></td>
+    <td><img src="docs/screenshots/why.png" width="200" alt="Why Winnow did this"></td>
   </tr>
   <tr>
-    <td align="center"><sub>Inbox</sub></td>
-    <td align="center"><sub>Filtered (spam &amp; blocked)</sub></td>
-    <td align="center"><sub>Why it was filtered, with links disabled</sub></td>
-    <td align="center"><sub>Group MMS, photos, reactions</sub></td>
+    <td align="center"><sub>Inbox: marketing arrives quietly</sub></td>
+    <td align="center"><sub>Filtered: spam and political</sub></td>
+    <td align="center"><sub>Filtered on the phone, links off</sub></td>
+    <td align="center"><sub>Who decided, and why</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/label.png" width="200" alt="Label as one of five categories"></td>
+    <td><img src="docs/screenshots/train.png" width="200" alt="Train Winnow"></td>
+    <td><img src="docs/screenshots/model-try.png" width="200" alt="How the model reads a text"></td>
+    <td><img src="docs/screenshots/group.png" width="200" alt="Group MMS"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Label anything, one tap</sub></td>
+    <td align="center"><sub>Train it in rounds</sub></td>
+    <td align="center"><sub>See how the model reads any text</sub></td>
+    <td align="center"><sub>A complete SMS/MMS app</sub></td>
   </tr>
 </table>
 
-Google Messages lets too much through. Winnow is a full replacement: it becomes your
-default SMS app, so it sees each text first and decides whether it deserves your attention.
-The decision comes from a pluggable classifier. Jev by TypeSafe is the first supported
-provider, but Winnow depends only on a small decision interface. You can switch to another
-service, your own server, any OpenAI-compatible model, or rules that run entirely on the
-phone.
+<sub>Screenshots are from an emulator with made-up conversations: every name, number and link is
+fictional. A fresh install is empty until Winnow is your SMS app.</sub>
 
-> Screenshots were taken on an emulator with made-up conversations. Every name and number is
-> fictional (555-01xx), and the "Classified by Jev" verdicts in them are part of that test data.
-> The app itself never ships sample data: a fresh install is empty until it's your SMS app.
+## Why
 
-## What it does
+Google Messages lets too much through. Winnow replaces it as your default SMS app, so it sees
+each text first and decides whether it deserves your attention. The decision comes from a
+pluggable classifier: Winnow's own model on the phone, or a service such as Jev by TypeSafe,
+your own server, or any OpenAI-compatible model.
 
-### Filtering that explains itself
+## Features
 
-Every incoming SMS and MMS gets one of five categories: **personal** (people you know),
-**transactional** (set off by something you did: a code, an order, an appointment you booked;
-or someone you already deal with telling you something to do or know and selling nothing, like
-a landlord's "test your heater before winter"), **marketing** (a business you know wanting you
-to buy), **political**
-and **spam** (junk, scams and phishing from strangers). Each category maps to an action, which
-you can change: **notify**, **silence** (inbox, no notification) or **filter** (Filtered,
-no notification). A filtered conversation carries a banner saying what Winnow decided and
-who decided it, with **Not spam**, **Filter sender** and **Report**. Report forwards the
-text to your carrier's 7726 spam service, after you confirm. Links in spam can't be tapped. **Filtered words** (Settings) send a stranger's text that uses one
-straight to Filtered, decided on the phone; whole words only, so "vote" doesn't catch
-"devoted", and contacts and people you've texted aren't affected. **Clear out old filtered
-texts** (optional) moves filtered conversations untouched for a month to Recently deleted,
-never one you've written in, pinned or starred. An optional **daily
-summary** says each evening how many texts were kept out of the inbox (or arrived quietly),
-and opens Filtered; nothing on a quiet day.
+**Filtering**
+- Five categories, each with an action you choose: **personal** and **transactional** notify,
+  **marketing** arrives silently, **political** and **spam** go to Filtered.
+- A banner on every filtered conversation says what decided it and why, with **Not spam**,
+  **Filter sender** and **Report** (to your carrier's 7726 spam service). Links in spam can't be tapped.
+- Contacts, people you've texted and verification codes are always decided on the phone.
+- Filtered words, sender rules, an optional daily summary, and optional clean-up of old filtered texts.
 
-### Teach it your texts
+**Teaching it your texts**
+- **Label** any conversation or message (swipe left, or long-press). The on-phone model refits
+  immediately; Undo takes it back.
+- **Train Winnow** works through your backlog in rounds of 20, starting where the model is least sure.
+- Optionally let a classifier service label your backlog first (zero-retention only, after a
+  confirmation that says exactly what leaves the phone; about $0.0001 a text with Jev).
+- Your labels of a sender follow that sender: three labeled one way decide their next texts
+  (unless you text with them; people send every kind).
+- **Winnow's model** shows everything: how it does on your own labels (cross-validated), who
+  decided each text, what your teaching changed, and how it reads anything you type. Its **Lab**
+  designs, trains, sweeps and compares models on the phone.
 
-**Label** anything: a conversation (its ⋮ menu), one message (long-press it), or many at once
-(long-press conversations in the inbox, Filtered or Archived, then the tag). The sheet lists
-the five categories with what each means and where it files a text by your settings, so one
-tap labels, moves the conversation there, and refits the on-phone model on the spot; Undo
-takes it all back. Labeling a whole conversation also removes a sender rule that disagrees
-with it (an "always allow" on texts you now call spam), so that sender's next texts are judged
-afresh; labeling one message leaves the rule alone and says it's still there. **Train Winnow** (menu) works through your backlog in rounds of 20
-conversations with people outside your contacts. Winnow shows its guess for each, mostly the
-ones it's least sure of. You tap ✓ when it's right, "All right" for a whole group, or its guess
-to fix it (tap the text to read all of it, and the earlier texts the label covers). Its other
-guesses update as you answer, so fixing one text moves its lookalikes in the round with it.
-Finishing the round labels what you answered and retrains; the summary lists where it was
-wrong. A round left half-answered is kept as it is, even if Winnow is closed or Android ends it
-in the background, and comes back next time with your answers. Swipe a conversation left (in the inbox, Filtered or Archived) to label it from
-anywhere. Labels you gave before the move to six categories wait in Train to be confirmed or
-changed, first in every round and with what you said before ("You said Marketing before");
-political labels stand as they were, and phishing and scam labels became spam on their own.
-Reminder was a category of its own until it was taken out; your labels of it were cleared
-rather than called transactional (some were marketing), and those conversations come first in
-Train to be labeled again ("You said Reminder before, which is gone").
+**Messaging**
+- SMS and MMS, group conversations, photos, video, voice messages, GIFs, reactions (sent as
+  iPhone-style tapbacks), contact cards, and link previews (opt-in, never for strangers).
+- Scheduled send, undo send, drafts, quick replies, suggested replies, Remind me, starred
+  messages, full-text search, pin, archive, mute, and Recently deleted (30 days).
+- Conversation notifications with inline reply, chat bubbles, Android Auto, dual SIM, a home-screen
+  widget, a two-pane layout on tablets and foldables, and light and dark themes.
+- Backups to a zip you keep (weekly automatic, password-protected optional), plus import from
+  and export to SMS Backup & Restore.
 
-**Let Jev label your backlog first.** With a classifier service set up (Jev via TypeSafe or
-OpenRouter) and marked zero data retention, Train Winnow offers to send the newest three
-received texts of each conversation with someone who isn't a contact, after a confirmation that
-says how many and what leaves the phone. They go through the same pipeline as a new text: the
-same redaction, and the same rules keep contacts, people you've written to, verification codes
-and senders you've set a rule for on the phone. On OpenRouter, each request asks for
-zero-retention endpoints only (`"provider": {"zdr": true}`); with a direct TypeSafe key, zero
-retention is TypeSafe's own policy, which you confirm in Settings (TypeSafe's terms offer it
-only to enterprise accounts, so OpenRouter is the way to require it). Jev isn't asked to choose
-among the five: it picks among 79 finer kinds of text ("fake toll notice", "landlord maintenance
-notice", "school notice", "donation ask"), and their probabilities are added up into the five,
-since a precise option is easier to recognize than a broad one. Up to three texts you labeled
-yourself per category go along with each request, redacted the same way, so Jev sorts the way
-you do (only labels given or confirmed under the six categories, since an older one may mean
-what the old categories meant); Train shows the finer kind beside Jev's answer ("Jev said Spam · toll phishing"), and
-can ask again with your latest labels. Jev's answers teach the
-on-phone model at about a third of the weight of your own labels (yours always win, and replace
-Jev's on the same text) and file texts Winnow never sorted. Each round then puts first the
-conversations where Jev and the on-phone model disagree, and shows what Jev said beside every
-guess. Jev's labels never count as right answers on the accuracy screen, and Settings can forget
-just those. Jev costs about $0.0001 a text (most of each request is the 79 options), so a
-backlog of a few thousand texts is well under a dollar. A run goes on with
-the screen off or Winnow closed (a foreground service, with progress and Stop in a quiet
-notification), stops itself if the service stops answering (saying why: a refused key, no credit,
-rate limiting, an outage, a model it doesn't have), and picks up where it left off next time. A
-text the service turns down is skipped, but if it turns down a whole batch with nothing answered,
-the request itself is wrong, so the run stops after those 24 rather than sending the backlog.
-
-Every run is kept: its notification opens what Jev said of each text, beside what the on-phone
-model had made of it just before and makes of it now and your own label where you gave one
-(Train Winnow → Past runs keeps them all). With Jev on, the on-phone model keeps learning from
-its sure answers as texts arrive (Settings can turn that off).
-
-**See what decided each text, and why.** Long-press a received text (or tap Why? on a filtered
-or silenced conversation) for who decided it and why it was them (Jev, with its finer kind,
-how long it took and whether your labels went with the question; the on-phone model, which fit
-of it, and why it and not Jev; a rule), what each of you, Jev and the model thought side by
-side, how the category became what happened, and what it taught the model. Activity is built
-around the same: who decided your texts, day by day, what each one did and how often you
-changed it, and every decision with its reason.
-
-**Winnow's model** (menu) opens the on-phone model up. *Overview*: what it learned from, how
-it does on your own labels (cross-validated), how you, Jev and the model agree pair by pair,
-who decided your texts, and the honest answer to whether your labels make Jev better (they
-reach it only as examples in backlog runs; they train the on-phone model). *Evaluate*: score
-the model now, as it ships, on your labels only, with another weight for Jev's labels, any kept
-fit, and Jev's recorded answers, side by side and with every miss; replay how it learned; ask
-Jev about your labeled texts with and without your examples to measure what they change; and
-make a better-scoring rebuild the model. *Lab*: retrain on the phone, design models (the
-personal layer, a linear model retrained from scratch, or a neural network, deeper and wider,
-every setting yours), train them here, score them on your labels and put one in use. *Inside*:
-how it's built, what your teaching changed most, and how it reads any text you type.
-*History*: every fit. All of it runs on the phone; only the Jev comparison sends anything,
-after asking.
-
-Labels stay on the phone (only hashed word fingerprints, never the text) and go
-into backups.
-
-<table>
-  <tr>
-    <td><img src="docs/screenshots/activity.png" width="200" alt="Activity"></td>
-    <td><img src="docs/screenshots/try-it.png" width="200" alt="Try the classifier"></td>
-    <td><img src="docs/screenshots/details.png" width="200" alt="Conversation details"></td>
-    <td><img src="docs/screenshots/menu.png" width="200" alt="Menu"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Activity: what Winnow did</sub></td>
-    <td align="center"><sub>Try it, and see exactly what leaves the phone</sub></td>
-    <td align="center"><sub>Per-sender decisions, block, mute</sub></td>
-    <td align="center"><sub>Menu</sub></td>
-  </tr>
-</table>
-
-### A complete messaging app
-
-- **SMS and MMS:** group conversations threaded correctly, photos in and out (downscaled to
-  the carrier's own MMS size limit, and a long text goes as an MMS where the carrier asks for that) and a full-screen viewer (swipe through a conversation's photos, pinch or
-  double-tap to zoom), and voice messages and videos that play right in the conversation.
-  GIFs and animated stickers move (they hold still when Android's "Remove animations" is on),
-  and an MMS's subject heads its bubble in bold (placeholders like "NoSubject" are left out).
-  Attach → **Subject** adds one to your own message, which then goes as an MMS; it's kept
-  with the draft, and Winnow's classifier reads a received subject along with the text.
-  Any attachment can be saved to the phone or shared to another app. **Link previews**
-  (off by default) show a link's title and picture, but only for your own links and texts
-  from people in your contacts or that you've texted. Strangers and filtered texts never
-  make Winnow fetch anything. Tracking numbers (UPS, USPS, FedEx) link to the carrier, street
-  addresses open in Maps, dates and flight numbers offer what Android's on-device text
-  classifier suggests (add to calendar, flight status), and a phone number in a message offers
-  Call, Send message, Add contact and Copy. Shared contacts show as cards with **Add contact** and **Message**, and
-  Attach → Contact sends one (its photo left out, so it fits). Attach → **Voice message**
-  records one (AAC, stopping at 5 minutes or 800 KB, so it always fits an MMS), and
-  **Location** puts a map link for where you are into the draft (one fix, nothing tracked).
-  GIFs and stickers sent from the keyboard (Gboard's GIF panel, for one) attach as pictures.
-  Attach → **Video** records one with the camera. A video too big for an MMS is re-encoded to
-  fit (144–360 lines, 10–15 fps), and a long one is cut to the part that fits, with a note
-  saying so. iPhone tapbacks and SMS reactions are drawn on
-  the message they react to, and any emoji can be one. Failed sends and MMS downloads can be
-  retried (a failed picture-message download is retried by itself, a few times over the next
-  hours, and waits for mobile data to come back on), and what's in the way is said before a message fails, not after: airplane mode, or
-  mobile data being off for a picture message. Delivery reports (SMS and MMS, where the carrier sends them) are opt-in, and MMS auto-download can be turned off (it's off while roaming unless
-  you allow it), leaving "Tap to download" in the conversation. Optionally, photos and videos
-  from your contacts and people you've texted are saved to the phone's gallery (Pictures/Winnow,
-  Movies/Winnow) as they arrive; filtered and silenced texts' never are.
-- **Conversations:** pin, archive, mute (for an hour, 8 hours, a day, or until you turn it
-  back on), mark read/unread, delete, block (Android's system
-  block list), **Add contact** (a first text from a number that isn't in your contacts asks whether to add them or filter them; names update as soon as they're saved), name a group (just for you), **Add to home screen**, **Add people** (a new group with everyone in it plus whoever you add), a **Photos & videos** strip in Details, **Export** to a text file, an **Unread** filter (plus **Personal**, **Updates** and **Offers**, from what the classifier made of each conversation), **reply and birthday reminders** (a contact's question you haven't answered in two days, or yours they haven't, comes back to the top of the inbox until it's answered or dismissed, and so does a contact on the birthday their contact card has), and multi-select (in Filtered and Archived too, to rescue or clear several at once).
-  Optionally, one-time codes from services are deleted a day after they arrive. That's off by
-  default, never applies to texts from people, and keeps starred codes. Swipe to archive in the inbox (or set each direction to delete,
-  mark read/unread, pin, or nothing), to mark not spam in Filtered, or to unarchive in
-  Archived. Archiving and "not spam" can be undone, and deleting asks first. A deleted conversation waits
-  in **Recently deleted** (in the menu) for 30 days, photos and Winnow's decisions included, and
-  can be restored from there; so do messages deleted from a conversation, with an Undo right away. Opening a conversation marks where its **new messages** begin. Full-text search covers SMS and MMS, and each conversation can be searched on its own,
-  with matches highlighted; a search result opens its conversation at that message, and so
-  does a starred one. **Go to date** (in a conversation's menu) jumps to any day that has messages. Settings links to Android's blocked-numbers list.
-- **Composing:** New chat with your contacts (the people you've texted lately at the top) and Create
-  group, **Forward** (photos and voice messages too), **Reply privately** to one person in a
-  group, photos from the gallery or the
-  camera (each can be rotated, cropped or drawn on before it goes: tap one to crop it, freely or square, or draw on it in six colors), drafts that stick (attachments included, even after Android closes the app), an SMS segment counter, optional **simple characters** (when curly quotes, long dashes or accents would cut a text from 160 characters to 70 and cost an extra text, plain ones go instead), **scheduled send** (long-press Send; the menu lists everything scheduled, and each can be sent now, moved to another time, edited or deleted), **send
-  separately** in a group (each person gets their own text, so replies come back one to one), and
-  optional **undo send** (5 or 10 seconds to take a message back). **Quick replies** ("On my
-  way", "Can't talk now, I'll call you later", your own) sit in the + menu and appear as one-tap
-  answers on notifications. **Email addresses** can be texted too (New chat takes one, and
-  contacts' emails turn up when searched): it goes as an MMS, which carriers deliver as email.
-  **Suggested replies** come from Android's on-device text classifier
-  (the Smart Reply Messages uses): chips above the keyboard that put a reply in the draft, never
-  for filtered, silenced or fraudulent texts, or senders that can't take a reply. A photo from a contact, or from someone you've texted, shows in its
-  notification; a stranger's doesn't. Conversations you text with
-  show up by name in Android's share sheet and on the app icon's long-press menu; sharing to
-  one puts the photo or text straight into it. A text that doesn't go out
-  (no signal, a carrier refusal, a scheduled one that fails) says so in the inbox ("Not sent:") and in a notification, and a
-  message that fails after you've left its conversation is waiting in the composer when you
-  come back.
-- **Dual SIM:** on a phone with two SIMs, a badge in the composer shows which one a text
-  goes out on, and tapping it switches. Each conversation remembers its SIM. Otherwise it
-  uses the SIM their last text arrived on, then your default. Replies from notifications and
-  scheduled texts use the same SIM, and message details say which SIM a text came in on.
-- **Messages:** react (❤️ 👍 👎 😂 ‼️ ❓), copy (all or just part, with Select text),
-  forward, share, star, delete, details, and "Copy code" for verification codes. **Select** several to copy, star or delete them together, or **Select all** of the conversation (copying is capped at what Android's clipboard can carry; Details → Export conversation takes any amount). Reactions go out as `Loved “…”`, which iPhones show as a
-  tapback. **Remind me** on a message brings it back as a notification later (in an hour,
-  this evening, tomorrow morning or any time), opening the conversation right at it; "In an
-  hour" there puts it off again. **Starred** (in the menu) collects starred messages from every conversation, photos
-  included.
-- **Home-screen widget:** the inbox's newest conversations (never anything filtered or
-  archived), unread ones in bold, a tap opening each, and Start chat; it keeps up as texts
-  arrive. With app lock on, it only says Winnow is locked.
-- **Share to Winnow:** text, photos, videos and contacts shared from any app open New chat
-  with them attached.
-- **Notifications:** Android conversation notifications (Conversations section, priority),
-  with a sound and vibration of their own per conversation (Details → Sound and vibration),
-  stacked per thread, with inline **Reply**, **Mark as read**, **Copy code**, and **Spam** on a
-  stranger's text that got through (it filters the sender and teaches the on-phone model), and **chat
-  bubbles** that float a conversation over other apps. In **Android Auto** the same
-  notifications are read aloud and answered by voice. A sideloaded build needs "Unknown
-  sources" turned on in Android Auto's developer settings.
-- **Backup and restore:** messages, photos, Winnow's decisions, conversation state (drafts
-  too, with their subject and attachments), sender rules and settings go into one zip file that you choose where to keep. API keys are never
-  included. Restoring onto a new phone, or the same one, only adds what's missing, so
-  restoring twice is harmless. A new phone can restore right from onboarding. **Back up
-  automatically** writes one every week while the phone charges, into a folder you pick
-  once, such as one your cloud drive syncs. It keeps the newest four. Coming from another
-  app? **Import from SMS Backup & Restore** reads that app's .xml backup, texts and picture
-  messages included, and adds whatever isn't on the phone yet. Leaving? **Export for other
-  apps** writes the same format, which most texting apps can import. A **backup password**
-  locks backup files, automatic ones included, with AES-256: another phone needs the password
-  to restore one, while this phone opens those made with its current password without
-  asking. Winnow can't recover a forgotten one.
-- **Big screens:** on a tablet, an unfolded foldable or a big window, the conversation list
-  and the open conversation sit side by side, and the open one rides out rotation and resizing
-  (narrowed, it carries on full size). A phone on its side keeps one pane. **Enter sends**
-  (optional) makes a keyboard's Enter send; Shift+Enter still starts a new line. With a
-  keyboard, Ctrl+N starts a chat, Ctrl+F searches (the inbox, or within a conversation) and
-  Ctrl+, opens Settings; Meta+/ lists them.
-- **Display:** light, dark or the system theme, and a message text size. Pinch a
-  conversation to zoom its text; it snaps back to normal near 100%.
-- **RCS:** Winnow can't receive RCS (Android gives it to Google Messages alone), and while it's
-  your SMS app an RCS group chat's messages wait with Google instead of arriving. Winnow marks
-  every conversation that was RCS, explains how to turn RCS off so they come as texts, says what
-  arrived while another app was your SMS app, and lets you name people known only by an RCS id.
-- **Getting started:** onboarding explains the RCS trade-off before it asks to become your
-  SMS app. Once Winnow is in charge, it can review older conversations for spam.
-
-<table>
-  <tr>
-    <td><img src="docs/screenshots/notification.png" width="200" alt="Conversation notification"></td>
-    <td><img src="docs/screenshots/schedule.png" width="200" alt="Schedule send"></td>
-    <td><img src="docs/screenshots/new-chat.png" width="200" alt="New chat"></td>
-    <td><img src="docs/screenshots/message-actions.png" width="200" alt="Message actions"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Reply from the notification</sub></td>
-    <td align="center"><sub>Schedule send</sub></td>
-    <td align="center"><sub>New chat and groups</sub></td>
-    <td align="center"><sub>Message actions</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/onboarding-rcs.png" width="200" alt="Onboarding: RCS"></td>
-    <td><img src="docs/screenshots/settings.png" width="200" alt="Settings"></td>
-    <td><img src="docs/screenshots/search.png" width="200" alt="Search"></td>
-    <td><img src="docs/screenshots/inbox-light.png" width="200" alt="Light theme"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Onboarding, with the RCS trade-off</sub></td>
-    <td align="center"><sub>Choose a classifier</sub></td>
-    <td align="center"><sub>Search messages</sub></td>
-    <td align="center"><sub>Light theme</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/backup.png" width="200" alt="Restore a backup"></td>
-    <td><img src="docs/screenshots/sim-picker.png" width="200" alt="Choosing a SIM"></td>
-    <td><img src="docs/screenshots/starred.png" width="200" alt="Starred messages"></td>
-    <td><img src="docs/screenshots/bubble.png" width="200" alt="A conversation in a chat bubble"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Back up and restore</sub></td>
-    <td align="center"><sub>Dual SIM: pick per conversation</sub></td>
-    <td align="center"><sub>Starred messages</sub></td>
-    <td align="center"><sub>Chat bubbles</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/contact-card.png" width="200" alt="A shared contact card"></td>
-    <td><img src="docs/screenshots/photo-viewer.png" width="200" alt="Photo viewer with Share and Save"></td>
-    <td><img src="docs/screenshots/details-media.png" width="200" alt="Details with photos and per-conversation sound"></td>
-    <td><img src="docs/screenshots/display-settings.png" width="200" alt="Display settings: theme, text size, swipes"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Contact cards: add or message</sub></td>
-    <td align="center"><sub>Photos: swipe, zoom, save, share</sub></td>
-    <td align="center"><sub>Photos &amp; videos, conversation sound</sub></td>
-    <td align="center"><sub>Theme, text size, swipe actions</sub></td>
-  </tr>
-</table>
-
-The UI follows Google Messages: a large-title inbox on a rounded sheet, an avatar menu,
-timestamped conversation blocks, Material You colors and dark mode. A group's avatar shows two
-of its people, those with a photo or a name first, and its notification and home-screen
-shortcut show the same two faces.
+The full tour is in [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Privacy
 
-What a classifier service sees is deliberately small. Settings → **Try it** shows the exact
-payload for any message.
+- **On this phone only** keeps everything local: Winnow's model decides, and filters only when it's at least 85% sure.
+- With a service set up, texts from contacts, people you've texted and verification codes still
+  never leave the phone, and you can keep texts the model is very sure about local too.
+- What a service sees is redacted: digit runs become `####`, emails `[email]`, links their domain.
+  The sender's number isn't shared unless you turn that on. Settings → **Try it** shows the exact payload.
+- API keys are encrypted with the Android Keystore. App lock, and hiding texts on the lock screen, are optional.
+- Labels are kept as hashed word fingerprints, never the text, and stay on the phone.
 
-- Texts from saved contacts, from people you've texted, and verification codes are decided
-  on the phone and never sent anywhere. Colleagues saved in a work profile count as contacts
-  too, where the work profile lets other apps look up callers. If Winnow can't read your contacts (not allowed, or no
-  longer), it can't tell a contact from a stranger, so it sends no text anywhere until it can,
-  and the inbox says so with a way to allow it.
-- Runs of 4+ digits become `####`, email addresses become `[email]`, and links are sent as
-  their domain only.
-- The sender's number isn't shared unless you turn that on.
-- **Zero-retention only** mode skips any provider you haven't marked as keeping no data.
-- API keys are encrypted with the Android Keystore.
-- **Lock Winnow** asks for your fingerprint, face or screen lock after a minute away, and
-  blanks Winnow's card in recents. **Hide texts on the lock screen** keeps new-message
-  notifications off it entirely. Even without that, a locked phone set to hide sensitive
-  content shows only "New message".
-- **On this phone only** keeps everything local. Winnow's own model (below) decides, and
-  it only filters when it's at least 85% sure; otherwise it silences.
-- **Decide on this phone when it's sure** keeps texts the model is very sure about (95%+)
-  from ever reaching your provider. In cross-validation that's 65% of texts, and 98.2%
-  of those calls are right.
-- If no provider answers in time, the on-phone model decides. If classification fails
-  altogether, the message is delivered with a notification.
-
-## Classification is provider-agnostic
+## How it decides
 
 ```
-incoming text → local rules (contacts, codes, sender rules), then your filtered words
-              → on-phone model, if your labels of the sender decide it, or you let it decide when it's sure
+incoming text → rules on the phone (contacts, codes, sender rules, filtered words)
+              → on-phone model, if your labels of the sender decide it, or it's sure enough
               → privacy gate + redaction
-              → DecisionProvider: Jev (TypeSafe / OpenRouter) · any System One server
-                                  · any OpenAI-compatible LLM
+              → DecisionProvider: Jev (TypeSafe / OpenRouter) · any System One server · any OpenAI-compatible LLM
               → on-phone model if nothing answers
 ```
 
-The app only depends on `DecisionProvider`: a state plus typed multiple-choice questions,
-answered with probabilities. Jev speaks that shape natively. Anything else can implement it.
-Details, including how to add a provider: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The app depends only on `DecisionProvider`, a small interface for typed multiple-choice questions
+answered with probabilities, so any service can be plugged in. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-### The on-phone model
+The on-phone model is a softmax regression over words, word pairs and signals such as a web
+address dressed up as another ("sunpass.com-tollpay.vip"), money, deadlines and opt-outs. It's
+about 160 KB, classifies a text in about 50 µs on a laptop, and is trained from 1,493 hand-written texts in
+[`classifier/training/`](classifier/training/). On those (5-fold cross-validated):
 
-Winnow ships its own classifier: a softmax regression over words, word pairs and signals
-for what words miss. Those signals include a link to an unusual domain, a web address dressed
-up as another ("sunpass.com-tollpay.vip"), a stranger introducing themselves "with" a group,
-a donation "match", a deadline, a "reply STOP" opt-out, and letters from another alphabet
-posing as English. The weights are about 160 KB. It classifies a text in about 50 µs on a laptop
-JVM (not yet measured on a phone), and it says why it decided ("Decided on this phone:
-“confirm”, “package”, “fee”"). It's trained from 1,493 labeled texts in
-`classifier/training/`, across all five categories.
-`./gradlew :classifier:trainLocalModel` rebuilds it, and a test fails if the shipped model or
-its metrics don't match the corpus.
+| Accuracy | Macro F1 | ROC AUC, unwanted vs. wanted | Wanted texts filtered | Unwanted kept quiet | Held-out set |
+|---|---|---|---|---|---|
+| 92.0% | 0.92 | 0.985 | 0.4% | 92.5% | 98.5% of 135 |
 
-A provider like Jev is still the better judge. The model's job is to keep the phone useful
-without one.
+Hand-written texts are cleaner than real traffic, so treat these as an upper bound. In the app,
+**Filtered → How accurate is Winnow?** scores it on your own labels. Full numbers:
+[classifier/training/REPORT.md](classifier/training/REPORT.md).
 
-## How accurate it is
+## Install
 
-**Filtered → How accurate is Winnow?** is about your texts only.
+1. In Google Messages, turn off RCS (Settings → RCS chats). Android only lets Google Messages use
+   RCS, so Winnow works over SMS and MMS: groups and photos work, but typing indicators, read
+   receipts and RCS encryption don't.
+2. Download `winnow-X.Y.Z.apk` from the [latest release](https://github.com/ericflo/winnow/releases) and open it.
+3. Open Winnow and tap **Set as default SMS app**. On Android 15+, a browser-installed app is
+   refused the first time: open App info (Winnow links to it), tap ⋮ → **Allow restricted
+   settings**, then try again.
 
-**On your texts** comes from what you checked yourself: Train Winnow guesses you answered,
-and texts Winnow judged on arrival that you labeled later. It shows how many of those it got
-right, and a percentage once there are at least ten.
+Android 12 (API 31) or later. You can switch back to Google Messages any time.
 
-Below it, **every chart is worked out from your labels**: ROC and precision–recall curves for
-unwanted vs. wanted (both follow your finger and move with the threshold explorer), calibration
-("does 90% sure mean right 90% of the time?"), each category's precision, recall, F1 and AUC,
-the confusion matrix, and coverage. They're cross-validated on the phone: each labeled text is
-scored by the model refit without that conversation's labels, so they show how it does on texts
-like yours it hasn't been taught. They're redrawn whenever you label, and appear once there are
-20 labeled texts in at least two categories.
+## Build
 
-<table>
-  <tr>
-    <td><img src="docs/screenshots/metrics.png" width="200" alt="Classifier accuracy: AUC gauge and ROC curve"></td>
-    <td><img src="docs/screenshots/metrics-threshold.png" width="200" alt="Threshold explorer"></td>
-    <td><img src="docs/screenshots/metrics-calibration.png" width="200" alt="Calibration"></td>
-    <td><img src="docs/screenshots/metrics-categories.png" width="200" alt="Per-category precision and recall"></td>
-    <td><img src="docs/screenshots/metrics-confusion.png" width="200" alt="Confusion matrix"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>ROC AUC, κ, MCC, F1; the ROC curve (scrub it)</sub></td>
-    <td align="center"><sub>Pick a threshold, see the outcomes</sub></td>
-    <td align="center"><sub>Calibration: is “90% sure” right 90% of the time?</sub></td>
-    <td align="center"><sub>Every category: precision, recall, F1, AUC</sub></td>
-    <td align="center"><sub>Confusion matrix and coverage</sub></td>
-  </tr>
-</table>
-
-### How the built-in model was tested
-
-This is for developers; the app doesn't show it. The on-phone model was scored on the
-hand-written texts in `classifier/training/` with 5-fold cross-validation (every text scored
-by a model that never saw it). Those texts were written to show their category clearly, so
-real traffic scores lower.
-
-| Accuracy | Macro F1 | Cohen's κ | MCC | ROC AUC (unwanted vs. wanted) | Avg. precision | Calibration error |
-|---|---|---|---|---|---|---|
-| 91.6% | 0.92 | 0.89 | 0.90 | 0.987 | 0.986 | 0.014 |
-
-Winnow's own filtering rule filters an unwanted category at ≥85% confidence. A spam text
-only gets filtered if it has a hook: a link off the company's real site, money, a number to
-call, or payment or code talk. Anything without one is silenced instead, because a bare "hi,
-is this David?" reads exactly like a real person on a new number, and "your password was
-changed" has nothing to phish with; when the model is under 60% sure such a text isn't even
-silenced, since it can't defraud anyone and might be a friend. On the test texts, the rule
-filters 0.4% of wanted ones (99.3% precision) and 66.6% of unwanted ones; counting filtered and
-silenced, 92.5% of the unwanted test texts would never buzz a phone, while 2.6% of the personal
-and transactional ones would lose their notification (transactional counts half again in
-training, as the biggest category a wanted text can be). Per category, F1 runs from 0.95
-(political) to 0.90 for personal, which shades into spam's "new number" openers. On 135
-more texts written separately and never trained on, it got 98.5% right. The
-full numbers are in [classifier/training/REPORT.md](classifier/training/REPORT.md).
-
-It also **learns from your labels and corrections**. A label, "Not spam" or "Filter sender"
-teaches it about that message's content, so similar texts from other senders follow; a sender
-rule only covers the one sender. Only hashed word fingerprints are kept, never the message, and
-Settings → **Forget** undoes all of it.
-
-And it **follows your labels of each sender**, because texts that read alike can be different
-things to you depending on who sent them. Three or more of a sender's texts labeled, all one way,
-decide their next texts, before any classifier service is asked, unless you text with them
-(people send every kind). Otherwise your labels of them lean the model's answer, and a service
-answer you've never given a sender you've labeled is outweighed. Label one of their texts another
-way and the words get their say again. Winnow's model → Inside lists every sender you've labeled
-and what your labels do, and sets how much they count. On the hand-written corpus, simulated with
-each conversation's newest text after its earlier ones are labeled, this took the model from
-86.9% to 100% where each sender sends one kind of text, and to 97% where senders send two
-(`./gradlew :classifier:labCeilingExperiment -Ppart=sender`).
-
-## Install on a phone
-
-1. In Google Messages, turn RCS off (Settings → RCS chats); see [RCS](#rcs) below.
-2. Download `winnow-X.Y.Z.apk` from the [latest release](https://github.com/ericflo/winnow/releases)
-   and open it. Allow installs from your browser when Android asks.
-3. Open Winnow and tap **Set as default SMS app**. On Android 15 and later, a browser-installed
-   app is refused the first time ("App was denied access to be default SMS app"). Open App info
-   (Winnow links to it), tap ⋮ at the top right, choose **Allow restricted settings**, then go
-   back and tap Set as default again. Every text already on the phone appears straight away.
-
-## RCS
-
-Android has no public RCS API: only Google Messages can use it. As your default SMS app,
-Winnow sends and receives **SMS and MMS**. Group chats and photos work, but typing
-indicators, read receipts and end-to-end encryption don't. Message transport sits behind
-one interface, so RCS can be added if Google ever opens it. You can switch back to Google
-Messages at any time.
-
-**Before you switch**, turn RCS off in Google Messages (Settings → RCS chats). While it's on,
-other phones keep sending you RCS, which only Google Messages can receive, and it can take a
-while after you switch for them to fall back to texts. Onboarding says so too, with a button
-to open Google Messages.
-
-## Build and run
-
-You need JDK 17+ (21 recommended) and an Android SDK with API 37. The minimum supported
-version is Android 12 (API 31).
+JDK 17+ (21 recommended) and an Android SDK with API 37:
 
 ```sh
-export JAVA_HOME=~/.local/opt/jdk-21          # wherever your JDK lives
 echo "sdk.dir=$HOME/Android/Sdk" > local.properties
-./gradlew :classifier:test :mms:test :app:testDebugUnitTest   # JVM unit tests
-./gradlew :app:assembleDebug                   # app/build/outputs/apk/debug/app-debug.apk
+./gradlew :classifier:test :mms:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Open Winnow, follow onboarding, and pick a classifier. Until a provider is configured,
-Winnow runs on the phone only.
-
-### Trying it on an emulator
-
-```sh
-scripts/emulator-smoke.sh
-```
-
-The smoke script installs the app, takes the SMS role, and feeds it sample traffic: SMS
-through the emulator's virtual modem, a tapback, a group MMS with a photo, and an MMS whose
-download fails. It refuses to run unless exactly one device is attached and that device is
-an emulator. Every number is fictional and nothing leaves the machine.
-
-You can also do it by hand. `adb emu sms send 4155550123 "hello"` delivers an SMS. Debug
-builds accept fake MMS through the real receive path, since emulators have no MMS server:
-
-```sh
-adb shell am broadcast -n com.ericflo.winnow/.debug.DebugMmsReceiver \
-    --es from +14155550181 --es to "+15551234567,+14155550182" --es text "hi" --ez photo true
-```
-
-`--ez voice true`, `--ez video true` and `--ez contact true` attach a voice memo, a clip or a
-contact card instead of (or as well as) the photo.
-
-`DebugSeedReceiver` writes thousands of synthetic messages, for testing at scale.
-
-### Live classifier test (opt-in)
-
-This runs the real pipeline against Jev and needs your own key. It never runs in CI.
-
-```sh
-WINNOW_LIVE_TESTS=1 ./gradlew :classifier:test --tests '*LiveProviderTest*' --rerun
-```
-
-It uses `OPENROUTER_API_KEY` and/or `TYPESAFE_API_KEY`.
-
-## CI and releases
-
-CI runs on [Woodpecker](https://woodpecker-ci.org/) from `.woodpecker.yml`. Every push to
-`main` runs the full gate: unit tests for `:classifier`, `:mms` and `:app`, Android lint, and
-a debug build. It runs in `eclipse-temurin:21-jdk` as an unprivileged user.
-`scripts/ci/android-sdk.sh` installs the Android SDK (command-line tools pinned by checksum).
-The SDK and Gradle's home (its dependency and build caches) live on a persistent volume,
-`ci-build/winnow-gradle-cache` (defined in epsilon), locked so one build writes it at a time; a
-build that can't get it within ten minutes uses pod-local scratch and starts cold. The same
-gate locally:
-
-```sh
-./gradlew :classifier:test :mms:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
-docker run --rm -v "$PWD":/repo -w /repo woodpeckerci/woodpecker-cli:v3.18.1 lint .woodpecker.yml
-```
-
-### Cutting a release
-
-Push the commit to `main` first and let its pipeline (the gate) pass, then push a tag named
-`vMAJOR.MINOR.PATCH` on that commit. A suffix, as in `v0.2.0-rc1`, makes it a pre-release.
-
-```sh
-git tag -a v0.2.0 -m "Winnow 0.2.0"
-git push origin v0.2.0
-```
-
-The tag's pipeline doesn't run the gate again (the push already did); it runs only
-`scripts/ci/release.sh`, which:
-
-- Builds `:app:assembleRelease` with versionName `0.2.0` from the tag. The versionCode is
-  MAJOR×10000 + MINOR×100 + PATCH, so minor and patch stay under 100 and every release
-  upgrades the last.
-- Aligns and signs the APK with the release key.
-- Attaches `winnow-0.2.0.apk` and its `.sha256` to the GitHub Release for the tag. The release
-  is created with generated notes if it doesn't exist. Re-running the pipeline replaces the
-  files.
-
-### Woodpecker secrets
-
-The release step needs five repository secrets. Limit each one to the `tag` event, so ordinary
-pushes never see them.
-
-| Secret | What it holds |
-|---|---|
-| `winnow_github_token` | A fine-grained GitHub token for `ericflo/winnow` only, with Contents: read and write. Creating releases and uploading assets needs nothing more. |
-| `winnow_keystore_base64` | The release keystore, base64-encoded on one line |
-| `winnow_keystore_password` | The keystore's password |
-| `winnow_key_alias` | The signing key's alias |
-| `winnow_key_password` | The signing key's password |
-
-Make the keystore once, and keep it and both passwords somewhere safe. Android only installs
-an update signed with the same key as the installed app.
-
-```sh
-keytool -genkeypair -v -keystore winnow-release.jks -alias winnow -keyalg RSA -keysize 4096 -validity 10000
-```
-
-For this repository they're managed by GitOps: epsilon's CI reconciler
-(`platform/ci/reconcile.py`) activates `ericflo/winnow` on Woodpecker and keeps these five
-secrets in step with its sops-encrypted Secret, where the release keystore lives. For a fork
-or another Woodpecker, add them in the repository's settings, or with the CLI. The keystore
-password goes in the same way as the token:
-
-```sh
-woodpecker-cli repo secret add --repository ericflo/winnow --event tag \
-  --name winnow_keystore_base64 --value "$(base64 -w0 winnow-release.jks)"
-woodpecker-cli repo secret add --repository ericflo/winnow --event tag \
-  --name winnow_github_token --value "$GITHUB_RELEASE_TOKEN"
-```
-
-## Project layout
+`scripts/emulator-smoke.sh` installs it on an emulator and feeds it sample traffic (fictional
+numbers only). Emulator recipes, the opt-in live classifier test, CI and releases:
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ```
-classifier/   Pure Kotlin/JVM: decision interface, providers, taxonomy, privacy, redaction, tests.
-mms/          Pure Kotlin/JVM: MMS PDU encoder/decoder (OMA-MMS-ENC over WSP), tests.
-app/          The Android app: Compose + Material 3; Room for verdicts, conversation state and
-              scheduled sends; DataStore for settings; the system SMS/MMS store for messages.
-docs/         Architecture notes and screenshots.
-scripts/      Emulator smoke test; ci/ holds the Woodpecker SDK setup and release scripts.
+classifier/  Pure Kotlin/JVM: decision interface, providers, taxonomy, privacy, on-phone model
+mms/         Pure Kotlin/JVM: MMS PDU encoder/decoder
+app/         The Android app: Compose + Material 3, Room, DataStore, the system SMS/MMS store
 ```
 
 ## Status
 
-Developed and verified on the Android emulator, and not yet run on a phone. Not built:
-RCS (see above). Emulators have one SIM, so the SIM picker was exercised with a debug-only
-pretend second SIM (`DebugSimReceiver`) that sends through the real one. Sending on a real
-second SIM is the platform's `SmsManager.createForSubscriptionId`, and it hasn't run yet.
+In daily use on the author's phone. Known issue: picture-message downloads fail on at least one
+carrier, and Winnow now says why each one failed while that's tracked down. RCS isn't possible
+(see Install).
