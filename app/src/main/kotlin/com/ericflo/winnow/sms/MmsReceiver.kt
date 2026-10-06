@@ -162,11 +162,14 @@ class MmsReceiver(
         }
         // Stored: until it's classified and said, it's on the list a later start finishes (see IncomingMessageHandler).
         incoming.markUnfinished(message)
-        placeholder?.let(store::delete)
-        placeholder?.lastPathSegment?.toLongOrNull()?.let { retries?.done(it) }
-        if (acknowledge) transactionId?.takeIf { it.isNotBlank() }?.let {
-            acknowledge(if (deferred) AcknowledgeInd(it) else NotifyRespInd(it), subscriptionId)
-        }
+        // Housekeeping that can fail (a full cache, say): never a reason for the stored message to go unsaid.
+        runCatching { placeholder?.let(store::delete) }.onFailure { Log.w(TAG, "Couldn't remove a placeholder", it) }
+        runCatching { placeholder?.lastPathSegment?.toLongOrNull()?.let { retries?.done(it) } }
+        runCatching {
+            if (acknowledge) transactionId?.takeIf { it.isNotBlank() }?.let {
+                acknowledge(if (deferred) AcknowledgeInd(it) else NotifyRespInd(it), subscriptionId)
+            }
+        }.onFailure { Log.w(TAG, "Couldn't acknowledge a picture message", it) }
         val text = conf.parts.filter { it.contentType == ContentTypes.TEXT_PLAIN }.mapNotNull { it.text }.joinToString("\n")
         // Contacts are text/x-vcard, so "everything but the text and the layout", not "not text/".
         val media = conf.parts.map { it.contentType }.filter { it != ContentTypes.TEXT_PLAIN && it != ContentTypes.SMIL }

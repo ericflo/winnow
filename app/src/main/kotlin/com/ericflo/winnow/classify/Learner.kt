@@ -223,9 +223,11 @@ class Learner(
      * each replacing an earlier provider label on its message but never the user's. Retrains
      * only when asked: a run adds them in batches and retrains as it goes.
      */
-    suspend fun teach(rows: List<CorrectionEntity>, retrain: Boolean) {
+    suspend fun teach(rows: List<CorrectionEntity>, retrain: Boolean, stillWanted: suspend () -> Boolean = { true }) {
         if (rows.isEmpty()) return
         lock.withLock {
+            // Checked under the lock: the user may have had their say while this waited for a refit.
+            if (!stillWanted()) return
             val mine = dao.forMessages(rows.mapNotNull { it.messageKey }).filterNot { it.fromProvider }.mapNotNullTo(HashSet()) { it.messageKey }
             val fresh = rows.filter { it.messageKey !in mine }
             dao.deleteForMessages(fresh.mapNotNull { it.messageKey })
@@ -256,6 +258,12 @@ class Learner(
                 ),
             ),
             retrain = false,
+            // A "Not spam" or "Filter sender" given since the text was announced stands: an answer
+            // that disagrees with it doesn't teach (see dropForCorrection).
+            stillWanted = {
+                val policy = settings.current().actionPolicy
+                dao.forThread(threadId).none { c -> Category.fromKey(c.label)?.let(policy::forCategory) != policy.forCategory(category) }
+            },
         )
         refitSoon()
         return true

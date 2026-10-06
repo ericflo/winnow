@@ -31,18 +31,21 @@ class IncomingWorkJob : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
         val container = (application as WinnowApp).container
         container.appScope.launch {
+            val incoming = container.incoming
             // Until every text stored is said, and anything left from before is finished; never for long.
-            withTimeoutOrNull(MAX_MILLIS) { container.incoming.idle.first { it } }
-            if (container.incoming.idle.value) settled(this@IncomingWorkJob)
+            val said = withTimeoutOrNull(MAX_MILLIS) { incoming.idle.first { it } } != null
+            // Stuck past that (something failed on its way): left to the next start, not kept up for.
+            if (!said) incoming.forgetStale(MAX_MILLIS)
+            incoming.settleIfIdle()
             jobFinished(params, false)
             // A text stored just as it ended keeps the next one going.
-            if (!container.incoming.idle.value) schedule(this@IncomingWorkJob)
+            if (!incoming.isIdle) schedule(this@IncomingWorkJob)
         }
         return true
     }
 
     /** Stopped by Android: run again if there's still work. */
-    override fun onStopJob(params: JobParameters): Boolean = !(application as WinnowApp).container.incoming.idle.value
+    override fun onStopJob(params: JobParameters): Boolean = !(application as WinnowApp).container.incoming.isIdle
 
     companion object {
         const val JOB_ID = 4203

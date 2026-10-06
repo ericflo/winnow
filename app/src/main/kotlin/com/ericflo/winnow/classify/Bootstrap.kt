@@ -235,6 +235,7 @@ class Bootstrap(
                     val answered = mutableListOf<String>()
                     val answers = mutableListOf<Pair<Text, Verdict>>()
                     val unsureRedone = mutableListOf<String>()
+                    val setAside = mutableListOf<String>()
                     val retry = mutableListOf<Text>()
                     val troubles = mutableListOf<Pacer.Trouble>()
                     for ((t, verdict) in results) {
@@ -281,7 +282,7 @@ class Bootstrap(
                                     // one it answered unusably isn't (it would answer, and be paid, the same).
                                     tally = tally.copy(failed = tally.failed + 1)
                                     done++
-                                    if (com.ericflo.winnow.classifier.message.MessageClassifier.UNUSABLE_ANSWER in lastDetail) answered += t.key
+                                    if (com.ericflo.winnow.classifier.message.MessageClassifier.UNUSABLE_ANSWER in lastDetail) setAside += t.key
                                 } else {
                                     retry += t
                                 }
@@ -292,7 +293,9 @@ class Bootstrap(
                     if (runId != 0L) record(runId, answers, labels.mapNotNullTo(HashSet()) { it.messageKey })
                     if (unsureRedone.isNotEmpty()) runCatching { learner.forgetServiceLabels(unsureRedone) }
                     save(labels, filed, retrain = ++batches % RETRAIN_EVERY_BATCHES == 0)
-                    remember(answered)
+                    // Set-aside texts aren't asked again, but aren't answers: a service that only
+                    // answers unusably still trips the pacer's "rejected too often" stop.
+                    remember(answered + setAside)
                     queue.addAll(0, retry)
                     run = progress(run, done, tally)
                     _status.value = running()

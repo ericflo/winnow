@@ -234,7 +234,8 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
         if (overview.value?.labModel != null) return lab.retrainInUse()
         if (_retrainingOwn.value) return
         _retrainingOwn.value = true
-        viewModelScope.launch {
+        // The app's scope: leaving the screen mid-fit mustn't cancel it, or the fit's save.
+        container.appScope.launch {
             try {
                 container.learner.reload()
             } finally {

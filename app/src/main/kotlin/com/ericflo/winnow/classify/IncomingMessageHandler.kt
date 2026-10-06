@@ -119,17 +119,24 @@ class IncomingMessageHandler(
     /** [uri] is stored; what's left is classifying it and saying so. Written through at once, off the main thread. */
     fun markUnfinished(uri: Uri) {
         runCatching { unfinished.edit().putLong(uri.toString(), System.currentTimeMillis()).commit() }
-        inFlight.update { it + uri.toString() }
-        runCatching { keepAlive() }
+        // Added and kept alive as one step: a job ending can't see it idle in between (see settleIfIdle).
+        synchronized(keepLock) {
+            inFlight.update { it + (uri.toString() to System.currentTimeMillis()) }
+            runCatching { keepAlive() }
+        }
     }
 
     private fun markFinished(uri: Uri) {
         runCatching { unfinished.edit().remove(uri.toString()).apply() }
-        if (inFlight.updateAndGet { it - uri.toString() }.isEmpty() && recovered.value) runCatching { settled() }
+        synchronized(keepLock) {
+            if (inFlight.updateAndGet { it - uri.toString() }.isEmpty() && recovered.value) runCatching { settled() }
+        }
     }
 
-    /** Texts this run stored that aren't yet classified and said. */
-    private val inFlight = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+    private val keepLock = Any()
+
+    /** Texts this run stored that aren't yet classified and said, with when each was stored. */
+    private val inFlight = kotlinx.coroutines.flow.MutableStateFlow<Map<String, Long>>(emptyMap())
     /** Whether what an earlier run left has been finished (see [recoverUnfinished]); true once it's been seen to. */
     private val recovered = kotlinx.coroutines.flow.MutableStateFlow(false)
 
@@ -141,8 +148,33 @@ class IncomingMessageHandler(
 
     /** What an earlier run left is seen to, or there was nothing to see to (see [recoverUnfinished]). */
     fun markRecovered() {
-        recovered.value = true
-        if (inFlight.value.isEmpty()) runCatching { settled() }
+        synchronized(keepLock) {
+            recovered.value = true
+            if (inFlight.value.isEmpty()) runCatching { settled() }
+        }
+    }
+
+    /** Whether everything stored has been said, now (not [idle]'s copy, which can lag). */
+    val isIdle: Boolean get() = inFlight.value.isEmpty() && recovered.value
+
+    /** Lets what kept Winnow up go, if everything stored has been said: as one step with [markUnfinished]. */
+    fun settleIfIdle(): Boolean = synchronized(keepLock) {
+        if (isIdle) {
+            runCatching { settled() }
+            true
+        } else {
+            false
+        }
+    }
+
+    /**
+     * Stops waiting for texts stored longer ago than [millis] and still not said (something
+     * failed on the way): they stay on the list the next start finishes, and don't keep Winnow up
+     * forever meanwhile.
+     */
+    fun forgetStale(millis: Long) {
+        val before = System.currentTimeMillis() - millis
+        synchronized(keepLock) { inFlight.update { m -> m.filterValues { it >= before } } }
     }
 
     /** What [recoverUnfinished] needs of a stored MMS. */

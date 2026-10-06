@@ -816,9 +816,19 @@ class BackupManager(
      * same thing twice.
      */
     private suspend fun relinkLabel(m: MessageBackup, key: String, threadId: Long) {
-        // Set aside as it was deleted (see CorrectionDao.setAside), or, from before that, under the key it had.
-        val from = listOfNotNull(m.labelKey?.let { RESTORED_LABEL + it }, m.was?.let { com.ericflo.winnow.data.db.TRASHED + it }, m.was?.takeIf { it != key })
-        for (old in from) {
+        // Where its label waits, in order: a backup's placeholder; set aside as it was deleted (see
+        // CorrectionDao.setAside); or, kept in Recently deleted before that, its old key, but only
+        // while no other message has that key now (the store gives a deleted message's id to the
+        // next one), or that message's label would be taken. The first found is the one.
+        val sources = sequence {
+            m.labelKey?.let { yield(RESTORED_LABEL + it) }
+            m.was?.let { yield(com.ericflo.winnow.data.db.TRASHED + it) }
+            m.was?.takeIf { it != key }?.let { was ->
+                val row = rowsStillHere(listOf(was))[was]
+                if (row == null || (row.date == m.date && row.outgoing == m.outgoing)) yield(was)
+            }
+        }
+        for (old in sources) {
             val coming = corrections.forMessages(listOf(old))
             if (coming.isEmpty()) continue
             val there = corrections.forMessages(listOf(key))
@@ -833,6 +843,7 @@ class BackupManager(
                 // Otherwise the one here stays (the user's, or a service's over a service's).
                 else -> corrections.deleteForMessages(listOf(old))
             }
+            break
         }
     }
 
