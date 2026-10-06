@@ -95,7 +95,7 @@ data class ThreadUiState(
      * A chat Google Messages had over RCS: its people (or the chat itself) are RCS ids in the store.
      * New messages in it reach the phone only through Google Messages (see RcsSheet).
      */
-    val rcs: Boolean get() = recipients.any(::isRcsAddress) || messages.any { m -> m.sender?.let(::isRcsAddress) == true }
+    val rcs: Boolean by lazy { recipients.any(::isRcsAddress) || messages.any { m -> m.sender?.let(::isRcsAddress) == true } }
 
     /** Some of its people are RCS ids, which no text can be sent to (see RcsCantSend). */
     val cantSend: Boolean get() = recipients.any(::isRcsAddress)
@@ -106,9 +106,12 @@ data class ThreadUiState(
     /**
      * Several people write here (a group, or an RCS chat whose people the store didn't list): bubbles
      * say who. One person's number written two ways ("+14155550100", "4155550100", as carriers do)
-     * is one person.
+     * is one person. Worked out once per state: every bubble asks, and a conversation can hold
+     * tens of thousands of messages.
      */
-    val showsSenders: Boolean get() = isGroup || messages.mapNotNullTo(HashSet()) { it.sender?.let(::normalizeAddress) }.size > 1
+    val showsSenders: Boolean by lazy {
+        isGroup || messages.asSequence().mapNotNull { it.sender }.distinct().map(::normalizeAddress).distinct().take(2).count() > 1
+    }
 
     /** Who sent spam (scams and phishing among it) here that the user hasn't cleared, by normalized number. */
     private val fraudSenders: Set<String> by lazy {
