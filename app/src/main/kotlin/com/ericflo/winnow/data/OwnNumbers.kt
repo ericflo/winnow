@@ -32,9 +32,25 @@ class OwnNumbers(private val context: Context) {
         if (number.any(Char::isLetter) || '@' in number || digits.length < 10) return
         val normalized = normalizeAddress(number)
         val known = learned()
-        if (normalized in known) return
-        runCatching { prefs.edit().putStringSet(KEY_LEARNED, known + normalized).apply() }
+        // Seen, or given by the user: whatever doubt there was about Android's number is settled.
+        if (normalized in known) {
+            if (doubtful()) runCatching { prefs.edit().remove(KEY_DOUBT).apply() }
+            return
+        }
+        runCatching { prefs.edit().putStringSet(KEY_LEARNED, known + normalized).remove(KEY_DOUBT).apply() }
     }
+
+    /**
+     * A group message came that none of this phone's known numbers was among the recipients of:
+     * the number Android gives is wrong or out of date (a ported number, a moved eSIM), so it
+     * can't tell which recipient is this phone. Until a number is learned, it isn't trusted.
+     */
+    fun noteUnaddressed() {
+        if (!doubtful()) runCatching { prefs.edit().putBoolean(KEY_DOUBT, true).apply() }
+    }
+
+    /** Android's number didn't match a group message's recipients, and none has been learned since. */
+    fun doubtful(): Boolean = runCatching { prefs.getBoolean(KEY_DOUBT, false) }.getOrDefault(false)
 
     fun all(): Set<String> = fromAndroid() + learned()
 
@@ -62,5 +78,6 @@ class OwnNumbers(private val context: Context) {
 
     private companion object {
         const val KEY_LEARNED = "learned"
+        const val KEY_DOUBT = "doubt"
     }
 }

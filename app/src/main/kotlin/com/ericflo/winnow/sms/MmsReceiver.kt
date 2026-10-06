@@ -185,8 +185,13 @@ class MmsReceiver(
         }
         val me = ownNumbers.all()
         val everyone = (listOfNotNull(conf.from) + conf.to + conf.cc).filter { it.isNotBlank() }.distinctBy(::normalizeAddress)
+        // A message reaches this phone addressed to it: if none of its recipients is a number this
+        // phone knows as its own, that number is wrong or out of date, and no help here.
+        val addressedToMe = (conf.to + conf.cc).any { normalizeAddress(it) in me }
+        val group = conf.to.size + conf.cc.size > 1
+        if (group && me.isNotEmpty() && !addressedToMe) ownNumbers.noteUnaddressed()
         val others = when {
-            me.isNotEmpty() -> everyone.filterNot { normalizeAddress(it) in me }
+            addressedToMe -> everyone.filterNot { normalizeAddress(it) in me }
             conf.to.size == 1 && conf.cc.isEmpty() -> listOfNotNull(conf.from)
             else -> withoutThisPhone(conf, everyone) ?: everyone
         }

@@ -234,9 +234,30 @@ class ThreadViewModel(
      * Whether Winnow knows this phone's number, from Android or learned (see OwnNumbers): if it
      * does, there's nothing to ask for. Known until found otherwise, so the card never flashes.
      */
-    val ownNumberKnown: StateFlow<Boolean> = kotlinx.coroutines.flow.flow { emit(runCatching { com.ericflo.winnow.data.OwnNumbers(container.appContext).all().isNotEmpty() }.getOrDefault(true)) }
-        .flowOn(Dispatchers.IO)
-        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    private val _ownNumberKnown = MutableStateFlow(true)
+    val ownNumberKnown: StateFlow<Boolean> = _ownNumberKnown.asStateFlow()
+    private val _ownNumberDoubtful = MutableStateFlow(false)
+    /** Android gives a number, but group texts aren't sent to it (see OwnNumbers.doubtful). */
+    val ownNumberDoubtful: StateFlow<Boolean> = _ownNumberDoubtful.asStateFlow()
+
+    /** Asks again (the Phone numbers permission was just allowed, say). */
+    fun refreshOwnNumber() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _ownNumberKnown.value = runCatching { com.ericflo.winnow.data.OwnNumbers(container.appContext).let { it.all().isNotEmpty() && !it.doubtful() } }.getOrDefault(true)
+            _ownNumberDoubtful.value = runCatching { com.ericflo.winnow.data.OwnNumbers(container.appContext).doubtful() }.getOrDefault(false)
+        }
+    }
+
+    /** The user typed their own number (see OwnNumberBanner); false if it doesn't look like one. */
+    fun setOwnNumber(number: String): Boolean {
+        if (number.any(Char::isLetter) || number.count(Char::isDigit) < 10) return false
+        viewModelScope.launch(Dispatchers.IO) {
+            com.ericflo.winnow.data.OwnNumbers(container.appContext).learn(number)
+            _ownNumberKnown.value = true
+            _ownNumberDoubtful.value = false
+        }
+        return true
+    }
 
     /** Whether the user said "Not now" to the card asking for their own number; true until known, so it doesn't flash. */
     val ownNumberCardDismissed: StateFlow<Boolean> = container.settings.settings.map { it.ownNumberCardDismissed }

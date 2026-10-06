@@ -757,12 +757,20 @@ fun ThreadScreen(
             }
             val ownNumberDismissed by viewModel.ownNumberCardDismissed.collectAsStateWithLifecycle()
             val ownNumberKnown by viewModel.ownNumberKnown.collectAsStateWithLifecycle()
-            if (state.isGroup && !phoneNumbersAllowed && !ownNumberKnown && !ownNumberDismissed) {
+            // Allowed just now: Android may say the number after all.
+            LaunchedEffect(phoneNumbersAllowed) { viewModel.refreshOwnNumber() }
+            var enteringOwnNumber by rememberSaveable { mutableStateOf(false) }
+            if (state.isGroup && !ownNumberKnown && !ownNumberDismissed) {
+                val doubtful by viewModel.ownNumberDoubtful.collectAsStateWithLifecycle()
                 OwnNumberBanner(
+                    canAllow = !phoneNumbersAllowed,
+                    doubtful = doubtful,
                     onAllow = { phoneNumbersPermission.launch(android.Manifest.permission.READ_PHONE_NUMBERS) },
+                    onEnter = { enteringOwnNumber = true },
                     onDismiss = viewModel::dismissOwnNumberCard,
                 )
             }
+            if (enteringOwnNumber) OwnNumberDialog(onSave = viewModel::setOwnNumber, onDismiss = { enteringOwnNumber = false })
             // An RCS chat: say plainly that new messages in it may not arrive here.
             var rcsDismissed by rememberSaveable(state.recipients) { mutableStateOf(false) }
             if (state.rcs && !rcsDismissed) RcsBanner(onWhy = { rcsWhy = true }, onDismiss = { rcsDismissed = true })
@@ -1195,8 +1203,9 @@ private fun NumberSheet(
 }
 
 /** In a group, without the user's own number: ask for it, so they stop being listed as one of the people. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun OwnNumberBanner(onAllow: () -> Unit, onDismiss: () -> Unit) {
+private fun OwnNumberBanner(canAllow: Boolean, doubtful: Boolean, onAllow: () -> Unit, onEnter: () -> Unit, onDismiss: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(20.dp),
@@ -1210,17 +1219,47 @@ private fun OwnNumberBanner(onAllow: () -> Unit, onDismiss: () -> Unit) {
                 IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Dismiss") }
             }
             Text(
-                "Without the Phone numbers permission Winnow can't tell, so group texts may list you as one of the people. " +
-                    "Allowing it fixes new group texts; your number stays on this phone.",
+                (if (doubtful) "The number Android gives for this phone isn't among the people group texts are sent to (a ported number or a moved eSIM can do that), "
+                else if (canAllow) "Without the Phone numbers permission Winnow can't tell, " else "Android hasn't said, as some carriers don't, ") +
+                    "so a group text may list you as one of its people and start a second conversation. " +
+                    (if (canAllow && !doubtful) "Allow it, or enter your number" else "Enter your number once") + "; it stays on this phone.",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(end = 12.dp),
             )
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = onDismiss) { Text("Not now") }
-                TextButton(onClick = onAllow) { Text("Allow") }
+                TextButton(onClick = onEnter) { Text("Enter it") }
+                if (canAllow && !doubtful) TextButton(onClick = onAllow) { Text("Allow") }
             }
         }
     }
+}
+
+/** The user's own number, typed: kept on this phone, only to leave them out of group texts' people. */
+@Composable
+private fun OwnNumberDialog(onSave: (String) -> Boolean, onDismiss: () -> Unit) {
+    var number by rememberSaveable { mutableStateOf("") }
+    var wrong by rememberSaveable { mutableStateOf(false) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Your phone number") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("This phone's own number, with its area code. Winnow keeps it on this phone, to leave you out of group texts' people.", style = MaterialTheme.typography.bodyMedium)
+                androidx.compose.material3.OutlinedTextField(
+                    value = number,
+                    onValueChange = { number = it; wrong = false },
+                    singleLine = true,
+                    isError = wrong,
+                    supportingText = if (wrong) { { Text("That doesn't look like a phone number with its area code.") } } else null,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone),
+                    label = { Text("Phone number") },
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { if (onSave(number.trim())) onDismiss() else wrong = true }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** A first text from a number that isn't in contacts: add them, or filter them. */
