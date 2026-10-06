@@ -28,6 +28,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -211,6 +214,22 @@ private fun Models(viewModel: ModelViewModel) {
         }
         entries.asReversed().forEach { e ->
             val inUse = overview?.labModel == e.id
+            var deleting by remember(e.id) { mutableStateOf(false) }
+            if (deleting) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { deleting = false },
+                    title = { Text("Delete ${e.name}?") },
+                    text = {
+                        Text(
+                            "Its design goes" + (if (e.bytes > 0) ", and its trained model (${sizeOf(e.bytes)})" else if (e.trainedAt != null) ", and what it learned" else "") +
+                                ". Its scorings stay under Evaluate, and your labels aren't touched." +
+                                if (inUse) " It's in use: Winnow goes back to its own model." else "",
+                        )
+                    },
+                    confirmButton = { TextButton(onClick = { deleting = false; viewModel.lab.delete(e.id) }) { Text("Delete") } },
+                    dismissButton = { TextButton(onClick = { deleting = false }) { Text("Keep it") } },
+                )
+            }
             Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.Top) {
@@ -237,7 +256,7 @@ private fun Models(viewModel: ModelViewModel) {
                         if (!inUse && e.trainedAt != null) TextButton(onClick = { viewModel.useLab(e.id) }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Use it") }
                         TextButton(onClick = { viewModel.trainEntry(e.id) }, enabled = !busy, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(if (e.trainedAt == null) "Train" else "Retrain & rescore") }
                         TextButton(onClick = { viewModel.setDraft(e.recipe, "${e.name} (copy)") }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Edit a copy") }
-                        TextButton(onClick = { viewModel.lab.delete(e.id) }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Delete") }
+                        TextButton(onClick = { deleting = true }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Delete") }
                     }
                 }
             }

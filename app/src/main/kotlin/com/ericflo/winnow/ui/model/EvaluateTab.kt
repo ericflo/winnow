@@ -272,6 +272,16 @@ private fun OverTimeCard(viewModel: ModelViewModel) {
         }
         Text("Earlier scorings", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
         runs.entries.drop(1).take(20).forEach { (at, evals) ->
+            var deleting by androidx.compose.runtime.remember(at) { androidx.compose.runtime.mutableStateOf(false) }
+            if (deleting) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { deleting = false },
+                    title = { Text("Delete this scoring?") },
+                    text = { Text("Its scores from ${format.format(Date(at))} go, and the list of what each got wrong. Your labels and models aren't touched.") },
+                    confirmButton = { TextButton(onClick = { deleting = false; scope.launch { evals.forEach { viewModel.evals.delete(it) } } }) { Text("Delete") } },
+                    dismissButton = { TextButton(onClick = { deleting = false }) { Text("Keep it") } },
+                )
+            }
             Column(Modifier.padding(vertical = 4.dp)) {
                 Text(format.format(Date(at)), style = MaterialTheme.typography.titleSmall)
                 evals.sortedBy { it.id }.forEach { e ->
@@ -280,7 +290,7 @@ private fun OverTimeCard(viewModel: ModelViewModel) {
                         Text("${if (e.examples == 0) "—" else pct(e.accuracy)} · ${count(e.examples)}", style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                TextButton(onClick = { scope.launch { evals.forEach { viewModel.evals.delete(it) } } }, contentPadding = PaddingValues(0.dp)) { Text("Delete this scoring") }
+                TextButton(onClick = { deleting = true }, contentPadding = PaddingValues(0.dp)) { Text("Delete this scoring") }
             }
         }
     }
