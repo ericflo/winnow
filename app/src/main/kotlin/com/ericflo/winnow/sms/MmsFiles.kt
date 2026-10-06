@@ -7,7 +7,9 @@ import java.io.File
 
 /** Scratch files for PDUs exchanged with the system MMS service, shared through a FileProvider. */
 class MmsFiles(private val context: Context) {
-    private val dir = File(context.cacheDir, "mms").apply { mkdirs() }
+    // Made again each time: clearing Winnow's cache (App info, or Android short of space) takes the
+    // folder from under a running Winnow, and every picture message after would fail.
+    private val dir: File get() = File(context.cacheDir, "mms").apply { mkdirs() }
 
     fun newFile(prefix: String): File = File.createTempFile(prefix, ".pdu", dir)
 

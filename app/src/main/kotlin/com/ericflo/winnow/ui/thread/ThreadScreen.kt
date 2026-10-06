@@ -1873,7 +1873,7 @@ private fun MessageBubble(
                 }
                 when {
                     m.status == ChatMessage.Status.DOWNLOAD_FAILED -> Text(
-                        "Couldn't download this MMS · Tap to retry",
+                        "Couldn't download this MMS" + (m.downloadProblem?.let { ": $it" } ?: "") + " · Tap to retry",
                         style = MaterialTheme.typography.bodyLarge,
                         color = colors.error,
                         modifier = Modifier

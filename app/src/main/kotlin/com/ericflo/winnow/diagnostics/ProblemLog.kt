@@ -32,6 +32,8 @@ class ProblemLog(private val context: Context) {
         OTHER("Stopped"),
         /** Not a crash: the inbox found texts on the phone it couldn't list (see EmptyInbox). */
         LISTING("Couldn't list conversations"),
+        /** Not a crash: a picture message couldn't be downloaded (see MmsFailures). */
+        MMS("Couldn't download a picture message"),
     }
 
     private val dir get() = File(context.filesDir, "problems")

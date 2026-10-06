@@ -57,6 +57,19 @@ class DebugSeedReceiver : BroadcastReceiver() {
                     container.dailySummary.fire(force = true)
                     return@launch
                 }
+                // `--ez mmspush true [--es from +12065550144] [--es location http://...]`: an MMS
+                // announced as a carrier's WAP push would, so the download path runs as it does on a
+                // phone (the emulator has no MMS network: its failure shows what's recorded).
+                if (intent.getBooleanExtra("mmspush", false)) {
+                    val ind = com.ericflo.winnow.mms.NotificationInd(
+                        transactionId = "T" + java.lang.Long.toHexString(System.nanoTime()),
+                        contentLocation = intent.getStringExtra("location") ?: "http://mms.example.invalid/m/${System.nanoTime()}",
+                        from = from ?: "+12065550144",
+                        messageSize = 120_000,
+                    )
+                    container.mmsReceiver.onPush(com.ericflo.winnow.mms.PduComposer.compose(ind), android.telephony.SubscriptionManager.getDefaultSmsSubscriptionId())
+                    return@launch
+                }
                 if (intent.hasExtra("clean_filtered_ahead_days")) {
                     val days = intent.getIntExtra("clean_filtered_ahead_days", 40)
                     Log.i(TAG, "Filtered cleaner, as if $days days on: ${container.filteredCleaner.clean(System.currentTimeMillis() + days * 86_400_000L, force = true)} moved")

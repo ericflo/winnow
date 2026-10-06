@@ -323,8 +323,13 @@ class AppContainer(private val context: Context) {
                 if (roaming) s.autoDownloadMms && s.autoDownloadMmsRoaming else s.autoDownloadMms
             },
             retries = mmsRetries,
+            failures = mmsFailures,
+            report = { detail -> problems.note(com.ericflo.winnow.diagnostics.ProblemLog.Kind.MMS, detail) },
         )
     }
+
+    /** Why picture messages couldn't be downloaded (see MmsFailures). */
+    val mmsFailures by lazy { com.ericflo.winnow.sms.MmsFailures(context) }
 
     /** Failed MMS downloads, fetched again by themselves (see MmsRetries). */
     val mmsRetries by lazy { MmsRetries(context, sendReadiness) }
@@ -342,6 +347,7 @@ class AppContainer(private val context: Context) {
             live = TelephonyMessageRepository(
                 context, verdictDao, database.starred(), contacts, smsSender, mmsSender,
                 retryDownload = { mmsReceiver.retryDownload(it) },
+                downloadProblem = { mmsFailures.why(it) },
                 onCorrected = { threadId, message, action -> learner.learn(threadId, message, action) },
                 onUncorrected = { threadId -> learner.unlearn(threadId) },
                 onLabelsDropped = { threadId, keys, action -> learner.dropForCorrection(threadId, keys, action) },

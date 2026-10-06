@@ -68,7 +68,8 @@ class MmsWapPushReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.WAP_PUSH_DELIVER_ACTION) return
         val pdu = intent.getByteArrayExtra("data") ?: return
-        val subscriptionId = intent.getIntExtra(SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, SubscriptionManager.getDefaultSmsSubscriptionId())
+        // Some phones say the SIM only under the older "subscription" key.
+        val subscriptionId = intent.getIntExtra(SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, intent.getIntExtra("subscription", SubscriptionManager.getDefaultSmsSubscriptionId()))
         val container = (context.applicationContext as WinnowApp).container
         val pending = goAsync()
         container.appScope.launch {

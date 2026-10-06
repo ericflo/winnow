@@ -53,6 +53,8 @@ class TelephonyMessageRepository(
     private val mms: MmsSender,
     /** Re-requests a failed MMS download. */
     private val retryDownload: (mmsId: Long) -> Unit,
+    /** Why an MMS couldn't be downloaded, where that's known (see MmsFailures). */
+    private val downloadProblem: (mmsId: Long) -> String? = { null },
     /** The user overrode Winnow's call on the thread's newest incoming message, for the on-device model to learn from. */
     private val onCorrected: suspend (threadId: Long, message: InboundMessage, action: Action) -> Unit = { _, _, _ -> },
     /** Drops labels a correction contradicts from what was learned, returning them for an undo. */
@@ -806,6 +808,7 @@ class TelephonyMessageRepository(
                         else -> ChatMessage.Status.DOWNLOADING
                     },
                     downloadSize = c.getLong(7),
+                    downloadProblem = if (c.getInt(3) == MESSAGE_TYPE_NOTIFICATION_IND && c.getInt(5) == MmsStore.STATUS_DOWNLOAD_FAILED) downloadProblem(c.getLong(0)) else null,
                     verdict = null,
                     kind = Kind.MMS,
                     subject = meaningfulSubject(MmsStore.subjectAt(c, 4, 8)),

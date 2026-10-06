@@ -55,6 +55,8 @@ data class ChatMessage(
     val starred: Boolean = false,
     /** For an MMS not downloaded yet, its size as the carrier announced it, in bytes. */
     val downloadSize: Long = 0,
+    /** For an MMS that couldn't be downloaded, why, in words (see MmsFailures). */
+    val downloadProblem: String? = null,
 ) {
     enum class Status {
         RECEIVED, SENDING, SENT, DELIVERED, FAILED, DOWNLOADING, DOWNLOAD_FAILED,

@@ -46,11 +46,30 @@ class MmsReceiver(
     private val autoDownload: suspend (subscriptionId: Int) -> Boolean = { true },
     /** Fetches failed downloads again by themselves; null for none. */
     private val retries: MmsRetries? = null,
+    /** Why each failed (see MmsFailures); null keeps no record. */
+    private val failures: MmsFailures? = null,
+    /** Told of a failure worth reporting (the problem log): its details, never the message's. */
+    private val report: (String) -> Unit = {},
 ) {
-    /** [placeholder]'s download failed: say so in the conversation, and try again later. */
-    private fun failed(placeholder: Uri) {
+    /**
+     * [placeholder]'s download failed, at [stage], because [why]: say so in the conversation (with
+     * why), keep it for the problem report, and try again later.
+     */
+    private fun failed(placeholder: Uri, stage: String, why: String, subscriptionId: Int = -1) {
         store.markDownloadFailed(placeholder)
-        placeholder.lastPathSegment?.toLongOrNull()?.let { retries?.failed(it) }
+        val id = placeholder.lastPathSegment?.toLongOrNull()
+        Log.w(TAG, "MMS download failed ($stage): $why")
+        if (id != null && failures?.record(id, why) == true) {
+            val (size, server) = context.contentResolver.query(placeholder, arrayOf(Telephony.Mms.MESSAGE_SIZE, Telephony.Mms.CONTENT_LOCATION), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getLong(0) to Uri.parse(c.getString(1).orEmpty()).host.orEmpty() else null } ?: (0L to "")
+            runCatching {
+                report(
+                    "Stage: $stage\nWhy: $why\nNetwork: ${failures?.network(subscriptionId)}\nSIM subscription: $subscriptionId\n" +
+                        "Announced size: ${size / 1000} KB\nCarrier's MMS server: ${server.ifBlank { "?" }}",
+                )
+            }
+        }
+        id?.let { retries?.failed(it) }
     }
 
     /** A WAP push carrying an m-notification-ind. */
@@ -89,7 +108,7 @@ class MmsReceiver(
             download(placeholder, ind.contentLocation, ind.transactionId, subscriptionId)
         } catch (e: Exception) {
             Log.w(TAG, "Couldn't start the MMS download", e)
-            failed(placeholder)
+            failed(placeholder, "starting the download", "Winnow couldn't start it: ${e.message ?: e::class.simpleName}", subscriptionId)
         }
     }
 
@@ -108,7 +127,7 @@ class MmsReceiver(
             download(placeholder, location, transactionId, subscriptionId, deferred)
         } catch (e: Exception) {
             Log.w(TAG, "Couldn't restart the MMS download", e)
-            failed(placeholder)
+            failed(placeholder, "starting the download again", "Winnow couldn't start it: ${e.message ?: e::class.simpleName}", subscriptionId)
         }
     }
 
@@ -124,8 +143,18 @@ class MmsReceiver(
                 .putExtra(EXTRA_DEFERRED, deferred),
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        smsManager(subscriptionId).downloadMultimediaMessage(context, location, files.uriFor(file), null, done)
+        val uri = files.uriFor(file)
+        // Android's MMS service writes the message into this file as the phone. It's let in as
+        // that already; let every package of the phone's user write it too, whatever the phone's
+        // make calls its MMS service.
+        phoneHosts().forEach { host ->
+            runCatching { context.grantUriPermission(host, uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        }
+        smsManager(subscriptionId).downloadMultimediaMessage(context, location, uri, null, done)
     }
+
+    private fun phoneHosts(): List<String> =
+        (runCatching { context.packageManager.getPackagesForUid(android.os.Process.PHONE_UID)?.toList() }.getOrNull().orEmpty() + PHONE_HOSTS).distinct()
 
     /**
      * A downloaded m-retrieve-conf. [placeholder] is replaced by the real message; with
@@ -141,25 +170,38 @@ class MmsReceiver(
         acknowledge: Boolean = true,
         /** Fetched after a deferred notification, which the spec confirms with m-acknowledge-ind instead. */
         deferred: Boolean = false,
+        /** Why there's no [pdu]: Android's MMS service's failure, in words. */
+        whyNone: String? = null,
     ): (suspend () -> Unit)? {
-        val conf = pdu?.let {
-            try {
-                PduParser.parse(it) as? RetrieveConf
-            } catch (e: MmsPduException) {
-                Log.w(TAG, "Unreadable downloaded MMS", e)
-                null
-            }
+        if (pdu == null) {
+            placeholder?.let { failed(it, "the download (Android's MMS service and the carrier)", whyNone ?: "nothing came back", subscriptionId) }
+            return null
         }
+        var unreadable: String? = null
+        val parsed = try {
+            PduParser.parse(pdu)
+        } catch (e: MmsPduException) {
+            Log.w(TAG, "Unreadable downloaded MMS", e)
+            unreadable = e.message
+            null
+        }
+        val conf = parsed as? RetrieveConf
         if (conf == null) {
-            placeholder?.let(::failed)
+            val why = when {
+                pdu.isEmpty() -> "the download came back empty"
+                parsed != null -> "the carrier sent something other than the message (a ${parsed::class.simpleName})"
+                else -> "what came back couldn't be read (${unreadable ?: "malformed"}, ${pdu.size} bytes)"
+            }
+            placeholder?.let { failed(it, "reading what came back", why, subscriptionId) }
             return null
         }
         val recipients = participants(conf)
         val threadId = Telephony.Threads.getOrCreateThreadId(context, recipients.toSet())
         val message = store.insertIncoming(conf, threadId, subscriptionId) ?: run {
-            placeholder?.let(::failed)
+            placeholder?.let { failed(it, "saving it", "the phone's message store wouldn't take it", subscriptionId) }
             return null
         }
+        placeholder?.lastPathSegment?.toLongOrNull()?.let { failures?.clear(it) }
         // Stored: until it's classified and said, it's on the list a later start finishes (see IncomingMessageHandler).
         incoming.markUnfinished(message)
         // Housekeeping that can fail (a full cache, say): never a reason for the stored message to go unsaid.
@@ -244,6 +286,8 @@ class MmsReceiver(
         const val EXTRA_TRANSACTION_ID = "transaction_id"
         const val EXTRA_SUBSCRIPTION = "subscription"
         const val EXTRA_DEFERRED = "deferred"
+        /** Where Android's MMS service may live, besides whatever the phone's user ID says. */
+        private val PHONE_HOSTS = listOf("com.android.phone", "com.android.mms.service")
         private const val UNKNOWN_SENDER = "Unknown"
         private const val TAG = "WinnowMms"
     }
@@ -255,18 +299,29 @@ class MmsDownloadedReceiver : BroadcastReceiver() {
         val container = (context.applicationContext as WinnowApp).container
         val file = intent.getStringExtra(MmsReceiver.EXTRA_FILE)?.let(::File)
         val ok = resultCode == Activity.RESULT_OK
+        val code = resultCode
+        // The carrier's HTTP answer, when the service had one (SmsManager.EXTRA_MMS_HTTP_STATUS).
+        val http = intent.getIntExtra("android.telephony.extra.MMS_HTTP_STATUS", 0)
         val pending = goAsync()
         container.appScope.launch {
             // Stored, the broadcast ends (the next download's can come); classifying and notifying follow.
             var then: (suspend () -> Unit)? = null
             try {
                 val bytes = if (ok) file?.takeIf { it.exists() }?.readBytes() else null
+                val subscriptionId = intent.getIntExtra(MmsReceiver.EXTRA_SUBSCRIPTION, -1)
+                val why = when {
+                    !ok && code == 4 && http == 0 && container.mmsFailures.mobileDataOff(subscriptionId) -> MmsFailures.describe(11, 0)
+                    !ok -> MmsFailures.describe(code, http)
+                    file == null || !file.exists() -> "Android said it downloaded, but nothing was written for Winnow to read"
+                    else -> null
+                }
                 then = container.mmsReceiver.onDownloaded(
                     placeholder = intent.data,
                     pdu = bytes,
                     transactionId = intent.getStringExtra(MmsReceiver.EXTRA_TRANSACTION_ID),
-                    subscriptionId = intent.getIntExtra(MmsReceiver.EXTRA_SUBSCRIPTION, -1),
+                    subscriptionId = subscriptionId,
                     deferred = intent.getBooleanExtra(MmsReceiver.EXTRA_DEFERRED, false),
+                    whyNone = why,
                 )
             } catch (e: CancellationException) {
                 throw e
