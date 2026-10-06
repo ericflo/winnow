@@ -38,6 +38,40 @@ class ProblemLogTest {
     }
 
     @Test
+    fun eachProblemSaysWhichVersionItHappenedIn() {
+        val problems = listOf(
+            Problem(1_791_170_000_000, Kind.CRASH, "Thread: main\nboom", version = "0.1.26 (126)"),
+            Problem(1_791_160_000_000, Kind.NOT_RESPONDING, "Android says: timed out", version = "0.1.19 (119)"),
+            Problem(1_791_150_000_000, Kind.CRASH, "from before versions were kept"),
+        )
+        val report = ProblemLog.report(problems, "0.1.26 (126)", "phone", now = 1_791_180_000_000, zone = ZoneId.of("UTC"))
+        val headers = report.lines().filter { it.startsWith("== ") }
+        assertTrue(headers[0], headers[0].endsWith("· this version =="))
+        assertTrue(headers[1], headers[1].endsWith("· in 0.1.19 (119) =="))
+        assertTrue("unknown is left unsaid, not guessed: ${headers[2]}", !headers[2].contains("version") && !headers[2].contains(" in "))
+    }
+
+    @Test
+    fun theVersionIsKeptWithTheDetailsAndOldFilesStillRead() {
+        val problem = Problem(5, Kind.CRASH, "Thread: main\n#version is not a header here", version = "0.1.27 (127)")
+        assertEquals(problem, ProblemLog.decode(5, Kind.CRASH, ProblemLog.encode(problem)))
+        assertEquals(Problem(5, Kind.CRASH, "Thread: main\nboom"), ProblemLog.decode(5, Kind.CRASH, "Thread: main\nboom"))
+        assertEquals("no version: just the details", "x", ProblemLog.encode(Problem(1, Kind.CRASH, "x")))
+    }
+
+    @Test
+    fun problemsAreFromAnEarlierVersionOnlyWhenAllOfThemKnownlyAre() {
+        val old = Problem(1, Kind.CRASH, "", "0.1.19 (119)")
+        val older = Problem(0, Kind.CRASH, "", "0.1.18 (118)")
+        val now = Problem(2, Kind.CRASH, "", "0.1.26 (126)")
+        val unknown = Problem(3, Kind.CRASH, "")
+        assertEquals("0.1.19 (119)", ProblemLog.earlierVersion(listOf(old, older), "0.1.26 (126)"))
+        assertNull("one is from this version", ProblemLog.earlierVersion(listOf(old, now), "0.1.26 (126)"))
+        assertNull("one's version isn't known", ProblemLog.earlierVersion(listOf(old, unknown), "0.1.26 (126)"))
+        assertNull(ProblemLog.earlierVersion(emptyList(), "0.1.26 (126)"))
+    }
+
+    @Test
     fun aHugeReportIsCutToWhatAShareCanCarry() {
         val huge = Problem(1, Kind.NOT_RESPONDING, "x".repeat(ProblemLog.MAX_REPORT_CHARS * 2))
         val report = ProblemLog.report(listOf(huge), "1", "phone", now = 2, zone = ZoneId.of("UTC"))

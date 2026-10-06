@@ -320,6 +320,8 @@ class InboxViewModel(private val container: AppContainer, private val mode: List
 
     /** Crashes or freezes since the user last looked: the inbox offers the report. */
     val newProblems: StateFlow<Int> = container.problems.unseen
+    /** The earlier version they all happened in, when they did (see ProblemLog.unseenEarlier). */
+    val newProblemsEarlier: StateFlow<String?> = container.problems.unseenEarlier
 
     fun shareProblems(): android.content.Intent = container.problems.shareIntent().also { container.problems.markSeen() }
 

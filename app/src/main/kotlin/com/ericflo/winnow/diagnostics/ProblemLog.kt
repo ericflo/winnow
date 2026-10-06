@@ -22,7 +22,8 @@ import java.time.format.FormatStyle
  * when it went wrong, which is why it only leaves the phone when they share it.
  */
 class ProblemLog(private val context: Context) {
-    data class Problem(val at: Long, val kind: Kind, val detail: String)
+    /** [version] is the app's when it happened ("0.1.19 (119)"); null when that wasn't recorded. */
+    data class Problem(val at: Long, val kind: Kind, val detail: String, val version: String? = null)
 
     enum class Kind(val label: String) {
         CRASH("Crash"),
@@ -44,6 +45,18 @@ class ProblemLog(private val context: Context) {
     /** Problems since the user last looked at or dismissed them (see [markSeen]). */
     val unseen: StateFlow<Int> = _unseen.asStateFlow()
 
+    private val _unseenEarlier = MutableStateFlow<String?>(null)
+    /** When every unseen problem happened in an earlier version than this one: the newest such version. */
+    val unseenEarlier: StateFlow<String?> = _unseenEarlier.asStateFlow()
+
+    /** This app's version, "0.1.26 (126)": asked once, and recorded with each problem. */
+    val version: String by lazy {
+        runCatching {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            "${info.versionName} (${info.longVersionCode})"
+        }.getOrDefault("?")
+    }
+
     /**
      * Records a crash on any thread before the process dies, then hands it on to Android's own
      * handler, which shows "Winnow keeps stopping" and ends the process as before.
@@ -51,13 +64,16 @@ class ProblemLog(private val context: Context) {
     fun install() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
-            runCatching { write(Problem(System.currentTimeMillis(), Kind.CRASH, "Thread: ${thread.name}\n${error.stackTraceToString()}")) }
+            runCatching { write(Problem(System.currentTimeMillis(), Kind.CRASH, "Thread: ${thread.name}\n${error.stackTraceToString()}", runCatching { version }.getOrNull())) }
             previous?.uncaughtException(thread, error)
         }
     }
 
     /** Reads what's recorded, and Android's records of this app's exits since the last look. Off the main thread. */
     fun load() {
+        // Android keeps this with the record of how this process ends, so a freeze read back
+        // after an update still says which version froze.
+        runCatching { context.getSystemService(ActivityManager::class.java).setProcessStateSummary(version.toByteArray()) }
         val recorded = read()
         val since = prefs.getLong(KEY_EXITS_READ, 0)
         val exits = runCatching {
@@ -69,7 +85,8 @@ class ProblemLog(private val context: Context) {
             // A crash the handler above caught is recorded already, with its stack.
             if (kind == Kind.CRASH && recorded.any { it.kind == Kind.CRASH && kotlin.math.abs(it.at - exit.timestamp) < SAME_CRASH_MILLIS }) continue
             val trace = if (kind == Kind.NOT_RESPONDING) runCatching { exit.traceInputStream?.use { readCapped(it, MAX_TRACE_BYTES) } }.getOrNull() else null
-            write(Problem(exit.timestamp, kind, listOfNotNull(exit.description?.let { "Android says: $it" }, trace).joinToString("\n\n").ifBlank { "No details recorded." }))
+            val ranAs = runCatching { exit.processStateSummary?.decodeToString()?.takeIf { it.isNotBlank() } }.getOrNull()
+            write(Problem(exit.timestamp, kind, listOfNotNull(exit.description?.let { "Android says: $it" }, trace).joinToString("\n\n").ifBlank { "No details recorded." }, ranAs))
             added = true
         }
         exits.maxOfOrNull { it.timestamp }?.let { newest -> if (newest > since) prefs.edit().putLong(KEY_EXITS_READ, newest).apply() }
@@ -79,7 +96,7 @@ class ProblemLog(private val context: Context) {
     /** Records something that went wrong without a crash, with [detail] for the report. */
     fun note(kind: Kind, detail: String) {
         runCatching {
-            write(Problem(System.currentTimeMillis(), kind, detail))
+            write(Problem(System.currentTimeMillis(), kind, detail, version))
             publish(read())
         }
     }
@@ -88,6 +105,7 @@ class ProblemLog(private val context: Context) {
     fun markSeen() {
         prefs.edit().putLong(KEY_SEEN, _problems.value.maxOfOrNull { it.at } ?: System.currentTimeMillis()).apply()
         _unseen.value = 0
+        _unseenEarlier.value = null
     }
 
     fun clear() {
@@ -98,8 +116,6 @@ class ProblemLog(private val context: Context) {
 
     /** The report for everything recorded, and an intent that offers it to share. */
     fun shareIntent(): android.content.Intent {
-        val info = runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
-        val version = "${info?.versionName ?: "?"} (${info?.longVersionCode ?: "?"})"
         val device = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) · ${Build.MANUFACTURER} ${Build.MODEL}"
         val send = android.content.Intent(android.content.Intent.ACTION_SEND)
             .setType("text/plain")
@@ -111,12 +127,14 @@ class ProblemLog(private val context: Context) {
     private fun publish(problems: List<Problem>) {
         _problems.value = problems
         val seen = prefs.getLong(KEY_SEEN, 0)
-        _unseen.value = problems.count { it.at > seen }
+        val unseen = problems.filter { it.at > seen }
+        _unseen.value = unseen.size
+        _unseenEarlier.value = earlierVersion(unseen, version)
     }
 
     private fun write(problem: Problem) {
         dir.mkdirs()
-        File(dir, "${problem.at}-${problem.kind.name}.txt").writeText(problem.detail)
+        File(dir, "${problem.at}-${problem.kind.name}.txt").writeText(encode(problem))
         // The newest are the useful ones.
         dir.listFiles()?.sortedByDescending { it.name.substringBefore('-').toLongOrNull() ?: 0 }?.drop(MAX_KEPT)?.forEach { it.delete() }
     }
@@ -124,7 +142,7 @@ class ProblemLog(private val context: Context) {
     private fun read(): List<Problem> = dir.listFiles().orEmpty().mapNotNull { file ->
         val at = file.name.substringBefore('-').toLongOrNull() ?: return@mapNotNull null
         val kind = runCatching { Kind.valueOf(file.name.substringAfter('-').substringBefore('.')) }.getOrDefault(Kind.OTHER)
-        Problem(at, kind, runCatching { file.readText() }.getOrDefault(""))
+        decode(at, kind, runCatching { file.readText() }.getOrDefault(""))
     }.sortedByDescending { it.at }
 
     companion object {
@@ -136,6 +154,23 @@ class ProblemLog(private val context: Context) {
         private const val SAME_CRASH_MILLIS = 10_000L
         /** Shared as text; kept well under what an intent can carry. */
         const val MAX_REPORT_CHARS = 150_000
+
+        private const val VERSION_LINE = "#version "
+
+        /** A problem as kept in its file: the version on a first line of its own, then the details. */
+        fun encode(problem: Problem): String = problem.version?.let { "$VERSION_LINE$it\n${problem.detail}" } ?: problem.detail
+
+        /** Reads [encode]'s form back; files from before versions were recorded are details alone. */
+        fun decode(at: Long, kind: Kind, text: String): Problem =
+            if (text.startsWith(VERSION_LINE)) {
+                Problem(at, kind, text.substringAfter('\n', ""), text.substringBefore('\n').removePrefix(VERSION_LINE).trim().ifEmpty { null })
+            } else {
+                Problem(at, kind, text)
+            }
+
+        /** The newest version [problems] came from, when every one of them is known to be from a version other than [current]. */
+        fun earlierVersion(problems: List<Problem>, current: String): String? =
+            if (problems.isNotEmpty() && problems.all { it.version != null && it.version != current }) problems.maxBy { it.at }.version else null
 
         /** Which exits are problems worth a report. A low-memory kill or a force stop isn't. */
         fun kindOf(reason: Int): Kind? = when (reason) {
@@ -155,7 +190,12 @@ class ProblemLog(private val context: Context) {
                 appendLine("Made: ${time.format(Instant.ofEpochMilli(now))}")
                 problems.forEach { p ->
                     appendLine()
-                    appendLine("== ${p.kind.label} · ${time.format(Instant.ofEpochMilli(p.at))} ==")
+                    val ranAs = when (p.version) {
+                        null -> ""
+                        appVersion -> " · this version"
+                        else -> " · in ${p.version}"
+                    }
+                    appendLine("== ${p.kind.label} · ${time.format(Instant.ofEpochMilli(p.at))}$ranAs ==")
                     appendLine(p.detail.trimEnd())
                 }
             }

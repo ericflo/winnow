@@ -42,6 +42,7 @@ sealed interface TrialState {
 class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     /** Crashes and freezes recorded on this phone (Settings → About). */
     val problems = container.problems.problems
+    val appVersion: String get() = container.problems.version
 
     /** The report, to share; looking at it counts as seeing them. */
     fun shareProblems(): android.content.Intent = container.problems.shareIntent().also { container.problems.markSeen() }

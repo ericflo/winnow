@@ -189,6 +189,7 @@ fun InboxScreen(
     var restrictedDismissed by rememberSaveable { mutableStateOf(false) }
     val contactsHidden by viewModel.contactsHidden.collectAsStateWithLifecycle()
     val newProblems by viewModel.newProblems.collectAsStateWithLifecycle()
+    val newProblemsEarlier by viewModel.newProblemsEarlier.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val atTop by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
     val farDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 6 } }
@@ -337,6 +338,7 @@ fun InboxScreen(
                             item("problems") {
                                 ProblemCard(
                                     newProblems,
+                                    newProblemsEarlier,
                                     onShare = { runCatching { context.startActivity(viewModel.shareProblems()) } },
                                     onDismiss = viewModel::dismissProblems,
                                 )
@@ -993,7 +995,7 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit, onClose: (
 }
 
 @Composable
-private fun ProblemCard(count: Int, onShare: () -> Unit, onDismiss: () -> Unit) {
+private fun ProblemCard(count: Int, earlier: String?, onShare: () -> Unit, onDismiss: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         shape = RoundedCornerShape(24.dp),
@@ -1003,7 +1005,12 @@ private fun ProblemCard(count: Int, onShare: () -> Unit, onDismiss: () -> Unit) 
             Text(if (count == 1) "Winnow ran into a problem" else "Winnow ran into $count problems", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Something went wrong since you last opened it (a crash, a freeze, or something it couldn't do). The details are on this phone; sharing them helps get it fixed.",
+                if (earlier != null) {
+                    "Something went wrong in version $earlier, before Winnow was updated to this one (a crash, a freeze, or something it couldn't do). " +
+                        "The update may have fixed it. The details are on this phone, marked with the version, and still worth sharing."
+                } else {
+                    "Something went wrong since you last opened it (a crash, a freeze, or something it couldn't do). The details are on this phone; sharing them helps get it fixed."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

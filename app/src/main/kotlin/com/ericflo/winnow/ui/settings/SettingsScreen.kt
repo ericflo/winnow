@@ -435,6 +435,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onMakeDefau
                 val problems by viewModel.problems.collectAsStateWithLifecycle()
                 ProblemsRow(
                     problems,
+                    current = viewModel.appVersion,
                     onShare = { runCatching { context.startActivity(viewModel.shareProblems()) } },
                     onClear = viewModel::clearProblems,
                 )
@@ -906,7 +907,7 @@ private fun QuickRepliesRow(replies: List<String>, onSave: (List<String>) -> Uni
  * of what was being handled when it went wrong, so it only leaves the phone when shared.
  */
 @Composable
-private fun ProblemsRow(problems: List<com.ericflo.winnow.diagnostics.ProblemLog.Problem>, onShare: () -> Unit, onClear: () -> Unit) {
+private fun ProblemsRow(problems: List<com.ericflo.winnow.diagnostics.ProblemLog.Problem>, current: String, onShare: () -> Unit, onClear: () -> Unit) {
     ListItem(
         headlineContent = { Text("Problems on this phone") },
         supportingContent = {
@@ -917,8 +918,9 @@ private fun ProblemsRow(problems: List<com.ericflo.winnow.diagnostics.ProblemLog
                     val latest = problems.first()
                     val at = java.time.format.DateTimeFormatter.ofLocalizedDateTime(java.time.format.FormatStyle.SHORT)
                         .format(java.time.Instant.ofEpochMilli(latest.at).atZone(java.time.ZoneId.systemDefault()))
+                    val ranAs = latest.version?.takeIf { it != current }?.let { " in version $it, before the update to this one" }.orEmpty()
                     Text(
-                        "${if (problems.size == 1) "1 recorded" else "${problems.size} recorded"}, the latest a ${latest.kind.label.lowercase()} on $at. " +
+                        "${if (problems.size == 1) "1 recorded" else "${problems.size} recorded"}, the latest a ${latest.kind.label.lowercase()} on $at$ranAs. " +
                             "The report stays on this phone unless you share it, and can include bits of what Winnow was handling.",
                     )
                     Row {
