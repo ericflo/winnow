@@ -1,5 +1,6 @@
 package com.ericflo.winnow.ui.model
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -285,6 +287,28 @@ class ModelViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /** The user's labels of each sender and what they do (see SenderInsight), with each sender's name where Winnow has one. */
+    data class Senders(val senders: List<com.ericflo.winnow.classify.SenderInsight.Sender>, val names: Map<String, String>, val strength: Double)
+
+    private val _senders = MutableStateFlow<Senders?>(null)
+    val senders: StateFlow<Senders?> = _senders.asStateFlow()
+
+    /** Reads the user's labels of each sender again: they change as the user labels. */
+    fun loadSenders() {
+        viewModelScope.launch {
+            _senders.value = withContext(Dispatchers.IO) {
+                val labels = container.verdictDao.senderLabelThreads().mapNotNull { r ->
+                    Category.fromKey(r.userCategory)?.let { com.ericflo.winnow.classify.SenderInsight.Labeled(r.address, it, r.threadId) }
+                }
+                val conversing = runCatching { container.bootstrap.threadsWithOutgoing() }.getOrDefault(emptySet())
+                val strength = container.settings.current().senderMemory
+                val senders = com.ericflo.winnow.classify.SenderInsight.of(labels, conversing, strength)
+                val names = senders.mapNotNull { s -> runCatching { container.contacts.displayName(s.address) }.getOrNull()?.let { s.key to it } }.toMap()
+                Senders(senders, names, strength)
+            }
+        }
+    }
+
     private val _reading = MutableStateFlow<ModelInspector.Reading?>(null)
     val reading: StateFlow<ModelInspector.Reading?> = _reading.asStateFlow()
 
@@ -359,7 +383,7 @@ fun ModelScreen(
                 ModelTab.OVERVIEW -> overview(viewModel, onOpenMetrics, onOpenRuns, onOpenTrain)
                 ModelTab.EVALUATE -> evaluate(viewModel, onOpenThread)
                 ModelTab.LAB -> lab(viewModel, onOpenThread)
-                ModelTab.INSIDE -> inside(viewModel)
+                ModelTab.INSIDE -> inside(viewModel, onOpenThread)
                 ModelTab.HISTORY -> history(viewModel)
             }
         }
@@ -580,7 +604,7 @@ private fun LabelsAndServiceCard(o: Overview, onOpenRuns: () -> Unit) {
     }
 }
 
-private fun LazyListScope.inside(viewModel: ModelViewModel) {
+private fun LazyListScope.inside(viewModel: ModelViewModel, onOpenThread: (Long, List<String>) -> Unit) {
     item("built") {
         val o by viewModel.overview.collectAsStateWithLifecycle()
         BuiltCard(o?.weight ?: Learner.PROVIDER_WEIGHT)
@@ -590,8 +614,69 @@ private fun LazyListScope.inside(viewModel: ModelViewModel) {
         val inside by viewModel.inside.collectAsStateWithLifecycle()
         LearnedCard(inside)
     }
+    item("senders") {
+        androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.loadSenders() }
+        val senders by viewModel.senders.collectAsStateWithLifecycle()
+        SendersCard(senders, onOpenThread)
+    }
     item("try") { TryCard(viewModel) }
 }
+
+/**
+ * "Your labels of each sender": every sender the user has labeled, and what their labels do to
+ * that sender's next text (see SenderInsight). Each opens its conversation.
+ */
+@Composable
+private fun SendersCard(s: ModelViewModel.Senders?, onOpenThread: (Long, List<String>) -> Unit) {
+    InsightCard("Your labels of each sender", subtitle = "What they do to each sender's next text, as \"Who sent it\" is set now") {
+        if (s == null) { CircularProgressIndicator(); return@InsightCard }
+        if (s.senders.isEmpty()) {
+            Text("You haven't labeled any texts yet: once you do, what you've said about each sender shows here.", style = MaterialTheme.typography.bodyMedium)
+            return@InsightCard
+        }
+        val deciding = s.senders.count { it.decides != null }
+        Text(
+            if (s.strength <= 0.0) "\"Who sent it\" is off (in the Lab), so your labels of a sender don't count for their next texts: only the words do."
+            else "Your labels decide the next texts of ${plural(deciding, "sender")}: ${com.ericflo.winnow.classifier.local.SenderMemory.DECISIVE_AT_LEAST} or more, all one way, from someone you don't text with. " +
+                "For ${plural(s.senders.size - deciding, "other sender")}, they lean the model's answer and the words decide between your categories. Label one of a sender's texts another way and their labels only lean from then on.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        var all by remember { mutableStateOf(false) }
+        val shown = if (all) s.senders else s.senders.take(SENDERS_SHOWN)
+        shown.forEach { x ->
+            Column(Modifier.fillMaxWidth().clickable { onOpenThread(x.threadId, listOf(x.address)) }.padding(vertical = 6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CategoryDot(x.decides ?: x.counts.first().first)
+                    Spacer(Modifier.width(8.dp))
+                    Text(s.names[x.key] ?: com.ericflo.winnow.data.ContactLookup.formatAddress(x.address), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    Text(
+                        when {
+                            s.strength <= 0.0 -> "off"
+                            x.decides != null -> "decides: ${x.decides.label}"
+                            else -> "leans"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (x.decides != null && s.strength > 0.0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    x.counts.joinToString(", ") { (c, n) -> "$n ${c.label.lowercase()}" } +
+                        when {
+                            x.conversing -> " · you text them"
+                            x.decides == null && x.counts.size == 1 -> " · ${com.ericflo.winnow.classifier.local.SenderMemory.DECISIVE_AT_LEAST} decide"
+                            else -> ""
+                        },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 18.dp),
+                )
+            }
+        }
+        if (!all && s.senders.size > SENDERS_SHOWN) TextButton(onClick = { all = true }, contentPadding = PaddingValues(0.dp)) { Text("Show all ${count(s.senders.size)}") }
+    }
+}
+
+private const val SENDERS_SHOWN = 15
 
 @Composable
 private fun BuiltCard(weight: Double) {

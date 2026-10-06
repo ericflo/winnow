@@ -515,11 +515,18 @@ data class SenderLabel(val address: String, val userCategory: String)
 /** A labeled message and who sent it. */
 data class LabeledSender(val messageKey: String, val address: String)
 
+/** One of the user's labels with who sent the text and its conversation. */
+data class SenderLabelThread(val address: String, val userCategory: String, val threadId: Long)
+
 @Dao
 interface VerdictDao {
     /** The user's labels with who sent each labeled message, for remembering what they say about senders (see SenderMemory). */
     @Query("SELECT address, userCategory FROM verdicts WHERE userCategory IS NOT NULL AND address != ''")
     suspend fun senderLabels(): List<SenderLabel>
+
+    /** The user's labels with who sent each text and its conversation, oldest first (see SenderInsight). */
+    @Query("SELECT address, userCategory, threadId FROM verdicts WHERE userCategory IS NOT NULL AND address != '' ORDER BY decidedAt")
+    suspend fun senderLabelThreads(): List<SenderLabelThread>
 
     /** Who sent each message the user labeled, for scoring with their labels of each sender. */
     @Query("SELECT messageKey, address FROM verdicts WHERE userCategory IS NOT NULL AND address != ''")
