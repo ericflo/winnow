@@ -236,6 +236,9 @@
             android:name=".notify.ReminderReceiver"
             android:exported="false" />
         <receiver
+            android:name=".sms.PendingSendReceiver"
+            android:exported="false" />
+        <receiver
             android:name=".sms.ScheduledSendReceiver"
             android:exported="false">
             <intent-filter>

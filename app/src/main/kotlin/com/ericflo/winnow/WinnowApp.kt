@@ -108,8 +108,11 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
         }
         // Kept draft attachments nothing refers to any more. Here, as the process starts, before
         // any screen (the main one or a chat bubble) can be holding one in memory.
+        // Then messages a closed app left waiting out Undo send, whose copies the sweep spared.
         container.appScope.launch(Dispatchers.IO) {
-            container.draftAttachments.sweep(container.conversationStates.all().map { it.draftAttachments })
+            val held = runCatching { container.pendingSends.all() }.getOrDefault(emptyList())
+            container.draftAttachments.sweep(container.conversationStates.all().map { it.draftAttachments } + held.map { it.attachments })
+            runCatching { container.pendingSends.sendLeftovers() }.onFailure { Log.w("WinnowApp", "Sending held messages failed", it) }
         }
         container.appScope.launch { container.trash.purgeExpired() }
         container.appScope.launch { runCatching { container.dailySummary.rearm() } }
@@ -376,6 +379,8 @@ class AppContainer(private val context: Context) {
         )
     }
     // Scheduled texts only ever go out through the real store, once Winnow is the SMS app.
+    /** Messages waiting out Undo send, kept until they go. */
+    val pendingSends by lazy { com.ericflo.winnow.sms.PendingSends(context) }
     val scheduler by lazy { MessageScheduler(context, database.scheduled()) { messages.takeIf { isDefaultSmsApp() } } }
 
     /** Settings → Clear out old filtered texts. */

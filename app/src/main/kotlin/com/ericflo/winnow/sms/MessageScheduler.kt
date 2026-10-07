@@ -13,7 +13,9 @@ import com.ericflo.winnow.data.db.ScheduledMessageEntity
 import com.ericflo.winnow.data.joinAddresses
 import com.ericflo.winnow.data.splitAddresses
 import com.ericflo.winnow.data.displayNameFor
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.Mutex
@@ -66,16 +68,45 @@ class MessageScheduler(
      * Sends a scheduled message now, whether its time has come or the user asked. It's only
      * removed once the send has been handed off; on failure it stays, to go out on the next try.
      */
-    suspend fun sendNow(id: Long) = sending.withLock {
+    suspend fun sendNow(id: Long) = send(id, early = true)
+
+    /** An alarm's: sends [id] if its time has come; one moved later since the alarm was set waits for its new time. */
+    suspend fun sendIfDue(id: Long) = send(id, early = false)
+
+    private suspend fun send(id: Long, early: Boolean) = sending.withLock {
         // One at a time, and looked up again inside: its two alarms (see arm), or an alarm and
         // Send now, can't both find it and send it twice.
         val message = dao.get(id) ?: return@withLock
+        // An alarm from before it was rescheduled later: not yet (set again, in case it was the only one).
+        if (!early && message.sendAt > System.currentTimeMillis() + EARLY_SLACK_MILLIS) {
+            arm(id, message.sendAt)
+            return@withLock
+        }
         val store = messages() ?: throw IllegalStateException("Winnow isn't the default SMS app, so it can't send")
-        store.send(splitAddresses(message.recipients), message.body, subscriptionId = message.subscriptionId)
+        val recipients = splitAddresses(message.recipients)
+        try {
+            store.send(recipients, message.body, subscriptionId = message.subscriptionId)
+        } catch (e: StoredAsFailed) {
+            // It's in its conversation now, marked not sent: kept scheduled too, it would go out twice.
+            cancel(id)
+            val container = (context.applicationContext as WinnowApp).container
+            if (container.visibleThread.value != message.threadId) {
+                container.notifier.showNotSent(
+                    message.threadId, recipients, displayNameFor(recipients, container.messages::displayName), message.body, scheduled = true,
+                    retryKey = e.key,
+                )
+            }
+            throw e
+        }
         cancel(id)
     }
 
     private val sending = Mutex()
+
+    private companion object {
+        /** An alarm this much early still sends: alarms are allowed to be a little early. */
+        const val EARLY_SLACK_MILLIS = 60_000L
+    }
 
     /**
      * Tells the user a scheduled text didn't go out when its time came: once, though an overdue
@@ -111,7 +142,7 @@ class MessageScheduler(
      */
     suspend fun sendDue(now: Long = System.currentTimeMillis()) {
         dao.all().filter { it.sendAt <= now }.forEach { m ->
-            runCatching { sendNow(m.id) }.onFailure { runCatching { notifyFailed(m.id) } }
+            runCatching { sendIfDue(m.id) }.onFailure { runCatching { notifyFailed(m.id) } }
         }
     }
 
@@ -129,6 +160,8 @@ class MessageScheduler(
         // Whichever comes first sends it; the other finds it gone (see sendNow).
         if (alarms.canScheduleExactAlarms()) {
             alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, intent)
+            // One set before the grant (or a reschedule) would still go off at the old time.
+            alarms.cancel(alarmIntent(id, idle = true))
         } else {
             alarms.setWindow(AlarmManager.RTC_WAKEUP, at, 10 * 60_000L, intent)
             alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, alarmIntent(id, idle = true))
@@ -154,12 +187,13 @@ class ScheduledSendReceiver : BroadcastReceiver() {
                 when (intent.action) {
                     // Reboots and exact-alarm permission changes both drop or reshape pending alarms.
                     Intent.ACTION_BOOT_COMPLETED, AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> {
+                        if (intent.action == Intent.ACTION_BOOT_COMPLETED) runCatching { tellStranded(context) }
                         runCatching { container.scheduler.rearmAll() }
                         runCatching { container.reminders.rearmAll() }
                         // The evening summary's alarm went with the reboot too.
                         runCatching { container.dailySummary.rearm() }
                     }
-                    else -> container.scheduler.sendNow(intent.getLongExtra(EXTRA_ID, -1))
+                    else -> container.scheduler.sendIfDue(intent.getLongExtra(EXTRA_ID, -1))
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -170,6 +204,18 @@ class ScheduledSendReceiver : BroadcastReceiver() {
             } finally {
                 pending.finish()
             }
+        }
+    }
+
+    /** Texts the reboot cut off mid-send: marked not sent, each with a notice to try again. */
+    private suspend fun tellStranded(context: Context) {
+        val container = (context.applicationContext as WinnowApp).container
+        if (!container.isDefaultSmsApp()) return
+        val keys = withContext(Dispatchers.IO) { failStranded(context) }
+        if (keys.isEmpty()) return
+        Log.i("WinnowSms", "${keys.size} texts were still sending at the reboot; marked not sent")
+        container.messages.messagesByKey(keys).forEach { found ->
+            container.notifier.showNotSent(found.message.threadId, found.recipients, found.conversationName, found.message.body.ifBlank { "a picture message" }, retryKey = found.message.key)
         }
     }
 

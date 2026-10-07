@@ -58,13 +58,20 @@ class MmsSender(
         val threadId = Telephony.Threads.getOrCreateThreadId(context, recipients.toSet())
         val uri = store.insertOutgoing(threadId, recipients, parts, sub ?: SubscriptionManager.getDefaultSmsSubscriptionId(), subject)
             ?: error("couldn't store the outgoing MMS; is Winnow the default SMS app?")
-        transmit(uri, recipients, parts, sub, reports, subject)
+        try {
+            transmit(uri, recipients, parts, sub, reports, subject)
+        } catch (e: Exception) {
+            // In the conversation now: marked not sent (Tap to retry), not left "Sending…" for good.
+            store.setBox(uri, Telephony.Mms.MESSAGE_BOX_FAILED)
+            throw StoredAsFailed("mms:${ContentUris.parseId(uri)}", e)
+        }
     }
 
     suspend fun retry(mmsId: Long) {
         val reports = deliveryReports()
         val uri = ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, mmsId)
-        store.setBox(uri, Telephony.Mms.MESSAGE_BOX_OUTBOX)
+        // Claimed by moving it out of failed: of two tries at once, only the one that moved it sends.
+        if (!store.claimFailed(uri)) return
         // Retry on the SIM it was first sent from; back to failed if it can't even be handed off.
         try {
             transmit(uri, store.recipients(mmsId), store.parts(mmsId), forSending(store.subscriptionId(mmsId)), reports, store.subject(mmsId))

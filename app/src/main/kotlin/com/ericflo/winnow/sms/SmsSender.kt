@@ -52,7 +52,14 @@ class SmsSender(
             put(Telephony.Sms.SUBSCRIPTION_ID, sub ?: SubscriptionManager.getDefaultSmsSubscriptionId())
         }
         val uri = context.contentResolver.insert(Telephony.Sms.CONTENT_URI, values)
-        transmit(uri, address, body, reports, sub)
+        try {
+            transmit(uri, address, body, reports, sub)
+        } catch (e: Exception) {
+            uri ?: throw e
+            // It's in the conversation now: marked not sent (Tap to retry), not left "Sending…" for good.
+            context.contentResolver.update(uri, ContentValues().apply { put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_FAILED) }, null, null)
+            throw StoredAsFailed("sms:${ContentUris.parseId(uri)}", e)
+        }
         return uri
     }
 
@@ -67,7 +74,9 @@ class SmsSender(
             put(Telephony.Sms.DATE, System.currentTimeMillis())
             put(Telephony.Sms.STATUS, if (reports) Telephony.Sms.STATUS_PENDING else Telephony.Sms.STATUS_NONE)
         }
-        context.contentResolver.update(message, values, null, null)
+        // Claimed by moving it out of failed: of two tries at once (Tap to retry and the notice's
+        // Try again), only the one that moved it sends.
+        if (context.contentResolver.update(message, values, "${Telephony.Sms.TYPE} = ${Telephony.Sms.MESSAGE_TYPE_FAILED}", null) == 0) return
         try {
             transmit(message, address, body, reports, forSending(subscriptionId))
         } catch (e: Exception) {
@@ -111,6 +120,61 @@ class SmsSender(
     }
 }
 
+/**
+ * The message was stored and then couldn't be handed to the radio: it's in its conversation
+ * marked not sent, under [key], to be tried again from there rather than typed again.
+ */
+class StoredAsFailed(val key: String, cause: Exception) : Exception(cause.message, cause)
+
+/**
+ * After a reboot, texts still sending never will be: the radio and the MMS service forgot them
+ * with it. Each is marked not sent instead, to be tried again; returns their keys.
+ */
+fun failStranded(context: Context): List<String> {
+    val resolver = context.contentResolver
+    val stranded = mutableListOf<String>()
+    val smsWaiting = "${Telephony.Sms.TYPE} IN (${Telephony.Sms.MESSAGE_TYPE_OUTBOX}, ${Telephony.Sms.MESSAGE_TYPE_QUEUED})"
+    resolver.query(Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms._ID), smsWaiting, null, null)?.use { c ->
+        while (c.moveToNext()) {
+            val id = c.getLong(0)
+            val failed = ContentValues().apply { put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_FAILED) }
+            if (resolver.update(ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, id), failed, smsWaiting, null) > 0) stranded += "sms:$id"
+        }
+    }
+    val mmsWaiting = "${Telephony.Mms.MESSAGE_BOX} = ${Telephony.Mms.MESSAGE_BOX_OUTBOX}"
+    resolver.query(Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID), mmsWaiting, null, null)?.use { c ->
+        while (c.moveToNext()) {
+            val id = c.getLong(0)
+            val failed = ContentValues().apply { put(Telephony.Mms.MESSAGE_BOX, Telephony.Mms.MESSAGE_BOX_FAILED) }
+            if (resolver.update(ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, id), failed, mmsWaiting, null) > 0) stranded += "mms:$id"
+        }
+    }
+    return stranded
+}
+
+/**
+ * A delivery report's status as the store keeps it. GSM's (3GPP) is the TP-Status: 0x00–0x1F
+ * completed, 0x20–0x3F still trying, 0x40 and up failed for good. A CDMA network's (3GPP2)
+ * comes as an error class in bits 24–25 (none, temporary, permanent) over a message status in
+ * bits 16–21, of which 2 is delivered.
+ */
+internal fun deliveryStatus(status: Int, format: String?): Int {
+    if (format == "3gpp2") {
+        val errorClass = (status shr 24) and 0x03
+        val messageStatus = (status shr 16) and 0x3f
+        return when (errorClass) {
+            0 -> if (messageStatus == 0x02) Telephony.Sms.STATUS_COMPLETE else Telephony.Sms.STATUS_PENDING
+            2 -> Telephony.Sms.STATUS_PENDING
+            else -> Telephony.Sms.STATUS_FAILED
+        }
+    }
+    return when {
+        status < 0x20 -> Telephony.Sms.STATUS_COMPLETE
+        status < 0x40 -> Telephony.Sms.STATUS_PENDING
+        else -> Telephony.Sms.STATUS_FAILED
+    }
+}
+
 /** Android's count for [text] as a text, which knows the carrier's alphabets. */
 fun measureSms(text: String): SimpleCharacters.Measure =
     SmsMessage.calculateLength(text, false).let { SimpleCharacters.Measure(it[0], it[3] == SmsMessage.ENCODING_7BIT) }
@@ -122,14 +186,9 @@ class SmsStatusReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_DELIVERED -> {
                 val pdu = intent.getByteArrayExtra("pdu") ?: return
-                val report = SmsMessage.createFromPdu(pdu, intent.getStringExtra("format")) ?: return
-                // TP-Status: 0x00–0x1F completed, 0x20–0x3F still trying, 0x40+ permanent failure.
-                val status = when {
-                    report.status < 0x20 -> Telephony.Sms.STATUS_COMPLETE
-                    report.status < 0x40 -> Telephony.Sms.STATUS_PENDING
-                    else -> Telephony.Sms.STATUS_FAILED
-                }
-                resolver.update(uri, ContentValues().apply { put(Telephony.Sms.STATUS, status) }, null, null)
+                val format = intent.getStringExtra("format")
+                val report = SmsMessage.createFromPdu(pdu, format) ?: return
+                resolver.update(uri, ContentValues().apply { put(Telephony.Sms.STATUS, deliveryStatus(report.status, format)) }, null, null)
             }
             else -> if (resultCode == Activity.RESULT_OK) {
                 // Parts report in any order: only promote a message that no other part has failed.

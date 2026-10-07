@@ -11,6 +11,9 @@ import com.ericflo.winnow.data.SimCard
 import com.ericflo.winnow.backup.Trash
 import com.ericflo.winnow.data.PhotoCrop
 import com.ericflo.winnow.sms.SendReadiness
+import com.ericflo.winnow.sms.PendingSends
+import kotlin.random.Random
+import com.ericflo.winnow.sms.StoredAsFailed
 import com.ericflo.winnow.data.Tapback
 import com.ericflo.winnow.data.StoredVerdict
 import com.ericflo.winnow.data.isRcsAddress
@@ -302,6 +305,19 @@ class ThreadViewModel(
     private val _selectedSim = MutableStateFlow<Int?>(null)
     /** The SIM this conversation's texts go out on; null for Android's default. */
     val selectedSim: StateFlow<Int?> = _selectedSim.asStateFlow()
+    /** Whether [_selectedSim] is the conversation's choice yet (loaded, or picked): until then it's only "default". */
+    @Volatile private var simKnown = false
+
+    /**
+     * The SIM to send on, as chosen when Send was tapped: one tapped before the conversation's
+     * choice has loaded looks it up, rather than going out on whatever SIM is Android's default.
+     */
+    private fun simForSend(): suspend () -> Int? {
+        val picked = _selectedSim.value
+        if (simKnown) return { picked }
+        val thread = threadId.value
+        return { container.simFor(thread) }
+    }
 
     /**
      * Opening onto a particular message: find-in-conversation for [query] with [focusKey] in view
@@ -343,7 +359,10 @@ class ThreadViewModel(
             repo.markRead(id)
             if (!inBubble) container.notifier.cancel(id)
             _sims.value = container.sims.available().takeIf { it.size >= 2 }.orEmpty()
-            _selectedSim.value = container.simFor(id)
+            val sim = container.simFor(id)
+            // Not over one picked meanwhile.
+            if (!simKnown) _selectedSim.value = sim
+            simKnown = true
             val saved = states.get(id)
             // A forwarded or shared draft joins what was already waiting here, rather than replacing it.
             saved.draft?.let { text -> setDraft(if (currentDraft().isEmpty()) text else ReturnedMessages.appendTo(text, currentDraft())) }
@@ -896,6 +915,8 @@ class ThreadViewModel(
         val separately: Boolean = false,
         /** An MMS subject, if one was written. */
         val subject: String? = null,
+        /** Its id in PendingSends, where it's kept until it goes. */
+        val heldId: Long = 0,
     )
 
     val pending: StateFlow<PendingSend?> = _pending.asStateFlow()
@@ -917,7 +938,7 @@ class ThreadViewModel(
         _attachments.value = emptyList()
         setSubject(null)
         _sendSeparately.value = false
-        val sim = _selectedSim.value
+        val sim = simForSend()
         // People the user texts become share-sheet targets too, not only people who text them.
         container.appScope.launch {
             val s = state.value
@@ -925,19 +946,37 @@ class ThreadViewModel(
         }
         val window = (undoSeconds.value ?: 0) * 1000L
         // Claimed right here, on the main thread, so a second Send meanwhile waits for this one.
-        val waiting = if (window > 0) PendingSend(text, files, System.currentTimeMillis() + window, window, apart, subject) else null
+        val waiting = if (window > 0) {
+            PendingSend(text, files, System.currentTimeMillis() + window, window, apart, subject, heldId = Random.nextLong(1, Long.MAX_VALUE))
+        } else {
+            null
+        }
         waiting?.let { _pending.value = it }
+        val thread = threadId.value
+        val people = recipients
         // The app scope, not this ViewModel's: leaving the conversation, mid-countdown or halfway
         // through sending to each person, must not lose the message.
         val job = container.appScope.launch(start = CoroutineStart.LAZY) {
-            states.saveDraft(threadId.value, "")
-            states.saveDraftSubject(threadId.value, null)
+            val subscription = sim()
+            // Kept until it goes, before the draft is cleared: the app closing mid-countdown must
+            // not lose it (an alarm sends it then; see PendingSends).
+            // Failing that, the countdown still sends it.
+            val held = waiting != null && runCatching {
+                withContext(Dispatchers.IO) { container.pendingSends.hold(PendingSends.Held(waiting.heldId, thread, people, text, waiting.sendsAt, subject, apart, subscription)) }
+            }.onFailure { android.util.Log.w("WinnowThread", "Couldn't keep a message waiting out Undo send", it) }.isSuccess
+            states.saveDraft(thread, "")
+            states.saveDraftSubject(thread, null)
             if (waiting != null) {
+                if (held && files.isNotEmpty()) {
+                    runCatching { withContext(Dispatchers.IO) { container.pendingSends.attach(waiting.heldId, drafts.encode(files.mapNotNull(drafts::keep))) } }
+                }
                 delay(window)
                 // Undo and the end of the countdown race for it; whichever takes it, the other does nothing.
                 if (!_pending.compareAndSet(waiting, null)) return@launch
+                // Gone only if its alarm sent it: the app was held up past its time.
+                if (held && runCatching { withContext(Dispatchers.IO) { container.pendingSends.take(waiting.heldId) } }.let { it.isSuccess && it.getOrNull() == null }) return@launch
             }
-            deliver(text, files, sim, apart, subject)
+            deliver(text, files, subscription, apart, subject)
         }
         if (waiting != null) pendingJob = job
         job.start()
@@ -948,7 +987,16 @@ class ThreadViewModel(
         val pending = _pending.value ?: return
         if (!_pending.compareAndSet(pending, null)) return
         pendingJob?.cancel()
-        putBack(pending.text, pending.attachments, pending.separately, subject = pending.subject)
+        container.appScope.launch {
+            // Taken back from its alarm too. Already taken only if the alarm sent it, which it
+            // can't do before its time: the app was held up past it.
+            val held = runCatching { withContext(Dispatchers.IO) { container.pendingSends.take(pending.heldId) } }
+            if (held.isSuccess && held.getOrNull() == null && System.currentTimeMillis() >= pending.sendsAt + PendingSends.GRACE_MILLIS) {
+                _notices.emit("It had already gone out")
+                return@launch
+            }
+            putBack(pending.text, pending.attachments, pending.separately, subject = pending.subject)
+        }
     }
 
     /**
@@ -993,6 +1041,11 @@ class ThreadViewModel(
             if (container.isLive.value) files.forEach(recorder::discard)
         } catch (e: CancellationException) {
             throw e
+        } catch (e: StoredAsFailed) {
+            // In the conversation, marked not sent, with its own copy of any recording: tried
+            // again from there. Back in the composer as well, it could go out twice.
+            if (container.isLive.value) files.forEach(recorder::discard)
+            _notices.emit("Couldn't send: ${e.message ?: "unknown error"}. Tap it to try again.")
         } catch (e: Exception) {
             // Put the message back so nothing typed is lost.
             val reason = e.message ?: "unknown error"
@@ -1003,25 +1056,33 @@ class ThreadViewModel(
 
     /** One text per person, each in its own one-to-one conversation; the group thread doesn't get a copy. */
     private suspend fun deliverSeparately(text: String, files: List<OutgoingAttachment>, sim: Int?, subject: String? = null) {
+        var stored = false
         val failed = recipients.filter { person ->
             try {
                 repo.send(listOf(person), text, files, sim, subject)
                 false
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: StoredAsFailed) {
+                // In that person's conversation, marked not sent.
+                stored = true
+                true
             } catch (e: Exception) {
                 true
             }
         }
-        if (failed.size == recipients.size) {
+        if (failed.size == recipients.size && !stored) {
             putBack(text, files, separately = true, subject = subject)
             _notices.emit("Couldn't send")
         } else {
             if (container.isLive.value) files.forEach(recorder::discard)
             val sent = recipients.size - failed.size
             _notices.emit(
-                if (failed.isEmpty()) "Sent separately to $sent people. Replies come back one to one."
-                else "Sent to $sent; couldn't send to ${failed.joinToString { repo.displayName(it) }}",
+                when {
+                    failed.isEmpty() -> "Sent separately to $sent people. Replies come back one to one."
+                    sent == 0 -> "Couldn't send to ${failed.joinToString { repo.displayName(it) }}"
+                    else -> "Sent to $sent; couldn't send to ${failed.joinToString { repo.displayName(it) }}"
+                },
             )
         }
     }
@@ -1044,13 +1105,19 @@ class ThreadViewModel(
         // "Separately" holds for scheduled texts too: one per person, in their own conversations.
         val apart = _sendSeparately.value && recipients.size > 1
         _sendSeparately.value = false
-        viewModelScope.launch {
-            states.saveDraft(threadId.value, "")
+        // The app's scope: the composer is cleared already, so leaving the screen now mustn't
+        // cancel the save, or the text would be neither scheduled nor a draft.
+        val thread = threadId.value
+        val people = recipients
+        val simAt = simForSend()
+        container.appScope.launch {
+            val sim = simAt()
+            states.saveDraft(thread, "")
             if (apart) {
-                recipients.forEach { person -> scheduler.schedule(repo.threadIdFor(listOf(person)), listOf(person), text, sendAt, _selectedSim.value) }
+                people.forEach { person -> scheduler.schedule(repo.threadIdFor(listOf(person)), listOf(person), text, sendAt, sim) }
                 _notices.emit("Scheduled for $label, to each person separately")
             } else {
-                scheduler.schedule(threadId.value, recipients, text, sendAt, _selectedSim.value)
+                scheduler.schedule(thread, people, text, sendAt, sim)
                 _notices.emit("Scheduled for $label")
             }
         }
@@ -1060,10 +1127,14 @@ class ThreadViewModel(
     /** Remembers [subscriptionId] as this conversation's SIM. */
     fun selectSim(subscriptionId: Int) {
         _selectedSim.value = subscriptionId
+        simKnown = true
         launch { states.setSim(threadId.value, subscriptionId) }
     }
 
-    fun sendScheduledNow(id: Long) = launch { scheduler.sendNow(id) }
+    /** In the app's scope: cut off after sending, it would send again at its time. */
+    fun sendScheduledNow(id: Long) {
+        container.appScope.launch { runCatching { scheduler.sendNow(id) }.onFailure { _notices.emit("Couldn't send it: ${it.message ?: it::class.simpleName}") } }
+    }
 
     fun cancelScheduled(id: Long) = launch { scheduler.cancel(id) }
 
@@ -1075,7 +1146,8 @@ class ThreadViewModel(
     /** Moves a scheduled message back into the composer. */
     fun editScheduled(message: ScheduledMessageEntity) = launch {
         scheduler.cancel(message.id)
-        setDraft(message.body)
+        // Beside anything being typed, not over it.
+        setDraft(listOf(currentDraft(), message.body).filter { it.isNotBlank() }.joinToString("\n"))
     }
 
     fun retry(message: ChatMessage) = launch { repo.retry(message) }
@@ -1086,7 +1158,7 @@ class ThreadViewModel(
     fun react(message: ChatMessage, emoji: String) = launch {
         val attachment = message.attachments.firstOrNull()?.let { Tapback.attachmentName(it.contentType) } ?: "an attachment"
         val text = Tapback.compose(emoji, message.body, attachment)
-        repo.send(recipients, text, subscriptionId = _selectedSim.value)
+        repo.send(recipients, text, subscriptionId = simForSend()())
     }
 
     /** A labeling that just happened, said with an Undo. */

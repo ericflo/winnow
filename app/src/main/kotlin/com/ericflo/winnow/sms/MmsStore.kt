@@ -98,6 +98,10 @@ class MmsStore(private val context: Context) {
         resolver.update(uri, values, null, null)
     }
 
+    /** Moves a failed message back to the outbox to send again; false if it wasn't failed (another try has it). */
+    fun claimFailed(uri: Uri): Boolean =
+        resolver.update(uri, ContentValues().apply { put(Mms.MESSAGE_BOX, Mms.MESSAGE_BOX_OUTBOX) }, "${Mms.MESSAGE_BOX} = ${Mms.MESSAGE_BOX_FAILED}", null) > 0
+
     /**
      * Records a delivery report on the sent message the carrier named by its Message-ID: its
      * status column takes the report's X-Mms-Status (retrieved means delivered). In a group, the

@@ -10,7 +10,9 @@ import androidx.core.app.RemoteInput
 import com.ericflo.winnow.WinnowApp
 import com.ericflo.winnow.data.ChatMessage
 import com.ericflo.winnow.data.ReturnedMessages
+import com.ericflo.winnow.data.displayNameFor
 import com.ericflo.winnow.data.splitAddresses
+import com.ericflo.winnow.sms.StoredAsFailed
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 import android.os.Handler
@@ -39,6 +41,10 @@ class NotificationActionReceiver : BroadcastReceiver() {
                         container.messages.send(recipients, reply, subscriptionId = container.simFor(threadId))
                     } catch (e: CancellationException) {
                         throw e
+                    } catch (e: StoredAsFailed) {
+                        // In the conversation, marked not sent: Try again sends that one, rather than a copy.
+                        Log.w(TAG, "Reply from a notification failed", e)
+                        container.notifier.showNotSent(threadId, recipients, displayNameFor(recipients, container.messages::displayName), reply, retryKey = e.key)
                     } catch (e: Exception) {
                         // Typed on a notification, which can't show an error: keep it in the conversation.
                         Log.w(TAG, "Reply from a notification failed", e)

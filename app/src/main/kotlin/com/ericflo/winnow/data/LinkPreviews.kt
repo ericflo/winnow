@@ -84,7 +84,9 @@ object LinkPreviewParser {
  * timeout) isn't, so the link is tried again later.
  */
 class LinkPreviewFetcher(context: Context, client: OkHttpClient) {
-    private val dir = File(context.cacheDir, "link-previews").apply { mkdirs() }
+    // Made again each time: clearing the cache takes it from under a running Winnow.
+    private val cacheRoot = context.cacheDir
+    private val dir get() = File(cacheRoot, "link-previews").apply { mkdirs() }
     private val client = client.newBuilder()
         .callTimeout(8, TimeUnit.SECONDS)
         // Followed by hand, so each hop is counted and checked.

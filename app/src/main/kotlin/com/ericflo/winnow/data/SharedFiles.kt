@@ -26,7 +26,8 @@ import android.provider.ContactsContract
  * send them to.
  */
 class SharedFiles(private val context: Context) {
-    private val dir = File(context.cacheDir, "shared").apply { mkdirs() }
+    // Made again each time: clearing Winnow's cache takes the folder from under a running Winnow.
+    private val dir: File get() = File(context.cacheDir, "shared").apply { mkdirs() }
 
     /** [fallbackType] is the share intent's own type, for providers that won't say; a wildcard like image/any gets a typical type. */
     fun import(uri: Uri, fallbackType: String? = null): OutgoingAttachment? {
