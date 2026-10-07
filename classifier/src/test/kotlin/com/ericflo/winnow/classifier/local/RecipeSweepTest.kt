@@ -229,12 +229,19 @@ class RecipeSweepTest {
         part.forEach { r -> assertContentEquals(wholeByIndex.getValue(r.index).logits.toList(), r.logits.toList()) }
         // A try that's hopeless next to the starts: stopped early, below the best, never the one kept.
         val awful = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 10, epochs = 1, learningRate = 0.001, includeCorpus = false, serviceWeight = 0.0)
-        val result = RecipeSweep(scorer(), ServiceSteerer(FakeProvider()), RecipeSweep.Plan(rounds = 0, perRound = 1, steeringCalls = 0)).run(emptyList(), starts = listOf("awful" to awful))
+        val many = texts.take(600).mapIndexed { i, t ->
+            TrainingItem(Featurizer.features(Featurizer.Input(t.sender, t.body)), null, classes.indexOf(t.category.key), 3.0, group = (i / 3).toLong(), key = "sms:m$i", sender = t.sender, at = i.toLong(), source = TrainingItem.Source.USER)
+        }
+        val plan = RecipeSweep.Plan(rounds = 0, perRound = 1, steeringCalls = 0)
+        val result = RecipeSweep(SweepScorer(base, many, emptyList(), unwanted = emptySet(), filterAt = 0.9), ServiceSteerer(FakeProvider()), plan).run(emptyList(), starts = listOf("awful" to awful))
         val tried = result.trials.single { it.from == "awful" }
         assertTrue(tried.dropped, "${tried.accuracy}")
         assertTrue(tried.accuracy < result.trials.filter { !it.dropped }.maxOf { it.accuracy })
         assertFalse(result.trials.first().dropped)
         assertTrue(result.blend?.recipe?.members?.none { it == awful } ?: true)
+        // With few labels (here 120, the first parts under 200), three points is a text or two: every try finishes.
+        val few = RecipeSweep(scorer(), ServiceSteerer(FakeProvider()), plan).run(emptyList(), starts = listOf("awful" to awful))
+        assertTrue(few.trials.none { it.dropped })
     }
 
     @Test

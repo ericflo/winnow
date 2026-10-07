@@ -610,6 +610,8 @@ class RecipeSweep(
         val trials = mutableListOf<SweepTrial>()
         val rounds = mutableListOf<SweepRound>()
         val library = mutableListOf<Pair<Recipe, List<RecipeTrainer.Row>>>()
+        /** Each whole try's rows, by the try (its recipe is as tuned, so not a key into [library]). */
+        val rowsOf = java.util.IdentityHashMap<SweepTrial, List<RecipeTrainer.Row>>()
         val tried = HashSet<String>()
         val random = Random(plan.seed)
         var calls = 0
@@ -622,6 +624,7 @@ class RecipeSweep(
             val neural = scoring.recipe.kind == RecipeKind.NEURAL
             val settings = SweepSpace.settingsOf(scoring.recipe)?.filterKeys { it.usedBy(neural) }
             val trial = SweepTrial(round, scoring.recipe, settings?.mapKeys { it.key.key }, accuracy, scoring.macroF1, scoring.wordsAccuracy, scoring.logits.size, millis, from, dropped)
+            if (!dropped) rowsOf[trial] = scoring.logits
             trials += trial
             onEvent(Event.Tried(trial))
             return trial
@@ -635,11 +638,12 @@ class RecipeSweep(
             val plain = recipe.copy(classBias = emptyList())
             // The best whole try so far: a try well behind it on the first parts stops there (never one of the user's own).
             val best = trials.filter { !it.dropped }.maxByOrNull { it.accuracy }
-            val bestRows = best?.let { b -> library.firstOrNull { it.first == b.recipe.copy(classBias = emptyList()) }?.second }?.associateBy { it.index }
+            val bestRows = best?.let { rowsOf[it] }?.associateBy { it.index }
             var cut = false
             val keepGoing: (List<RecipeTrainer.Row>) -> Boolean = { rows ->
                 val theirs = bestRows?.let { b -> rows.mapNotNull { b[it.index] } }
-                (!tune || theirs == null || theirs.size < rows.size || scorer.wordsAccuracy(rows) >= scorer.wordsAccuracy(theirs) - PRUNE_MARGIN).also { cut = !it }
+                (!tune || theirs == null || theirs.size < rows.size || rows.size < PRUNE_AT_LEAST ||
+                    scorer.wordsAccuracy(rows) >= scorer.wordsAccuracy(theirs) - PRUNE_MARGIN).also { cut = !it }
             }
             val cv = try {
                 scorer.crossValidate(plain, stopped, keepGoing)
@@ -768,6 +772,9 @@ class RecipeSweep(
          * leanings has made up between tries.
          */
         const val PRUNE_MARGIN = 0.03
+
+        /** Texts the first parts must hold before a try can stop there: fewer, and three points is a text or two. */
+        const val PRUNE_AT_LEAST = 200
 
         /** The odds of another round gaining under which the steering's "no" counts toward ending (see [Plan.endEarly]). */
         const val END_BELOW = 0.10
