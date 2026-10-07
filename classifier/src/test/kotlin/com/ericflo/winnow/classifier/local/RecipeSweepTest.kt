@@ -217,6 +217,27 @@ class RecipeSweepTest {
     }
 
     @Test
+    fun aTryWellBehindTheBestStopsAfterItsFirstPartsAndIsNeverKept() = runBlocking {
+        // Scoring stops where told to, with the first parts' rows only.
+        val recipe = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 12, epochs = 5, learningRate = 0.2, includeCorpus = false)
+        val whole = RecipeTrainer.crossValidateRows(recipe, base, scored, others)
+        var asked = 0
+        val part = RecipeTrainer.crossValidateRows(recipe, base, scored, others, keepGoing = { asked++; false })
+        assertEquals(1, asked)
+        assertTrue(part.isNotEmpty() && part.size < whole.size, "${part.size} of ${whole.size}")
+        val wholeByIndex = whole.associateBy { it.index }
+        part.forEach { r -> assertContentEquals(wholeByIndex.getValue(r.index).logits.toList(), r.logits.toList()) }
+        // A try that's hopeless next to the starts: stopped early, below the best, never the one kept.
+        val awful = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 10, epochs = 1, learningRate = 0.001, includeCorpus = false, serviceWeight = 0.0)
+        val result = RecipeSweep(scorer(), ServiceSteerer(FakeProvider()), RecipeSweep.Plan(rounds = 0, perRound = 1, steeringCalls = 0)).run(emptyList(), starts = listOf("awful" to awful))
+        val tried = result.trials.single { it.from == "awful" }
+        assertTrue(tried.dropped, "${tried.accuracy}")
+        assertTrue(tried.accuracy < result.trials.filter { !it.dropped }.maxOf { it.accuracy })
+        assertFalse(result.trials.first().dropped)
+        assertTrue(result.blend?.recipe?.members?.none { it == awful } ?: true)
+    }
+
+    @Test
     fun noOtherLabelInAHeldOutConversationTrainsIt() {
         // Each conversation's texts carry a mark of it, and a service's label on its middle text
         // says that text (mark and all) is a wrong category. Held out with its conversation, that

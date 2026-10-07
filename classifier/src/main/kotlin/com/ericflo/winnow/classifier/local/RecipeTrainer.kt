@@ -345,7 +345,9 @@ object RecipeTrainer {
     /**
      * [crossValidate], with each scored text's earlier texts read by the same model (see [Row]).
      * [parallelism] folds train at once (each its own model, the same as one at a time: training
-     * is deterministic and shares nothing), on a phone's other cores.
+     * is deterministic and shares nothing), on a phone's other cores. The first [FIRST_FOLDS] go
+     * first, and [keepGoing] sees their rows: false stops there, with only those (a sweep's try
+     * that's already well behind needn't finish).
      */
     fun crossValidateRows(
         recipe: Recipe,
@@ -356,12 +358,18 @@ object RecipeTrainer {
         onFold: (Int, Int) -> Unit = { _, _ -> },
         stopped: () -> Boolean = { false },
         parallelism: Int = 1,
+        keepGoing: (List<Row>) -> Boolean = { true },
     ): List<Row> {
         val foldOf = foldsOf(scoredItems, folds) ?: return emptyList()
         val k = foldOf.max() + 1
         val each = (0 until k).map { fold -> { foldRows(recipe, base, scoredItems, others, foldOf, fold, k, onFold, stopped) } }
-        return inParallel(each, parallelism).flatten()
+        val first = inParallel(each.take(FIRST_FOLDS), parallelism).flatten()
+        if (k <= FIRST_FOLDS || !keepGoing(first)) return first
+        return first + inParallel(each.drop(FIRST_FOLDS), parallelism).flatten()
     }
+
+    /** The folds scored before [crossValidateRows] asks whether to go on. */
+    const val FIRST_FOLDS = 2
 
     /** [tasks]' results in order, up to [parallelism] at a time; the first failure is thrown as it was. */
     private fun <T> inParallel(tasks: List<() -> T>, parallelism: Int): List<T> {

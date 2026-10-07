@@ -170,6 +170,11 @@ data class SweepTrial(
     val millis: Long,
     /** Where it came from: the start, the user's best so far, a round's steering, or a blend of tries. */
     val from: String,
+    /**
+     * Stopped after its first parts, already well behind the best there (see RecipeSweep.PRUNE_MARGIN):
+     * scored on those texts only, and never above the best, so it's never kept or blended.
+     */
+    val dropped: Boolean = false,
 )
 
 /** What steered one round: whose odds, what they leaned toward, and what it cost. */
@@ -442,8 +447,12 @@ class SweepScorer(
 
     class Scoring(val recipe: Recipe, val logits: List<RecipeTrainer.Row>, val accuracy: Double, val macroF1: Double, val wordsAccuracy: Double)
 
-    fun crossValidate(recipe: Recipe, stopped: () -> Boolean = { false }) =
-        RecipeTrainer.crossValidateRows(recipe, base, scored, others, stopped = stopped, parallelism = parallelism(recipe))
+    fun crossValidate(recipe: Recipe, stopped: () -> Boolean = { false }, keepGoing: (List<RecipeTrainer.Row>) -> Boolean = { true }) =
+        RecipeTrainer.crossValidateRows(recipe, base, scored, others, stopped = stopped, parallelism = parallelism(recipe), keepGoing = keepGoing)
+
+    /** The share of [rows] its words alone get right. */
+    fun wordsAccuracy(rows: List<RecipeTrainer.Row>): Double =
+        if (rows.isEmpty()) 0.0 else rows.count { r -> r.logits.indices.maxBy { r.logits[it] } == scored[r.index].label }.toDouble() / rows.size
 
     /** Rows from logits alone, for a model whose earlier texts weren't read. */
     fun rows(cv: List<Pair<Int, DoubleArray>>) = cv.map { (i, l) -> RecipeTrainer.Row(i, l) }
@@ -608,11 +617,11 @@ class RecipeSweep(
         var cost = 0.0
         var stoppedEarly = false
 
-        fun keep(round: Int, scoring: SweepScorer.Scoring, millis: Long, from: String): SweepTrial {
+        fun keep(round: Int, scoring: SweepScorer.Scoring, millis: Long, from: String, dropped: Boolean = false, accuracy: Double = scoring.accuracy): SweepTrial {
             // A linear try's network settings (a network's bags) mean nothing: not shown, not counted as evidence.
             val neural = scoring.recipe.kind == RecipeKind.NEURAL
             val settings = SweepSpace.settingsOf(scoring.recipe)?.filterKeys { it.usedBy(neural) }
-            val trial = SweepTrial(round, scoring.recipe, settings?.mapKeys { it.key.key }, scoring.accuracy, scoring.macroF1, scoring.wordsAccuracy, scoring.logits.size, millis, from)
+            val trial = SweepTrial(round, scoring.recipe, settings?.mapKeys { it.key.key }, accuracy, scoring.macroF1, scoring.wordsAccuracy, scoring.logits.size, millis, from, dropped)
             trials += trial
             onEvent(Event.Tried(trial))
             return trial
@@ -624,13 +633,26 @@ class RecipeSweep(
             val started = System.nanoTime()
             // Leanings sit on top of a model's own answers (see SweepScorer.score): trained without them.
             val plain = recipe.copy(classBias = emptyList())
+            // The best whole try so far: a try well behind it on the first parts stops there (never one of the user's own).
+            val best = trials.filter { !it.dropped }.maxByOrNull { it.accuracy }
+            val bestRows = best?.let { b -> library.firstOrNull { it.first == b.recipe.copy(classBias = emptyList()) }?.second }?.associateBy { it.index }
+            var cut = false
+            val keepGoing: (List<RecipeTrainer.Row>) -> Boolean = { rows ->
+                val theirs = bestRows?.let { b -> rows.mapNotNull { b[it.index] } }
+                (!tune || theirs == null || theirs.size < rows.size || scorer.wordsAccuracy(rows) >= scorer.wordsAccuracy(theirs) - PRUNE_MARGIN).also { cut = !it }
+            }
             val cv = try {
-                scorer.crossValidate(plain, stopped)
+                scorer.crossValidate(plain, stopped, keepGoing)
             } catch (e: java.util.concurrent.CancellationException) {
                 return
             }
             val millis = (System.nanoTime() - started) / 1_000_000
             val scoring = scorer.score(recipe, cv, tune) ?: return
+            if (cut && best != null) {
+                // Scored on part of the texts only: told to the steering as behind the best, never kept or blended.
+                keep(round, scoring, millis, from, dropped = true, accuracy = minOf(scoring.accuracy, best.accuracy - PRUNE_MARGIN))
+                return
+            }
             library += plain to cv
             keep(round, scoring, millis, from)
             // The user's own recipe with their labels of each sender counting differently: free to score.
@@ -739,6 +761,13 @@ class RecipeSweep(
 
         /** Half a point: what a blend must beat the best try alone by. */
         const val BLEND_MARGIN = 0.005
+
+        /**
+         * How far behind the best whole try a try's words alone may be on the first parts scored
+         * (the same texts) and still go on: three points, more than tuning who-sent-it, reading and
+         * leanings has made up between tries.
+         */
+        const val PRUNE_MARGIN = 0.03
 
         /** The odds of another round gaining under which the steering's "no" counts toward ending (see [Plan.endEarly]). */
         const val END_BELOW = 0.10

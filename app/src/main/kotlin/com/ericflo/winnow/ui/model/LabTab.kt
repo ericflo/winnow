@@ -442,10 +442,10 @@ private fun TrialRow(t: SweepTrial, sw: ModelLab.Sweep, busy: Boolean, viewModel
     Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${pct(t.accuracy)} · macro F1 ${f2(t.macroF1)}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                Text((if (t.dropped) "about " else "") + "${pct(t.accuracy)} · macro F1 ${f2(t.macroF1)}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                 // The user's own is theirs already; the kept one is below.
                 val kept = sw.keptId != null && t == sw.best
-                if (sw.baselines.none { it.name == t.from } && !kept) {
+                if (sw.baselines.none { it.name == t.from } && !kept && !t.dropped) {
                     TextButton(onClick = { viewModel.lab.keepTrial(t) }, enabled = !busy, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Keep it") }
                 }
             }
@@ -458,7 +458,7 @@ private fun TrialRow(t: SweepTrial, sw: ModelLab.Sweep, busy: Boolean, viewModel
                     t.from == "the last sweep's best" -> "one of the last sweep's best, scored again"
                     t.from == "blend" -> "a blend of tries above, averaged"
                     else -> "round ${t.round}, steered by ${t.from}"
-                } + " · ${pct(t.wordsAccuracy)} from the words alone" + when {
+                } + (if (t.dropped) " · stopped after its first parts, well behind the best there" else " · ${pct(t.wordsAccuracy)} from the words alone") + when {
                     t.millis >= 1000 -> " · ${com.ericflo.winnow.ui.insight.duration(t.millis)}"
                     t.millis > 0 -> " · under a second"
                     else -> ""
