@@ -82,6 +82,12 @@ data class Recipe(
      * ConversationReading). 0 leaves them out. No labels from the conversation are needed.
      */
     val conversationReading: Double = 0.0,
+    /**
+     * How much the user's labeled texts most like a text count with the model's answer for it:
+     * bulk texts come from templates, and one nearly like a labeled text is likely what that one
+     * was (see TemplateMemory). 0 leaves them out.
+     */
+    val templateMemory: Double = 0.0,
     val seed: Int = 42,
     /** Blend only: the recipes blended (linear and neural), and how much each counts (equally when empty). */
     val members: List<Recipe> = emptyList(),
@@ -118,6 +124,7 @@ data class Recipe(
             conversationWeight < 0 || conversationWeight > 100 -> "Weights must be 0 to 100 (yours above 0)."
         senderMemory < 0 || senderMemory > 4 -> "Who sent it must count 0 to 4."
         conversationReading < 0 || conversationReading > 4 -> "What came before in its conversation must count 0 to 4."
+        templateMemory < 0 || templateMemory > 4 -> "Texts like it must count 0 to 4."
         inputDropout < 0 || inputDropout >= 0.9 -> "Words left out must be 0 to 0.9."
         kind == RecipeKind.PERSONAL && pieces -> "Pieces of words need a retrained model: the personal layer reads the shipped model's features."
         kind == RecipeKind.PERSONAL && context -> "Context needs a retrained model: the personal layer reads the shipped model's features."
@@ -148,7 +155,9 @@ data class Recipe(
     /** The rest of what it says, for telling apart recipes [describe] calls the same: how it's fitted and what it learns from. */
     fun details(): String = fitting() + " · who sent it ×${num(senderMemory)}" +
         (if (conversationReading > 0) " · its conversation ×${num(conversationReading)}" else "") +
-        (if (classBias.any { it != 0.0 }) " · leanings " + classBias.joinToString(" ") { (if (it > 0) "+" else "") + "%.2f".format(it) } else "")
+        (if (templateMemory > 0) " · texts like it ×${num(templateMemory)}" else "") +
+        // In the categories there are now: leanings tuned while Reminder was one leave its out.
+        leaningsIn(LocalModel.bundled.classes).let { lean -> if (lean.any { it != 0.0 }) " · leanings " + lean.joinToString(" ") { (if (it > 0) "+" else "") + "%.2f".format(it) } else "" }
 
     private fun fitting(): String = when (kind) {
         RecipeKind.BLEND -> members.joinToString(" | ") { it.fitting() }

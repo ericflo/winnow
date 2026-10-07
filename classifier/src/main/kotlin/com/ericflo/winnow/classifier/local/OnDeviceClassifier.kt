@@ -53,6 +53,8 @@ class OnDeviceClassifier(
     val memory: SenderMemory = SenderMemory.NONE,
     /** How much what came before a text in its conversation leans the answer for it (see ConversationReading); 0 not at all. */
     val reading: Double = 0.0,
+    /** The user's labeled texts, which texts that read nearly like one of them lean toward (see TemplateMemory); none by default. */
+    val templates: TemplateMemory = TemplateMemory.NONE,
 ) {
     /** The model and its fit, as verdicts record it: "winnow-local-1" as it ships, "winnow-local-1·3fa2c1" once taught. */
     val version: String get() = if (fit == null) name else "$name·$fit"
@@ -71,7 +73,10 @@ class OnDeviceClassifier(
             // Read as a sweep scores them: their words alone.
             custom?.probabilities(f) ?: model.predict(f, adjustments)
         } else emptyList()
-        val words = ConversationReading.lean(alone, before, reading)
+        val conversed = ConversationReading.lean(alone, before, reading)
+        // The labeled texts it reads most like (bulk texts come from templates) lean it next.
+        val near = if (templates.strength > 0 && templates.classes == classes) templates.neighbors(model.indices(features)) else emptyList()
+        val words = TemplateMemory.lean(conversed, TemplateMemory.share(near, classes.size), templates.strength)
         // The user's labels of this sender, where they've given any: enough of them, one way,
         // decide; fewer nudge.
         val followed = if (memory.classes == classes) memory.follow(words, message.sender, conversing = message.userHasMessagedSender) else null
@@ -82,8 +87,13 @@ class OnDeviceClassifier(
         val said = counts?.takeIf { p !== words }
         // Said when its conversation made the difference: "its conversation reads as reminders".
         val fromAlone = alone.indices.maxBy { alone[it] }
-        val conversation = ConversationReading.leaning(before)?.takeIf { it == fromWords && fromWords != fromAlone }?.let { c ->
+        val fromRead = conversed.indices.maxBy { conversed[it] }
+        val conversation = ConversationReading.leaning(before)?.takeIf { it == fromRead && fromRead != fromAlone }?.let { c ->
             "the rest of its conversation reads as ${Category.fromKey(classes[c])?.label?.lowercase() ?: classes[c]}"
+        }
+        // Said when the texts it reads like made the difference: "it reads like 3 texts you labeled marketing".
+        val alike = near.count { it.label == fromWords }.takeIf { it > 0 && fromWords != fromRead }?.let { n ->
+            "it reads like $n ${if (n == 1) "text" else "texts"} you labeled ${Category.fromKey(classes[fromWords])?.label?.lowercase() ?: classes[fromWords]}"
         }
         val sender = said?.let { c ->
             val n = c.getOrElse(best) { 0 }
@@ -96,7 +106,7 @@ class OnDeviceClassifier(
             category = Category.fromKey(classes[best]) ?: Category.SPAM,
             confidence = followed?.confidence ?: p[best],
             distribution = classes.withIndex().mapNotNull { (i, key) -> Category.fromKey(key)?.let { it to p[i] } }.toMap(),
-            reasons = listOfNotNull(conversation) + when {
+            reasons = listOfNotNull(conversation, alike) + when {
                 sender == null -> wordReasons
                 best != fromWords -> listOf(sender) + wordReasons
                 else -> wordReasons + sender
@@ -111,13 +121,16 @@ class OnDeviceClassifier(
     }
 
     /** This classifier with different learned adjustments, the fit named [fit]. */
-    fun withAdjustments(adjustments: Adjustments, fit: String? = this.fit) = OnDeviceClassifier(model, adjustments, name, fit, custom, memory, reading)
+    fun withAdjustments(adjustments: Adjustments, fit: String? = this.fit) = OnDeviceClassifier(model, adjustments, name, fit, custom, memory, reading, templates)
 
     /** This classifier with [memory] of the user's labels per sender. */
-    fun withMemory(memory: SenderMemory) = OnDeviceClassifier(model, adjustments, name, fit, custom, memory, reading)
+    fun withMemory(memory: SenderMemory) = OnDeviceClassifier(model, adjustments, name, fit, custom, memory, reading, templates)
 
     /** This classifier reading what came before a text in its conversation, at [reading]. */
-    fun withReading(reading: Double) = OnDeviceClassifier(model, adjustments, name, fit, custom, memory, reading)
+    fun withReading(reading: Double) = OnDeviceClassifier(model, adjustments, name, fit, custom, memory, reading, templates)
+
+    /** This classifier leaning texts toward the user's labeled texts they read most like (see TemplateMemory). */
+    fun withTemplates(templates: TemplateMemory) = OnDeviceClassifier(model, adjustments, name, fit, custom, memory, reading, templates)
 
     /**
      * What to remember when the user corrects [message]: its feature buckets, labeled with the

@@ -1,5 +1,6 @@
 package com.ericflo.winnow.ui.model
 
+import com.ericflo.winnow.classifier.local.TemplateMemory
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -208,6 +209,9 @@ private fun DesignCard(viewModel: ModelViewModel) {
         Step("Who sent it: your labels of each sender count", ModelLab.HELP.getValue("senderMemory"), SENDER_STRENGTHS, r.senderMemory, { if (it == 0.0) "not at all" else times(it) }) { v -> viewModel.editDraft { it.copy(senderMemory = v) } }
         Step("What came before in its conversation counts", ModelLab.HELP.getValue("conversationReading"), READINGS, r.conversationReading, { if (it == 0.0) "not at all" else times(it) }) { v ->
             viewModel.editDraft { it.copy(conversationReading = v) }
+        }
+        Step("Texts like it: the ones you've labeled count", ModelLab.HELP.getValue("templateMemory"), TemplateMemory.STRENGTHS, r.templateMemory, { if (it == 0.0) "not at all" else times(it) }) { v ->
+            viewModel.editDraft { it.copy(templateMemory = v) }
         }
         if (r.kind != RecipeKind.PERSONAL) Toggle("Balance the categories", ModelLab.HELP.getValue("balance"), r.balance) { v -> viewModel.editDraft { it.copy(balance = v) } }
         Step("Seed", "The same seed trains the same model from the same texts.", (1..100).toList(), r.seed, { "$it" }) { v -> viewModel.editDraft { it.copy(seed = v) } }

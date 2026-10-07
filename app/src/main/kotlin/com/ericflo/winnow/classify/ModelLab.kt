@@ -17,6 +17,7 @@ import com.ericflo.winnow.classifier.local.SweepRound
 import com.ericflo.winnow.classifier.local.SweepScorer
 import com.ericflo.winnow.classifier.local.SweepSpace
 import com.ericflo.winnow.classifier.local.SweepTrial
+import com.ericflo.winnow.classifier.local.TemplateMemory
 import com.ericflo.winnow.classifier.local.Recipe
 import com.ericflo.winnow.classifier.local.RecipeKind
 import com.ericflo.winnow.classifier.local.RecipeTrainer
@@ -230,11 +231,16 @@ class ModelLab(
         // from the other conversations only.
         val folds = RecipeTrainer.foldsOf(data.scored)
         val memories = folds?.let { f -> (0..f.max()).associateWith { fold -> memoryOf(data.scored.indices.filter { f[it] != fold }) } }.orEmpty()
+        // The labeled texts each one reads most like, from the other conversations only (see TemplateMemory).
+        fun bucketsOf(i: Int) = data.scored[i].baseIndices ?: data.scored[i].features?.let(LocalModel.bundled::indices) ?: IntArray(0)
+        fun templatesOf(indices: List<Int>) =
+            if (recipe.templateMemory <= 0) TemplateMemory.NONE else TemplateMemory.of(indices.map { bucketsOf(it) to data.scored[it].label }, classes, recipe.templateMemory)
+        val alikes = folds?.takeIf { recipe.templateMemory > 0 }?.let { f -> (0..f.max()).associateWith { fold -> templatesOf(data.scored.indices.filter { f[it] != fold }) } }.orEmpty()
         // What came before each text in its conversation, read by the same model, leans it first (see ConversationReading).
         fun leaned(i: Int, s: DoubleArray, earlier: Map<Int, List<DoubleArray>>) =
             ConversationReading.lean(LocalModel.softmax(s, temperature.toDouble()), earlier[i].orEmpty().map { LocalModel.softmax(it, temperature.toDouble()) }, recipe.conversationReading)
         val answered = cv.map { (i, s) ->
-            val p = leaned(i, s, cvEarlier)
+            val p = leaned(i, s, cvEarlier).let { q -> folds?.let { alikes[it[i]] }?.follow(q, bucketsOf(i)) ?: q }
             val memory = folds?.let { memories[it[i]] }
             i to (data.scored[i].sender?.let { sender -> memory?.follow(p, sender, data.scored[i].conversing) }?.distribution ?: p)
         }
@@ -246,10 +252,11 @@ class ModelLab(
         val newestEarlier = newestRows.associate { it.index to it.earlier }
         val newestSet = newest.mapTo(HashSet()) { it.first }
         val olderMemory = memoryOf(data.scored.indices.filter { it !in newestSet })
+        val olderTemplates = templatesOf(data.scored.indices.filter { it !in newestSet })
         fun argmax(p: DoubleArray) = p.indices.maxBy { p[it] }
         val newestWords = newest.count { (i, s) -> argmax(s) == data.scored[i].label }
         val newestFollowed = newest.count { (i, s) ->
-            val p = leaned(i, s, newestEarlier)
+            val p = olderTemplates.follow(leaned(i, s, newestEarlier), bucketsOf(i))
             (data.scored[i].sender?.let { olderMemory.follow(p, it, data.scored[i].conversing).best } ?: argmax(p)) == data.scored[i].label
         }
         say("Training on everything…", 0.85f)
@@ -530,9 +537,14 @@ class ModelLab(
         } else {
             settings.update { it.copy(labModel = entry?.id) }
         }
-        // Who sent it counts on the phone as the design that's put in use says.
-        // Who sent it, and what came before in its conversation, count on the phone as the design in use says.
-        settings.update { it.copy(senderMemory = entry?.recipe?.senderMemory ?: it.senderMemory, conversationReading = entry?.recipe?.conversationReading ?: 0.0) }
+        // Who sent it, what came before in its conversation and the texts it reads like count on the
+        // phone as the design in use says.
+        settings.update {
+            it.copy(
+                senderMemory = entry?.recipe?.senderMemory ?: it.senderMemory, conversationReading = entry?.recipe?.conversationReading ?: 0.0,
+                templateMemory = entry?.recipe?.templateMemory ?: 0.0,
+            )
+        }
         onModelChanged()
     }
 
@@ -781,10 +793,11 @@ class ModelLab(
             "bags" to "Train this many on resampled texts and average them: steadier, slower.",
             "inputDropout" to "The share of a text's words left out of each training step, a different few each time. No one word can carry a text, so the model learns from the rest of it too: it memorizes your labels less and carries them over to new texts better.",
             "pieces" to "Also learn from pieces of words, four letters at a time, so words that share a stem (redeliver, redelivery) or a misspelling share what's learned.",
-            "conversationReading" to "Your categories are mostly a conversation's: a pharmacy's thread is reminders, a friend's is personal. This has the model read the texts before each one in its conversation too (no labels needed: they're there when it arrives), and lean its answer the way they read, by this much. A text whose own words are clear stays as they say; one that could be either goes the way its conversation does. 0 leaves it out. Scored the same way: on conversations it hadn't learned from, reading what came before.",
-            "shapes" to "Also learn from what a text's words lose: its numbers become placeholders, so \"20% off\", \"3:30 PM\", \"10/15\", \"promo code SAVE20\" and \"order #A1B2C3\" read as bare numbers. This adds which of them a text has (percents off, times, dates, weekdays, promo codes, order and tracking numbers, a run of emoji, several links): where marketing and transactional, or a reminder and a receipt, read alike, these can tell them apart.",
+            "conversationReading" to "Your categories are mostly a conversation's: a pharmacy's thread is transactional, a friend's is personal. This has the model read the texts before each one in its conversation too (no labels needed: they're there when it arrives), and lean its answer the way they read, by this much. A text whose own words are clear stays as they say; one that could be either goes the way its conversation does. 0 leaves it out. Scored the same way: on conversations it hadn't learned from, reading what came before.",
+            "shapes" to "Also learn from what a text's words lose: its numbers become placeholders, so \"20% off\", \"3:30 PM\", \"10/15\", \"promo code SAVE20\" and \"order #A1B2C3\" read as bare numbers. This adds which of them a text has (percents off, times, dates, weekdays, promo codes, order and tracking numbers, a run of emoji, several links): where marketing and transactional read alike, these can tell them apart.",
             "crosses" to "Also learn each word as from the kind of sender it came from: a business (a short code or a named sender), a stranger's number, or someone you text or have as a contact. \"Appointment\" from a clinic and from a friend can then mean different things to it.",
-            "conversationWeight" to "How much each of your other texts counts in a conversation whose labels from you all agree, taken as that label: a pharmacy's other reminders, a friend's other texts. Many more of your own texts to learn from; never one in a conversation being scored. 0 leaves them out.",
+            "templateMemory" to "Bulk texts come from templates: a store's offers, a bank's alerts, a campaign's asks. This finds the texts you've labeled that a text reads most like (most of their rarer words in common) and leans its answer toward what you called them, by this much: a store's points-and-offers text nearly like ones you called marketing goes that way, even where the model's words, fitted across every category, say transactional. A text like none of them stays as the model says. 0 leaves it out. Scored the same way: only on texts from conversations it hadn't seen.",
+            "conversationWeight" to "How much each of your other texts counts in a conversation whose labels from you all agree, taken as that label: a pharmacy's other notices, a friend's other texts. Many more of your own texts to learn from; never one in a conversation being scored. 0 leaves them out.",
             "context" to "Also learn from when each text came and what came before it in its conversation: the time of day, a weekday or the weekend, whether it opened the conversation or answered your text, how much came before it, how long since the last text. Where texts read alike, these can be what tells them apart to you. It reads the same of each new text, on this phone.",
             "corpus" to "Also learn from the 1,493 hand-written texts the shipped model learned from.",
             "userWeight" to "How much each of your labels counts against one shipped text.",

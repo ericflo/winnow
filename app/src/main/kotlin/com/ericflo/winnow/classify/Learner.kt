@@ -6,6 +6,7 @@ import com.ericflo.winnow.classifier.local.LocalModel
 import com.ericflo.winnow.classifier.local.OnDeviceClassifier
 import com.ericflo.winnow.classifier.local.SenderMemory
 import com.ericflo.winnow.classifier.local.Personalizer
+import com.ericflo.winnow.classifier.local.TemplateMemory
 import com.ericflo.winnow.classifier.message.Action
 import com.ericflo.winnow.classifier.message.Category
 import com.ericflo.winnow.classifier.message.InboundMessage
@@ -303,6 +304,19 @@ class Learner(
                 classes, current?.senderMemory ?: SenderMemory.DEFAULT_STRENGTH,
             )
         }.getOrDefault(SenderMemory.NONE)
+        // The user's own labeled texts, which a text nearly like one of them leans toward (see TemplateMemory).
+        val strength = current?.templateMemory ?: 0.0
+        val templates = if (strength <= 0) TemplateMemory.NONE else runCatching {
+            val classes = base.model.classes
+            withContext(Dispatchers.Default) {
+                TemplateMemory.of(
+                    rows.filter { !it.fromProvider && it.messageKey != null && it.featurizerVersion == Featurizer.VERSION }.mapNotNull { r ->
+                        classes.indexOf(r.label).takeIf { it >= 0 }?.let { label -> r.buckets.split(',').mapNotNull(String::toIntOrNull).toIntArray() to label }
+                    },
+                    classes, strength,
+                )
+            }
+        }.getOrDefault(TemplateMemory.NONE)
         withContext(Dispatchers.Default) {
             // The weight and the fitting are part of what a fit is: different ones are a different fit.
             val stamp = (store?.stamp(rows, weight) ?: PersonalModelStore.stampOf(rows, 0, weight)).let { if (fitting.isDefault) it else it xor fitting.stamp() }
@@ -313,7 +327,7 @@ class Learner(
             // Loading the model happens here too, off the main thread.
             if (kept != null) {
                 if (fit != null) record(fit, rows, kept.size, millis = 0, onlyIfNew = true, weight = weight, fitting = fitting)
-                return@withContext withLab(base.withAdjustments(kept, fit), lab).withMemory(memory).withReading(current?.conversationReading ?: 0.0)
+                return@withContext withLab(base.withAdjustments(kept, fit), lab).withMemory(memory).withReading(current?.conversationReading ?: 0.0).withTemplates(templates)
             }
             val started = System.nanoTime()
             // A bad correction must never stop classification: fall back to the bundled model.
@@ -324,7 +338,7 @@ class Learner(
                 withContext(Dispatchers.IO) { store?.save(stamp, fitted.adjustments) }
                 if (fit != null) record(fit, rows, fitted.adjustments.size, millis = (System.nanoTime() - started) / 1_000_000, onlyIfNew = false, weight = weight, fitting = fitting)
             }
-            withLab(fitted ?: base, lab).withMemory(memory).withReading(current?.conversationReading ?: 0.0)
+            withLab(fitted ?: base, lab).withMemory(memory).withReading(current?.conversationReading ?: 0.0).withTemplates(templates)
         }.also { trained = it }
     }
 

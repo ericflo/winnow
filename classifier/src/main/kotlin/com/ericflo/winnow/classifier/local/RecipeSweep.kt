@@ -422,6 +422,16 @@ class SweepScorer(
     private val memories: Map<Int, SenderMemory> = folds?.let { f ->
         (0..f.max()).associateWith { fold -> SenderMemory.of(scored.indices.filter { f[it] != fold }.mapNotNull { i -> scored[i].sender?.let { it to scored[i].label } }, classes) }
     }.orEmpty()
+    /**
+     * What each scored text's most alike labeled texts vote for, from the other folds' labels only
+     * (see TemplateMemory): the same whatever the recipe, so worked out once, when first needed.
+     */
+    private val alikeVotes: Array<DoubleArray?> by lazy {
+        val f = folds ?: return@lazy arrayOfNulls<DoubleArray>(scored.size)
+        val buckets = scored.map { it.baseIndices ?: it.features?.let(base::indices) ?: IntArray(0) }
+        val byFold = (0..f.max()).associateWith { fold -> TemplateMemory.of(scored.indices.filter { f[it] != fold }.map { buckets[it] to scored[it].label }, classes, 1.0) }
+        Array(scored.size) { i -> byFold.getValue(f[i]).vote(buckets[i]) }
+    }
 
     class Scoring(val recipe: Recipe, val logits: List<RecipeTrainer.Row>, val accuracy: Double, val macroF1: Double, val wordsAccuracy: Double)
 
@@ -445,9 +455,11 @@ class SweepScorer(
         fun leaned(bias: List<Double>) = if (bias.isEmpty()) cv else cv.map { r -> RecipeTrainer.Row(r.index, plus(r.logits, bias), r.earlier.map { plus(it, bias) }) }
         fun temperatureOf(c: List<RecipeTrainer.Row>) =
             if (recipe.kind == RecipeKind.PERSONAL) base.temperature.toDouble() else RecipeTrainer.calibrate(c.map { it.logits to scored[it.index].label }).toDouble()
-        fun answers(c: List<RecipeTrainer.Row>, temperature: Double, reading: Double, strength: Double) = c.map { r ->
+        fun answers(c: List<RecipeTrainer.Row>, temperature: Double, reading: Double, strength: Double, alike: Double) = c.map { r ->
             val item = scored[r.index]
-            val p = ConversationReading.lean(LocalModel.softmax(r.logits, temperature), r.earlier.map { LocalModel.softmax(it, temperature) }, reading)
+            val read = ConversationReading.lean(LocalModel.softmax(r.logits, temperature), r.earlier.map { LocalModel.softmax(it, temperature) }, reading)
+            // The texts it reads like, from the other folds' labels only, then who sent it.
+            val p = if (alike > 0) TemplateMemory.lean(read, alikeVotes[r.index], alike) else read
             val memory = folds?.let { memories[it[r.index]] }?.withStrength(strength)
             Scored(item.label, item.sender?.let { sender -> memory?.follow(p, sender, item.conversing)?.distribution } ?: p)
         }
@@ -457,20 +469,22 @@ class SweepScorer(
         var temperature = temperatureOf(c)
         // Ties go to the recipe's own, then to the nearest to it.
         val reading = if (!tune) recipe.conversationReading else (READINGS + recipe.conversationReading).distinct()
-            .sortedBy { abs(it - recipe.conversationReading) }.maxBy { accuracy(answers(c, temperature, it, recipe.senderMemory)) }
+            .sortedBy { abs(it - recipe.conversationReading) }.maxBy { accuracy(answers(c, temperature, it, recipe.senderMemory, recipe.templateMemory)) }
+        val alike = if (!tune) recipe.templateMemory else (TemplateMemory.STRENGTHS + recipe.templateMemory).distinct()
+            .sortedBy { abs(it - recipe.templateMemory) }.maxBy { accuracy(answers(c, temperature, reading, recipe.senderMemory, it)) }
         val strength = if (!tune) recipe.senderMemory else (strengths + recipe.senderMemory).distinct()
-            .sortedBy { abs(it - recipe.senderMemory) }.maxBy { accuracy(answers(c, temperature, reading, it)) }
+            .sortedBy { abs(it - recipe.senderMemory) }.maxBy { accuracy(answers(c, temperature, reading, it, alike)) }
         // Leanings toward each category, a step at a time, wherever one raises the share it gets
         // right (ties to the smaller lean), as free as the strengths.
         if (tune && recipe.kind != RecipeKind.PERSONAL) {
             val b = DoubleArray(classes.size) { bias.getOrElse(it) { 0.0 } }
-            var best = accuracy(answers(leaned(b.toList()), temperature, reading, strength))
+            var best = accuracy(answers(leaned(b.toList()), temperature, reading, strength, alike))
             repeat(RecipeSweep.LEAN_PASSES) {
                 for (cl in b.indices) for (v in RecipeSweep.LEANS) {
                     val old = b[cl]
                     if (v == old) continue
                     b[cl] = v
-                    val a = accuracy(answers(leaned(b.toList()), temperature, reading, strength))
+                    val a = accuracy(answers(leaned(b.toList()), temperature, reading, strength, alike))
                     if (a > best + 1e-9 || (a >= best - 1e-9 && abs(v) < abs(old))) best = maxOf(best, a) else b[cl] = old
                 }
             }
@@ -478,9 +492,9 @@ class SweepScorer(
             c = leaned(bias)
             temperature = temperatureOf(c)
         }
-        val m = MetricsCalculator.compute("sweep", "Cross-validated on your labels", classes, answers(c, temperature, reading, strength), unwanted, filterAt)
+        val m = MetricsCalculator.compute("sweep", "Cross-validated on your labels", classes, answers(c, temperature, reading, strength, alike), unwanted, filterAt)
         val words = c.count { r -> r.logits.indices.maxBy { r.logits[it] } == scored[r.index].label }.toDouble() / c.size
-        return Scoring(recipe.copy(senderMemory = strength, conversationReading = reading, classBias = bias), cv, m.accuracy, m.macroF1, words)
+        return Scoring(recipe.copy(senderMemory = strength, conversationReading = reading, templateMemory = alike, classBias = bias), cv, m.accuracy, m.macroF1, words)
     }
 
     /**
@@ -520,7 +534,7 @@ class SweepScorer(
         val total = members.sumOf { counts[it] }.toDouble()
         val recipe = Recipe(
             kind = RecipeKind.BLEND,
-            members = members.map { usable[it].first.copy(senderMemory = 0.0, conversationReading = 0.0) },
+            members = members.map { usable[it].first.copy(senderMemory = 0.0, conversationReading = 0.0, templateMemory = 0.0) },
             memberWeights = members.map { counts[it] / total },
         )
         val cv = common.map { i ->
@@ -693,7 +707,7 @@ class RecipeSweep(
         // A blend is picked and weighed on the very scores it's judged by: kept only when clearly ahead.
         val bestAlone = trials.maxOfOrNull { it.accuracy } ?: 0.0
         val blend = if (stopped()) null else scorer.blend(library)?.takeIf { it.accuracy >= bestAlone + BLEND_MARGIN }?.let { b ->
-            val millis = b.recipe.members.sumOf { m -> trials.firstOrNull { it.recipe.copy(senderMemory = 0.0, conversationReading = 0.0, classBias = emptyList()) == m }?.millis ?: 0 }
+            val millis = b.recipe.members.sumOf { m -> trials.firstOrNull { it.recipe.copy(senderMemory = 0.0, conversationReading = 0.0, templateMemory = 0.0, classBias = emptyList()) == m }?.millis ?: 0 }
             keep(plan.rounds + 1, b, millis, "blend")
         }
         return Result(trials.sortedByDescending { it.accuracy }, rounds, blend, calls, failed, cost, stoppedEarly)

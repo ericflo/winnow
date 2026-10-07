@@ -10,6 +10,7 @@ import com.ericflo.winnow.classifier.ProviderException
 import com.ericflo.winnow.classifier.Usage
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlin.math.ln
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -181,6 +182,38 @@ class RecipeSweepTest {
         assertEquals(listOf(0.1, 0.3, 0.4, 0.5, 0.6), leaned.leaningsIn(classes))
         assertEquals(leaned.classBias, leaned.leaningsIn(six))
         assertEquals(listOf(1.0, 2.0), Recipe(kind = RecipeKind.LINEAR, classBias = listOf(1.0, 2.0)).leaningsIn(classes))
+    }
+
+    @Test
+    fun theSweepLeansOnTextsLikeOnesLabeledOnlyWhereItHelpsAndNeverOnAHeldOutOne() {
+        // A model that calls everything transactional, and labels where a fifth are marketing from
+        // four templates: each text's template-mates sit in other conversations, other folds.
+        val trans = classes.indexOf("transactional")
+        val mark = classes.indexOf("marketing")
+        val items = (0 until 100).map { i ->
+            val template = i % 5 == 0
+            val words = if (template) {
+                val t = i / 5 % 4
+                listOf("w:your", "w:order", "w:tmpl${t}a", "w:tmpl${t}b", "w:tmpl${t}c", "w:tmpl${t}d", "w:filler$i")
+            } else {
+                listOf("w:your", "w:order", "w:alpha$i", "w:beta$i", "w:gamma$i")
+            }
+            TrainingItem(words, null, if (template) mark else trans, 1.0, group = i.toLong(), key = "sms:t$i", source = TrainingItem.Source.USER)
+        }
+        val scorer = SweepScorer(base, items, emptyList(), unwanted = emptySet(), filterAt = 0.9)
+        val k = classes.size
+        val cv = items.indices.map { i -> RecipeTrainer.Row(i, DoubleArray(k) { if (it == trans) ln(0.6) else ln(0.4 / (k - 1)) }) }
+        val recipe = Recipe(kind = RecipeKind.LINEAR, senderMemory = 0.0)
+        val plain = scorer.score(recipe, cv, tune = false)!!
+        assertEquals(0.8, plain.accuracy, 1e-9)
+        val tuned = scorer.score(recipe, cv, tune = true)!!
+        assertTrue(tuned.recipe.templateMemory > 0, "texts like it ${tuned.recipe.templateMemory}")
+        assertEquals(1.0, tuned.accuracy, 1e-9)
+        // A template seen nowhere else (one text, so only in its own fold) has no lookalike to lean on.
+        val lonely = items.take(99) + TrainingItem(listOf("w:your", "w:order", "w:solo1", "w:solo2", "w:solo3", "w:solo4"), null, mark, 1.0, group = 999, key = "sms:solo", source = TrainingItem.Source.USER)
+        val scoredLonely = SweepScorer(base, lonely, emptyList(), unwanted = emptySet(), filterAt = 0.9)
+            .score(recipe.copy(templateMemory = 3.0), lonely.indices.map { i -> RecipeTrainer.Row(i, cv[0].logits) }, tune = false)!!
+        assertEquals(99.0 / 100, scoredLonely.accuracy, 1e-9)
     }
 
     @Test

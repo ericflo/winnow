@@ -40,7 +40,7 @@ object LabDiagnosis {
     /** A thing that would help the model follow the user's labels, most useful first. */
     data class Suggestion(val title: String, val detail: String)
 
-    /** Where its mistakes went, biggest first: "of your reminders, 12 it called transactional". */
+    /** Where its mistakes went, biggest first: "of your marketing, 12 it called transactional". */
     fun confusions(items: List<Scored>): List<Confusion> {
         val perLabel = items.groupingBy { it.label }.eachCount()
         return items.filter { it.label != it.predicted }
