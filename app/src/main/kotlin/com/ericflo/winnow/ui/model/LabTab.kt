@@ -163,7 +163,7 @@ private fun DesignCard(viewModel: ModelViewModel) {
         val kinds = RecipeKind.entries.filter { it != RecipeKind.BLEND }
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             kinds.forEachIndexed { i, k ->
-                SegmentedButton(selected = r.kind == k, onClick = { viewModel.editDraft { it.copy(kind = k) } }, shape = SegmentedButtonDefaults.itemShape(i, kinds.size)) {
+                SegmentedButton(selected = r.kind == k, onClick = { viewModel.editDraft { it.copy(kind = k, meaning = it.meaning && k == RecipeKind.LINEAR) } }, shape = SegmentedButtonDefaults.itemShape(i, kinds.size)) {
                     Text(when (k) { RecipeKind.PERSONAL -> "Personal"; RecipeKind.LINEAR -> "Linear"; else -> "Neural" })
                 }
             }
@@ -190,6 +190,7 @@ private fun DesignCard(viewModel: ModelViewModel) {
             Step("Words left out", ModelLab.HELP.getValue("inputDropout"), WORDS_OUT, r.inputDropout, { pct(it) }) { v -> viewModel.editDraft { it.copy(inputDropout = v) } }
             Toggle("Pieces of words", ModelLab.HELP.getValue("pieces"), r.pieces) { v -> viewModel.editDraft { it.copy(pieces = v) } }
             Toggle("Words that mean alike", ModelLab.HELP.getValue("clusters"), r.clusters) { v -> viewModel.editDraft { it.copy(clusters = v) } }
+            if (r.kind == RecipeKind.LINEAR) Toggle("What the whole text means", ModelLab.HELP.getValue("meaning"), r.meaning) { v -> viewModel.editDraft { it.copy(meaning = v) } }
             Toggle("When it came and what came before", ModelLab.HELP.getValue("context"), r.context) { v -> viewModel.editDraft { it.copy(context = v) } }
             Toggle("Words by who sent them", ModelLab.HELP.getValue("crosses"), r.crosses) { v -> viewModel.editDraft { it.copy(crosses = v) } }
             Toggle("Percents, times, dates and codes", ModelLab.HELP.getValue("shapes"), r.shapes) { v -> viewModel.editDraft { it.copy(shapes = v) } }

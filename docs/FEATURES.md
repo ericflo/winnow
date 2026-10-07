@@ -93,7 +93,7 @@ The [README](../README.md) has the overview. This is everything, grouped.
   - measure what your examples change in Jev's answers.
 - **Lab:**
   - design and train models on the phone: the personal layer, a linear model retrained from scratch, a neural network, or a blend, every setting yours;
-  - optional signals beyond the words: word pieces, words by who sent them, when a text came, percents, times and codes, groups of words that mean alike (from GloVe's public-domain word vectors, shipped with the app), and the labeled texts a text reads most like;
+  - optional signals beyond the words: word pieces, words by who sent them, when a text came, percents, times and codes, groups of words that mean alike and what a whole text means (both from GloVe's public-domain word vectors, shipped with the app), and the labeled texts a text reads most like;
   - score them on conversations they haven't seen, and put one in use;
   - **Sweep** tries recipes round after round, steered by the service or by the phone, and keeps the best;
   - every miss is broken down: how far to the target, and what each kind of miss has in common.

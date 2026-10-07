@@ -32,6 +32,8 @@ Open Winnow, follow onboarding, and pick a classifier. Until a provider is set u
 
 The Lab's "words that mean alike" groups ship as `word-clusters.txt.gz`: the 30,000 commonest words of GloVe's vectors (public domain), clustered into 512 groups by `classifier/training/word_clusters.py`, whose header says how to rebuild them. On the hand-written texts, with only 10–50% of them as labels, they added about a point of accuracy for both linear and neural models.
 
+"What the whole text means" (linear models) ships as `word-meanings.bin.gz`: GloVe's 50-number vectors for the 20,000 commonest words, one byte a number, made by `classifier/training/word_meanings.py`. A text's meaning is its known words' vectors averaged. With 10–50% of the hand-written texts as labels it added 0.8–1.4 points to a linear model (more than the groups); with 80%, nothing.
+
 ## On an emulator
 
 ```sh

@@ -591,6 +591,43 @@ class RecipeSweepTest {
         assertNotNull(Recipe(kind = RecipeKind.PERSONAL, clusters = true).problem())
     }
 
+    @Test
+    fun aLinearModelThatReadsWhatATextMeansCarriesALabelToTextsInOtherWords() {
+        assertEquals(50, WordMeanings.dim)
+        assertTrue(WordMeanings.size >= 20_000, "${WordMeanings.size}")
+        val m = WordMeanings.of(listOf("w:discount", "w:sale", "x:not-a-word"))!!
+        assertEquals(1.0, m.sumOf { it * it }, 1e-6)
+        assertNull(WordMeanings.of(listOf("w:zzqx", "b:a b")))
+        val marketing = classes.indexOf("marketing")
+        val transactional = classes.indexOf("transactional")
+        val items = (0 until 40).map { i ->
+            val promo = i % 2 == 0
+            val words = if (promo) listOf("w:discount", "w:sale", "w:coupon") else listOf("w:package", "w:delivered", "w:shipped")
+            TrainingItem(words + "w:note$i", null, if (promo) marketing else transactional, 1.0, group = i.toLong(), key = "sms:m$i", source = TrainingItem.Source.USER)
+        }
+        val plain = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 12, epochs = 20, learningRate = 0.2, includeCorpus = false)
+        val meant = plain.copy(meaning = true)
+        fun says(model: Predictor, vararg words: String) = model.probabilities(words.map { "w:$it" }).let { p -> p.indices.maxBy { p[it] } }
+        val model = RecipeTrainer.train(meant, base, items)
+        assertTrue(model is MeaningPredictor)
+        // Words it never saw, read by what they mean.
+        assertEquals(marketing, says(model, "bargain", "clearance", "deals"))
+        assertEquals(transactional, says(model, "courier", "parcel", "shipment"))
+        val words = RecipeTrainer.train(plain, base, items)
+        assertEquals(says(words, "bargain", "clearance", "deals"), says(words, "courier", "parcel", "shipment"))
+        // Kept and read back it answers the same; scored the way it was trained.
+        val calibrated = LabModelFile.calibrate(model, 1.3f)
+        val bytes = java.io.ByteArrayOutputStream().also { LabModelFile.write(meant, calibrated, 1.3f, it) }.toByteArray()
+        val back = LabModelFile.read(meant, java.io.ByteArrayInputStream(bytes))!!
+        val f = listOf("w:bargain", "w:clearance")
+        calibrated.probabilities(f).zip(back.probabilities(f).toList()).forEach { (a, b) -> assertEquals(a, b, 0.02) }
+        val p = LocalModel.softmax(RecipeTrainer.logits(model, items[0])!!)
+        val q = MeaningPredictor(model.model, model.meaning, model.dim).probabilities(items[0].features!!)
+        p.indices.forEach { assertEquals(p[it], q[it], 1e-9) }
+        assertNotNull(Recipe(kind = RecipeKind.NEURAL, meaning = true).problem())
+        assertEquals(meant, SweepSpace.recipeOf(SweepSpace.settingsOf(meant)!!).copy(buckets = meant.buckets, epochs = meant.epochs, learningRate = meant.learningRate, includeCorpus = false, l2 = meant.l2, userWeight = meant.userWeight, serviceWeight = meant.serviceWeight, corpusWeight = meant.corpusWeight, balance = meant.balance, conversationWeight = meant.conversationWeight, inputDropout = meant.inputDropout, bags = meant.bags))
+    }
+
     private class FakeProvider(private val fail: Boolean = false, private val more: Double = 0.8, private val sure: Map<String, String> = emptyMap()) : DecisionProvider {
         override val descriptor = ProviderDescriptor("fake", "Fake Jev", DataHandling.REMOTE)
         var calls = 0

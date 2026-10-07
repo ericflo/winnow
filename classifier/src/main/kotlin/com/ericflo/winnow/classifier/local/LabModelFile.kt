@@ -29,7 +29,10 @@ object LabModelFile {
         }
         when (recipe.kind) {
             RecipeKind.PERSONAL -> return false
-            RecipeKind.LINEAR -> ((unwrap(model) as LinearPredictor).model.withTemperature(temperature)).write(out)
+            RecipeKind.LINEAR -> when (val linear = unwrap(model)) {
+                is MeaningPredictor -> MeaningPredictor(linear.model, linear.meaning, linear.dim, temperature).write(out)
+                else -> ((linear as LinearPredictor).model.withTemperature(temperature)).write(out)
+            }
             RecipeKind.NEURAL -> (unwrap(model) as NeuralModel).also { it.temperature = temperature }.write(out)
             RecipeKind.BLEND -> {
                 val blend = model as BlendPredictor
@@ -61,7 +64,7 @@ object LabModelFile {
         }
         val model: Predictor = when (recipe.kind) {
             RecipeKind.PERSONAL -> return null
-            RecipeKind.LINEAR -> LinearPredictor(LocalModel.read(input))
+            RecipeKind.LINEAR -> if (recipe.meaning) MeaningPredictor.read(input) else LinearPredictor(LocalModel.read(input))
             RecipeKind.NEURAL -> NeuralModel.read(input)
             RecipeKind.BLEND -> {
                 val d = DataInputStream(input)
@@ -88,6 +91,7 @@ object LabModelFile {
     fun parameters(model: Predictor): Long = when (model) {
         is NeuralModel -> model.parameters
         is LinearPredictor -> model.model.buckets.toLong() * model.model.classes.size + model.adjustments.size.toLong() * model.model.classes.size
+        is MeaningPredictor -> model.model.buckets.toLong() * model.model.classes.size + model.meaning.size
         is PiecesPredictor -> parameters(model.inner)
         is ClustersPredictor -> parameters(model.inner)
         is ContextPredictor -> parameters(model.inner)
@@ -102,6 +106,7 @@ object LabModelFile {
     fun calibrate(model: Predictor, temperature: Float): Predictor = when (model) {
         is NeuralModel -> model.also { it.temperature = temperature }
         is LinearPredictor -> if (model.adjustments.size == 0) LinearPredictor(model.model.withTemperature(temperature)) else model
+        is MeaningPredictor -> model.also { it.temperature = temperature }
         is PiecesPredictor -> PiecesPredictor(calibrate(model.inner, temperature))
         is ClustersPredictor -> ClustersPredictor(calibrate(model.inner, temperature))
         is ContextPredictor -> ContextPredictor(calibrate(model.inner, temperature))

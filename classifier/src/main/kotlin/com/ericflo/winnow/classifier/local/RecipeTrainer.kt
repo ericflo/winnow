@@ -57,6 +57,8 @@ data class Recipe(
     val shapes: Boolean = false,
     /** Retrained kinds: the groups of words that mean alike its words are in too (see [WordClusters]). */
     val clusters: Boolean = false,
+    /** Linear only: what the text means as a whole too, from its words' meanings (see [WordMeanings]). */
+    val meaning: Boolean = false,
     /** Linear only: models trained on resamples and averaged. */
     val bags: Int = 1,
     /** Retrained kinds: learn from the texts the shipped model learned from too, and how much each counts. */
@@ -132,6 +134,7 @@ data class Recipe(
         kind == RecipeKind.PERSONAL && context -> "Context needs a retrained model: the personal layer reads the shipped model's features."
         kind == RecipeKind.PERSONAL && crosses -> "Words by sender need a retrained model: the personal layer reads the shipped model's features."
         kind == RecipeKind.PERSONAL && clusters -> "Words that mean alike need a retrained model: the personal layer reads the shipped model's features."
+        meaning && kind != RecipeKind.LINEAR -> "What a text means as a whole needs a retrained linear model."
         kind == RecipeKind.PERSONAL && shapes -> "Text shapes need a retrained model: the personal layer reads the shipped model's features."
         // Each bag's weights are kept until they're averaged: past this a phone runs short of memory.
         kind == RecipeKind.LINEAR && bags.toLong() * buckets > MAX_BAGGED_BUCKETS -> "Bags × buckets can be at most ${"%,d".format(MAX_BAGGED_BUCKETS)}: fewer bags, or fewer buckets."
@@ -178,7 +181,7 @@ data class Recipe(
 
     private fun num(x: Double) = if (x % 1.0 == 0.0) x.toInt().toString() else x.toString()
 
-    private fun extras(): String = (if (context) ", context" else "") + (if (shapes) ", text shapes" else "") + (if (crosses) ", words by sender" else "") + (if (pieces) ", word pieces" else "") + (if (clusters) ", words that mean alike" else "") + (if (inputDropout > 0) ", ${(inputDropout * 100).toInt()}% of words left out" else "")
+    private fun extras(): String = (if (context) ", context" else "") + (if (shapes) ", text shapes" else "") + (if (crosses) ", words by sender" else "") + (if (pieces) ", word pieces" else "") + (if (clusters) ", words that mean alike" else "") + (if (meaning) ", what the text means" else "") + (if (inputDropout > 0) ", ${(inputDropout * 100).toInt()}% of words left out" else "")
 
     companion object {
         const val MAX_EMBEDDING = 4_194_304L
@@ -289,7 +292,9 @@ object RecipeTrainer {
                 onProgress(0, 1)
                 LinearPredictor(base, Personalizer.train(base, corrections, recipe.epochs, recipe.learningRate, recipe.l2, stopped))
             }
-            RecipeKind.LINEAR -> LinearPredictor(trainLinear(recipe, base.classes, ready, onProgress, stopped))
+            RecipeKind.LINEAR -> trainLinear(recipe, base.classes, ready, onProgress, stopped).let { (model, meaning) ->
+                if (meaning != null) MeaningPredictor(model, meaning, WordMeanings.dim) else LinearPredictor(model)
+            }
             RecipeKind.NEURAL -> trainNeural(recipe, base.classes, ready, onProgress, stopped)
             RecipeKind.BLEND -> error("blends are trained above")
         }
@@ -303,6 +308,7 @@ object RecipeTrainer {
     /** The class scores [predictor] gives one item, before the softmax (with [Predictor]'s own temperature undone where it has one). */
     fun logits(predictor: Predictor, item: TrainingItem): DoubleArray? = when (predictor) {
         is LinearPredictor -> item.indicesIn(predictor.model.buckets)?.let { predictor.model.scoresOf(it, predictor.adjustments) }
+        is MeaningPredictor -> item.indicesIn(predictor.model.buckets)?.let { predictor.scores(it, item.features?.let(WordMeanings::of)) }
         is NeuralModel -> item.indicesIn(predictor.buckets)?.let { predictor.scores(it) }
         is PiecesPredictor -> logits(predictor.inner, item.withPieces())
         is ClustersPredictor -> logits(predictor.inner, item.withClusters())
@@ -503,16 +509,22 @@ object RecipeTrainer {
         return DoubleArray(k) { if (total[it] == 0.0) 0.0 else sum / (k * total[it]) }
     }
 
-    private fun trainLinear(recipe: Recipe, classes: List<String>, items: List<TrainingItem>, onProgress: (Int, Int) -> Unit, stopped: () -> Boolean): LocalModel {
+    /** A linear model's word weights, and its meaning weights (see [MeaningPredictor]) when [Recipe.meaning]. */
+    private fun trainLinear(recipe: Recipe, classes: List<String>, items: List<TrainingItem>, onProgress: (Int, Int) -> Unit, stopped: () -> Boolean): Pair<LocalModel, FloatArray?> {
         val k = classes.size
         val b = recipe.buckets
         val encoded = items.mapNotNull { item -> item.indicesIn(b)?.takeIf { it.isNotEmpty() }?.let { it to item } }
-        fun one(sample: List<Pair<IntArray, TrainingItem>>, seed: Int, bag: Int): Pair<DoubleArray, DoubleArray> {
+        // Each text's meaning, worked out once (a resample repeats texts).
+        val dim = if (recipe.meaning) WordMeanings.dim else 0
+        val meanings = java.util.IdentityHashMap<TrainingItem, DoubleArray?>().also { m -> if (dim > 0) encoded.forEach { (_, item) -> m[item] = item.features?.let(WordMeanings::of) } }
+        fun one(sample: List<Pair<IntArray, TrainingItem>>, seed: Int, bag: Int): Triple<DoubleArray, DoubleArray, DoubleArray> {
             val classWeight = classWeights(sample, k, recipe.balance)
             val w = DoubleArray(b * k)
             val bias = DoubleArray(k)
             val gw = DoubleArray(b * k) { 1e-8 }
             val gb = DoubleArray(k) { 1e-8 }
+            val wm = DoubleArray(k * dim)
+            val gm = DoubleArray(k * dim) { 1e-8 }
             val random = Random(seed)
             val order = sample.indices.toMutableList()
             repeat(recipe.epochs) { epoch ->
@@ -525,6 +537,8 @@ object RecipeTrainer {
                     val value = LocalModel.featureValue(indices.size)
                     val scores = DoubleArray(k) { bias[it] }
                     for (i in indices) for (c in 0 until k) scores[c] += w[i * k + c] * value
+                    val m = if (dim > 0) meanings[item] else null
+                    if (m != null) for (c in 0 until k) for (d in 0 until dim) scores[c] += wm[c * dim + d] * m[d]
                     val p = LocalModel.softmax(scores)
                     val scale = classWeight[item.label] * item.weight
                     for (c in 0 until k) {
@@ -537,10 +551,16 @@ object RecipeTrainer {
                             gw[j] += gj * gj
                             w[j] -= recipe.learningRate * gj / sqrt(gw[j])
                         }
+                        if (m != null) for (d in 0 until dim) {
+                            val j = c * dim + d
+                            val gj = g * m[d] + recipe.l2 * wm[j]
+                            gm[j] += gj * gj
+                            wm[j] -= recipe.learningRate * gj / sqrt(gm[j])
+                        }
                     }
                 }
             }
-            return w to bias
+            return Triple(w, bias, wm)
         }
         val runs = (0 until recipe.bags).map { bag ->
             val sample = if (recipe.bags == 1) encoded else Random(recipe.seed * 1000 + bag).let { r -> List(encoded.size) { encoded[r.nextInt(encoded.size)] } }
@@ -548,7 +568,8 @@ object RecipeTrainer {
         }
         val weights = FloatArray(b * k) { i -> (runs.sumOf { it.first[i] } / runs.size).toFloat() }
         val bias = FloatArray(k) { c -> (runs.sumOf { it.second[c] } / runs.size).toFloat() }
-        return LocalModel(classes, b, weights, bias)
+        val meaning = if (dim > 0) FloatArray(k * dim) { i -> (runs.sumOf { it.third[i] } / runs.size).toFloat() } else null
+        return LocalModel(classes, b, weights, bias) to meaning
     }
 
     private fun trainNeural(recipe: Recipe, classes: List<String>, items: List<TrainingItem>, onProgress: (Int, Int) -> Unit, stopped: () -> Boolean): NeuralModel {

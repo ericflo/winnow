@@ -23,6 +23,7 @@ enum class Knob(val key: String, val meaning: String, val values: List<String>, 
     WORDS_OUT("words_left_out", "The share of a text's words left out of each training step, a different few each time.", listOf("0", "0.15", "0.3", "0.45", "0.6")),
     PIECES("word_pieces", "Also learn from four-letter pieces of words, so words sharing a stem share what's learned.", listOf("no", "yes")),
     SHAPES("text_shapes", "Also learn from what a text's words lose: percents and percents off, times, dates, weekday names, promo codes, order and tracking numbers, a run of emoji, several links.", listOf("no", "yes")),
+    MEANING("what_the_text_means", "Linear only: also learn from what the text means as a whole (its words' GloVe vectors averaged), so texts that say the same thing in other words read alike.", listOf("no", "yes"), linearOnly = true),
     CLUSTERS("words_that_mean_alike", "Also learn from groups of words that mean alike (made from GloVe's word vectors), so what one word taught carries over to words like it: \"sale\", \"discount\", \"clearance\".", listOf("no", "yes")),
     CROSSES("words_by_sender", "Also learn each word as from the kind of sender it came from (a business, a stranger, someone the person texts), so a word can mean different things from each.", listOf("no", "yes")),
     CONTEXT("context", "Also learn from when each text came and what came before it in its conversation: time of day, weekday or weekend, the first text or an answer to the person's, how much came before, how long since the last.", listOf("no", "yes")),
@@ -68,6 +69,7 @@ object SweepSpace {
             crosses = v(Knob.CROSSES) == "yes",
             shapes = v(Knob.SHAPES) == "yes",
             clusters = v(Knob.CLUSTERS) == "yes",
+            meaning = !neural && v(Knob.MEANING) == "yes",
             includeCorpus = corpus > 0,
             corpusWeight = if (corpus > 0) corpus else 1.0,
             userWeight = v(Knob.USER_WEIGHT).toDouble(),
@@ -103,6 +105,7 @@ object SweepSpace {
             Knob.WORDS_OUT to nearest(Knob.WORDS_OUT, recipe.inputDropout),
             Knob.PIECES to if (recipe.pieces) "yes" else "no",
             Knob.CLUSTERS to if (recipe.clusters) "yes" else "no",
+            Knob.MEANING to if (recipe.meaning) "yes" else "no",
             Knob.CONTEXT to if (recipe.context) "yes" else "no",
             Knob.CROSSES to if (recipe.crosses) "yes" else "no",
             Knob.SHAPES to if (recipe.shapes) "yes" else "no",
@@ -138,6 +141,9 @@ object SweepSpace {
         settings("linear", buckets = "131072", epochs = "60", step = "0.2", l2 = "1e-5", crosses = "yes"),
         // Words that mean alike (GloVe's groups): what one word taught carries to words like it.
         settings("linear", buckets = "65536", epochs = "30", step = "0.2", l2 = "1e-5", clusters = "yes"),
+        // What the whole text means (GloVe's vectors averaged): texts saying the same in other words read alike.
+        settings("linear", buckets = "65536", epochs = "30", step = "0.2", l2 = "1e-5", meaning = "yes"),
+        settings("linear", buckets = "65536", epochs = "30", step = "0.2", l2 = "1e-5", clusters = "yes", meaning = "yes"),
         settings("neural", layers = "64", buckets = "32768", epochs = "12", step = "0.05", l2 = "1e-6", wordsOut = "0.15", clusters = "yes"),
         // What the words lose: percents off, times and dates, codes and order numbers.
         settings("linear", buckets = "262144", epochs = "100", step = "0.2", l2 = "1e-3", wordsOut = "0.3", conversations = "0.25", shapes = "yes"),
@@ -147,10 +153,10 @@ object SweepSpace {
         kind: String, layers: String = "64", wide: String = "yes", dropout: String = "0", buckets: String, epochs: String, step: String, l2: String,
         wordsOut: String = "0", pieces: String = "no", user: String = "3", service: String = "0.35", corpus: String = "1", balance: String = "yes",
         bags: String = "1", context: String = "no", conversations: String = "0", crosses: String = "no", shapes: String = "no",
-        clusters: String = "no",
+        clusters: String = "no", meaning: String = "no",
     ) = mapOf(
         Knob.KIND to kind, Knob.LAYERS to layers, Knob.WIDE to wide, Knob.DROPOUT to dropout, Knob.BAGS to bags, Knob.BUCKETS to buckets, Knob.EPOCHS to epochs,
-        Knob.STEP to step, Knob.L2 to l2, Knob.WORDS_OUT to wordsOut, Knob.PIECES to pieces, Knob.CONTEXT to context, Knob.CROSSES to crosses, Knob.SHAPES to shapes, Knob.CLUSTERS to clusters, Knob.USER_WEIGHT to user,
+        Knob.STEP to step, Knob.L2 to l2, Knob.WORDS_OUT to wordsOut, Knob.PIECES to pieces, Knob.CONTEXT to context, Knob.CROSSES to crosses, Knob.SHAPES to shapes, Knob.CLUSTERS to clusters, Knob.MEANING to meaning, Knob.USER_WEIGHT to user,
         Knob.SERVICE_WEIGHT to service, Knob.CORPUS_WEIGHT to corpus, Knob.CONVERSATION_WEIGHT to conversations, Knob.BALANCE to balance,
     )
 }
