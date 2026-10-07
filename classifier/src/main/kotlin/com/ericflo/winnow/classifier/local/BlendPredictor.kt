@@ -144,6 +144,7 @@ class BlendPredictor(val members: List<Predictor>, weights: List<Double>, var te
     private fun rawProbabilities(member: Predictor, features: List<String>): DoubleArray = when (member) {
         is NeuralModel -> LocalModel.softmax(member.scores(member.indices(features)))
         is PiecesPredictor -> rawProbabilities(member.inner, WordPieces.expand(features))
+        is ClustersPredictor -> rawProbabilities(member.inner, WordClusters.expand(features))
         is CrossesPredictor -> rawProbabilities(member.inner, SenderCrosses.expand(features))
         is ContextPredictor -> rawProbabilities(member.inner, features)
         is ShapesPredictor -> rawProbabilities(member.inner, features)

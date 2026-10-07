@@ -30,6 +30,8 @@ Open Winnow, follow onboarding, and pick a classifier. Until a provider is set u
 - `evalMistakes`: lists the shipped model's mistakes on the held-out set;
 - `labCeilingExperiment`: what label noise and per-sender labels do to accuracy.
 
+The Lab's "words that mean alike" groups ship as `word-clusters.txt.gz`: the 30,000 commonest words of GloVe's vectors (public domain), clustered into 512 groups by `classifier/training/word_clusters.py`, whose header says how to rebuild them. On the hand-written texts, with only 10–50% of them as labels, they added about a point of accuracy for both linear and neural models.
+
 ## On an emulator
 
 ```sh

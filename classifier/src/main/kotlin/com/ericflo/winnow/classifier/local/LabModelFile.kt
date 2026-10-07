@@ -78,7 +78,8 @@ object LabModelFile {
             }
         }
         val pieced = if (recipe.pieces) PiecesPredictor(model) else model
-        val read = if (recipe.crosses) CrossesPredictor(pieced) else pieced
+        val grouped = if (recipe.clusters) ClustersPredictor(pieced) else pieced
+        val read = if (recipe.crosses) CrossesPredictor(grouped) else grouped
         val shaped = if (recipe.shapes) ShapesPredictor(read) else read
         return if (recipe.context) ContextPredictor(shaped) else shaped
     }
@@ -88,6 +89,7 @@ object LabModelFile {
         is NeuralModel -> model.parameters
         is LinearPredictor -> model.model.buckets.toLong() * model.model.classes.size + model.adjustments.size.toLong() * model.model.classes.size
         is PiecesPredictor -> parameters(model.inner)
+        is ClustersPredictor -> parameters(model.inner)
         is ContextPredictor -> parameters(model.inner)
         is CrossesPredictor -> parameters(model.inner)
         is ShapesPredictor -> parameters(model.inner)
@@ -101,6 +103,7 @@ object LabModelFile {
         is NeuralModel -> model.also { it.temperature = temperature }
         is LinearPredictor -> if (model.adjustments.size == 0) LinearPredictor(model.model.withTemperature(temperature)) else model
         is PiecesPredictor -> PiecesPredictor(calibrate(model.inner, temperature))
+        is ClustersPredictor -> ClustersPredictor(calibrate(model.inner, temperature))
         is ContextPredictor -> ContextPredictor(calibrate(model.inner, temperature))
         is CrossesPredictor -> CrossesPredictor(calibrate(model.inner, temperature))
         is ShapesPredictor -> ShapesPredictor(calibrate(model.inner, temperature))
@@ -112,6 +115,7 @@ object LabModelFile {
 
     private fun unwrap(model: Predictor): Predictor = when (model) {
         is PiecesPredictor -> unwrap(model.inner)
+        is ClustersPredictor -> unwrap(model.inner)
         is ContextPredictor -> unwrap(model.inner)
         is CrossesPredictor -> unwrap(model.inner)
         is ShapesPredictor -> unwrap(model.inner)

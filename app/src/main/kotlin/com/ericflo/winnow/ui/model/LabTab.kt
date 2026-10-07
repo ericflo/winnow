@@ -189,6 +189,7 @@ private fun DesignCard(viewModel: ModelViewModel) {
         if (r.kind == RecipeKind.LINEAR || r.kind == RecipeKind.NEURAL) {
             Step("Words left out", ModelLab.HELP.getValue("inputDropout"), WORDS_OUT, r.inputDropout, { pct(it) }) { v -> viewModel.editDraft { it.copy(inputDropout = v) } }
             Toggle("Pieces of words", ModelLab.HELP.getValue("pieces"), r.pieces) { v -> viewModel.editDraft { it.copy(pieces = v) } }
+            Toggle("Words that mean alike", ModelLab.HELP.getValue("clusters"), r.clusters) { v -> viewModel.editDraft { it.copy(clusters = v) } }
             Toggle("When it came and what came before", ModelLab.HELP.getValue("context"), r.context) { v -> viewModel.editDraft { it.copy(context = v) } }
             Toggle("Words by who sent them", ModelLab.HELP.getValue("crosses"), r.crosses) { v -> viewModel.editDraft { it.copy(crosses = v) } }
             Toggle("Percents, times, dates and codes", ModelLab.HELP.getValue("shapes"), r.shapes) { v -> viewModel.editDraft { it.copy(shapes = v) } }

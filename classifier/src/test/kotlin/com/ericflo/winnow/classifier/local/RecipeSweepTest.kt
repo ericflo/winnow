@@ -531,6 +531,38 @@ class RecipeSweepTest {
         assertEquals(listOf("w:a"), featuresFor(RecipeTrainer.train(plain, base, items), listOf("w:a", "__shape_time__", "__ctx_weekend__")))
     }
 
+    @Test
+    fun aModelThatLearnsWordsThatMeanAlikeCarriesALabelToWordsItNeverSaw() {
+        // "discount" taught marketing and "delivery" transactional; "selling" and "shipping" never seen.
+        assertTrue(WordClusters.groups.size > 20_000, "${WordClusters.groups.size} words grouped")
+        assertContentEquals(WordClusters.groups["discount"], WordClusters.groups["selling"])
+        assertContentEquals(WordClusters.groups["delivery"], WordClusters.groups["shipping"])
+        assertEquals(listOf("w:discount", "x:other", "k:${WordClusters.groups.getValue("discount")[0]}"), WordClusters.expand(listOf("w:discount", "x:other")))
+        val marketing = classes.indexOf("marketing")
+        val transactional = classes.indexOf("transactional")
+        val items = (0 until 40).map { i ->
+            val promo = i % 2 == 0
+            TrainingItem(listOf(if (promo) "w:discount" else "w:delivery", "w:note$i"), null, if (promo) marketing else transactional, 1.0, group = i.toLong(), key = "sms:k$i", source = TrainingItem.Source.USER)
+        }
+        val plain = Recipe(kind = RecipeKind.LINEAR, buckets = 1 shl 12, epochs = 20, learningRate = 0.2, includeCorpus = false)
+        val grouped = plain.copy(clusters = true)
+        fun says(model: Predictor, word: String) = model.probabilities(listOf("w:$word")).let { p -> p.indices.maxBy { p[it] } }
+        val model = RecipeTrainer.train(grouped, base, items)
+        assertEquals(marketing, says(model, "selling"))
+        assertEquals(transactional, says(model, "shipping"))
+        // Without the groups, two words it never saw read the same: it can't get both.
+        val words = RecipeTrainer.train(plain, base, items)
+        assertEquals(says(words, "selling"), says(words, "shipping"))
+        // Kept and read back, it reads the same; scored the way it was trained.
+        val bytes = java.io.ByteArrayOutputStream().also { LabModelFile.write(grouped, model, 1f, it) }.toByteArray()
+        val back = LabModelFile.read(grouped, java.io.ByteArrayInputStream(bytes))!!
+        assertEquals(marketing, says(back, "selling"))
+        val p = model.probabilities(items[0].features!!)
+        val q = LocalModel.softmax(RecipeTrainer.logits(model, items[0])!!)
+        p.indices.forEach { assertEquals(p[it], q[it], 1e-9) }
+        assertNotNull(Recipe(kind = RecipeKind.PERSONAL, clusters = true).problem())
+    }
+
     private class FakeProvider(private val fail: Boolean = false, private val more: Double = 0.8, private val sure: Map<String, String> = emptyMap()) : DecisionProvider {
         override val descriptor = ProviderDescriptor("fake", "Fake Jev", DataHandling.REMOTE)
         var calls = 0

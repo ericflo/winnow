@@ -55,6 +55,8 @@ data class Recipe(
     val crosses: Boolean = false,
     /** Retrained kinds: the shapes its words lose (percents, times, dates, codes: see [TextShapes]) too. */
     val shapes: Boolean = false,
+    /** Retrained kinds: the groups of words that mean alike its words are in too (see [WordClusters]). */
+    val clusters: Boolean = false,
     /** Linear only: models trained on resamples and averaged. */
     val bags: Int = 1,
     /** Retrained kinds: learn from the texts the shipped model learned from too, and how much each counts. */
@@ -129,6 +131,7 @@ data class Recipe(
         kind == RecipeKind.PERSONAL && pieces -> "Pieces of words need a retrained model: the personal layer reads the shipped model's features."
         kind == RecipeKind.PERSONAL && context -> "Context needs a retrained model: the personal layer reads the shipped model's features."
         kind == RecipeKind.PERSONAL && crosses -> "Words by sender need a retrained model: the personal layer reads the shipped model's features."
+        kind == RecipeKind.PERSONAL && clusters -> "Words that mean alike need a retrained model: the personal layer reads the shipped model's features."
         kind == RecipeKind.PERSONAL && shapes -> "Text shapes need a retrained model: the personal layer reads the shipped model's features."
         // Each bag's weights are kept until they're averaged: past this a phone runs short of memory.
         kind == RecipeKind.LINEAR && bags.toLong() * buckets > MAX_BAGGED_BUCKETS -> "Bags × buckets can be at most ${"%,d".format(MAX_BAGGED_BUCKETS)}: fewer bags, or fewer buckets."
@@ -175,7 +178,7 @@ data class Recipe(
 
     private fun num(x: Double) = if (x % 1.0 == 0.0) x.toInt().toString() else x.toString()
 
-    private fun extras(): String = (if (context) ", context" else "") + (if (shapes) ", text shapes" else "") + (if (crosses) ", words by sender" else "") + (if (pieces) ", word pieces" else "") + (if (inputDropout > 0) ", ${(inputDropout * 100).toInt()}% of words left out" else "")
+    private fun extras(): String = (if (context) ", context" else "") + (if (shapes) ", text shapes" else "") + (if (crosses) ", words by sender" else "") + (if (pieces) ", word pieces" else "") + (if (clusters) ", words that mean alike" else "") + (if (inputDropout > 0) ", ${(inputDropout * 100).toInt()}% of words left out" else "")
 
     companion object {
         const val MAX_EMBEDDING = 4_194_304L
@@ -242,6 +245,9 @@ class TrainingItem(
     /** With [WordPieces] among its features. */
     fun withPieces(): TrainingItem = if (features == null) this else copy(features = WordPieces.expand(features))
 
+    /** With [WordClusters] among its features. */
+    fun withClusters(): TrainingItem = if (features == null) this else copy(features = WordClusters.expand(features))
+
     /** With [SenderCrosses] among its features. */
     fun withCrosses(): TrainingItem = if (features == null) this else copy(features = SenderCrosses.expand(features))
 
@@ -276,7 +282,7 @@ object RecipeTrainer {
         }
         // Each text counts as the recipe says for where its label came from.
         val weighted = items.mapNotNull { item -> item.weightUnder(recipe).takeIf { it > 0 }?.let { w -> if (w == item.weight) item else item.copy(weight = w) } }
-        val ready = weighted.map { if (recipe.context) it.withContext() else it }.map { if (recipe.shapes) it.withShapes() else it }.map { if (recipe.pieces) it.withPieces() else it }.map { if (recipe.crosses) it.withCrosses() else it }
+        val ready = weighted.map { if (recipe.context) it.withContext() else it }.map { if (recipe.shapes) it.withShapes() else it }.map { if (recipe.pieces) it.withPieces() else it }.map { if (recipe.clusters) it.withClusters() else it }.map { if (recipe.crosses) it.withCrosses() else it }
         val model = when (recipe.kind) {
             RecipeKind.PERSONAL -> {
                 val corrections = ready.mapNotNull { it.indicesIn(base.buckets)?.let { idx -> Correction(idx, it.label, it.weight.coerceAtMost(1.0)) } }
@@ -288,7 +294,8 @@ object RecipeTrainer {
             RecipeKind.BLEND -> error("blends are trained above")
         }
         val pieced = if (recipe.pieces) PiecesPredictor(model) else model
-        val read = if (recipe.crosses) CrossesPredictor(pieced) else pieced
+        val grouped = if (recipe.clusters) ClustersPredictor(pieced) else pieced
+        val read = if (recipe.crosses) CrossesPredictor(grouped) else grouped
         val shaped = if (recipe.shapes) ShapesPredictor(read) else read
         return if (recipe.context) ContextPredictor(shaped) else shaped
     }
@@ -298,6 +305,7 @@ object RecipeTrainer {
         is LinearPredictor -> item.indicesIn(predictor.model.buckets)?.let { predictor.model.scoresOf(it, predictor.adjustments) }
         is NeuralModel -> item.indicesIn(predictor.buckets)?.let { predictor.scores(it) }
         is PiecesPredictor -> logits(predictor.inner, item.withPieces())
+        is ClustersPredictor -> logits(predictor.inner, item.withClusters())
         is CrossesPredictor -> logits(predictor.inner, item.withCrosses())
         is ContextPredictor -> logits(predictor.inner, item.withContext())
         is ShapesPredictor -> logits(predictor.inner, item.withShapes())
