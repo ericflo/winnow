@@ -117,7 +117,10 @@ class WinnowApp : Application(), SingletonImageLoader.Factory {
         container.appScope.launch { container.trash.purgeExpired() }
         container.appScope.launch { runCatching { container.dailySummary.rearm() } }
         // A force stop cancels the app's jobs; waiting MMS retries are set again.
-        container.appScope.launch(Dispatchers.IO) { runCatching { container.mmsRetries.rearm() } }
+        container.appScope.launch(Dispatchers.IO) {
+            runCatching { container.mmsReceiver.recoverPending() }.onFailure { Log.w("WinnowMms", "Couldn't recover MMS notifications", it) }
+            runCatching { container.mmsRetries.rearm() }
+        }
         // Phone-number formatting reads its country's rules from disk the first time; done here, off
         // the main thread, rather than by the first screen to show a number (a conversation opened
         // from a notification, say). The contact list is read again on every resume (refreshAccess).
@@ -510,6 +513,7 @@ class AppContainer(private val context: Context) {
             runCatching { scheduler.sendDue() }
             runCatching { reminders.fireDue() }
             // A picture message's download retry is a job, which Android holds back the same way.
+            runCatching { mmsReceiver.recoverPending() }
             runCatching { mmsRetries.runDue(mmsReceiver::retryDownload) }
         }
         restricted.value = backgroundRestricted()

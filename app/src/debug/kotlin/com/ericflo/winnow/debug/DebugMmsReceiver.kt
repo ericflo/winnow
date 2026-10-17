@@ -41,6 +41,9 @@ import java.io.ByteArrayOutputStream
  * The default mode runs an m-retrieve-conf through [com.ericflo.winnow.sms.MmsReceiver.onDownloaded];
  * `--es mode push` runs an m-notification-ind through onPush, whose download then fails for
  * want of an MMSC, which exercises the retry path.
+ * Push fixtures accept `--es id`, `--es location`, and `--el expiry` (relative seconds).
+ * `--es mode retry --el message ID` retries a notification through the normal download path.
+ * `legacy` and `cleanup` are fixtures for scripts/emulator-mms-regression.py (test IDs only).
  */
 class DebugMmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -54,13 +57,37 @@ class DebugMmsReceiver : BroadcastReceiver() {
         val contact = intent.getBooleanExtra("contact", false)
         val gif = intent.getBooleanExtra("gif", false)
         val subscriptionId = SubscriptionManager.getDefaultSmsSubscriptionId()
-        val id = "debug${System.currentTimeMillis()}"
+        val id = intent.getStringExtra("id") ?: "debug${System.currentTimeMillis()}"
         val pending = goAsync()
         container.appScope.launch {
             // As MmsDownloadedReceiver does: stored, the broadcast ends; classifying and notifying follow.
             var then: (suspend () -> Unit)? = null
             try {
-                if (intent.getStringExtra("mode") == "delivered") {
+                if (intent.getStringExtra("mode") == "legacy") {
+                    require(id.startsWith("mms-regression-"))
+                    val thread = android.provider.Telephony.Threads.getOrCreateThreadId(context, setOf(from))
+                    val uri = checkNotNull(container.mmsStore.insertNotification(
+                        NotificationInd(id, intent.getStringExtra("location")!!, from = from), thread, subscriptionId,
+                    ))
+                    context.contentResolver.update(uri, android.content.ContentValues().apply {
+                        put(android.provider.Telephony.Mms.EXPIRY, intent.getLongExtra("expiry", 86400))
+                        put(android.provider.Telephony.Mms.DATE, intent.getLongExtra("received", System.currentTimeMillis() / 1000))
+                        if (intent.hasExtra("status")) put(android.provider.Telephony.Mms.STATUS, intent.getIntExtra("status", 135))
+                        else putNull(android.provider.Telephony.Mms.STATUS)
+                    }, null, null)
+                } else if (intent.getStringExtra("mode") == "cleanup") {
+                    require(id.startsWith("mms-regression-"))
+                    context.contentResolver.query(
+                        android.provider.Telephony.Mms.CONTENT_URI, arrayOf("_id"), "tr_id LIKE ?", arrayOf("$id%"), null,
+                    )?.use { c -> while (c.moveToNext()) {
+                        val message = c.getLong(0)
+                        container.mmsStore.delete(android.content.ContentUris.withAppendedId(android.provider.Telephony.Mms.CONTENT_URI, message))
+                        container.mmsRetries.done(message)
+                        container.mmsFailures.clear(message)
+                    } }
+                } else if (intent.getStringExtra("mode") == "retry") {
+                    container.mmsReceiver.retryDownload(intent.getLongExtra("message", -1))
+                } else if (intent.getStringExtra("mode") == "delivered") {
                     val sent = intent.getLongExtra("sent", -1)
                     val messageId = "debug-delivered-$sent"
                     context.contentResolver.update(
@@ -75,7 +102,12 @@ class DebugMmsReceiver : BroadcastReceiver() {
                     )?.use { c -> if (c.moveToFirst()) c.getInt(0) else null } ?: subscriptionId
                     container.mmsReceiver.onPush(PduComposer.compose(report), sim)
                 } else if (intent.getStringExtra("mode") == "push") {
-                    val ind = NotificationInd(transactionId = id, contentLocation = "http://mmsc.invalid/$id", from = from, messageSize = 50_000)
+                    val ind = NotificationInd(
+                        transactionId = id,
+                        contentLocation = intent.getStringExtra("location") ?: "http://mmsc.invalid/$id",
+                        from = from, messageSize = 50_000,
+                        expiry = if (intent.hasExtra("expiry")) com.ericflo.winnow.mms.Expiry(intent.getLongExtra("expiry", 0)) else null,
+                    )
                     container.mmsReceiver.onPush(PduComposer.compose(ind), subscriptionId)
                 } else {
                     val content = buildList {

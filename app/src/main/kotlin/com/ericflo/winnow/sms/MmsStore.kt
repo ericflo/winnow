@@ -22,12 +22,13 @@ class MmsStore(private val context: Context) {
 
     /** A placeholder for an announced, not-yet-downloaded message ("Downloading MMS…"). */
     fun insertNotification(ind: NotificationInd, threadId: Long, subscriptionId: Int): Uri? {
-        val values = baseValues(threadId, Mms.MESSAGE_BOX_INBOX, MESSAGE_TYPE_NOTIFICATION_IND, System.currentTimeMillis() / 1000, read = false, subscriptionId).apply {
+        val receivedAt = System.currentTimeMillis() / 1000
+        val values = baseValues(threadId, Mms.MESSAGE_BOX_INBOX, MESSAGE_TYPE_NOTIFICATION_IND, receivedAt, read = false, subscriptionId).apply {
             put(Mms.CONTENT_LOCATION, ind.contentLocation)
             put(Mms.TRANSACTION_ID, ind.transactionId)
             put(Mms.MESSAGE_SIZE, ind.messageSize)
             put(Mms.MESSAGE_CLASS, ind.messageClass)
-            ind.expiry?.let { put(Mms.EXPIRY, it.seconds) }
+            ind.expiry?.let { put(Mms.EXPIRY, MmsProtocol.expiryAt(it, receivedAt)) }
             ind.subject?.let { put(Mms.SUBJECT, MmsCharsets.forStore(it)); put(Mms.SUBJECT_CHARSET, MmsCharsets.UTF_8) }
         }
         val uri = resolver.insert(Mms.Inbox.CONTENT_URI, values) ?: return null
@@ -128,14 +129,40 @@ class MmsStore(private val context: Context) {
      * A placeholder already stored for this announcement, if the carrier is repeating itself.
      * Matched on the content location, which names one message, else the transaction ID.
      */
-    fun findNotification(contentLocation: String, transactionId: String): Uri? {
+    fun findNotification(contentLocation: String, transactionId: String, subscriptionId: Int): Uri? {
         val (selection, args) = when {
-            contentLocation.isNotBlank() -> "${Mms.CONTENT_LOCATION} = ?" to arrayOf(contentLocation)
+            contentLocation.isNotBlank() -> "(${Mms.CONTENT_LOCATION} = ? OR ${Mms.TRANSACTION_ID} = ?)" to arrayOf(contentLocation, transactionId)
             transactionId.isNotBlank() -> "${Mms.TRANSACTION_ID} = ?" to arrayOf(transactionId)
             else -> return null
         }
-        return resolver.query(Mms.CONTENT_URI, arrayOf(Mms._ID), "${Mms.MESSAGE_TYPE} = $MESSAGE_TYPE_NOTIFICATION_IND AND $selection", args, null)
+        return resolver.query(Mms.CONTENT_URI, arrayOf(Mms._ID), "${Mms.MESSAGE_TYPE} = $MESSAGE_TYPE_NOTIFICATION_IND AND ${Mms.SUBSCRIPTION_ID} = $subscriptionId AND $selection", args, null)
             ?.use { c -> if (c.moveToFirst()) android.content.ContentUris.withAppendedId(Mms.CONTENT_URI, c.getLong(0)) else null }
+    }
+
+    /** Correct legacy placeholders in the shared store, so another SMS app can also retrieve them. */
+    fun repairNotifications(locationFor: (String, String, Int) -> String): List<Long> {
+        val repaired = mutableListOf<Long>()
+        resolver.query(
+            Mms.CONTENT_URI,
+            arrayOf(Mms._ID, Mms.CONTENT_LOCATION, Mms.TRANSACTION_ID, Mms.SUBSCRIPTION_ID, Mms.EXPIRY, Mms.DATE),
+            "${Mms.MESSAGE_TYPE} = $MESSAGE_TYPE_NOTIFICATION_IND", null, null,
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val location = c.getString(1).orEmpty()
+                val corrected = locationFor(location, c.getString(2).orEmpty(), c.getInt(3))
+                val expiry = c.getLong(4)
+                val correctedExpiry = MmsProtocol.repairStoredExpiry(expiry, c.getLong(5))
+                val values = ContentValues().apply {
+                    if (corrected != location) put(Mms.CONTENT_LOCATION, corrected)
+                    if (correctedExpiry != expiry) put(Mms.EXPIRY, correctedExpiry)
+                }
+                if (values.size() > 0) {
+                    resolver.update(ContentUris.withAppendedId(Mms.CONTENT_URI, c.getLong(0)), values, null, null)
+                    repaired += c.getLong(0)
+                }
+            }
+        }
+        return repaired
     }
 
     /** The placeholder's status column: [STATUS_DEFERRED], [STATUS_DOWNLOAD_FAILED], or null while it downloads. */

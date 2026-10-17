@@ -22,6 +22,26 @@ import com.ericflo.winnow.WinnowApp
 class MmsRetries(private val context: Context, private val readiness: SendReadiness) {
     private val prefs = context.getSharedPreferences("mms_retries", Context.MODE_PRIVATE)
 
+    /** Persist a watchdog before asking the system service to download. A missing callback
+     * must not leave an untracked "Downloading MMS" row forever. */
+    @Synchronized
+    fun started(mmsId: Long, attempt: String): Boolean {
+        if (isDownloading(mmsId)) return false
+        val now = System.currentTimeMillis()
+        val (tries, firstAt) = entry(mmsId) ?: (0 to now)
+        check(prefs.edit().putString(mmsId.toString(), "$tries:$firstAt:${now + DOWNLOAD_TIMEOUT_MILLIS}:downloading:$attempt").commit())
+        schedule()
+        return true
+    }
+
+    @Synchronized
+    fun isDownloading(mmsId: Long): Boolean =
+        prefs.getString(mmsId.toString(), null)?.split(':')?.let { it.getOrNull(3) == "downloading" && (it.getOrNull(2)?.toLongOrNull() ?: 0) > System.currentTimeMillis() } == true
+
+    @Synchronized
+    fun isCurrentAttempt(mmsId: Long, attempt: String): Boolean =
+        prefs.getString(mmsId.toString(), null)?.split(':')?.getOrNull(4) == attempt
+
     /** A download of placeholder [mmsId] failed: try again later, unless it's had its tries. */
     @Synchronized
     fun failed(mmsId: Long) {
@@ -39,6 +59,22 @@ class MmsRetries(private val context: Context, private val readiness: SendReadin
     /** As the app starts: a force stop cancels its jobs, so the waiting retries' job is set again. */
     @Synchronized
     fun rearm() {
+        if (!isDefaultSmsApp()) return
+        // Also discover orphaned downloads from older releases or a process killed between
+        // saving the notification and handing the request to Android.
+        context.contentResolver.query(
+            Telephony.Mms.CONTENT_URI, arrayOf(Telephony.Mms._ID, Telephony.Mms.DATE),
+            "${Telephony.Mms.MESSAGE_TYPE} = ${MmsStore.MESSAGE_TYPE_NOTIFICATION_IND} AND ${Telephony.Mms.STATUS} IS NULL", null, null,
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val key = c.getLong(0).toString()
+                if (!prefs.contains(key)) {
+                    val receivedAt = c.getLong(1) * 1000
+                    // A fresh push may still be entering download(); don't claim its attempt.
+                    prefs.edit().putString(key, "0:$receivedAt:${receivedAt + DOWNLOAD_TIMEOUT_MILLIS}:orphan").apply()
+                }
+            }
+        }
         if (prefs.all.isNotEmpty()) schedule()
     }
 
@@ -51,15 +87,30 @@ class MmsRetries(private val context: Context, private val readiness: SendReadin
     /** The job's turn: download what's due, again, and wait for the rest. */
     @Synchronized
     fun runDue(retry: (Long) -> Unit) {
+        if (!isDefaultSmsApp()) {
+            context.getSystemService(JobScheduler::class.java).cancel(JOB_ID)
+            return
+        }
         val now = System.currentTimeMillis()
         val state = readiness.now()
         val blocked = state.airplane || state.mobileDataOff
         for ((key, value) in prefs.all) {
             val mmsId = key.toLongOrNull() ?: continue
-            val (tries, firstAt, dueAt) = (value as? String)?.split(':')?.mapNotNull(String::toLongOrNull)?.takeIf { it.size == 3 } ?: continue
+            val fields = (value as? String)?.split(':') ?: continue
+            val (tries, firstAt, dueAt) = fields.take(3).mapNotNull(String::toLongOrNull).takeIf { it.size == 3 } ?: continue
             val placeholder = ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, mmsId)
-            // Downloaded by a tap since, deleted, or no longer failed (being fetched, or put off).
-            val status = runCatching { MmsStore.statusOf(context, placeholder) }.getOrNull()
+            // Distinguish a missing row from an active download (both used to return null).
+            val row = context.contentResolver.query(placeholder, arrayOf(Telephony.Mms.MESSAGE_TYPE, Telephony.Mms.STATUS), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getInt(0) to (if (c.isNull(1)) null else c.getInt(1)) else null }
+            val status = row?.second
+            if (row?.first == MmsStore.MESSAGE_TYPE_NOTIFICATION_IND && status == null) {
+                if (dueAt <= now) {
+                    MmsStore(context).markDownloadFailed(placeholder)
+                    MmsFailures(context).record(mmsId, "Android didn't finish the download; Winnow will try again")
+                    failed(mmsId)
+                }
+                continue
+            }
             if (status != MmsStore.STATUS_DOWNLOAD_FAILED) {
                 prefs.edit().remove(key).apply()
                 continue
@@ -82,9 +133,11 @@ class MmsRetries(private val context: Context, private val readiness: SendReadin
     }
 
     private fun entry(mmsId: Long): Pair<Int, Long>? =
-        prefs.getString(mmsId.toString(), null)?.split(':')?.mapNotNull(String::toLongOrNull)?.takeIf { it.size == 3 }?.let { it[0].toInt() to it[1] }
+        prefs.getString(mmsId.toString(), null)?.split(':')?.take(3)?.mapNotNull(String::toLongOrNull)?.takeIf { it.size == 3 }?.let { it[0].toInt() to it[1] }
 
-    /** One job, for the soonest of them, whenever there's a network. */
+    private fun isDefaultSmsApp() = context.getSystemService(android.app.role.RoleManager::class.java).isRoleHeld(android.app.role.RoleManager.ROLE_SMS)
+
+    /** The system MMS service acquires its own network. The watchdog must also run offline. */
     private fun schedule() {
         val jobs = context.getSystemService(JobScheduler::class.java)
         val soonest = prefs.all.values.mapNotNull { (it as? String)?.split(':')?.getOrNull(2)?.toLongOrNull() }.minOrNull()
@@ -94,7 +147,6 @@ class MmsRetries(private val context: Context, private val readiness: SendReadin
         }
         val job = JobInfo.Builder(JOB_ID, ComponentName(context, MmsRetryJob::class.java))
             .setMinimumLatency((soonest - System.currentTimeMillis()).coerceAtLeast(0))
-            .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
             .setPersisted(true)
             .build()
         runCatching { jobs.schedule(job) }.onFailure { Log.w(TAG, "Couldn't schedule MMS retries", it) }
@@ -106,6 +158,7 @@ class MmsRetries(private val context: Context, private val readiness: SendReadin
         private val BACKOFF_MILLIS = longArrayOf(60_000L, 5 * 60_000L, 30 * 60_000L, 2 * 3_600_000L, 6 * 3_600_000L)
         private const val BLOCKED_RECHECK_MILLIS = 15 * 60_000L
         private const val WAIT_FOR_DATA_MILLIS = 2 * 24 * 3_600_000L
+        private const val DOWNLOAD_TIMEOUT_MILLIS = 10 * 60_000L
         private const val TAG = "WinnowMms"
     }
 }

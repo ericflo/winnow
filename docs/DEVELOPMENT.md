@@ -46,6 +46,46 @@ The smoke script:
 - feeds it sample traffic: SMS through the emulator's modem, a tapback, a group MMS with a photo, and an MMS whose download fails;
 - refuses to run unless the only attached device is an emulator.
 
+### MMS carrier and recovery regression checks
+
+After the smoke script, on a rootable emulator:
+
+```sh
+adb root
+python3 scripts/emulator-mms-regression.py
+```
+
+This exercises the installed app and the system MMS provider with a temporary carrier-config
+override. It checks distinct notifications sharing an incomplete URL, duplicate delivery,
+retry URL stability, absolute expiry, repair of old placeholders, preservation of deferred
+messages, and recovery of abandoned downloads. It restores the carrier flag and removes its
+own fictional messages. It does not test a live carrier's APN or MMS server.
+
+The October 2026 MMS receive fix addresses app-side protocol requirements that
+`SmsManager.downloadMultimediaMessage` does not perform:
+
+- `enabledTransID`: when enabled, a notification URL ending in `=` needs its transaction ID
+  appended **before both persistence and downloading**. Otherwise the server receives an
+  incomplete URL, and separate messages sharing that URL can be mistaken for duplicates.
+- `enabledNotifyWapMMSC`: replies go to the notification URL when the carrier requests it.
+- Relative `X-Mms-Expiry` values must be converted to epoch seconds in the shared provider.
+  Older Winnow stored the duration verbatim, making messages appear to expire near 1970 to
+  other SMS apps. Startup/role recovery corrects these values using the original receipt time.
+- A carrier error in a valid `RetrieveConf` must not be saved or acknowledged as a message.
+- Download attempts need a persisted timeout even when Android never sends a callback. The
+  retry job also runs without a general internet connection; Android acquires the MMS network.
+
+These rules are documented in [SmsManager](https://developer.android.com/reference/android/telephony/SmsManager#MMS_CONFIG_APPEND_TRANSACTION_ID)
+and implemented by [AOSP Messaging](https://android.googlesource.com/platform/packages/apps/Messaging/+/master/src/com/android/messaging/sms/MmsUtils.java).
+[Android's Verizon configuration](https://android.googlesource.com/platform/packages/apps/CarrierConfig/+/main/assets/carrier_config_carrierid_1839_Verizon-Wireless.xml)
+enables both carrier flags. The reported 404 is consistent with the missing transaction ID;
+the screenshots alone do not prove that the carrier expired or deleted those messages.
+
+Before releasing, verify a fresh photo and group MMS on a real SIM with Winnow default and
+the app closed, recovery after temporarily losing service, manual download with auto-download
+disabled, and the receiving SIM on a dual-SIM phone. Existing placeholders can be repaired,
+but a message already removed from the carrier's server requires the sender to resend it.
+
 Every number is fictional (555-01xx), and nothing leaves the machine.
 
 By hand, `adb emu sms send 4155550123 "hello"` delivers an SMS. Debug builds also accept MMS through the real receive path, since emulators have no MMS server:

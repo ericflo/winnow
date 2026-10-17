@@ -96,6 +96,10 @@ class RoleWatch(private val context: Context, scope: kotlinx.coroutines.Coroutin
             kotlinx.coroutines.CoroutineScope(container.appScope.coroutineContext).launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     container.roleWatch.check(isDefault, container.messages::displayName)
+                    if (isDefault) {
+                        container.mmsReceiver.recoverPending()
+                        container.mmsRetries.rearm()
+                    }
                 } finally {
                     pending.finish()
                 }
