@@ -57,8 +57,9 @@ python3 scripts/emulator-mms-regression.py
 
 This exercises the installed app and the system MMS provider with a temporary carrier-config
 override. It checks distinct notifications sharing an incomplete URL, duplicate delivery,
-retry URL stability, absolute expiry, repair of old placeholders, preservation of deferred
-messages, and recovery of abandoned downloads. It restores the carrier flag and removes its
+retry URL stability, refreshed carrier URLs, reused expired transaction IDs, request diagnostics,
+absolute expiry, repair of old placeholders, preservation of deferred messages, and recovery
+of abandoned downloads. It restores the carrier flag and removes its
 own fictional messages. It does not test a live carrier's APN or MMS server.
 
 The October 2026 MMS receive fix addresses app-side protocol requirements that
@@ -78,10 +79,42 @@ The October 2026 MMS receive fix addresses app-side protocol requirements that
 These rules are documented in [SmsManager](https://developer.android.com/reference/android/telephony/SmsManager#MMS_CONFIG_APPEND_TRANSACTION_ID)
 and implemented by [AOSP Messaging](https://android.googlesource.com/platform/packages/apps/Messaging/+/master/src/com/android/messaging/sms/MmsUtils.java).
 [Android's Verizon configuration](https://android.googlesource.com/platform/packages/apps/CarrierConfig/+/main/assets/carrier_config_carrierid_1839_Verizon-Wireless.xml)
-enables both carrier flags. The reported 404 is consistent with the missing transaction ID;
-the screenshots alone do not prove that the carrier expired or deleted those messages.
+enables both carrier flags. The original 404 was consistent with a missing transaction ID,
+but neither the screenshots nor the follow-up 0.1.71 report establish that cause.
 
-Before releasing, verify a fresh photo and group MMS on a real SIM with Winnow default and
+The October 18 follow-up adds two further receive-path fixes:
+
+- Fill missing MMS `userAgent` / `uaProfUrl` carrier fields from the receiving SIM's
+  `TelephonyManager` MMS identity APIs. Their device-resource fallback is absent from the
+  raw MMS carrier bundle. Preserve nonempty carrier values; if no device agent exists,
+  identify the app as `Winnow/<version>` without inventing a device profile. Apply the same
+  configuration to downloads, acknowledgements, and outgoing MMS. See
+  [AOSP Messaging's overrides](https://android.googlesource.com/platform/packages/apps/Messaging/+/master/src/android/support/v7/mms/MmsManager.java),
+  [its identity loader](https://android.googlesource.com/platform/packages/apps/Messaging/+/master/src/com/android/messaging/sms/BugleUserAgentInfoLoader.java),
+  and [Android 16's device fallback](https://android.googlesource.com/platform/packages/services/Telephony/+/android16-release/src/com/android/phone/PhoneInterfaceManager.java).
+- A repeated, unexpired transaction can announce a replacement download URL. Update its
+  existing row and retry that URL, superseding an older in-flight attempt. Keep deferred
+  messages deferred. Don't let expired transaction IDs or shared incomplete URLs hide
+  distinct messages. Scheduled retries use the message's SIM readiness and stop at known
+  expiry; manual retry remains available.
+
+The 0.1.71 problem report recorded failure times, announced sizes, and **stored URL hosts**,
+not original notification times, actual request URLs, expiry, or carrier-config values.
+Repeated identical errors were suppressed, so its entries are not an attempt count. Its
+Wi-Fi/no-network label described the default network, not Android's separate MMS bearer.
+It cannot distinguish old placeholders from fresh notifications or prove URL correction,
+carrier expiry, or authentication rejection. No live Verizon device is attached here.
+
+New failure reports carry a snapshot from the actual request: provider row, source (new
+push/manual retry/recovery/re-announcement), original provider receipt time, age relative
+to the app update, stored expiry, SIM/config flags, and HTTP identity fallbacks. Input and
+attempted URLs have exact-string SHA-256 fingerprints and structural details; URL path,
+query, fragment, transaction tokens, and phone numbers stay out of shared reports. This
+does **not** expose raw retrieval URLs or the APN/headers Android ultimately uses. A new
+app version or changed attempted URL records the failure again even when it is still 404.
+An HTTP 404 alone remains insufficient evidence of expiry.
+
+To validate the fix on a carrier, verify a fresh photo and group MMS on a real SIM with Winnow default and
 the app closed, recovery after temporarily losing service, manual download with auto-download
 disabled, and the receiving SIM on a dual-SIM phone. Existing placeholders can be repaired,
 but a message already removed from the carrier's server requires the sender to resend it.

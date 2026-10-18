@@ -24,6 +24,21 @@ internal object MmsProtocol {
     fun repairStoredExpiry(expiry: Long, receivedAtSeconds: Long): Long =
         if (expiry in 1 until YEAR_2000 && receivedAtSeconds >= YEAR_2000) receivedAtSeconds + expiry else expiry
 
+    /** A transaction ID may be reused after expiry. A shared, incomplete URL isn't an identity. */
+    fun sameNotification(oldLocation: String, oldId: String, oldExpiry: Long, location: String, id: String, now: Long): Boolean =
+        (oldLocation.isNotBlank() && oldLocation == location && oldId == id) ||
+            (id.isNotBlank() && oldId == id && oldExpiry > now)
+
+    fun expired(expiry: Long, now: Long): Boolean = expiry > 0 && expiry <= now
+
+    data class HttpIdentity(val userAgent: String?, val profileUrl: String?)
+
+    /** TelephonyManager includes device-resource fallbacks that the MMS carrier bundle lacks. */
+    fun httpIdentityOverrides(carrierAgent: String?, carrierProfile: String?, deviceAgent: String?, deviceProfile: String?, appAgent: String): HttpIdentity = HttpIdentity(
+        userAgent = if (carrierAgent.isNullOrBlank()) deviceAgent?.takeIf { it.isNotBlank() } ?: appAgent else null,
+        profileUrl = if (carrierProfile.isNullOrBlank()) deviceProfile?.takeIf { it.isNotBlank() } else null,
+    )
+
     /** A carrier error can be a valid RetrieveConf. Never save/acknowledge that as a message. */
     fun retrieved(conf: RetrieveConf): Boolean = conf.retrieveStatus == null || conf.retrieveStatus == ResponseStatus.OK
 

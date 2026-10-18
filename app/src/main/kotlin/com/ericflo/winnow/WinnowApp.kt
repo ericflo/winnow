@@ -514,7 +514,7 @@ class AppContainer(private val context: Context) {
             runCatching { reminders.fireDue() }
             // A picture message's download retry is a job, which Android holds back the same way.
             runCatching { mmsReceiver.recoverPending() }
-            runCatching { mmsRetries.runDue(mmsReceiver::retryDownload) }
+            runCatching { mmsRetries.runDue { mmsReceiver.retryDownload(it, "startup recovery") } }
         }
         restricted.value = backgroundRestricted()
         if (isDefaultSmsApp()) defaultRefused.value = false

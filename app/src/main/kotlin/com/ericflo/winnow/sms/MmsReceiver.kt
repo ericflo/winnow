@@ -53,21 +53,26 @@ class MmsReceiver(
     private val report: (String) -> Unit = {},
 ) {
     private val downloadResults = Mutex()
+    private val diagnostics = MmsDownloadDiagnostics(context)
     /**
      * [placeholder]'s download failed, at [stage], because [why]: say so in the conversation (with
      * why), keep it for the problem report, and try again later.
      */
-    private fun failed(placeholder: Uri, stage: String, why: String, subscriptionId: Int = -1) {
+    private fun failed(placeholder: Uri, stage: String, why: String, subscriptionId: Int = -1, requestDetails: String? = null, attemptedLocation: String? = null) {
         store.markDownloadFailed(placeholder)
         val id = placeholder.lastPathSegment?.toLongOrNull()
         Log.w(TAG, "MMS download failed ($stage): $why")
-        if (id != null && failures?.record(id, why) == true) {
+        // A failed request in a new version or at a new URL needs a fresh report even if the
+        // carrier's error is unchanged. Otherwise an upgrade silently keeps the old evidence.
+        val reportKey = "${runCatching { diagnostics.version }.getOrDefault("?")}:$why:${MmsDownloadReport.fingerprint(attemptedLocation.orEmpty())}"
+        if (id != null && failures?.record(id, why, reportKey) == true) {
             val (size, server) = context.contentResolver.query(placeholder, arrayOf(Telephony.Mms.MESSAGE_SIZE, Telephony.Mms.CONTENT_LOCATION), null, null, null)
                 ?.use { c -> if (c.moveToFirst()) c.getLong(0) to Uri.parse(c.getString(1).orEmpty()).host.orEmpty() else null } ?: (0L to "")
             runCatching {
                 report(
-                    "Stage: $stage\nWhy: $why\nNetwork: ${failures?.network(subscriptionId)}\nSIM subscription: $subscriptionId\n" +
-                        "Announced size: ${size / 1000} KB\nCarrier's MMS server: ${server.ifBlank { "?" }}",
+                    "Stage: $stage\nWhy: $why\nDefault network (not necessarily the MMS network): ${failures?.network(subscriptionId)}\nSIM subscription: $subscriptionId\n" +
+                        "Announced size: ${size / 1000} KB\nStored MMS server: ${server.ifBlank { "?" }}\n" +
+                        (requestDetails ?: "Request snapshot unavailable (failed before the request or callback from an older version)."),
                 )
             }
         }
@@ -75,7 +80,11 @@ class MmsReceiver(
     }
 
     /** A WAP push carrying an m-notification-ind. */
-    suspend fun onPush(pdu: ByteArray, subscriptionId: Int) {
+    suspend fun onPush(pdu: ByteArray, subscriptionId: Int) = downloadResults.withLock {
+        handlePush(pdu, subscriptionId)
+    }
+
+    private suspend fun handlePush(pdu: ByteArray, subscriptionId: Int) {
         if (!isDefaultSmsApp()) return
         val parsed = try {
             PduParser.parse(pdu)
@@ -94,8 +103,18 @@ class MmsReceiver(
         val ind = notification.copy(contentLocation = downloadLocation(notification.contentLocation, notification.transactionId, subscriptionId))
         // Carriers announce again when they think the first went unanswered.
         store.findNotification(ind.contentLocation, ind.transactionId, subscriptionId)?.let { existing ->
-            Log.i(TAG, "Repeated MMS notification; already have it")
-            if (store.status(existing) == MmsStore.STATUS_DEFERRED) acknowledge(NotifyRespInd(ind.transactionId, status = MmsStatus.DEFERRED), subscriptionId, ind.contentLocation)
+            val status = store.status(existing)
+            val changed = store.refreshNotification(existing, ind)
+            Log.i(TAG, "Repeated MMS notification; location changed=$changed")
+            if (status == MmsStore.STATUS_DEFERRED) {
+                acknowledge(NotifyRespInd(ind.transactionId, status = MmsStatus.DEFERRED), subscriptionId, ind.contentLocation)
+            } else if ((changed || status == MmsStore.STATUS_DOWNLOAD_FAILED) && autoDownload(subscriptionId)) {
+                // A renewed location must replace an old in-flight request as well. Its late
+                // failure cannot undo the newer attempt (onDownloaded checks attempt identity).
+                val id = ContentUris.parseId(existing)
+                if (changed) retries?.done(id)
+                retryDownload(id, "carrier re-announcement", notification.contentLocation)
+            }
             return
         }
         val threadId = Telephony.Threads.getOrCreateThreadId(context, setOf(ind.from ?: UNKNOWN_SENDER))
@@ -111,7 +130,7 @@ class MmsReceiver(
             return
         }
         try {
-            download(placeholder, ind.contentLocation, ind.transactionId, subscriptionId)
+            download(placeholder, ind.contentLocation, ind.transactionId, subscriptionId, source = "new notification", announcedLocation = notification.contentLocation)
         } catch (e: Exception) {
             Log.w(TAG, "Couldn't start the MMS download", e)
             failed(placeholder, "starting the download", "Winnow couldn't start it: ${e.message ?: e::class.simpleName}", subscriptionId)
@@ -119,7 +138,7 @@ class MmsReceiver(
     }
 
     /** Downloads a placeholder again after a failure. */
-    fun retryDownload(mmsId: Long) {
+    fun retryDownload(mmsId: Long, source: String = "manual retry", announcedLocation: String? = null) {
         if (!isDefaultSmsApp()) return
         if (retries?.isDownloading(mmsId) == true) return
         val placeholder = ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, mmsId)
@@ -134,7 +153,7 @@ class MmsReceiver(
         try {
             val corrected = downloadLocation(location, transactionId, subscriptionId)
             context.contentResolver.update(placeholder, ContentValues().apply { put(Telephony.Mms.CONTENT_LOCATION, corrected) }, null, null)
-            download(placeholder, corrected, transactionId, subscriptionId, deferred)
+            download(placeholder, corrected, transactionId, subscriptionId, deferred, source, announcedLocation, location)
         } catch (e: Exception) {
             Log.w(TAG, "Couldn't restart the MMS download", e)
             failed(placeholder, "starting the download again", "Winnow couldn't start it: ${e.message ?: e::class.simpleName}", subscriptionId)
@@ -153,18 +172,24 @@ class MmsReceiver(
         for (id in repaired) {
             val uri = ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, id)
             if (store.status(uri) == MmsStore.STATUS_DOWNLOAD_FAILED && autoDownload(store.subscriptionId(id) ?: -1)) {
-                retryDownload(id)
+                retryDownload(id, "metadata repair of existing notification")
             }
         }
     }
 
-    private fun download(placeholder: Uri, location: String, transactionId: String, subscriptionId: Int, deferred: Boolean = false) {
+    private fun download(placeholder: Uri, location: String, transactionId: String, subscriptionId: Int, deferred: Boolean = false, source: String, announcedLocation: String? = null, inputLocation: String = announcedLocation ?: location) {
         val id = placeholder.lastPathSegment?.toLongOrNull()
         val file = files.newFile("retrieve")
         if (id != null && retries?.started(id, file.name) == false) {
             file.delete()
             return
         }
+        val manager = smsManager(subscriptionId)
+        val config = carrierConfig(subscriptionId)
+        val overrides = MmsHttpConfig.overrides(context, manager, config)
+        val details = runCatching {
+            diagnostics.describe(placeholder, location, transactionId, subscriptionId, config, overrides, source, announcedLocation, inputLocation)
+        }.getOrDefault("Request snapshot unavailable")
         val done = PendingIntent.getBroadcast(
             context, placeholder.lastPathSegment?.toIntOrNull() ?: 0,
             Intent(context, MmsDownloadedReceiver::class.java)
@@ -175,6 +200,7 @@ class MmsReceiver(
                 .putExtra(EXTRA_TRANSACTION_ID, transactionId)
                 .putExtra(EXTRA_SUBSCRIPTION, subscriptionId)
                 .putExtra(EXTRA_LOCATION, location)
+                .putExtra(EXTRA_REQUEST_DETAILS, details)
                 .putExtra(EXTRA_DEFERRED, deferred),
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
@@ -185,7 +211,12 @@ class MmsReceiver(
         phoneHosts().forEach { host ->
             runCatching { context.grantUriPermission(host, uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         }
-        smsManager(subscriptionId).downloadMultimediaMessage(context, location, uri, null, done)
+        try {
+            manager.downloadMultimediaMessage(context, location, uri, overrides, done)
+        } catch (e: Exception) {
+            file.delete()
+            failed(placeholder, "starting the download", "Winnow couldn't start it: ${e.message ?: e::class.simpleName}", subscriptionId, details, location)
+        }
     }
 
     private fun phoneHosts(): List<String> =
@@ -209,6 +240,7 @@ class MmsReceiver(
         whyNone: String? = null,
         contentLocation: String? = null,
         attempt: String? = null,
+        requestDetails: String? = null,
     ): (suspend () -> Unit)? = downloadResults.withLock {
         // A late callback must not recreate a deleted message or duplicate a completed retry.
         if (placeholder != null) {
@@ -220,7 +252,7 @@ class MmsReceiver(
         val staleAttempt = id != null && attempt != null && retries?.isCurrentAttempt(id, attempt) == false
         if (pdu == null) {
             if (staleAttempt) return@withLock null
-            placeholder?.let { failed(it, "the download (Android's MMS service and the carrier)", whyNone ?: "nothing came back", subscriptionId) }
+            placeholder?.let { failed(it, "the download (Android's MMS service and the carrier)", whyNone ?: "nothing came back", subscriptionId, requestDetails, contentLocation) }
             return@withLock null
         }
         var unreadable: String? = null
@@ -291,8 +323,10 @@ class MmsReceiver(
 
     private fun acknowledge(pdu: MmsPdu, subscriptionId: Int, contentLocation: String?) {
         val file = files.write("ack", PduComposer.compose(pdu))
-        val location = MmsProtocol.responseLocation(contentLocation, carrierConfig(subscriptionId)?.getBoolean(SmsManager.MMS_CONFIG_NOTIFY_WAP_MMSC_ENABLED, false) == true)
-        runCatching { smsManager(subscriptionId).sendMultimediaMessage(context, files.uriFor(file), location, null, null) }
+        val manager = smsManager(subscriptionId)
+        val config = carrierConfig(subscriptionId)
+        val location = MmsProtocol.responseLocation(contentLocation, config?.getBoolean(SmsManager.MMS_CONFIG_NOTIFY_WAP_MMSC_ENABLED, false) == true)
+        runCatching { manager.sendMultimediaMessage(context, files.uriFor(file), location, MmsHttpConfig.overrides(context, manager, config), null) }
             .onFailure { Log.w(TAG, "Couldn't acknowledge MMS", it) }
     }
 
@@ -348,6 +382,7 @@ class MmsReceiver(
         const val EXTRA_SUBSCRIPTION = "subscription"
         const val EXTRA_DEFERRED = "deferred"
         const val EXTRA_LOCATION = "content_location"
+        const val EXTRA_REQUEST_DETAILS = "request_details"
         /** Where Android's MMS service may live, besides whatever the phone's user ID says. */
         private val PHONE_HOSTS = listOf("com.android.phone", "com.android.mms.service")
         private const val UNKNOWN_SENDER = "Unknown"
@@ -386,6 +421,7 @@ class MmsDownloadedReceiver : BroadcastReceiver() {
                     whyNone = why,
                     contentLocation = intent.getStringExtra(MmsReceiver.EXTRA_LOCATION),
                     attempt = file?.name,
+                    requestDetails = intent.getStringExtra(MmsReceiver.EXTRA_REQUEST_DETAILS),
                 )
             } catch (e: CancellationException) {
                 throw e

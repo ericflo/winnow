@@ -66,6 +66,46 @@ class MmsProtocolTest {
         assertNull(MmsProtocol.responseLocation("", true))
     }
 
+    @Test fun anUnexpiredTransactionCanAnnounceANewDownloadLocation() {
+        assertTrue(MmsProtocol.sameNotification("http://old/1", "T", receivedAt + 60, "http://new/1", "T", receivedAt))
+        assertFalse(MmsProtocol.sameNotification("http://old/1", "T", receivedAt - 1, "http://new/1", "T", receivedAt))
+        assertFalse(MmsProtocol.sameNotification("http://old/1", "T", 0, "http://new/1", "T", receivedAt))
+    }
+
+    @Test fun exactRepeatsRemainDuplicatesButSharedIncompleteUrlsDoNot() {
+        assertTrue(MmsProtocol.sameNotification("http://m/1", "T", receivedAt - 1, "http://m/1", "T", receivedAt))
+        assertFalse(MmsProtocol.sameNotification("http://m/?id=", "T1", receivedAt + 60, "http://m/?id=", "T2", receivedAt))
+        assertFalse(MmsProtocol.sameNotification("http://old/1", "", receivedAt + 60, "http://new/1", "", receivedAt))
+    }
+
+    @Test fun automaticRetriesRespectKnownDeadlinesButNotMissingOnes() {
+        assertFalse(MmsProtocol.expired(0, receivedAt))
+        assertFalse(MmsProtocol.expired(receivedAt + 1, receivedAt))
+        assertTrue(MmsProtocol.expired(receivedAt, receivedAt))
+        assertTrue(MmsProtocol.expired(receivedAt - 1, receivedAt))
+    }
+
+    @Test fun missingCarrierHttpIdentityUsesThePhonesMmsIdentity() {
+        val identity = MmsProtocol.httpIdentityOverrides("", null, "Samsung-MMS", "http://device/profile.xml", "Winnow/test")
+        assertEquals("Samsung-MMS", identity.userAgent)
+        assertEquals("http://device/profile.xml", identity.profileUrl)
+    }
+
+    @Test fun carrierHttpIdentityAlwaysTakesPrecedenceOverDeviceDefaults() {
+        val identity = MmsProtocol.httpIdentityOverrides("Carrier-UA", "http://carrier/profile", "Other-UA", "http://device/profile", "Winnow/test")
+        assertNull(identity.userAgent)
+        assertNull(identity.profileUrl)
+        val partial = MmsProtocol.httpIdentityOverrides("Carrier-UA", "", "Other-UA", "http://device/profile", "Winnow/test")
+        assertNull(partial.userAgent)
+        assertEquals("http://device/profile", partial.profileUrl)
+    }
+
+    @Test fun missingDeviceIdentityUsesAnHonestAppAgentAndNoInventedProfile() {
+        val identity = MmsProtocol.httpIdentityOverrides(null, "", " ", null, "Winnow/test")
+        assertEquals("Winnow/test", identity.userAgent)
+        assertNull(identity.profileUrl)
+    }
+
     @Test fun automaticRetrievalConfirmsTheOriginalNotification() {
         val conf = RetrieveConf(transactionId = "retrieval")
         assertEquals(NotifyRespInd("notification"), MmsProtocol.response(conf, "notification", false))

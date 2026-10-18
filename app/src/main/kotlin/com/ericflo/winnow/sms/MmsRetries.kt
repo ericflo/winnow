@@ -92,16 +92,20 @@ class MmsRetries(private val context: Context, private val readiness: SendReadin
             return
         }
         val now = System.currentTimeMillis()
-        val state = readiness.now()
-        val blocked = state.airplane || state.mobileDataOff
         for ((key, value) in prefs.all) {
             val mmsId = key.toLongOrNull() ?: continue
             val fields = (value as? String)?.split(':') ?: continue
             val (tries, firstAt, dueAt) = fields.take(3).mapNotNull(String::toLongOrNull).takeIf { it.size == 3 } ?: continue
             val placeholder = ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, mmsId)
             // Distinguish a missing row from an active download (both used to return null).
-            val row = context.contentResolver.query(placeholder, arrayOf(Telephony.Mms.MESSAGE_TYPE, Telephony.Mms.STATUS), null, null, null)
-                ?.use { c -> if (c.moveToFirst()) c.getInt(0) to (if (c.isNull(1)) null else c.getInt(1)) else null }
+            var subscriptionId: Int? = null
+            var expiry = 0L
+            val row = context.contentResolver.query(placeholder, arrayOf(Telephony.Mms.MESSAGE_TYPE, Telephony.Mms.STATUS, Telephony.Mms.SUBSCRIPTION_ID, Telephony.Mms.EXPIRY), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) {
+                    subscriptionId = if (c.isNull(2)) null else c.getInt(2).takeIf { it >= 0 }
+                    expiry = c.getLong(3)
+                    c.getInt(0) to (if (c.isNull(1)) null else c.getInt(1))
+                } else null }
             val status = row?.second
             if (row?.first == MmsStore.MESSAGE_TYPE_NOTIFICATION_IND && status == null) {
                 if (dueAt <= now) {
@@ -115,6 +119,14 @@ class MmsRetries(private val context: Context, private val readiness: SendReadin
                 prefs.edit().remove(key).apply()
                 continue
             }
+            // A recorded deadline isn't proof of why a server returned 404, but repeatedly
+            // fetching beyond it is futile. Keep the row and its manual retry available.
+            if (MmsProtocol.expired(expiry, now / 1000)) {
+                prefs.edit().remove(key).apply()
+                continue
+            }
+            val state = readiness.now(subscriptionId)
+            val blocked = state.airplane || state.mobileDataOff
             when {
                 dueAt > now -> Unit
                 blocked && now - firstAt < WAIT_FOR_DATA_MILLIS ->
@@ -171,7 +183,7 @@ class MmsRetryJob : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
         val container = (application as WinnowApp).container
         container.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching { container.mmsRetries.runDue(container.mmsReceiver::retryDownload) }
+            runCatching { container.mmsRetries.runDue { container.mmsReceiver.retryDownload(it, "scheduled retry") } }
                 .onFailure { Log.w("WinnowMms", "MMS retries failed", it) }
             jobFinished(params, false)
         }

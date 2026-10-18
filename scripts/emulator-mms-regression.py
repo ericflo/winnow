@@ -26,14 +26,24 @@ def shell(*args):
     return command("shell", shlex.join(str(arg) for arg in args))
 
 
-def rows():
+def all_rows():
     # The provider deliberately hides NotificationInd rows from the shell's restricted view.
     # Read the emulator's DB directly; all writes still go through the provider/app.
     output = shell("sqlite3", "-cmd", ".timeout 5000", "-json", "/data/user/0/com.android.providers.telephony/databases/mmssms.db",
                    f"SELECT _id,tr_id,ct_l,exp,date,st,sub_id,thread_id FROM pdu WHERE tr_id LIKE '{prefix}%'",
                    )
-    return {row["tr_id"]: {k: "NULL" if v is None else str(v) for k, v in row.items()}
-            for row in json.loads(output or "[]")}
+    return [{k: "NULL" if v is None else str(v) for k, v in row.items()} for row in json.loads(output or "[]")]
+
+
+def rows():
+    return {row["tr_id"]: row for row in all_rows()}
+
+
+def reports_for(message):
+    folder = "/data/user/0/" + package + "/files/problems"
+    files = shell("ls", folder).splitlines()
+    reports = [shell("cat", folder + "/" + name) for name in files if name.endswith("-MMS.txt")]
+    return "\n".join(report for report in reports if "Message row: " + str(message) + ";" in report)
 
 
 def eventually(check, description):
@@ -46,15 +56,15 @@ def eventually(check, description):
     raise AssertionError(description + "\n" + repr(rows()))
 
 
-def inject(suffix):
+def inject(suffix, url=location):
     shell("am", "broadcast", "-n", package + "/.debug.DebugMmsReceiver", "--es", "mode", "push",
-          "--es", "id", prefix + suffix, "--es", "location", location, "--el", "expiry", "86400",
+          "--es", "id", prefix + suffix, "--es", "location", url, "--el", "expiry", "86400",
           "--es", "from", "+14155550191")
 
 
-def insert(suffix, status, receipt):
+def insert(suffix, status, receipt, expiry=86400):
     args = ["am", "broadcast", "-n", package + "/.debug.DebugMmsReceiver", "--es", "mode", "legacy",
-            "--es", "id", prefix + suffix, "--es", "location", location, "--el", "expiry", "86400",
+            "--es", "id", prefix + suffix, "--es", "location", location, "--el", "expiry", str(expiry),
             "--el", "received", str(receipt)]
     if status is not None:
         args += ["--ei", "status", str(status)]
@@ -91,6 +101,20 @@ try:
     assert rows()[prefix + "-a"]["ct_l"] == location + prefix + "-a"
     print("PASS: repeated push and retry preserve message identity", flush=True)
 
+    eventually(lambda: "Attempted URL:" in reports_for(first["_id"]), "download failure carries the request snapshot")
+    report = reports_for(first["_id"])
+    assert "enabledTransID=true" in report and "URL ends with ID=true" in report, report
+    assert "Notification received:" in report and "Stored expiry:" in report, report
+    assert prefix not in report, "Report exposed a retrieval token"
+
+    refreshed = "http://renewed.invalid/new?message="
+    inject("-a", refreshed)
+    eventually(lambda: rows()[prefix + "-a"]["ct_l"] == refreshed + prefix + "-a", "re-announcement replaces stale location")
+    renewed = rows()[prefix + "-a"]
+    assert renewed["_id"] == first["_id"] and renewed["date"] == first["date"], renewed
+    assert len(all_rows()) == 2, all_rows()
+    eventually(lambda: "carrier re-announcement" in reports_for(first["_id"]), "renewed URL is actually retried and reported")
+
     receipt = int(time.time()) - 3600
     insert("-legacy", 135, receipt)
     insert("-deferred", 131, receipt)
@@ -105,11 +129,22 @@ try:
     print("PASS: legacy expiry uses original receipt time; deferred messages stay deferred", flush=True)
     eventually(lambda: rows()[prefix + "-orphan"]["st"] == "135", "orphaned download leaves the spinner and enters retry queue")
 
+    inject("-deferred", refreshed)
+    eventually(lambda: rows()[prefix + "-deferred"]["ct_l"] == refreshed + prefix + "-deferred", "deferred notification receives refreshed URL")
+    assert rows()[prefix + "-deferred"]["st"] == "131"
+
+    insert("-expired-id", 135, receipt, int(time.time()) - 1)
+    inject("-expired-id", refreshed)
+    eventually(lambda: len([row for row in all_rows() if row["tr_id"] == prefix + "-expired-id"]) == 2,
+               "expired transaction ID does not hide a fresh notification")
+
     shell("cmd", "phone", "cc", "set-value", "enabledTransID", "false")
     time.sleep(2)
     inject("-other-carrier")
     eventually(lambda: prefix + "-other-carrier" in rows(), "receive with carrier rule disabled")
     assert rows()[prefix + "-other-carrier"]["ct_l"] == location
+    inject("-other-carrier-2")
+    eventually(lambda: prefix + "-other-carrier-2" in rows(), "shared URL without carrier rule does not merge different transactions")
     print("PASS: other carriers keep the announced URL", flush=True)
 finally:
     shell("cmd", "phone", "cc", "set-value", "enabledTransID", original)

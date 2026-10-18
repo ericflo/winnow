@@ -15,17 +15,17 @@ import android.telephony.TelephonyManager
 class MmsFailures(private val context: Context) {
     private val prefs by lazy { context.getSharedPreferences("mms_failures", Context.MODE_PRIVATE) }
 
-    /** Records why [mmsId] failed; true when that's new for it (the first failure, or a different reason). */
-    fun record(mmsId: Long, why: String): Boolean {
-        val before = prefs.getString(mmsId.toString(), null)
-        prefs.edit().putString(mmsId.toString(), why).apply()
-        return before != why
+    /** Records why [mmsId] failed; [reportKey] also distinguishes versions and attempted URLs. */
+    fun record(mmsId: Long, why: String, reportKey: String = why): Boolean {
+        val before = prefs.getString("report:$mmsId", null)
+        prefs.edit().putString(mmsId.toString(), why).putString("report:$mmsId", reportKey).apply()
+        return before != reportKey
     }
 
     fun why(mmsId: Long): String? = prefs.getString(mmsId.toString(), null)
 
     fun clear(mmsId: Long) {
-        if (prefs.contains(mmsId.toString())) prefs.edit().remove(mmsId.toString()).apply()
+        prefs.edit().remove(mmsId.toString()).remove("report:$mmsId").apply()
     }
 
     /** What the phone's network was doing, for the report: the network in use, mobile data, airplane mode, roaming, the carrier. */

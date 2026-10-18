@@ -100,9 +100,9 @@ class MmsSender(
             // The MMS service attaches the carrier's m-send-conf, so this must be mutable.
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        context.getSystemService(SmsManager::class.java)
+        val manager = context.getSystemService(SmsManager::class.java)
             .let { if (subscriptionId != null) it.createForSubscriptionId(subscriptionId) else it }
-            .sendMultimediaMessage(context, files.uriFor(file), null, null, sent)
+        manager.sendMultimediaMessage(context, files.uriFor(file), null, MmsHttpConfig.overrides(context, manager), sent)
     }
 
     /**

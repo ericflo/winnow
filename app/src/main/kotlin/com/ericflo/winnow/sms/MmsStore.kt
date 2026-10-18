@@ -127,7 +127,8 @@ class MmsStore(private val context: Context) {
 
     /**
      * A placeholder already stored for this announcement, if the carrier is repeating itself.
-     * Matched on the content location, which names one message, else the transaction ID.
+     * An unexpired transaction may be re-announced with a new URL. Expired transaction IDs
+     * must not swallow a new message, nor may two messages sharing an incomplete URL.
      */
     fun findNotification(contentLocation: String, transactionId: String, subscriptionId: Int): Uri? {
         val (selection, args) = when {
@@ -135,8 +136,27 @@ class MmsStore(private val context: Context) {
             transactionId.isNotBlank() -> "${Mms.TRANSACTION_ID} = ?" to arrayOf(transactionId)
             else -> return null
         }
-        return resolver.query(Mms.CONTENT_URI, arrayOf(Mms._ID), "${Mms.MESSAGE_TYPE} = $MESSAGE_TYPE_NOTIFICATION_IND AND ${Mms.SUBSCRIPTION_ID} = $subscriptionId AND $selection", args, null)
-            ?.use { c -> if (c.moveToFirst()) android.content.ContentUris.withAppendedId(Mms.CONTENT_URI, c.getLong(0)) else null }
+        val now = System.currentTimeMillis() / 1000
+        return resolver.query(Mms.CONTENT_URI, arrayOf(Mms._ID, Mms.CONTENT_LOCATION, Mms.TRANSACTION_ID, Mms.EXPIRY),
+            "${Mms.MESSAGE_TYPE} = $MESSAGE_TYPE_NOTIFICATION_IND AND ${Mms.SUBSCRIPTION_ID} = $subscriptionId AND $selection", args, "${Mms.DATE} DESC")
+            ?.use { c ->
+                while (c.moveToNext()) {
+                    if (MmsProtocol.sameNotification(c.getString(1).orEmpty(), c.getString(2).orEmpty(), c.getLong(3), contentLocation, transactionId, now)) {
+                        return@use ContentUris.withAppendedId(Mms.CONTENT_URI, c.getLong(0))
+                    }
+                }
+                null
+            }
+    }
+
+    /** Keep the original arrival time, but use a newly announced location and its deadline. */
+    fun refreshNotification(uri: Uri, ind: NotificationInd): Boolean {
+        if (contentLocation(ContentUris.parseId(uri)) == ind.contentLocation) return false
+        return resolver.update(uri, ContentValues().apply {
+            put(Mms.CONTENT_LOCATION, ind.contentLocation)
+            put(Mms.MESSAGE_SIZE, ind.messageSize)
+            ind.expiry?.let { put(Mms.EXPIRY, MmsProtocol.expiryAt(it, System.currentTimeMillis() / 1000)) }
+        }, null, null) > 0
     }
 
     /** Correct legacy placeholders in the shared store, so another SMS app can also retrieve them. */
