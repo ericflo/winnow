@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -72,6 +74,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -547,40 +550,75 @@ private fun WhatEachDid(state: ActivityUiState) {
     }
 }
 
+/** What the day-by-day bars show: who decided, what happened, or only the texts that never buzzed the phone. */
+private enum class TimelineView(val label: String) { WHO("Who decided"), WHAT("What happened"), QUIET("Kept quiet") }
+
 /**
- * Stacked bars, one per day (or week), oldest first, split by who decided or by what happened.
- * Tapping a bar shows its numbers; until then the readout sums the whole period.
+ * The red of "kept quiet" (filtered and silenced together): dataviz palette slot 8, at or above
+ * 3:1 against the card in both themes. No other chart on this screen uses it.
+ */
+@Composable
+private fun quietColor(): Color = if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) Color(0xFFE66767) else Color(0xFFE34948)
+
+/**
+ * Bars, one per day (or week), oldest first: stacked by who decided or by what happened, or
+ * just the texts kept quiet, scaled to themselves so the deliveries don't flatten them.
+ * Tapping a bar shows its numbers.
  */
 @Composable
 private fun Timeline(state: ActivityUiState) {
     val buckets = state.buckets
     val c = MaterialTheme.colorScheme
-    var byWho by rememberSaveable { mutableStateOf(true) }
+    var view by rememberSaveable { mutableStateOf(TimelineView.WHO) }
     val measurer = rememberTextMeasurer()
     val tickStyle = MaterialTheme.typography.labelSmall.copy(color = c.onSurfaceVariant)
     var selected by remember(buckets) { mutableStateOf<Int?>(null) }
     val grow = remember { Animatable(0f) }
-    LaunchedEffect(buckets) {
+    // Regrow on a new view too: kept quiet has its own scale.
+    LaunchedEffect(buckets, view) {
         grow.snapTo(0f)
         grow.animateTo(1f, tween(900, easing = FastOutSlowInEasing))
     }
     // Baseline first.
-    val series: List<Pair<String, Color>> = if (byWho) Who.entries.map { it.name(state.service) to deciderColor(it) }
-        else listOf(Outcome.DELIVERED, Outcome.SILENCED, Outcome.FILTERED).map { it.label to it.color() }
-    fun values(b: Bucket): List<Int> = if (byWho) Who.entries.map { b.who[it] ?: 0 }
-        else listOf(Outcome.DELIVERED, Outcome.SILENCED, Outcome.FILTERED).map { b.outcomes[it] ?: 0 }
-    val max = buckets.maxOfOrNull { it.total }?.coerceAtLeast(1) ?: 1
+    val series: List<Pair<String, Color>> = when (view) {
+        TimelineView.WHO -> Who.entries.map { it.name(state.service) to deciderColor(it) }
+        TimelineView.WHAT -> listOf(Outcome.DELIVERED, Outcome.SILENCED, Outcome.FILTERED).map { it.label to it.color() }
+        TimelineView.QUIET -> listOf("Kept quiet" to quietColor())
+    }
+    fun quiet(b: Bucket) = (b.outcomes[Outcome.FILTERED] ?: 0) + (b.outcomes[Outcome.SILENCED] ?: 0)
+    fun values(b: Bucket): List<Int> = when (view) {
+        TimelineView.WHO -> Who.entries.map { b.who[it] ?: 0 }
+        TimelineView.WHAT -> listOf(Outcome.DELIVERED, Outcome.SILENCED, Outcome.FILTERED).map { b.outcomes[it] ?: 0 }
+        TimelineView.QUIET -> listOf(quiet(b))
+    }
+    val max = buckets.maxOfOrNull { values(it).sum() }?.coerceAtLeast(1) ?: 1
     val niceMax = niceCeiling(max)
     val formatter = DateTimeFormatter.ofPattern("MMM d")
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            listOf("Who decided", "What happened").forEachIndexed { i, label ->
-                SegmentedButton(selected = byWho == (i == 0), onClick = { byWho = i == 0 }, shape = SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
+            TimelineView.entries.forEachIndexed { i, v ->
+                // No check mark and a little less padding: three labels share the row, and the fill
+                // already says which is on. Narrow phones or large text shrink a label, never cut it.
+                SegmentedButton(
+                    selected = view == v,
+                    onClick = { view = v },
+                    shape = SegmentedButtonDefaults.itemShape(i, TimelineView.entries.size),
+                    icon = {},
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                ) {
+                    Text(
+                        v.label,
+                        maxLines = 1,
+                        autoSize = TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = MaterialTheme.typography.labelLarge.fontSize),
+                    )
+                }
             }
         }
         @OptIn(ExperimentalLayoutApi::class)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            series.asReversed().forEach { (label, color) ->
+            // One series: say what it's made of instead of repeating the tab.
+            val keys = if (view == TimelineView.QUIET) listOf("Filtered + silenced: never buzzed your phone" to series.single().second) else series.asReversed()
+            keys.forEach { (label, color) ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(10.dp).background(color, CircleShape))
                     Text("  $label", style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant)
@@ -591,7 +629,13 @@ private fun Timeline(state: ActivityUiState) {
             Modifier
                 .fillMaxWidth()
                 .height(180.dp)
-                .semantics { contentDescription = "Texts per ${if (buckets.firstOrNull()?.days == 7) "week" else "day"}, up to $max, by ${if (byWho) "who decided" else "what happened"}" }
+                .semantics {
+                    val per = if (buckets.firstOrNull()?.days == 7) "week" else "day"
+                    contentDescription = when (view) {
+                        TimelineView.QUIET -> "Texts kept quiet (filtered or silenced) per $per, up to $max"
+                        else -> "Texts per $per, up to $max, by ${view.label.lowercase()}"
+                    }
+                }
                 .pointerInput(buckets) {
                     detectTapGestures { pos ->
                         val left = 28.dp.toPx()
@@ -643,7 +687,12 @@ private fun Timeline(state: ActivityUiState) {
             "Tap a bar for that ${if (buckets.firstOrNull()?.days == 7) "week" else "day"}."
         } else {
             val day = if (b.days == 7) "Week of ${b.start.format(formatter)}" else b.start.format(DateTimeFormatter.ofPattern("EEE, MMM d"))
-            "$day: " + series.zip(values(b)).asReversed().joinToString(" · ") { (s, n) -> "${count(n)} ${s.first.lowercase()}" }
+            when {
+                view != TimelineView.QUIET -> "$day: " + series.zip(values(b)).asReversed().joinToString(" · ") { (s, n) -> "${count(n)} ${s.first.lowercase()}" }
+                b.total == 0 -> "$day: no texts"
+                else -> "$day: ${count(quiet(b))} of ${count(b.total)} kept quiet " +
+                    "(${count(b.outcomes[Outcome.FILTERED] ?: 0)} filtered · ${count(b.outcomes[Outcome.SILENCED] ?: 0)} silenced)"
+            }
         }
         Text(readout, style = MaterialTheme.typography.bodyMedium, color = if (b == null) c.onSurfaceVariant else c.onSurface)
     }
